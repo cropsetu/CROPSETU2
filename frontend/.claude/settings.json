@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -rL useLanguage /Users/shubhamyeljale/Desktop/Farmeasy-froontend/src/screens --include=*.js)"
+    ],
+    "additionalDirectories": [
+      "/Users/shubhamyeljale/Desktop/Farmeasy-froontend/src/screens/Weather",
+      "/Users/shubhamyeljale/Desktop/Farmeasy-froontend/src/screens/AgriStore",
+      "/Users/shubhamyeljale/Desktop/Farmeasy-froontend/src/screens/Profile",
+      "/Users/shubhamyeljale/Desktop/Farmeasy-froontend/src/constants"
+    ]
+  }
+}

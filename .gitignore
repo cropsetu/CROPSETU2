@@ -1,0 +1,74 @@
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+# .env contains live API keys, JWT secrets, DB credentials. NEVER commit.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# ─── Node / npm ──────────────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# ─── Python (FastAPI service) ────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+**/.venv/
+**/venv/
+.python-version
+*.egg-info/
+.pytest_cache/
+
+# ─── Expo / React Native ─────────────────────────────────────────────────────
+.expo/
+.expo-shared/
+**/.expo/
+dist/
+**/dist/
+build/
+**/build/
+web-build/
+
+# ─── Native build output (Android / iOS prebuild) ────────────────────────────
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/app/release/
+android/.idea/
+**/.idea/
+ios/build/
+ios/Pods/
+ios/*.xcworkspace/xcuserdata/
+ios/DerivedData/
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+
+# ─── Prisma local dev DB ─────────────────────────────────────────────────────
+backend/prisma/migrations/dev.db*
+
+# ─── OS / editor junk ────────────────────────────────────────────────────────
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── Disease-detection eval scratch (per old .gitignore convention) ──────────
+backend/scripts/disease-eval/eval-data/
+backend/scripts/disease-eval/manifest.json
+backend/scripts/disease-eval/results-*.csv
+backend/scripts/disease-eval/summary-*.json
+backend/scripts/disease-eval/REPORT-*.md

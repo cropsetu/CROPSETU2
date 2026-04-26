@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "CropSetu",
+    "slug": "cropsetu",
+    "scheme": "cropsetu",
+    "version": "1.0.0",
+    "newArchEnabled": true,
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1B4332"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.cropsetu.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "CropSetu needs camera access to photograph your crops for AI disease analysis.",
+        "NSPhotoLibraryUsageDescription": "CropSetu needs photo library access to upload crop images for analysis.",
+        "NSLocationWhenInUseUsageDescription": "CropSetu uses your location to show local weather conditions for your farm."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1B4332"
+      },
+      "package": "com.cropsetu.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "CropSetu needs camera access to photograph your crops for AI disease analysis."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "CropSetu uses your location to show local weather conditions for your farm."
+        }
+      ],
+      "expo-secure-store",
+      "react-native-compressor"
+    ]
+  }
+}

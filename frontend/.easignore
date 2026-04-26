@@ -1,0 +1,49 @@
+# EAS Build ignores these when uploading the project tarball.
+# Anything listed here won't be sent to the cloud builder, which
+# massively reduces upload time + tarball size.
+# EAS rebuilds native android/ios from scratch, so we don't need them uploaded.
+
+# Native build artifacts (EAS regenerates)
+android/
+ios/
+.gradle/
+build/
+
+# Expo output + caches
+.expo/
+.expo-shared/
+dist/
+web-build/
+
+# Backend code accidentally bundled in this RN repo (not needed for mobile build)
+AI_CROP_DISESE_DETECTION/
+src/app.js
+src/server.js
+src/routes/
+src/middleware/
+src/config/db.js
+src/config/redis.js
+src/config/cloudinary.js
+src/config/sslPinning.js
+src/services/ai.chat.service.js
+src/services/ai.predict.service.js
+src/services/claude.service.js
+src/services/market.data.service.js
+src/services/otp.service.js
+src/utils/jwt.js
+prisma/
+
+# Dev/design docs
+AUDIT_REPORT.md
+CROP_DISEASE_AI.md
+DESIGN.md
+README.md
+railway.toml
+scripts/
+tests/
+
+# OS / editor junk
+.DS_Store
+*.log
+.vscode/
+.idea/

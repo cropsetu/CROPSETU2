@@ -1,0 +1,68 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Patch config.js so the debug APK hits Railway, not LAN IP
+      - name: Patch API URL to production
+        run: |
+          node -e "
+            const fs = require('fs');
+            let c = fs.readFileSync('src/constants/config.js', 'utf8');
+            c = c.replace(
+              /export const API_BASE_URL[\s\S]*?(?=\nexport|\n\/\/|$)/,
+              \"export const API_BASE_URL = 'https://resilient-vision-production-e784.up.railway.app/api/v1';\n\"
+            );
+            c = c.replace(
+              /export const SOCKET_URL[\s\S]*?(?=\nexport|\n\/\/|$)/,
+              \"export const SOCKET_URL = 'wss://resilient-vision-production-e784.up.railway.app';\n\"
+            );
+            fs.writeFileSync('src/constants/config.js', c);
+            console.log('API_BASE_URL patched to production');
+          "
+
+      # Generate android/ folder from app.json + plugins
+      - name: Expo Prebuild (generate android folder)
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Make Gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon -x lint
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: farmeasy-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7

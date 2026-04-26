@@ -1,0 +1,1745 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                       String               @id @default(uuid())
+  phone                    String               @unique
+  name                     String?
+  avatar                   String?
+  statusQuote              String?
+  role                     Role                 @default(FARMER)
+  language                 String               @default("en")
+  isActive                 Boolean              @default(true)
+  pincode                  String?
+  district                 String?
+  city                     String?
+  state                    String?              @default("Maharashtra")
+  lat                      Float?
+  lng                      Float?
+  isOnline                 Boolean              @default(false)
+  lastSeenAt               DateTime?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  businessType             String?
+  gstNumber                String?
+  gstOptOut                Boolean              @default(false)
+  kycStatus                KycStatus            @default(PENDING)
+  profileCompletion        Int                  @default(0)
+  taluka                   String?
+  village                  String?
+  aadhaarLast4             String?
+  activeFarmId             String?
+  annualHouseholdIncome    Float?
+  dateOfBirth              DateTime?
+  dependents               Int?
+  education                Education?
+  familySize               Int?
+  farmingExperienceYrs     Int?
+  gender                   Gender?
+  hasKisanCreditCard       Boolean              @default(false)
+  hasPmKisanAccount        Boolean              @default(false)
+  hasSoilHealthCard        Boolean              @default(false)
+  lastActiveAt             DateTime?
+  onboardingStep           OnboardingStep       @default(BASIC)
+  preferredContactMethod   String?
+  preferredMandi           String?
+  totalFarms               Int                  @default(0)
+  totalLandAcres           Float                @default(0)
+  aiConversations          AIConversation[]
+  aiCredits                AICredit?
+  aiUsage                  AIUsage[]
+  animalListings           AnimalListing[]
+  bookings                 Booking[]
+  cartItems                CartItem[]
+  chatsAsBuyer             Chat[]               @relation("BuyerChats")
+  chatsAsSeller            Chat[]               @relation("SellerChats")
+  commentLikes             CommentLike[]
+  comments                 Comment[]
+  cropCalendars            CropCalendar[]
+  cropDiseaseReports       CropDiseaseReport[]
+  cropReportSharesAsFarmer CropReportShare[]    @relation("CropReportSharesByFarmer")
+  cropReportSharesAsSeller CropReportShare[]    @relation("CropReportSharesToSeller")
+  dmsReceived              DirectMessage[]      @relation("DMsReceived")
+  dmsSent                  DirectMessage[]      @relation("DMsSent")
+  diseaseFeedbacks         DiseaseFeedback[]
+  farmCropCycles           FarmCropCycle[]
+  farmDetail               FarmDetail?
+  farmSoilReports          FarmSoilReport[]
+  farmWeatherHistories     FarmWeatherHistory[]
+  farmerPredictions        FarmerPrediction[]
+  farms                    Farm[]               @relation("FarmerFarms")
+  groupMembers             GroupMember[]
+  groupMessages            GroupMessage[]       @relation("GroupMessagesSent")
+  groupsCreated            Group[]              @relation("GroupsCreated")
+  irrigationLogs           IrrigationLog[]
+  labourListings           LabourListing[]
+  machineryListings        MachineryListing[]
+  notifications            Notification[]
+  orders                   Order[]
+  otpSessions              OtpSession[]
+  plannerTasks             PlannerTask[]
+  postBookmarks            PostBookmark[]
+  postLikes                PostLike[]
+  posts                    Post[]
+  priceAlerts              PriceAlert[]
+  sellerProducts           Product[]            @relation("SellerProducts")
+  pushTokens               PushToken[]
+  refreshTokens            RefreshToken[]
+  reviews                  Review[]
+  savedAddresses           SavedAddress[]
+  schemeApplications       SchemeApplication[]
+  sellerProfile            SellerProfile?
+  soilHealthRecords        SoilHealthRecord[]
+  activeFarm               Farm?                @relation("ActiveFarm", fields: [activeFarmId], references: [id], onDelete: SetNull)
+  voiceSessions            VoiceSession[]
+
+  @@index([phone])
+  @@index([district])
+  @@index([kycStatus])
+  @@index([activeFarmId])
+  @@index([lastActiveAt(sort: Desc)])
+  @@map("users")
+}
+
+model SellerProfile {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  bankHolderName    String?
+  bankName          String?
+  bankAccountNumber String?
+  bankIfsc          String?
+  aadharNumber      String?
+  panNumber         String?
+  kycDocumentUrls   String[]
+  kycVerifiedAt     DateTime?
+  kycRejectedReason String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("seller_profiles")
+}
+
+model FarmDetail {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  village        String?
+  district       String?
+  state          String?
+  pincode        String?
+  landAcres      Float?
+  cropTypes      String[]
+  soilType       String?
+  irrigationType String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("farm_details")
+}
+
+model OtpSession {
+  id        String   @id @default(uuid())
+  phone     String
+  otp       String
+  attempts  Int      @default(0)
+  verified  Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([phone])
+  @@index([expiresAt])
+  @@map("otp_sessions")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model PushToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  platform  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_tokens")
+}
+
+model Category {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  nameHi    String?
+  nameMr    String?
+  nameTa    String?
+  nameKn    String?
+  nameMl    String?
+  nameTe    String?
+  nameBn    String?
+  nameGu    String?
+  namePa    String?
+  icon      String?
+  color     String?
+  sortOrder Int       @default(0)
+  isActive  Boolean   @default(true)
+  products  Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id              String      @id @default(uuid())
+  categoryId      String
+  sellerId        String?
+  name            String
+  nameHi          String?
+  nameMr          String?
+  description     String?
+  price           Float
+  mrp             Float?
+  unit            String      @default("kg")
+  stock           Int         @default(0)
+  images          String[]
+  tags            String[]
+  rating          Float       @default(0)
+  ratingCount     Int         @default(0)
+  isActive        Boolean     @default(true)
+  isFeatured      Boolean     @default(false)
+  district        String?
+  state           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  brand           String?
+  countryOfOrigin String?
+  harvestDate     String?
+  highlights      String[]
+  manufacturer    String?
+  minOrderQty     Int         @default(1)
+  sellScope       String      @default("district")
+  specifications  Json?
+  subcategory     String?
+  taluka          String?
+  viewCount       Int         @default(0)
+  village         String?
+  cartItems       CartItem[]
+  orderItems      OrderItem[]
+  category        Category    @relation(fields: [categoryId], references: [id])
+  seller          User?       @relation("SellerProducts", fields: [sellerId], references: [id])
+  reviews         Review[]
+
+  @@index([categoryId])
+  @@index([sellerId])
+  @@index([district])
+  @@index([taluka])
+  @@index([isActive, isFeatured])
+  @@index([isActive, rating])
+  @@index([createdAt])
+  @@map("products")
+}
+
+model CartItem {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("cart_items")
+}
+
+model SavedAddress {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String   @default("HOME")
+  name      String
+  phone     String
+  flat      String
+  street    String
+  city      String
+  state     String
+  pincode   String
+  landmark  String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isDefault])
+  @@map("saved_addresses")
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  userId          String
+  status          OrderStatus @default(PENDING)
+  totalAmount     Float
+  deliveryAddress Json
+  paymentMethod   String      @default("cod")
+  paymentStatus   String      @default("pending")
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  items           OrderItem[]
+  user            User        @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id         String  @id @default(uuid())
+  orderId    String
+  productId  String
+  quantity   Int
+  unitPrice  Float
+  totalPrice Float
+  sellerId   String?
+  // [FIX #4/#13] Per-item status for multi-seller orders. Each seller controls
+  // only their own items' status. The overall Order.status is derived from all items.
+  status     String  @default("PENDING")
+  order      Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([sellerId])
+  @@index([sellerId, orderId])
+  @@map("order_items")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String?
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  product   Product? @relation(fields: [productId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, productId])
+  @@index([productId])
+  @@map("reviews")
+}
+
+model AnimalListing {
+  id             String        @id @default(uuid())
+  sellerId       String
+  animal         String
+  breed          String
+  age            String
+  gender         AnimalGender
+  weight         String
+  price          Float
+  milkYield      String?
+  description    String?
+  images         String[]
+  tags           String[]
+  verified       Boolean       @default(false)
+  status         ListingStatus @default(ACTIVE)
+  sellerLocation String
+  viewCount      Int           @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  lat            Float?
+  lng            Float?
+  seller         User          @relation(fields: [sellerId], references: [id])
+  chats          Chat[]
+
+  @@index([sellerId])
+  @@index([animal])
+  @@index([status])
+  @@index([createdAt])
+  @@map("animal_listings")
+}
+
+model Chat {
+  id        String        @id @default(uuid())
+  listingId String
+  sellerId  String
+  buyerId   String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+  buyer     User          @relation("BuyerChats", fields: [buyerId], references: [id])
+  listing   AnimalListing @relation(fields: [listingId], references: [id])
+  seller    User          @relation("SellerChats", fields: [sellerId], references: [id])
+
+  @@unique([listingId, buyerId])
+  @@index([sellerId])
+  @@index([buyerId])
+  @@map("chats")
+}
+
+model ChatMessage {
+  id        String    @id @default(uuid())
+  chatId    String
+  senderId  String
+  text      String?
+  imageUrl  String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  chat      Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+  @@index([chatId, createdAt])
+  @@map("chat_messages")
+}
+
+model MachineryListing {
+  id            String        @id @default(uuid())
+  ownerId       String
+  name          String
+  category      String
+  description   String?
+  pricePerDay   Float
+  pricePerHour  Float?
+  images        String[]
+  location      String
+  district      String
+  state         String
+  available     Boolean       @default(true)
+  status        ListingStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  ageYears      Float?
+  availableFrom DateTime?
+  availableTo   DateTime?
+  brand         String?
+  features      String[]
+  fuelType      String?
+  horsePower    String?
+  lat           Float?
+  lng           Float?
+  mileageHours  Int?
+  ownerName     String?
+  ownerPhone    String?
+  pricePerAcre  Float?
+  rating        Float         @default(0)
+  ratingCount   Int           @default(0)
+  videos        String[]
+  bookings      Booking[]
+  owner         User          @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId])
+  @@index([category])
+  @@index([district])
+  @@index([status])
+  @@index([status, category])
+  @@index([lat, lng])
+  @@map("machinery_listings")
+}
+
+model LabourListing {
+  id            String        @id @default(uuid())
+  providerId    String
+  name          String
+  skills        String[]
+  pricePerDay   Float
+  groupSize     Int           @default(1)
+  experience    String?
+  languages     String[]
+  location      String
+  district      String
+  state         String
+  available     Boolean       @default(true)
+  status        ListingStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  availableFrom DateTime?
+  availableTo   DateTime?
+  description   String?
+  groupName     String?
+  image         String?
+  images        String[]
+  lat           Float?
+  leader        String?
+  lng           Float?
+  phone         String?
+  pricePerHour  Float?
+  rating        Float         @default(0)
+  ratingCount   Int           @default(0)
+  videos        String[]
+  bookings      Booking[]
+  provider      User          @relation(fields: [providerId], references: [id])
+
+  @@index([providerId])
+  @@index([district])
+  @@index([status])
+  @@index([lat, lng])
+  @@map("labour_listings")
+}
+
+model Booking {
+  id                 String            @id @default(uuid())
+  userId             String
+  machineryListingId String?
+  labourListingId    String?
+  startDate          DateTime
+  endDate            DateTime
+  days               Int
+  totalAmount        Float
+  status             BookingStatus     @default(PENDING)
+  notes              String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  hours              Int?
+  workerCount        Int?              @default(1)
+  labourListing      LabourListing?    @relation(fields: [labourListingId], references: [id])
+  machineryListing   MachineryListing? @relation(fields: [machineryListingId], references: [id])
+  user               User              @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([machineryListingId])
+  @@index([labourListingId])
+  @@index([startDate, endDate])
+  @@index([createdAt])
+  @@map("bookings")
+}
+
+model Post {
+  id           String         @id @default(uuid())
+  authorId     String
+  category     String
+  title        String
+  description  String
+  images       String[]
+  tags         String[]
+  likeCount    Int            @default(0)
+  commentCount Int            @default(0)
+  viewCount    Int            @default(0)
+  isPinned     Boolean        @default(false)
+  scope        PostScope      @default(ALL)
+  district     String?
+  city         String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  comments     Comment[]
+  bookmarks    PostBookmark[]
+  likes        PostLike[]
+  author       User           @relation(fields: [authorId], references: [id])
+
+  @@index([authorId])
+  @@index([category])
+  @@index([district])
+  @@index([scope, district])
+  @@index([createdAt])
+  @@map("posts")
+}
+
+model PostLike {
+  id        String   @id @default(uuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([userId])
+  @@map("post_likes")
+}
+
+model PostBookmark {
+  id        String   @id @default(uuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([userId])
+  @@map("post_bookmarks")
+}
+
+model Comment {
+  id        String        @id @default(uuid())
+  postId    String
+  authorId  String
+  parentId  String?
+  text      String
+  likeCount Int           @default(0)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  likes     CommentLike[]
+  author    User          @relation(fields: [authorId], references: [id])
+  parent    Comment?      @relation("Replies", fields: [parentId], references: [id])
+  replies   Comment[]     @relation("Replies")
+  post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([postId, createdAt])
+  @@index([authorId])
+  @@map("comments")
+}
+
+model CommentLike {
+  id        String  @id @default(uuid())
+  commentId String
+  userId    String
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+  @@index([userId])
+  @@map("comment_likes")
+}
+
+model Group {
+  id            String         @id @default(uuid())
+  name          String
+  description   String?
+  avatar        String?
+  createdById   String
+  district      String?
+  city          String?
+  isPublic      Boolean        @default(true)
+  memberCount   Int            @default(1)
+  lastMessage   String?
+  lastMessageAt DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  members       GroupMember[]
+  messages      GroupMessage[]
+  createdBy     User           @relation("GroupsCreated", fields: [createdById], references: [id])
+
+  @@index([district])
+  @@index([createdById])
+  @@map("groups")
+}
+
+model GroupMember {
+  id       String    @id @default(uuid())
+  groupId  String
+  userId   String
+  role     GroupRole @default(MEMBER)
+  joinedAt DateTime  @default(now())
+  group    Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@map("group_members")
+}
+
+model GroupMessage {
+  id        String   @id @default(uuid())
+  groupId   String
+  senderId  String
+  text      String?
+  imageUrl  String?
+  type      String   @default("text")
+  createdAt DateTime @default(now())
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender    User     @relation("GroupMessagesSent", fields: [senderId], references: [id])
+
+  @@index([groupId])
+  @@index([groupId, createdAt])
+  @@index([senderId])
+  @@map("group_messages")
+}
+
+model DirectMessage {
+  id         String    @id @default(uuid())
+  senderId   String
+  receiverId String
+  text       String?
+  imageUrl   String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  receiver   User      @relation("DMsReceived", fields: [receiverId], references: [id])
+  sender     User      @relation("DMsSent", fields: [senderId], references: [id])
+
+  @@index([senderId, receiverId])
+  @@index([receiverId, senderId])
+  @@index([receiverId, readAt])
+  @@map("direct_messages")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model CropDiseaseReport {
+  id              String            @id @default(uuid())
+  userId          String
+  pincode         String
+  cropType        String
+  growthStage     String
+  variety         String?
+  fieldArea       String?
+  symptoms        String[]
+  imageCount      Int               @default(0)
+  overallRisk     Int
+  riskLevel       String
+  primaryDisease  String
+  confidenceScore Float
+  diagnosisMethod String            @default("vision")
+  modelAgreement  Boolean?
+  fullReport      Json
+  weatherSnapshot Json?
+  soilSnapshot    Json?
+  conversationId  String?
+  createdAt       DateTime          @default(now())
+  conversation    AIConversation?   @relation(fields: [conversationId], references: [id])
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedbacks       DiseaseFeedback[]
+  shares          CropReportShare[]
+
+  @@index([userId])
+  @@index([userId, createdAt])
+  @@index([cropType])
+  @@index([pincode])
+  @@index([riskLevel])
+  @@index([conversationId])
+  @@map("crop_disease_reports")
+}
+
+model CropReportShare {
+  id             String            @id @default(uuid())
+  reportId       String
+  farmerId       String
+  sellerId       String
+  message        String?
+  sellerReply    String?
+  recommendedSku        String?
+  recommendedProductIds String[]          @default([])
+  available             Boolean           @default(false)
+  status         ShareStatus       @default(PENDING)
+  readAt         DateTime?
+  repliedAt      DateTime?
+  createdAt      DateTime          @default(now())
+  report         CropDiseaseReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  farmer         User              @relation("CropReportSharesByFarmer", fields: [farmerId], references: [id], onDelete: Cascade)
+  seller         User              @relation("CropReportSharesToSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@index([sellerId, createdAt])
+  @@index([sellerId, status])
+  @@index([farmerId, createdAt])
+  @@index([reportId])
+  @@map("crop_report_shares")
+}
+
+model AIConversation {
+  id            String              @id @default(uuid())
+  userId        String
+  title         String?
+  summary       String?
+  messageCount  Int                 @default(0)
+  language      String              @default("en")
+  isArchived    Boolean             @default(false)
+  isScanSession Boolean             @default(false)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages      AIMessage[]
+  scanReports   CropDiseaseReport[]
+  voiceSessions VoiceSession[]
+
+  @@index([userId])
+  @@index([userId, updatedAt])
+  @@index([userId, isArchived])
+  @@map("ai_conversations")
+}
+
+model AIMessage {
+  id             String         @id @default(uuid())
+  conversationId String
+  role           String
+  content        String
+  messageType    String         @default("text")
+  structuredData Json?
+  language       String         @default("en")
+  tokensUsed     Int            @default(0)
+  modelUsed      String?
+  ragUsed        Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+  @@map("ai_messages")
+}
+
+model PlannerTask {
+  id           String    @id @default(uuid())
+  userId       String
+  title        String
+  description  String?
+  crop         String?
+  field        String?
+  priority     String    @default("today")
+  icon         String?
+  color        String?
+  doneAt       DateTime?
+  scheduledFor DateTime  @default(now())
+  aiGenerated  Boolean   @default(false)
+  aiReason     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, scheduledFor])
+  @@map("planner_tasks")
+}
+
+model DiseaseFeedback {
+  id               String            @id @default(uuid())
+  userId           String
+  reportId         String
+  predictedDisease String
+  confirmedDisease String?
+  farmerAgreed     Boolean
+  confirmedBy      String            @default("farmer_self")
+  expertNotes      String?
+  usedForRetrain   Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  report           CropDiseaseReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reportId])
+  @@index([reportId])
+  @@index([farmerAgreed])
+  @@index([usedForRetrain])
+  @@map("disease_feedback")
+}
+
+model GovernmentScheme {
+  id              String              @id @default(uuid())
+  schemeCode      String              @unique
+  schemeName      String
+  schemeNameHi    String?
+  schemeNameMr    String?
+  ministry        String?
+  type            String
+  state           String?
+  description     String
+  benefitsSummary String
+  eligibility     Json
+  documentsReq    String[]
+  applicationUrl  String?
+  helpline        String?
+  benefitAmount   Float?
+  benefitType     String
+  deadline        String?
+  isActive        Boolean             @default(true)
+  fullText        String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  applications    SchemeApplication[]
+
+  @@index([type])
+  @@index([state])
+  @@index([isActive])
+  @@index([isActive, type])
+  @@map("government_schemes")
+}
+
+model SchemeApplication {
+  id        String           @id @default(uuid())
+  userId    String
+  schemeId  String
+  status    String           @default("interested")
+  notes     String?
+  appliedAt DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  scheme    GovernmentScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, schemeId])
+  @@index([userId])
+  @@index([userId, status])
+  @@map("scheme_applications")
+}
+
+model VoiceSession {
+  id                String          @id @default(uuid())
+  userId            String
+  conversationId    String?
+  transcription     String?
+  transcriptionConf Float?
+  responseText      String?
+  audioInputUrl     String?
+  audioOutputUrl    String?
+  languageDetected  String?
+  languageRequested String?
+  durationSeconds   Float?
+  whisperModel      String?
+  ttsVoice          String?
+  createdAt         DateTime        @default(now())
+  conversation      AIConversation? @relation(fields: [conversationId], references: [id])
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt])
+  @@index([conversationId])
+  @@map("voice_sessions")
+}
+
+model WeatherCache {
+  id        String   @id @default(uuid())
+  cacheKey  String   @unique
+  data      Json
+  cachedAt  DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
+  @@map("weather_cache")
+}
+
+model CropMaster {
+  id                 String   @id @default(uuid())
+  name               String   @unique
+  nameHi             String
+  nameMr             String?
+  category           String
+  seasons            String[]
+  maturityDays       Int      @default(120)
+  varieties          Json     @default("[]")
+  seedRate           Json?
+  spacing            Json?
+  fertilizerSchedule Json     @default("[]")
+  irrigationSchedule Json     @default("[]")
+  commonPests        Json     @default("[]")
+  commonDiseases     Json     @default("[]")
+  harvestIndicators  String[]
+  mspCommodityCode   String?
+  agmarknetCode      String?
+  kcInitial          Float?   @default(0.4)
+  kcMid              Float?   @default(1.0)
+  kcLate             Float?   @default(0.6)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([category])
+  @@map("crop_master")
+}
+
+model MSPRate {
+  id                   String    @id @default(uuid())
+  commodity            String
+  commodityHi          String?
+  season               String
+  year                 String
+  mspPrice             Float
+  previousYearMSP      Float?
+  increasePercent      Float?
+  bonusIfAny           Float?
+  procurementAgency    String?
+  procurementStartDate DateTime?
+  procurementEndDate   DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([commodity, season, year])
+  @@index([season, year])
+  @@map("msp_rates")
+}
+
+model MandiPrice {
+  id          String   @id @default(uuid())
+  commodity   String
+  commodityHi String?
+  variety     String?
+  market      String
+  district    String
+  state       String
+  minPrice    Float
+  maxPrice    Float
+  modalPrice  Float
+  arrivalQty  Float?
+  priceDate   DateTime
+  source      String   @default("data.gov.in")
+  fetchedAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([commodity, state, district])
+  @@index([commodity, priceDate(sort: Desc)])
+  @@index([expiresAt])
+  @@map("mandi_prices")
+}
+
+model PredictionCache {
+  id              String    @id @default(uuid())
+  state           String
+  district        String
+  commodity       String
+  predictionMonth String
+  priceTrend      String
+  analysis        String
+  confidence      String
+  nearbyMarkets   String?
+  dataFromDate    DateTime?
+  dataToDate      DateTime?
+  recordCount     Int       @default(0)
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+
+  @@unique([state, district, commodity, predictionMonth])
+  @@index([state, district, commodity, predictionMonth])
+  @@index([expiresAt])
+  @@map("prediction_cache")
+}
+
+model PriceDataSync {
+  id             String    @id @default(uuid())
+  syncType       String
+  state          String?
+  commodity      String?
+  recordsFetched Int       @default(0)
+  status         String
+  errorMessage   String?
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+
+  @@index([syncType, status])
+  @@index([startedAt(sort: Desc)])
+  @@map("price_data_sync")
+}
+
+model PriceAlert {
+  id                 String    @id @default(uuid())
+  userId             String
+  commodity          String
+  market             String?
+  targetPrice        Float
+  condition          String
+  isActive           Boolean   @default(true)
+  triggeredAt        DateTime?
+  notificationMethod String    @default("push")
+  createdAt          DateTime  @default(now())
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([commodity, isActive])
+  @@map("price_alerts")
+}
+
+model SoilHealthRecord {
+  id              String    @id @default(uuid())
+  userId          String
+  fieldName       String?
+  testDate        DateTime?
+  sampleId        String?
+  nitrogen        Float?
+  phosphorus      Float?
+  potassium       Float?
+  ph              Float?
+  ec              Float?
+  organicCarbon   Float?
+  zinc            Float?
+  iron            Float?
+  manganese       Float?
+  copper          Float?
+  boron           Float?
+  sulphur         Float?
+  ratings         Json?
+  recommendations Json?
+  inputMethod     String    @default("manual")
+  scanImageUrl    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("soil_health_records")
+}
+
+model PestAlert {
+  id                String   @id @default(uuid())
+  pest              String
+  pestHi            String?
+  affectedCrops     String[]
+  severity          String
+  state             String
+  districts         String[]
+  lat               Float?
+  lng               Float?
+  radiusKm          Float?
+  symptoms          Json     @default("[]")
+  solutions         Json     @default("{}")
+  triggerConditions Json?
+  validFrom         DateTime @default(now())
+  validUntil        DateTime
+  source            String   @default("auto")
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+
+  @@index([state, isActive])
+  @@index([isActive, validUntil])
+  @@map("pest_alerts")
+}
+
+model CropCalendar {
+  id           String             @id @default(uuid())
+  userId       String
+  crop         String
+  season       String
+  year         String
+  sowingDate   DateTime
+  maturityDays Int                @default(120)
+  state        String?
+  district     String?
+  fieldName    String?
+  isActive     Boolean            @default(true)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  tasks        CropCalendarTask[]
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@map("crop_calendars")
+}
+
+model CropCalendarTask {
+  id              String       @id @default(uuid())
+  calendarId      String
+  taskType        String
+  title           String
+  titleHi         String?
+  description     String?
+  descriptionHi   String?
+  scheduledDate   DateTime
+  windowStart     DateTime?
+  windowEnd       DateTime?
+  status          String       @default("upcoming")
+  completedDate   DateTime?
+  weatherAdjusted Boolean      @default(false)
+  originalDate    DateTime?
+  reminderSent    Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  calendar        CropCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@index([calendarId, scheduledDate])
+  @@index([status])
+  @@map("crop_calendar_tasks")
+}
+
+model IrrigationLog {
+  id             String   @id @default(uuid())
+  userId         String
+  crop           String
+  fieldName      String?
+  date           DateTime @default(now())
+  shouldIrrigate Boolean
+  reason         String?
+  reasonHi       String?
+  waterAmount    String?
+  bestTime       String?
+  temp           Float?
+  humidity       Float?
+  rainfall       Float?
+  rainForecast   Float?
+  windSpeed      Float?
+  cropStage      String?
+  etcValue       Float?
+  et0Value       Float?
+  kcValue        Float?
+  farmerAction   String?
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date(sort: Desc)])
+  @@map("irrigation_logs")
+}
+
+model FeatureFlag {
+  id             String    @id @default(uuid())
+  featureKey     String    @unique
+  isEnabled      Boolean   @default(true)
+  disabledReason String?
+  disabledAt     DateTime?
+  enabledAt      DateTime?
+  updatedBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("feature_flags")
+}
+
+model APIHealthLog {
+  id               String   @id @default(uuid())
+  source           String
+  endpoint         String
+  status           String
+  responseTimeMs   Int?
+  payloadSizeBytes Int?
+  errorMessage     String?
+  timestamp        DateTime @default(now())
+
+  @@index([source, timestamp(sort: Desc)])
+  @@index([timestamp])
+  @@map("api_health_logs")
+}
+
+model AIUsage {
+  id             String   @id @default(uuid())
+  userId         String
+  date           DateTime @db.Date
+  scanCount      Int      @default(0)
+  chatCount      Int      @default(0)
+  totalTokens    Int      @default(0)
+  totalCostUsd   Float    @default(0)
+  monthlyTokens  Int      @default(0)
+  monthlyCostUsd Float    @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([userId, date(sort: Desc)])
+  @@map("ai_usage")
+}
+
+model AICredit {
+  id             String                @id @default(uuid())
+  userId         String                @unique
+  balance        Int                   @default(100)
+  lifetimeEarned Int                   @default(100)
+  lifetimeSpent  Int                   @default(0)
+  freeRefillDate DateTime              @default(now())
+  tier           String                @default("free")
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  transactions   AICreditTransaction[]
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("ai_credits")
+}
+
+model AICreditTransaction {
+  id           String   @id @default(uuid())
+  creditId     String
+  amount       Int
+  balanceAfter Int
+  type         String
+  description  String?
+  aiModel      String?
+  tokensUsed   Int?
+  costUsd      Float?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  credit       AICredit @relation(fields: [creditId], references: [id], onDelete: Cascade)
+
+  @@index([creditId])
+  @@index([creditId, createdAt(sort: Desc)])
+  @@index([type])
+  @@map("ai_credit_transactions")
+}
+
+model FarmCropCycle {
+  id       String @id @default(uuid())
+  farmerId String
+  farmer   User   @relation(fields: [farmerId], references: [id], onDelete: Cascade)
+  farmId   String
+  farm     Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  season             Season
+  year               Int
+  seasonLabel        String?
+  cropName           String
+  cropNameMr         String?
+  cropNameHi         String?
+  cropCategory       CropCategory?
+  variety            String?
+  isHybrid           Boolean       @default(false)
+  isOrganic          Boolean       @default(false)
+  areaAllocatedAcres Float
+
+  sowingDate            DateTime?
+  expectedHarvestDate   DateTime?
+  actualHarvestDate     DateTime?
+  growthStage           GrowthStage @default(PLANNING)
+  currentStageUpdatedAt DateTime?
+
+  // Seed
+  seedName             String?
+  seedBrand            String?
+  seedSource           String?
+  seedQuantityKg       Float?
+  seedCostPerKgInr     Float?
+  seedTotalCostInr     Float?
+  seedTreatment        String?
+  seedTreatmentProduct String?
+  seedPurchaseDate     DateTime?
+  seedReceiptUrl       String?
+
+  // Inputs (JSON arrays)
+  fertilizersUsed Json @default("[]")
+  pesticidesUsed  Json @default("[]")
+  irrigationLogs  Json @default("[]")
+  observedEvents  Json @default("[]")
+
+  // Harvest
+  harvestYieldKg        Float?
+  harvestYieldQuintal   Float?
+  harvestYieldPerAcreKg Float?
+  harvestQualityGrade   String?
+  harvestMoisturePct    Float?
+
+  // Sale
+  saleSoldQuantityKg  Float?
+  salePricePerKgInr   Float?
+  saleTotalRevenueInr Float?
+  saleBuyerType       String?
+  saleBuyerName       String?
+  saleDate            DateTime?
+  saleMandiName       String?
+
+  // Financials
+  totalInputCostInr Float?
+  laborCostInr      Float?
+  machineryCostInr  Float?
+  otherCostInr      Float?
+  grossIncomeInr    Float?
+  netProfitInr      Float?
+  profitPerAcreInr  Float?
+
+  status    CycleStatus @default(ACTIVE)
+  notes     String?
+  photos    String[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  predictions FarmerPrediction[]
+
+  @@index([cropName])
+  @@index([farmId, season, year])
+  @@index([farmerId, status])
+  @@index([sowingDate(sort: Desc)])
+  @@map("farm_crop_cycles")
+}
+
+model FarmSoilReport {
+  id       String @id @default(uuid())
+  farmerId String
+  farmer   User   @relation(fields: [farmerId], references: [id], onDelete: Cascade)
+  farmId   String
+  farm     Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  reportSource       SoilReportSource @default(SELF_TEST)
+  labName            String?
+  labAddress         String?
+  sampleId           String?
+  testDate           DateTime?
+  reportReceivedDate DateTime?
+  reportImageUrl     String?
+  reportPdfUrl       String?
+  ocrExtractedText   String?
+
+  ph                  Float?
+  phRating            String?
+  ec                  Float?
+  ecUnit              String?
+  ecRating            String?
+  organicCarbon       Float?
+  organicCarbonUnit   String?
+  organicCarbonRating String?
+  nitrogen            Float?
+  nitrogenUnit        String? @default("kg/ha")
+  nitrogenRating      String?
+  phosphorus          Float?
+  phosphorusUnit      String? @default("kg/ha")
+  phosphorusRating    String?
+  potassium           Float?
+  potassiumUnit       String? @default("kg/ha")
+  potassiumRating     String?
+  sulphur             Float?
+  sulphurRating       String?
+  calcium             Float?
+  calciumRating       String?
+  magnesium           Float?
+  magnesiumRating     String?
+  zinc                Float?
+  zincRating          String?
+  iron                Float?
+  ironRating          String?
+  manganese           Float?
+  manganeseRating     String?
+  copper              Float?
+  copperRating        String?
+  boron               Float?
+  boronRating         String?
+
+  recommendations            Json?
+  recommendationsGeneratedAt DateTime?
+  recommendationsModelUsed   String?
+  isLatest                   Boolean   @default(false)
+  inputMethod                String    @default("manual_entry")
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@index([farmId, testDate(sort: Desc)])
+  @@index([farmerId, isLatest])
+  @@map("farm_soil_reports")
+}
+
+model FarmWeatherHistory {
+  id       String @id @default(uuid())
+  farmId   String @unique
+  farm     Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  farmerId String
+  farmer   User   @relation(fields: [farmerId], references: [id], onDelete: Cascade)
+
+  lat                  Float?
+  lng                  Float?
+  district             String?
+  summaryStartDate     DateTime?
+  summaryEndDate       DateTime?
+  monthlyAggregates    Json      @default("[]")
+  currentTempC         Float?
+  currentHumidityPct   Float?
+  currentRainfall24hMm Float?
+  currentWindKph       Float?
+  currentCondition     String?
+  currentAsOf          DateTime?
+  forecast7Day         Json      @default("[]")
+  activeAdvisories     Json      @default("[]")
+  dataSource           String?   @default("mixed")
+  lastSyncedAt         DateTime?
+  nextSyncAt           DateTime?
+
+  @@index([farmId])
+  @@index([nextSyncAt])
+  @@map("farm_weather_history")
+}
+
+model FarmerPrediction {
+  id          String         @id @default(uuid())
+  farmerId    String
+  farmer      User           @relation(fields: [farmerId], references: [id], onDelete: Cascade)
+  farmId      String
+  farm        Farm           @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  cropCycleId String?
+  cropCycle   FarmCropCycle? @relation(fields: [cropCycleId], references: [id], onDelete: SetNull)
+
+  predictionType PredictionType
+  inputSnapshot  Json
+  output         Json
+  explanationEn  String?
+  explanationMr  String?
+  explanationHi  String?
+  actionItems    String[]
+  modelUsed      String?
+  confidence     Float?
+  costInr        Float?
+  latencyMs      Int?
+  validUntil     DateTime?
+  isStale        Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+
+  @@index([farmId, createdAt(sort: Desc)])
+  @@index([farmerId, predictionType, createdAt(sort: Desc)])
+  @@index([validUntil])
+  @@map("farmer_predictions")
+}
+
+model Farm {
+  id       String @id @default(uuid())
+  farmerId String
+  farmer   User   @relation("FarmerFarms", fields: [farmerId], references: [id], onDelete: Cascade)
+
+  farmName   String?
+  farmNameMr String?
+  farmNameHi String?
+  farmAlias  String?
+  farmNumber Int
+
+  addressLine1      String?
+  village           String?
+  taluka            String?
+  district          String?
+  state             String? @default("Maharashtra")
+  pincode           String?
+  latitude          Float?
+  longitude         Float?
+  locationAccuracyM Float?
+
+  landSizeAcres       Float
+  landSizeHectares    Float?
+  landSizeGunta       Float?
+  landOwnership       LandOwnership @default(OWNED)
+  landSurveyNumber    String?
+  landKhataNumber     String?
+  sevenTwelveImageUrl String?
+
+  soilType           SoilType @default(UNKNOWN)
+  soilColor          String?
+  latestSoilReportId String?
+
+  irrigationSystem    IrrigationSystem @default(RAINFED)
+  waterSources        String[]
+  borewellDepthFt     Float?
+  hasElectricity      Boolean          @default(false)
+  electricityHrsDaily Float?
+
+  hasGreenhouse     Boolean @default(false)
+  hasColdStorage    Boolean @default(false)
+  hasFarmPond       Boolean @default(false)
+  hasSolarPump      Boolean @default(false)
+  storageCapacityQt Float?
+
+  ownedMachinery String[]
+  nearbyMandis   Json?
+
+  lastWeatherSyncAt DateTime?
+  lastPredictionAt  DateTime?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  cropCycles     FarmCropCycle[]
+  soilReports    FarmSoilReport[]
+  weatherHistory FarmWeatherHistory?
+  predictions    FarmerPrediction[]
+  activeFarmFor  User[]              @relation("ActiveFarm")
+
+  @@unique([farmerId, farmNumber])
+  @@index([district, taluka])
+  @@index([farmerId, farmNumber])
+  @@index([farmerId, isActive])
+  @@map("farms")
+}
+
+enum Role {
+  FARMER
+  VERIFIED_FARMER
+  LABOUR_PROVIDER
+  MACHINERY_OWNER
+  ADMIN
+  SELLER
+}
+
+enum KycStatus {
+  PENDING
+  SUBMITTED
+  VERIFIED
+  REJECTED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum ListingStatus {
+  ACTIVE
+  SOLD
+  RENTED
+  INACTIVE
+}
+
+enum AnimalGender {
+  MALE
+  FEMALE
+}
+
+enum NotificationType {
+  ORDER_UPDATE
+  BOOKING_UPDATE
+  NEW_MESSAGE
+  NEW_COMMENT
+  POST_LIKE
+  SYSTEM
+  CROP_REPORT_RECEIVED
+  CROP_REPORT_REPLIED
+}
+
+enum ShareStatus {
+  PENDING
+  REPLIED
+  CLOSED
+}
+
+enum PostScope {
+  ALL
+  DISTRICT
+  CITY
+}
+
+enum GroupRole {
+  ADMIN
+  MEMBER
+}
+
+enum CropCategory {
+  CEREAL
+  PULSE
+  OILSEED
+  VEGETABLE
+  FRUIT
+  CASH_CROP
+  FODDER
+}
+
+enum CycleStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+enum Education {
+  NONE
+  PRIMARY
+  SECONDARY
+  GRADUATE
+  POST_GRADUATE
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum GrowthStage {
+  PLANNING
+  LAND_PREP
+  SOWING
+  VEGETATIVE
+  FLOWERING
+  FRUITING
+  MATURITY
+  HARVESTED
+}
+
+enum IrrigationSystem {
+  DRIP
+  SPRINKLER
+  FLOOD
+  FURROW
+  RAINFED
+  MIXED
+}
+
+enum LandOwnership {
+  OWNED
+  LEASED
+  SHARED_CROPPING
+  FAMILY
+}
+
+enum OnboardingStep {
+  BASIC
+  FARM
+  CROP
+  COMPLETE
+}
+
+enum PredictionType {
+  SEED_QUANTITY
+  CROP_SUGGESTION
+  INCOME_FORECAST
+  YIELD_FORECAST
+  PEST_RISK
+  FERTILIZER_PLAN
+  IRRIGATION_PLAN
+}
+
+enum Season {
+  KHARIF
+  RABI
+  ZAID
+  PERENNIAL
+}
+
+enum SoilReportSource {
+  GOVERNMENT_SHC
+  PRIVATE_LAB
+  SELF_TEST
+  AI_OCR
+}
+
+enum SoilType {
+  BLACK_COTTON
+  RED
+  ALLUVIAL
+  SANDY
+  LATERITE
+  CLAY_LOAM
+  SANDY_LOAM
+  UNKNOWN
+}
+
+// ── Audit Log — forensic trail for PII changes, order mutations, auth events ──
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String // PII_UPDATE, ORDER_STATUS_CHANGE, ORDER_CANCEL, PRODUCT_DELETE, AUTH_LOGIN, etc.
+  entity    String // User, Order, Product, Auth
+  entityId  String
+  before    String? // JSON stringified old values (PII redacted)
+  after     String? // JSON stringified new values (PII redacted)
+  ip        String?
+  requestId String?
+  metadata  String? // JSON extra context
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

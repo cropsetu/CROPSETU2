@@ -1,0 +1,70 @@
+{
+  "name": "cropsetu-backend",
+  "version": "1.0.0",
+  "description": "CropSetu backend API — agriculture platform for Indian farmers",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon --delay 1000 src/server.js",
+    "start": "node src/server.js",
+    "start:prod": "npx prisma migrate deploy && node src/server.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:seed": "node prisma/seed.js",
+    "db:seed:chat": "node prisma/seed.chat.js",
+    "db:seed:crops": "node prisma/seed-crops.js",
+    "db:seed:msp": "node prisma/seed-msp.js",
+    "db:seed:all": "node prisma/seed.js && node prisma/seed-crops.js && node prisma/seed-msp.js",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --testPathPattern='tests/'",
+    "lint:console": "node scripts/check-console-logs.js",
+    "mandi:seed": "node scripts/seedMandiData.js",
+    "mandi:seed:quick": "node scripts/seedMandiData.js --quick",
+    "ai:start": "cd AI_CROP_DISESE_DETECTION && .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8001 --reload"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "transform": {},
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.86.1",
+    "@prisma/client": "^5.10.0",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "axios": "^1.6.7",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.2.0",
+    "compression": "^1.7.4",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "expo-server-sdk": "^3.10.0",
+    "express": "^4.18.3",
+    "express-rate-limit": "^7.2.0",
+    "express-validator": "^7.0.1",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.3.2",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^4.2.1",
+    "openai": "^4.104.0",
+    "pino": "^9.14.0",
+    "pino-pretty": "^11.3.0",
+    "socket.io": "^4.7.4",
+    "streamifier": "^0.1.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "nodemon": "^3.1.0",
+    "prisma": "^5.10.0",
+    "supertest": "^7.0.0",
+    "undici": "^8.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

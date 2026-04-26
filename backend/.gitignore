@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+AI_CROP_DISESE_DETECTION/.venv/
+AI_CROP_DISESE_DETECTION/venv/
+
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+AI_CROP_DISESE_DETECTION/.env
+AI_CROP_DISESE_DETECTION/.env.*
+!AI_CROP_DISESE_DETECTION/.env.example
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# OS / editor junk
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# Build output
+dist/
+build/
+.expo/
+coverage/
+
+# Local Prisma dev DB
+prisma/migrations/dev.db*
+
+# Disease-detection eval outputs
+scripts/disease-eval/eval-data/
+scripts/disease-eval/manifest.json
+scripts/disease-eval/results-*.csv
+scripts/disease-eval/summary-*.json
+scripts/disease-eval/REPORT-*.md

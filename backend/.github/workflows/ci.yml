@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  node-backend:
+    name: Node backend — install + prisma generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Syntax-check route/service files
+        run: |
+          for f in src/routes/*.js src/services/*.js src/middleware/*.js src/utils/*.js; do
+            node --check "$f" || exit 1
+          done
+
+      - name: Lint console.log check
+        run: |
+          if grep -rn "console\.log(" src/ | grep -v "// ok:console" ; then
+            echo "::warning::console.log found in source. Use the pino logger instead."
+          fi
+
+  fastapi:
+    name: FastAPI — install + import check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AI_CROP_DISESE_DETECTION
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Import-check main + routes
+        run: |
+          python -c "import main"
+          python -c "from routes import chat, scan, alerts, agripredict, pest_prediction"
+
+  # Railway auto-deploys from main by default. This job is optional — uncomment
+  # to trigger a deploy via the Railway CLI with a custom trigger.
+  # deploy:
+  #   name: Deploy to Railway
+  #   needs: [node-backend, fastapi]
+  #   if: github.ref == 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Install Railway CLI
+  #       run: npm i -g @railway/cli
+  #     - name: Deploy
+  #       run: railway up --service cropsetu-backend --detach
+  #       env:
+  #         RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

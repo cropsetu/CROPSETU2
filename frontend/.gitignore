@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+# Expo / React Native build artifacts
+.expo/
+.expo-shared/
+dist/
+build/
+web-build/
+
+# Native build output
+android/app/build/
+android/build/
+android/.gradle/
+android/app/release/
+ios/build/
+ios/Pods/
+ios/*.xcworkspace/xcuserdata/
+
+# OS / editor junk
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# Python (backend-bundled code)
+AI_CROP_DISESE_DETECTION/.venv/
+AI_CROP_DISESE_DETECTION/venv/
+AI_CROP_DISESE_DETECTION/__pycache__/
+AI_CROP_DISESE_DETECTION/**/__pycache__/
+AI_CROP_DISESE_DETECTION/*.pyc
