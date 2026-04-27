@@ -72,3 +72,8 @@ backend/scripts/disease-eval/manifest.json
 backend/scripts/disease-eval/results-*.csv
 backend/scripts/disease-eval/summary-*.json
 backend/scripts/disease-eval/REPORT-*.md
+
+# Native prebuild output — Expo regenerates these on EAS Build.
+# Only commit if you're doing bare-workflow customizations.
+frontend/android/
+frontend/ios/
