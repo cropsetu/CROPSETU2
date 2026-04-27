@@ -8,6 +8,7 @@
     "dev": "nodemon --delay 1000 src/server.js",
     "start": "node src/server.js",
     "start:prod": "npx prisma migrate deploy && node src/server.js",
+    "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
