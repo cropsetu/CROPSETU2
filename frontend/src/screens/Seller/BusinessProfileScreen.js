@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, SafeAreaView, Alert, ActivityIndicator,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -88,6 +88,38 @@ export default function BusinessProfileScreen({ navigation }) {
   const { t } = useLanguage();
 
   const [saving, setSaving] = useState(false);
+  // Single toast slot, kind drives color: 'success' (green, slides back) | 'error' (red, stays put)
+  const [toast, setToast] = useState(null); // { kind, msg } | null
+  const toastAnim = useRef(new Animated.Value(0)).current;
+
+  function flashSavedToast() {
+    setToast({ kind: 'success', msg: t('sellerBizProfile.saved', 'Saved') });
+    Animated.sequence([
+      Animated.timing(toastAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.delay(1400),
+      Animated.timing(toastAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
+    ]).start(() => {
+      setToast(null);
+      navigation.goBack();
+    });
+  }
+
+  function flashError(msg) {
+    setToast({ kind: 'error', msg });
+    Animated.sequence([
+      Animated.timing(toastAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.delay(2400),
+      Animated.timing(toastAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
+    ]).start(() => setToast(null));
+  }
+
+  // Bank + KYC fields live under sellerProfile, not on the top-level user.
+  const sp = user?.sellerProfile;
+
+  // Whether sensitive (encrypted) fields are already on file — drives "✓ Saved" hint.
+  const hasAadhaar = !!sp?.aadharNumber;
+  const hasPan     = !!sp?.panNumber;
+  const hasBankAcc = !!sp?.bankAccountNumber;
 
   // Form state — pre-fill from user object
   const [form, setForm] = useState({
@@ -97,12 +129,14 @@ export default function BusinessProfileScreen({ navigation }) {
     village:           user?.village          || '',
     gstNumber:         user?.gstNumber        || '',
     gstOptOut:         user?.gstOptOut        || (!user?.gstNumber),
-    bankAccountNumber: user?.bankAccountNumber || '',
-    bankIfsc:          user?.bankIfsc          || '',
-    bankHolderName:    user?.bankHolderName    || '',
-    bankName:          user?.bankName          || '',
-    aadharNumber:      user?.aadharNumber      || '',
-    panNumber:         user?.panNumber         || '',
+    // Plain-text bank fields — safe to re-display.
+    bankHolderName:    sp?.bankHolderName     || '',
+    bankName:          sp?.bankName           || '',
+    bankIfsc:          sp?.bankIfsc           || '',
+    // Encrypted/PII — never re-display. User types fresh value to update.
+    bankAccountNumber: '',
+    aadharNumber:      '',
+    panNumber:         '',
   });
 
   const set = (key) => (val) => {
@@ -116,50 +150,51 @@ export default function BusinessProfileScreen({ navigation }) {
   const completion = calcCompletion(user, form);
 
   async function handleSave() {
-    if (!form.district) { Alert.alert(t('required'), t('sellerBizProfile.selectDistrictMsg')); return; }
-    if (!form.taluka)   { Alert.alert(t('required'), t('sellerBizProfile.selectTalukaMsg'));   return; }
-    if (!form.village.trim()) { Alert.alert(t('required'), t('sellerBizProfile.enterVillageMsg')); return; }
+    if (!form.district)        return flashError(t('sellerBizProfile.selectDistrictMsg', 'Please select a district'));
+    if (!form.taluka)          return flashError(t('sellerBizProfile.selectTalukaMsg',   'Please select a taluka'));
+    if (!form.village.trim())  return flashError(t('sellerBizProfile.enterVillageMsg',   'Please enter your village'));
 
     if (!form.gstOptOut && form.gstNumber.trim()) {
       const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
       if (!gstRegex.test(form.gstNumber.trim().toUpperCase())) {
-        Alert.alert(t('sellerBizProfile.invalidGst'), t('sellerBizProfile.invalidGstMsg'));
-        return;
+        return flashError(t('sellerBizProfile.invalidGstMsg', 'Invalid GST format (e.g. 27ABCDE1234F1Z5)'));
       }
     }
 
     if (form.bankIfsc.trim() && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(form.bankIfsc.trim().toUpperCase())) {
-      Alert.alert(t('sellerBizProfile.invalidIfsc'), t('sellerBizProfile.invalidIfscMsg'));
-      return;
+      return flashError(t('sellerBizProfile.invalidIfscMsg', 'Invalid IFSC (e.g. SBIN0012345)'));
     }
 
     if (form.aadharNumber.trim() && !/^\d{12}$/.test(form.aadharNumber.trim())) {
-      Alert.alert(t('required'), t('sellerBizProfile.invalidAadhaar', 'Aadhaar must be exactly 12 digits'));
-      return;
+      return flashError(t('sellerBizProfile.invalidAadhaar', 'Aadhaar must be exactly 12 digits'));
     }
 
     if (form.panNumber.trim() && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(form.panNumber.trim().toUpperCase())) {
-      Alert.alert(t('required'), t('sellerBizProfile.invalidPan', 'Invalid PAN format (e.g. ABCDE1234F)'));
-      return;
+      return flashError(t('sellerBizProfile.invalidPan', 'Invalid PAN format (e.g. ABCDE1234F)'));
     }
 
     setSaving(true);
     try {
       const payload = {
-        businessType:      form.businessType,
-        district:          form.district,
-        taluka:            form.taluka,
-        village:           form.village.trim(),
-        state:             'Maharashtra',
-        gstOptOut:         form.gstOptOut,
-        gstNumber:         form.gstOptOut ? '' : form.gstNumber.trim().toUpperCase(),
-        bankAccountNumber: form.bankAccountNumber.trim(),
-        bankIfsc:          form.bankIfsc.trim().toUpperCase(),
-        bankHolderName:    form.bankHolderName.trim(),
-        bankName:          form.bankName.trim(),
-        aadharNumber:      form.aadharNumber.trim(),
-        panNumber:         form.panNumber.trim().toUpperCase(),
+        businessType:   form.businessType,
+        district:       form.district,
+        taluka:         form.taluka,
+        village:        form.village.trim(),
+        state:          'Maharashtra',
+        gstOptOut:      form.gstOptOut,
+        gstNumber:      form.gstOptOut ? '' : form.gstNumber.trim().toUpperCase(),
+        bankHolderName: form.bankHolderName.trim(),
+        bankName:       form.bankName.trim(),
+        bankIfsc:       form.bankIfsc.trim().toUpperCase(),
       };
+      // Only include encrypted PII fields when the user actually typed a fresh value.
+      // Sending '' would encrypt the empty string and overwrite the stored value.
+      const aadharIn = form.aadharNumber.trim();
+      const panIn    = form.panNumber.trim().toUpperCase();
+      const acctIn   = form.bankAccountNumber.trim();
+      if (aadharIn) payload.aadharNumber      = aadharIn;
+      if (panIn)    payload.panNumber         = panIn;
+      if (acctIn)   payload.bankAccountNumber = acctIn;
       const { data } = await api.put('/users/me', payload);
       // If the backend just upgraded our role to SELLER it returns fresh tokens.
       // Persist them so the next request's JWT carries the new role; otherwise
@@ -172,11 +207,9 @@ export default function BusinessProfileScreen({ navigation }) {
         });
       }
       updateUser(data.data);
-      Alert.alert(t('sellerBizProfile.saved'), t('sellerBizProfile.savedMsg'), [
-        { text: t('ok'), onPress: () => navigation.goBack() },
-      ]);
+      flashSavedToast();
     } catch (e) {
-      Alert.alert(t('error'), e.response?.data?.error?.message || t('sellerBizProfile.saveError'));
+      flashError(e.response?.data?.error?.message || t('sellerBizProfile.saveError', 'Failed to save profile'));
     } finally {
       setSaving(false);
     }
@@ -184,6 +217,24 @@ export default function BusinessProfileScreen({ navigation }) {
 
   return (
     <SafeAreaView style={s.safe}>
+      {toast && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            s.savedToast,
+            toast.kind === 'error' && { backgroundColor: '#C62828' },
+            {
+              opacity: toastAnim,
+              transform: [{
+                translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [-30, 0] }),
+              }],
+            },
+          ]}
+        >
+          <Ionicons name={toast.kind === 'error' ? 'alert-circle' : 'checkmark-circle'} size={20} color="#fff" />
+          <Text style={s.savedToastTxt}>{toast.msg}</Text>
+        </Animated.View>
+      )}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
 
@@ -301,11 +352,14 @@ export default function BusinessProfileScreen({ navigation }) {
               <TextF value={form.bankName} onChangeText={set('bankName')} placeholder={t('sellerBizProfile.bankNamePlaceholder')} />
             </FormField>
 
-            <FormField label={t('sellerBizProfile.accountNumber')}>
+            <FormField
+              label={t('sellerBizProfile.accountNumber')}
+              hint={hasBankAcc ? t('sellerBizProfile.onFileHint', 'On file — leave blank to keep, enter a new number to replace') : undefined}
+            >
               <TextF
                 value={form.bankAccountNumber}
                 onChangeText={set('bankAccountNumber')}
-                placeholder={t('sellerBizProfile.accountNumberPlaceholder')}
+                placeholder={hasBankAcc ? '•••• •••• ••••' : t('sellerBizProfile.accountNumberPlaceholder')}
                 keyboardType="number-pad"
                 maxLength={18}
               />
@@ -327,21 +381,27 @@ export default function BusinessProfileScreen({ navigation }) {
             <SectionHeader icon="shield-checkmark-outline" title={t('sellerBizProfile.kycDocs')} color={COLORS.sellerPending} />
             <Text style={s.sectionHint}>{t('sellerBizProfile.kycHint')}</Text>
 
-            <FormField label={t('sellerBizProfile.aadhaar')} hint={t('sellerBizProfile.aadhaarHint')}>
+            <FormField
+              label={t('sellerBizProfile.aadhaar')}
+              hint={hasAadhaar ? t('sellerBizProfile.onFileHint', 'On file — leave blank to keep, enter a new number to replace') : t('sellerBizProfile.aadhaarHint')}
+            >
               <TextF
                 value={form.aadharNumber}
                 onChangeText={set('aadharNumber')}
-                placeholder={t('sellerBizProfile.aadhaarPlaceholder')}
+                placeholder={hasAadhaar ? '•••• •••• ••••' : t('sellerBizProfile.aadhaarPlaceholder')}
                 keyboardType="number-pad"
                 maxLength={12}
               />
             </FormField>
 
-            <FormField label={t('sellerBizProfile.pan')} hint={t('sellerBizProfile.panHint')}>
+            <FormField
+              label={t('sellerBizProfile.pan')}
+              hint={hasPan ? t('sellerBizProfile.onFileHint', 'On file — leave blank to keep, enter a new number to replace') : t('sellerBizProfile.panHint')}
+            >
               <TextF
                 value={form.panNumber}
                 onChangeText={set('panNumber')}
-                placeholder={t('sellerBizProfile.panPlaceholder')}
+                placeholder={hasPan ? '••••• •••• •' : t('sellerBizProfile.panPlaceholder')}
                 autoCapitalize="characters"
                 maxLength={10}
               />
@@ -381,6 +441,16 @@ export default function BusinessProfileScreen({ navigation }) {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.grayPaper },
+  savedToast: {
+    position: 'absolute', top: Platform.OS === 'web' ? 20 : 50, left: 0, right: 0,
+    marginHorizontal: 'auto', alignSelf: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#1B7F3E', paddingHorizontal: 18, paddingVertical: 11,
+    borderRadius: 26, zIndex: 1000,
+    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  savedToastTxt: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 0.2 },
 
   section: {
     backgroundColor: COLORS.white,

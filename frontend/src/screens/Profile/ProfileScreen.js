@@ -202,13 +202,15 @@ export default function ProfileScreen({ navigation }) {
     ? user.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)
     : '?';
 
-  // Treat the user as an onboarded seller if any core seller-profile field has been set.
-  // Catches both the explicit flag and the "they filled out BusinessProfile at least once" case.
-  const isSeller = !!(
-    user?.isSeller ||
-    user?.bankAccountNumber ||
-    user?.gstNumber ||
-    (user?.businessType && user.businessType !== 'individual_farmer')
+  // Role is the source of truth — backend flips FARMER → SELLER on first BusinessProfile save.
+  // Fall back to legacy field checks for accounts that filled the form before the role flip existed.
+  const isSeller = (
+    user?.role === 'SELLER' ||
+    user?.role === 'VERIFIED_FARMER' ||
+    user?.role === 'ADMIN' ||
+    !!user?.sellerProfile?.bankAccountNumber ||
+    !!user?.gstNumber ||
+    !!user?.businessType
   );
 
   const heroScale   = scrollY.interpolate({ inputRange: [0, 180], outputRange: [1, 0.92], extrapolate: 'clamp' });

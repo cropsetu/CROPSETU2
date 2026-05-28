@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/server.js",
   "scripts": {
-    "dev": "nodemon --delay 1000 src/server.js",
+    "dev": "nodemon --delay 1000 --watch src --watch .env --ext js,json,env src/server.js",
     "start": "node src/server.js",
     "start:prod": "npx prisma migrate deploy && node src/server.js",
     "postinstall": "prisma generate",

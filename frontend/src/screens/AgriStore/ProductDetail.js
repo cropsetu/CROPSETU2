@@ -10,6 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SHADOWS } from '../../constants/colors';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
+import { useCart } from '../../context/CartContext';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 
 const { width: W } = Dimensions.get('window');
@@ -187,11 +188,14 @@ export default function ProductDetail({ route, navigation }) {
   const brandLabel = product.brand || product.category?.name || 'CropSetu';
   const mfrLabel   = product.manufacturer || brandLabel;
 
+  const { count: cartCount, refresh: refreshCart } = useCart();
+
   // ── Cart helpers ────────────────────────────────────────────────────────────
   async function addToCart() {
     setAdding(true);
     try {
       await api.post('/agristore/cart', { productId: product.id, quantity });
+      refreshCart();
       return true;
     } catch (err) {
       Alert.alert(t('product.error'), err.response?.data?.error?.message || t('product.cartError'));
@@ -284,6 +288,13 @@ export default function ProductDetail({ route, navigation }) {
           <Text style={S.headerTitle} numberOfLines={1}>{product.name}</Text>
           <TouchableOpacity style={S.headerIconBtn} onPress={() => navigation.navigate('Cart')}>
             <Ionicons name="cart-outline" size={23} color={COLORS.textDark} />
+            {cartCount > 0 && (
+              <View style={S.cartBadge}>
+                <Text style={S.cartBadgeTxt} numberOfLines={1}>
+                  {cartCount > 99 ? '99+' : cartCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -383,10 +394,12 @@ export default function ProductDetail({ route, navigation }) {
                 <Text style={S.hotBadgeTxt}>{t('product.hotDeal')}</Text>
               </View>
             )}
-            {inStock
-              ? <View style={S.inStockTag}><Text style={S.inStockTxt}>● In Stock</Text></View>
-              : <View style={S.outStockTag}><Text style={S.outStockTxt}>{t('product.outOfStock')}</Text></View>
-            }
+            {(() => {
+              const s = product.stock ?? (product.inStock ? Infinity : 0);
+              if (s === 0)  return <View style={S.outStockTag}><Text style={S.outStockTxt}>{t('product.outOfStock')}</Text></View>;
+              if (s <= 5)   return <View style={S.lowStockTag}><Text style={S.lowStockTxt}>{`Only ${s} left`}</Text></View>;
+              return <View style={S.inStockTag}><Text style={S.inStockTxt}>● In Stock</Text></View>;
+            })()}
           </View>
 
           {/* Inline rating — show ratings count only; review count was a bogus
@@ -441,8 +454,9 @@ export default function ProductDetail({ route, navigation }) {
                 </TouchableOpacity>
                 <Text style={S.qtyNum}>{quantity}</Text>
                 <TouchableOpacity
-                  style={S.qPillBtn}
-                  onPress={() => setQuantity(q => q + 1)}
+                  style={[S.qPillBtn, product.stock != null && quantity >= product.stock && { opacity: 0.4 }]}
+                  onPress={() => setQuantity(q => (product.stock != null ? Math.min(q + 1, product.stock) : q + 1))}
+                  disabled={product.stock != null && quantity >= product.stock}
                 >
                   <Ionicons name="add" size={18} color={COLORS.textDark} />
                 </TouchableOpacity>
@@ -629,6 +643,8 @@ const S = StyleSheet.create({
   // Header
   header:         { flexDirection: 'row', alignItems: 'center', height: 52, paddingHorizontal: 8, gap: 4 },
   headerIconBtn:  { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  cartBadge:      { position: 'absolute', top: 4, right: 4, minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, backgroundColor: COLORS.error, justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: COLORS.surface },
+  cartBadgeTxt:   { color: '#fff', fontSize: 9.5, fontWeight: '900', lineHeight: 11 },
   headerTitle:    { flex: 1, fontSize: 15, fontWeight: '700', color: COLORS.textDark },
 
   // Image gallery
@@ -682,6 +698,8 @@ const S = StyleSheet.create({
   },
   hotBadgeTxt:    { color: COLORS.white, fontSize: 11, fontWeight: '800' },
   inStockTag:     { backgroundColor: COLORS.primaryPale, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  lowStockTag:    { backgroundColor: '#FFF3E0', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  lowStockTxt:    { color: '#E65100', fontSize: 11, fontWeight: '800' },
   inStockTxt:     { color: COLORS.textPrimary, fontSize: 11, fontWeight: '700' },
   outStockTag:    { backgroundColor: COLORS.errorLight, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
   outStockTxt:    { color: COLORS.error, fontSize: 11, fontWeight: '700' },

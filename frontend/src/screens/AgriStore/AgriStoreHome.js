@@ -4,6 +4,8 @@
  * Left slide drawer (flat category list) + animated language bottom sheet
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCart } from '../../context/CartContext';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable,
   FlatList, TextInput, StatusBar, Image, Easing,
@@ -118,7 +120,7 @@ function CategoryDrawer({ visible, categories, selectedCat, language, onSelect, 
 
           {categories.map(cat => {
             const langKey = language === 'mr' ? 'nameMr' : language === 'hi' ? 'nameHi' : language === 'ta' ? 'nameTa' : language === 'kn' ? 'nameKn' : language === 'ml' ? 'nameMl' : language === 'te' ? 'nameTe' : language === 'bn' ? 'nameBn' : language === 'gu' ? 'nameGu' : language === 'pa' ? 'namePa' : null;
-            const label = (langKey && cat[langKey]) || cat.nameHi || cat.name;
+            const label = (langKey && cat[langKey]) || cat.name || cat.nameHi;
             const active = selectedCat === cat.id;
             return (
               <TouchableOpacity
@@ -229,7 +231,7 @@ function CategoryPills({ categories, selected, onSelect, language, t }) {
 
         {categories.map(cat => {
           const langKey = language === 'mr' ? 'nameMr' : language === 'hi' ? 'nameHi' : language === 'ta' ? 'nameTa' : language === 'kn' ? 'nameKn' : language === 'ml' ? 'nameMl' : language === 'te' ? 'nameTe' : language === 'bn' ? 'nameBn' : language === 'gu' ? 'nameGu' : language === 'pa' ? 'namePa' : null;
-          const label = (langKey && cat[langKey]) || cat.nameHi || cat.name;
+          const label = (langKey && cat[langKey]) || cat.name || cat.nameHi;
           const active  = selected === cat.id;
           const iconName = resolveIcon(cat.icon);
           const color    = cat.color || GREEN;
@@ -256,6 +258,28 @@ function CategoryPills({ categories, selected, onSelect, language, t }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stock urgency badge — out-of-stock or "Only N left" when stock <= 5
+// ─────────────────────────────────────────────────────────────────────────────
+function StockBadge({ stock }) {
+  if (stock == null) return null;
+  if (stock === 0) {
+    return (
+      <View style={[S.stockBadge, S.stockBadgeOut]}>
+        <Text style={S.stockBadgeTxt}>Out of Stock</Text>
+      </View>
+    );
+  }
+  if (stock <= 5) {
+    return (
+      <View style={[S.stockBadge, S.stockBadgeLow]}>
+        <Text style={S.stockBadgeTxt}>{`Only ${stock} left`}</Text>
+      </View>
+    );
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Best Seller card — web prototype: image + discount top-left, price, circle add
 // ─────────────────────────────────────────────────────────────────────────────
 function BestSellerCard({ item, onPress }) {
@@ -275,6 +299,7 @@ function BestSellerCard({ item, onPress }) {
           {discount > 0 && (
             <View style={S.bsDiscLeft}><Text style={S.bsDiscTxt}>{discount}% OFF</Text></View>
           )}
+          <StockBadge stock={item.stock} />
         </View>
         <View style={S.bsBody}>
           <Text style={S.bsName} numberOfLines={2}>{item.name}</Text>
@@ -353,6 +378,7 @@ function ProductCard({ item, onPress, t, index }) {
               <Text style={S.gridRatingBadgeTxt}>{item.rating}</Text>
             </View>
           )}
+          <StockBadge stock={item.stock} />
         </View>
         <View style={S.gridBody}>
           <Text style={S.gridName} numberOfLines={2}>{item.name}</Text>
@@ -392,7 +418,7 @@ export default function AgriStoreHome({ navigation }) {
   const [searchQuery,        setSearchQuery]        = useState('');
   const [categories,         setCategories]         = useState([]);
   const [products,           setProducts]           = useState([]);
-  const [cartCount,          setCartCount]          = useState(0);
+  const { count: cartCount, refresh: refreshCart } = useCart();
   const [loading,            setLoading]            = useState(true);
   const searchTimer = useRef(null);
 
@@ -457,12 +483,9 @@ export default function AgriStoreHome({ navigation }) {
     setSelectedSubcategory(sub || null);
   };
 
-  // Cart count
-  useEffect(() => {
-    api.get('/agristore/cart')
-      .then(({ data }) => setCartCount(Array.isArray(data.data) ? data.data.length : 0))
-      .catch(() => {});
-  }, []);
+  // Re-sync the global cart count whenever this screen regains focus —
+  // covers the case where it changed in a screen that doesn't go through CartContext.
+  useFocusEffect(useCallback(() => { refreshCart(); }, [refreshCart]));
 
   const handleProductPress = useCallback((item) => {
     navigation.navigate('ProductDetail', { product: item });
@@ -741,6 +764,11 @@ const S = StyleSheet.create({
   gridDiscTxt:       { color: COLORS.white, fontSize: 9, fontWeight: '900' },
   gridRatingBadge:   { position: 'absolute', bottom: 6, right: 8, flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   gridRatingBadgeTxt:{ color: COLORS.white, fontSize: 9, fontWeight: '800' },
+  // Stock urgency badge — bottom-left of the image, sits opposite the rating chip.
+  stockBadge:        { position: 'absolute', bottom: 6, left: 8, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
+  stockBadgeOut:     { backgroundColor: COLORS.error },
+  stockBadgeLow:     { backgroundColor: '#E65100' },
+  stockBadgeTxt:     { color: COLORS.white, fontSize: 9.5, fontWeight: '900', letterSpacing: 0.2 },
   gridBody:          { padding: 10, gap: 4 },
   gridName:          { fontSize: 13.5, fontWeight: TYPE.weight.bold, color: COLORS.textDark, lineHeight: 18, minHeight: 36 },
   gridPriceRow:      { flexDirection: 'row', alignItems: 'baseline', gap: 6 },

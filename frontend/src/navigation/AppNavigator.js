@@ -7,6 +7,7 @@ import { useRef, useEffect, useCallback } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useLanguage } from '../context/LanguageContext';
+import { useCart } from '../context/CartContext';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '../constants/colors';
 import { Haptics } from '../utils/haptics';
 import { SoundEffects } from '../utils/sounds';
@@ -35,6 +36,8 @@ function TabItem({ route, options, focused, onPress }) {
   const sc = useRef(new Animated.Value(1)).current;
   const pillAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
   const dotAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  const { count: cartCount } = useCart();
+  const badgeCount = route.name === 'AgriStore' ? cartCount : 0;
 
   useEffect(() => {
     Animated.parallel([
@@ -80,11 +83,20 @@ function TabItem({ route, options, focused, onPress }) {
     >
       <Animated.View style={[TB.tabInner, { transform: [{ scale: sc }] }]}>
         <Animated.View style={[TB.activePill, pillStyle]} />
-        <Ionicons
-          name={iconMap[route.name] || 'ellipse'}
-          size={ICON_SIZE}
-          color={focused ? ACTIVE_COLOR : INACTIVE_COLOR}
-        />
+        <View>
+          <Ionicons
+            name={iconMap[route.name] || 'ellipse'}
+            size={ICON_SIZE}
+            color={focused ? ACTIVE_COLOR : INACTIVE_COLOR}
+          />
+          {badgeCount > 0 && (
+            <View style={TB.badge}>
+              <Text style={TB.badgeTxt} numberOfLines={1}>
+                {badgeCount > 99 ? '99+' : badgeCount}
+              </Text>
+            </View>
+          )}
+        </View>
         <Text
           style={[TB.label, { color: focused ? ACTIVE_COLOR : INACTIVE_COLOR, fontSize: LABEL_SIZE }]}
           numberOfLines={1}
@@ -169,6 +181,26 @@ const TB = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: ACTIVE_COLOR,
     marginTop: 2,
+  },
+  badge: {
+    position: 'absolute',
+    top: -5,
+    right: -10,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: COLORS.error,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.98)',
+  },
+  badgeTxt: {
+    color: '#fff',
+    fontSize: 9.5,
+    fontWeight: '900',
+    lineHeight: 11,
   },
 });
 

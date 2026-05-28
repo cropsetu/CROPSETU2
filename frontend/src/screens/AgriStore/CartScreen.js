@@ -14,6 +14,7 @@ import { Haptics } from '../../utils/haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
+import { useCart } from '../../context/CartContext';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 
 const W = Dimensions.get('window').width;
@@ -146,11 +147,11 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
     Animated.timing(slideX, { toValue: -(W + 20), duration: 260, easing: Easing.in(Easing.ease), useNativeDriver: true }).start(cb);
   }
 
+  // Removal is reversible (item can be re-added from ProductDetail), so we skip
+  // the Alert.alert confirm — it doesn't render reliably on web and adds friction
+  // on native. The slide-out animation provides enough feedback.
   function confirmRemove() {
-    Alert.alert(t('cart.removeItem'), `Remove "${product.name}" from your cart?`, [
-      { text: 'Cancel', style: 'cancel', onPress: () => { removing.current = false; } },
-      { text: 'Remove', style: 'destructive', onPress: () => slideRemove(() => onRemove(product.id)) },
-    ]);
+    slideRemove(() => onRemove(product.id));
   }
 
   return (
@@ -187,7 +188,7 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
 
           {/* Bottom row — qty pill + subtotal */}
           <View style={S.itemCardFooter}>
-            {/* Pill qty selector */}
+            {/* Pill qty selector — capped at product.stock */}
             <View style={S.qtyPill}>
               <PressScale onPress={() => onQtyChange(product.id, item.quantity - 1)} down={0.8}>
                 <View style={S.qPillBtn}>
@@ -197,11 +198,19 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
               <Animated.Text style={[S.qNum, { transform: [{ scale: qtyAnim }] }]}>
                 {item.quantity}
               </Animated.Text>
-              <PressScale onPress={() => onQtyChange(product.id, item.quantity + 1)} down={0.8}>
-                <View style={S.qPillBtn}>
-                  <Ionicons name="add" size={15} color={COLORS.charcoal} />
-                </View>
-              </PressScale>
+              {(() => {
+                const atMax = product.stock != null && item.quantity >= product.stock;
+                return (
+                  <PressScale
+                    onPress={() => { if (!atMax) onQtyChange(product.id, item.quantity + 1); }}
+                    down={atMax ? 1 : 0.8}
+                  >
+                    <View style={[S.qPillBtn, atMax && { opacity: 0.4 }]}>
+                      <Ionicons name="add" size={15} color={COLORS.charcoal} />
+                    </View>
+                  </PressScale>
+                );
+              })()}
             </View>
 
             <Text style={S.itemSubtotal}>₹{subtotal.toLocaleString()}</Text>
@@ -242,6 +251,7 @@ function DeliveryProgress({ current, threshold }) {
 export default function CartScreen({ navigation }) {
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
+  const { refresh: refreshCart } = useCart();
 
   const [items,      setItems]      = useState([]);
   const [total,      setTotal]      = useState(0);
@@ -283,8 +293,8 @@ export default function CartScreen({ navigation }) {
     const removed = items.find(i => i.product.id === productId);
     setItems(prev => prev.filter(i => i.product.id !== productId));
     if (removed) setTotal(prev => prev - removed.product.price * removed.quantity);
-    try { await api.delete(`/agristore/cart/${productId}`); }
-    catch { fetchCart(); }
+    try { await api.delete(`/agristore/cart/${productId}`); refreshCart(); }
+    catch { fetchCart(); refreshCart(); }
   }
 
   function handleCheckout() {

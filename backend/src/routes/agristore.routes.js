@@ -125,7 +125,15 @@ router.post(
 
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product || !product.isActive) return sendNotFound(res, 'Product');
-    if (product.stock < quantity) return sendError(res, 'Insufficient stock', 400);
+
+    // Cap by stock against the post-add total, not just the increment.
+    const existing = await prisma.cartItem.findUnique({
+      where: { userId_productId: { userId: req.user.id, productId } },
+    });
+    const totalAfter = (existing?.quantity || 0) + quantity;
+    if (product.stock < totalAfter) {
+      return sendError(res, `Only ${product.stock} in stock`, 400);
+    }
 
     const item = await prisma.cartItem.upsert({
       where: { userId_productId: { userId: req.user.id, productId } },
@@ -144,6 +152,11 @@ router.put(
   [body('quantity').isInt({ min: 1, max: 100 })],
   validate,
   async (req, res) => {
+    const product = await prisma.product.findUnique({ where: { id: req.params.productId } });
+    if (!product || !product.isActive) return sendNotFound(res, 'Product');
+    if (product.stock < req.body.quantity) {
+      return sendError(res, `Only ${product.stock} in stock`, 400);
+    }
     const item = await prisma.cartItem.updateMany({
       where: { userId: req.user.id, productId: req.params.productId },
       data: { quantity: req.body.quantity },

@@ -20,7 +20,12 @@ const CATEGORY_THEMES = {
 
 function getTheme(category) {
   if (!category) return CATEGORY_THEMES.default;
-  const key = category.toLowerCase();
+  // Accept a plain string, a number id, or a Prisma category object ({ name, ... }).
+  const raw = typeof category === 'string'
+    ? category
+    : typeof category === 'object' ? (category.name ?? category.label ?? '') : String(category);
+  if (!raw) return CATEGORY_THEMES.default;
+  const key = raw.toLowerCase();
   if (key.includes('fertili') || key.includes('khad') || key === '1') return CATEGORY_THEMES.fertilizer;
   if (key.includes('pestic') || key.includes('insect') || key === '2') return CATEGORY_THEMES.pesticide;
   if (key.includes('machin') || key.includes('tractor') || key === '3') return CATEGORY_THEMES.machinery;
