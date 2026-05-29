@@ -1,27 +1,11 @@
 """
-Logging configuration for CropGuard AI.
-Sets up structured logging with appropriate levels.
+Thin shim — preserves the historic `from logging_config import setup_logging`
+import while the real implementation lives in observability/logging.py.
+
+Why keep this file? Several modules at the project root (and the tests)
+import `setup_logging` from here, and rather than churn every call site
+this re-exports the new structured-logging entrypoint.
 """
-import logging
-import os
-import sys
+from observability.logging import setup_logging  # noqa: F401
 
-
-def setup_logging():
-    level_name = os.getenv("LOG_LEVEL", "INFO").upper()
-    level = getattr(logging, level_name, logging.INFO)
-
-    fmt = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter(fmt, datefmt="%Y-%m-%d %H:%M:%S"))
-
-    root = logging.getLogger()
-    root.setLevel(level)
-    # Avoid duplicate handlers on reload
-    if not root.handlers:
-        root.addHandler(handler)
-
-    # Silence noisy libraries
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("watchfiles").setLevel(logging.WARNING)
+__all__ = ["setup_logging"]

@@ -36,7 +36,17 @@ def extract_json(raw: str) -> dict | None:
     except json.JSONDecodeError:
         pass
 
-    # 2. Try extracting from markdown code fences
+    # 2. Try extracting from markdown code fences.
+    # Match from the FIRST ```json (or ```) to the LAST ``` — the
+    # non-greedy variant terminates at the first inner ``` if the JSON
+    # contains a markdown snippet itself.
+    greedy_fence = re.search(r"```(?:json)?\s*\n?(.*)```", text, re.DOTALL)
+    if greedy_fence:
+        try:
+            return json.loads(greedy_fence.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+    # Fall back to non-greedy for the simple case
     fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
     if fence_match:
         try:
@@ -86,5 +96,14 @@ def extract_json(raw: str) -> dict | None:
                 except json.JSONDecodeError:
                     pass
 
-    logger.warning("Failed to extract JSON from LLM response (length=%d)", len(text))
+    # Surface a slice of the actual response so debugging doesn't require
+    # re-running the request. First 200 + last 200 chars almost always
+    # reveals whether the LLM truncated, added prose, used a different
+    # fence, or returned a refusal.
+    head = text[:200].replace("\n", "\\n")
+    tail = text[-200:].replace("\n", "\\n")
+    logger.warning(
+        "Failed to extract JSON from LLM response (length=%d) — head=%r tail=%r",
+        len(text), head, tail,
+    )
     return None

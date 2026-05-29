@@ -29,10 +29,20 @@ from slowapi.util import get_remote_address
 from logging_config import setup_logging
 setup_logging()
 
+from observability.logging import (
+    new_request_id,
+    request_id_var,
+    tier_var,
+    user_id_var,
+)
+from security.pii import install as _install_pii_filter
+_install_pii_filter()  # idempotent — must run AFTER setup_logging
 from config import API_HOST, API_PORT, DATABASE_URL
 from db_pool import get_shared_pool, close_shared_pool
+from services.http_clients import close_all as close_http_clients
 from routes.chat            import router as chat_router
 from routes.scan            import router as scan_router
+from routes.feedback        import router as feedback_router
 from routes.alerts          import router as alerts_router
 from routes.agripredict     import router as agripredict_router
 from routes.pest_prediction import router as pest_prediction_router
@@ -64,6 +74,7 @@ async def lifespan(app: FastAPI):
     keys = {
         "GEMINI_API_KEY":    os.getenv("GEMINI_API_KEY"),
         "GROQ_API_KEY":      os.getenv("GROQ_API_KEY"),
+        "SARVAM_API_KEY":    os.getenv("SARVAM_API_KEY"),
         "DATA_GOV_API_KEY":  os.getenv("DATA_GOV_API_KEY"),
         "DATABASE_URL":      os.getenv("DATABASE_URL"),
     }
@@ -87,6 +98,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
+    await close_http_clients()
     await close_shared_pool()
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -122,13 +134,38 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization", "x-user-id", "x-request-id"],
+    allow_headers=["Content-Type", "Authorization", "x-user-id", "x-request-id", "idempotency-key"],
+    expose_headers=["x-request-id"],
 )
+
+
+# ── Request context middleware ───────────────────────────────────────────────
+# Stamps a request_id (from x-request-id if Express set one, else generated)
+# and user_id (from x-user-id) into contextvars so every log line during the
+# request carries them. Also echoes x-request-id on the response so the
+# mobile app + Express proxy can correlate end-to-end.
+@app.middleware("http")
+async def _request_context_middleware(request: Request, call_next):
+    incoming = request.headers.get("x-request-id")
+    rid = (incoming or new_request_id())[:64]
+    uid = (request.headers.get("x-user-id") or "")[:64]
+
+    rid_tok = request_id_var.set(rid)
+    uid_tok = user_id_var.set(uid) if uid else None
+    try:
+        response = await call_next(request)
+    finally:
+        request_id_var.reset(rid_tok)
+        if uid_tok is not None:
+            user_id_var.reset(uid_tok)
+    response.headers["x-request-id"] = rid
+    return response
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 
 app.include_router(chat_router)             # POST /ai/chat
-app.include_router(scan_router)             # POST /ai/scan  +  POST /api/v1/crop-disease/agentic-predict
+app.include_router(scan_router)             # POST /ai/scan  +  GET /ai/scan/{job_id}
+app.include_router(feedback_router)         # POST /ai/scan/{report_id}/feedback
 app.include_router(alerts_router)           # POST /ai/alerts
 app.include_router(agripredict_router)      # /agripredict/*
 app.include_router(pest_prediction_router)  # /pest/predict  +  /pest/detect-image
@@ -137,7 +174,9 @@ app.include_router(pest_prediction_router)  # /pest/predict  +  /pest/detect-ima
 
 @app.get("/health", tags=["System"])
 async def health():
-    """Reuses the shared connection pool — no new connection per health check."""
+    """Reuses the shared connection pool — no new connection per health check.
+    Also surfaces the local-classifier, prompt registry, and chemical
+    registry versions so ops can confirm what's actually running."""
     db_ok = False
     try:
         pool = await get_shared_pool()
@@ -147,10 +186,20 @@ async def health():
             db_ok = True
     except Exception:
         pass
+    # Lazy imports — health is hot path, prompt files load once per process.
+    from agents.prompt_registry import all_active as _prompts
+    from agents.router import describe_chains as _chains
+    from models.local_classifier import status as _local_status
+    from safety.chemicals import REGISTRY_VERSION as _chem_version
     return {
-        "status": "ok" if db_ok else "degraded",
-        "service": "CropGuard AI",
+        "status":   "ok" if db_ok else "degraded",
+        "service":  "CropGuard AI",
         "database": "connected" if db_ok else "unreachable",
+        "prompts":           _prompts(),
+        "chains_fast":       _chains("fast"),
+        "chains_best":       _chains("best"),
+        "local_classifier":  _local_status(),
+        "chemical_registry": _chem_version,
     }
 
 
