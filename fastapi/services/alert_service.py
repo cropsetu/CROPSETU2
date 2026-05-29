@@ -1,6 +1,16 @@
 """
-Alert Service — generates smart farm alerts using Groq/Gemini.
-Returns a list of alert objects for the FarmEasy dashboard.
+Alert Service — generates smart farm alerts for the FarmEasy dashboard.
+
+Model selection
+  Reads ONE model + ONE API key from .env via `agents/llm_dispatch`:
+    AI_ALERT_MODEL=llama-3.3-70b-versatile    (default: Groq Llama)
+    AI_ALERT_API_KEY=gsk_...                  (default: GROQ_API_KEY)
+    AI_ALERT_BASE_URL=...                     (optional override)
+
+  No fallback — if the configured model fails, returns an empty alert
+  list and logs the error. Admin swaps the model in .env if needed.
+
+Returns a list of alert objects shaped for the mobile dashboard.
 """
 from __future__ import annotations
 import logging
@@ -9,9 +19,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-import httpx
-
-from config import GROQ_API_KEY, GEMINI_API_KEY, MODEL_GROQ_CHAT, MODEL_GEMINI_CHAT
+from agents.llm_dispatch import call_llm_text, get_feature_config
 from services.chat_service import current_season
 
 logger = logging.getLogger(__name__)
@@ -45,37 +53,6 @@ Generate alerts as a JSON array. Each alert must have:
 Return ONLY the JSON array. No extra text. Make alerts relevant to current season, crop age, and Indian farming conditions."""
 
 
-async def _call_groq_json(prompt: str) -> str:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-            json={
-                "model": MODEL_GROQ_CHAT,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.5,
-                "max_tokens": 1500,
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
-
-
-async def _call_gemini_json(prompt: str) -> str:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_GEMINI_CHAT}:generateContent",
-            params={"key": GEMINI_API_KEY},
-            json={
-                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": 1500, "temperature": 0.5,
-                                     "responseMimeType": "application/json"},
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-
 def _parse_alerts(raw: str) -> list[dict[str, Any]]:
     raw = re.sub(r"```(?:json)?\s*", "", raw).strip()
     match = re.search(r"\[[\s\S]*\]", raw)
@@ -93,6 +70,9 @@ async def generate_smart_alerts(farm_context: dict) -> list[dict[str, Any]]:
     farm_context keys (all optional with sensible defaults):
       crop, state, district, day_of_season, irrigation_type,
       soil_type, previous_crop, land_size, current_crops
+
+    Uses the single AI_ALERT_MODEL configured in .env. Returns [] if the
+    model call fails (dashboard tolerates missing alerts gracefully).
     """
     prompt = _ALERT_PROMPT_TEMPLATE.format(
         crop=farm_context.get("crop", "Tomato"),
@@ -107,21 +87,19 @@ async def generate_smart_alerts(farm_context: dict) -> list[dict[str, Any]]:
         land_size=farm_context.get("landSize") or farm_context.get("land_size", "2 acres"),
     )
 
-    raw = None
-
-    if GROQ_API_KEY:
-        try:
-            raw = await _call_groq_json(prompt)
-        except Exception as exc:
-            logger.warning(f"[AlertService] Groq failed: {exc}")
-
-    if not raw and GEMINI_API_KEY:
-        try:
-            raw = await _call_gemini_json(prompt)
-        except Exception as exc:
-            logger.warning(f"[AlertService] Gemini failed: {exc}")
+    cfg = get_feature_config("ALERT")
+    try:
+        raw, token_info = await call_llm_text(
+            cfg,
+            system_prompt="You are a JSON-emitting Indian agronomy assistant. Return ONLY valid JSON.",
+            user_prompt=prompt,
+        )
+    except Exception as exc:
+        logger.warning("[AlertService] %s failed: %s", cfg.model, exc)
+        return []
 
     if not raw:
         return []
-
+    logger.info("[AlertService] alerts via %s (%d tokens)",
+                cfg.model, token_info.get("total_tokens", 0))
     return _parse_alerts(raw)

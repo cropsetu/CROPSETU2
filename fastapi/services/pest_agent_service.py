@@ -4,15 +4,19 @@ KisanRakshak — Production Pest Prediction Service
 Real-time weather → ICAR pest rules → AI enhancement → structured prediction.
 No dummy data. If any step fails, returns honest "unavailable" error.
 
-LLM providers (priority order):
-  1. Groq (Llama 3.3 70B) — FREE, 30 RPM, fast, primary
-  2. Gemini (2.0 Flash)   — FREE, 15 RPM, fallback
-  3. Claude (Haiku/Sonnet) — paid, last resort
+Model selection
+  Reads ONE model + ONE API key from .env via `agents/llm_dispatch`:
+    AI_PEST_MODEL=llama-3.3-70b-versatile     (default: Groq Llama)
+    AI_PEST_API_KEY=gsk_...                   (default: GROQ_API_KEY)
+    AI_PEST_BASE_URL=...                      (optional override)
 
-Token optimization:
+  Both Level 1 enhancement and Level 2 deep analysis use the same model.
+  No fallback — if the model fails, the call raises.
+
+Token optimization (orthogonal to model selection):
   Level 0: ICAR rules + live weather (0 tokens, 0 cost)
-  Level 1: Groq enhancement (~500 tokens, FREE)
-  Level 2: Groq deep analysis (~2000 tokens, FREE)
+  Level 1: AI enhancement (~500 tokens)
+  Level 2: AI deep analysis (~2000 tokens)
 """
 from __future__ import annotations
 
@@ -23,21 +27,10 @@ from datetime import datetime, timezone, timedelta
 
 import httpx
 
-from config import ANTHROPIC_API_KEY, GROQ_API_KEY, GEMINI_API_KEY, DATABASE_URL
+from agents.llm_dispatch import call_llm_text, get_feature_config
+from config import DATABASE_URL
 
 logger = logging.getLogger(__name__)
-
-# ── Models & cost ────────────────────────────────────────────────────────────
-MODEL_GROQ     = "llama-3.3-70b-versatile"    # FREE — primary
-MODEL_GEMINI   = "gemini-2.5-flash"           # FREE — fallback
-MODEL_HAIKU    = "claude-haiku-4-5-20251001"  # paid — last resort
-MODEL_SONNET   = "claude-sonnet-4-6-20250514" # paid — last resort
-COST_PER_1K = {
-    MODEL_GROQ:   {"input": 0.00059, "output": 0.00079},  # effectively free tier
-    MODEL_GEMINI: {"input": 0.000075, "output": 0.0003},
-    MODEL_SONNET: {"input": 0.003,    "output": 0.015},
-    MODEL_HAIKU:  {"input": 0.0008,   "output": 0.004},
-}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -312,116 +305,38 @@ Given weather + pest predictions JSON, add for EACH prediction:
 Return the SAME JSON with these fields filled. Valid JSON only. Be concise."""
 
 
-async def _call_groq(system: str, user_msg: str, max_tokens: int = 1024) -> tuple[str, dict]:
-    """Call Groq Llama 3.3 70B. Returns (text, token_usage). Raises on failure."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-            json={
-                "model": MODEL_GROQ,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user_msg},
-                ],
-                "temperature": 0.1,
-                "max_tokens": max_tokens,
-                "response_format": {"type": "json_object"},
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-    usage = data.get("usage", {})
-    inp = usage.get("prompt_tokens", 0)
-    out = usage.get("completion_tokens", 0)
-    rates = COST_PER_1K[MODEL_GROQ]
-    token_usage = {
-        "input_tokens": inp, "output_tokens": out, "total_tokens": inp + out,
-        "cost_usd": round((inp / 1000) * rates["input"] + (out / 1000) * rates["output"], 6),
-    }
-    text = data["choices"][0]["message"]["content"].strip()
-    return text, token_usage
-
-
-async def _call_gemini(system: str, user_msg: str, max_tokens: int = 1024) -> tuple[str, dict]:
-    """Call Gemini 2.0 Flash. Returns (text, token_usage). Raises on failure."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_GEMINI}:generateContent",
-            params={"key": GEMINI_API_KEY},
-            json={
-                "systemInstruction": {"parts": [{"text": system}]},
-                "contents": [{"role": "user", "parts": [{"text": user_msg}]}],
-                "generationConfig": {
-                    "maxOutputTokens": max_tokens,
-                    "temperature": 0.1,
-                    "responseMimeType": "application/json",
-                },
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-    usage = data.get("usageMetadata", {})
-    inp = usage.get("promptTokenCount", 0)
-    out = usage.get("candidatesTokenCount", 0)
-    rates = COST_PER_1K[MODEL_GEMINI]
-    token_usage = {
-        "input_tokens": inp, "output_tokens": out, "total_tokens": inp + out,
-        "cost_usd": round((inp / 1000) * rates["input"] + (out / 1000) * rates["output"], 6),
-    }
-    text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    return text, token_usage
-
-
-async def _call_llm(system: str, user_msg: str, max_tokens: int = 1024) -> tuple[str, dict, str]:
+async def _call_llm(system: str, user_msg: str, max_tokens: int = 1024,
+                    tier: str = "fast") -> tuple[str, dict, str]:
     """
-    Call LLM with fallback chain: Groq → Gemini → Claude Haiku.
-    Returns (text, token_usage, model_used). Raises if ALL fail.
+    Call the configured AI_PEST_MODEL (one model, no fallback).
+    Returns (text, token_usage, model_used). Raises if the model call fails.
+
+    `tier` is accepted for backwards compatibility with existing call sites
+    but is currently a no-op — Level 1 and Level 2 both use the same
+    AI_PEST_MODEL configured in .env. If you need different models per
+    level, split into AI_PEST_L1_MODEL / AI_PEST_L2_MODEL features (out
+    of scope for the current centralization).
     """
-    # 1. Groq (FREE, fast)
-    if GROQ_API_KEY:
-        try:
-            text, tk = await _call_groq(system, user_msg, max_tokens)
-            logger.info("[LLM] Groq OK — %d tokens", tk["total_tokens"])
-            return text, tk, MODEL_GROQ
-        except Exception as e:
-            logger.warning("[LLM] Groq failed: %s", e)
+    cfg = get_feature_config("PEST")
+    try:
+        text, token_info = await call_llm_text(
+            cfg,
+            system_prompt=system,
+            user_prompt=user_msg,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:
+        logger.error("[PestAgent] %s failed: %s", cfg.model, exc)
+        raise
 
-    # 2. Gemini (FREE, fallback)
-    if GEMINI_API_KEY:
-        try:
-            text, tk = await _call_gemini(system, user_msg, max_tokens)
-            logger.info("[LLM] Gemini OK — %d tokens", tk["total_tokens"])
-            return text, tk, MODEL_GEMINI
-        except Exception as e:
-            logger.warning("[LLM] Gemini failed: %s", e)
-
-    # 3. Claude Haiku (paid, last resort)
-    if ANTHROPIC_API_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                    json={"model": MODEL_HAIKU, "max_tokens": max_tokens, "system": system,
-                          "messages": [{"role": "user", "content": user_msg}]},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-            usage = data.get("usage", {})
-            inp, out = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
-            rates = COST_PER_1K[MODEL_HAIKU]
-            tk = {"input_tokens": inp, "output_tokens": out, "total_tokens": inp + out,
-                  "cost_usd": round((inp / 1000) * rates["input"] + (out / 1000) * rates["output"], 6)}
-            text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
-            logger.info("[LLM] Claude Haiku OK — %d tokens", tk["total_tokens"])
-            return text, tk, MODEL_HAIKU
-        except Exception as e:
-            logger.warning("[LLM] Claude Haiku failed: %s", e)
-
-    raise RuntimeError("All LLM providers failed (Groq, Gemini, Claude)")
+    token_usage = {
+        "input_tokens":  token_info.get("input_tokens", 0),
+        "output_tokens": token_info.get("output_tokens", 0),
+        "total_tokens":  token_info.get("total_tokens", 0),
+        "cost_usd":      token_info.get("cost_usd", 0.0),
+    }
+    logger.info("[PestAgent] LLM via %s — %d tokens", cfg.model, token_usage["total_tokens"])
+    return text, token_usage, cfg.model
 
 
 def _parse_llm_json(text: str) -> dict | list:
@@ -441,7 +356,7 @@ async def _enhance_predictions(predictions: list[dict], weather: dict) -> tuple[
         for p in predictions
     ]}, separators=(",", ":"))
 
-    text, token_usage, model = await _call_llm(ENHANCE_PROMPT, compact, 1024)
+    text, token_usage, model = await _call_llm(ENHANCE_PROMPT, compact, 1024, tier="fast")
     enhanced = _parse_llm_json(text)
     ep_list = enhanced.get("predictions", enhanced) if isinstance(enhanced, dict) else enhanced
 
@@ -495,7 +410,7 @@ async def _deep_analysis(predictions: list[dict], weather: dict, crops: list[str
         ],
     }, separators=(",", ":"))
 
-    text, token_usage, model = await _call_llm(DEEP_ANALYSIS_PROMPT, context, 2048)
+    text, token_usage, model = await _call_llm(DEEP_ANALYSIS_PROMPT, context, 2048, tier="best")
     result = _parse_llm_json(text)
 
     if isinstance(result, dict) and result.get("predictions"):

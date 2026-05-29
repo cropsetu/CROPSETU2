@@ -15,8 +15,12 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from config import GROQ_API_KEY, GEMINI_API_KEY
-from agents.llm_utils import call_groq_text, call_gemini_text, empty_token_info
+from config import GROQ_API_KEY, GEMINI_API_KEY, DIAGNOSIS_ESCALATE_BELOW
+from agents.llm_utils import empty_token_info
+from agents.llm_dispatch import call_llm_text, get_feature_config
+from data.agro_zones import zone_for
+from rag import retrieve as rag_retrieve
+from safety.validator import validate_treatment
 
 # ── Redis cache (optional — falls back to in-memory if Redis unavailable) ─────
 try:
@@ -38,17 +42,53 @@ _MEM_MAX   = 500
 _MEM_TTL   = 86_400
 
 
-def _get_cache_key(diagnosis: dict, params: dict) -> str:
-    """Deterministic cache key from disease identity + farm context."""
+_SEVERITY_BUCKETS = {
+    "mild":   {"mild", "low", "slight", "early", "minor"},
+    "moderate": {"moderate", "medium", "mid"},
+    "severe": {"severe", "high", "critical", "advanced", "extensive"},
+}
+
+
+def _bucket_severity(raw: str) -> str:
+    """Map LLM-emitted severity strings to a stable 3-bucket value so the
+    cache doesn't miss on cosmetic differences ("Moderate" vs "medium")."""
+    v = (raw or "").lower().strip()
+    for bucket, aliases in _SEVERITY_BUCKETS.items():
+        if v in aliases:
+            return bucket
+    return "moderate"  # safe default
+
+
+def _get_cache_key(diagnosis: dict, params: dict, tier: str, grounding: dict | None = None) -> str:
+    """Deterministic cache key from disease identity + farm context + tier
+    + RAG grounding.
+
+    Tier is in the key because the Best chain may recommend different
+    chemicals/brands than Fast — caching across tiers would leak a downgraded
+    answer to a paying request and vice-versa.
+
+    Grounding is in the key because two scans of the same disease in
+    different agro-zones get different RAG payloads (different actives,
+    different cultural practices, different ETL) and must not share a
+    cache slot — that's the whole point of grounding.
+    """
     pd = diagnosis.get("primary_diagnosis", {})
     payload = {
         "disease":       (pd.get("disease") or "").lower().strip(),
         "crop":          (params.get("crop_name") or "").lower().strip(),
         "soil":          (params.get("soil_type") or "").lower().strip(),
         "irrigation":    (params.get("irrigation_system") or "").lower().strip(),
-        "severity":      (pd.get("severity") or "").lower().strip(),
+        "severity":      _bucket_severity(pd.get("severity")),
         "growth_stage":  (params.get("crop_growth_stage") or "").lower().strip(),
+        "tier":          tier,
     }
+    if grounding:
+        # Stable signature: actives' names + zone (the two grounding
+        # dimensions that change the recommendation set).
+        payload["grounding_zone"]    = (grounding.get("zone") or "").lower().strip()
+        payload["grounding_actives"] = sorted(
+            a.get("name", "") for a in (grounding.get("actives") or [])
+        )
     key_str = json.dumps(payload, sort_keys=True)
     return f"treatment:{hashlib.md5(key_str.encode()).hexdigest()}"
 
@@ -87,173 +127,21 @@ def _cache_set(key: str, value: dict) -> None:
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are an expert Indian agricultural treatment advisor and IPM (Integrated Pest Management) specialist.
-You have deep knowledge of CIB&RC-registered pesticides, FRAC/IRAC/HRAC resistance groups, organic inputs,
-biocontrol agents, and fertilizers available in the Indian market.
+# Prompt is loaded from agents/prompts/treatment.<version>.md at import
+# time. This is the BASELINE — when A/B is configured (dict in
+# ACTIVE_VERSIONS), _treatment_prompt() picks the per-user variant at
+# request time and returns its meta so the report can record which one
+# actually ran. The constants below stay valid for non-A/B use.
+from agents.prompt_registry import load_prompt
+from observability.logging import user_id_var
+TREATMENT_PROMPT = load_prompt("treatment")
+SYSTEM_PROMPT = TREATMENT_PROMPT.text
+TREATMENT_PROMPT_META = TREATMENT_PROMPT.meta()
 
-Given a confirmed disease diagnosis, design a COMPLETE IPM treatment plan: chemical + biological + cultural.
-Your recommendations must be practical, region-appropriate, cost-conscious, and SAFE.
 
-PATHOGEN-BASED ROUTING (follow strictly):
-- Fungal/Oomycete → appropriate fungicide classes (contact + systemic rotation)
-- Bacterial       → copper compounds, Streptocycline (where registered), SAR inducers
-- Viral           → NO curative chemical exists. Focus on VECTOR CONTROL + rogueing infected plants
-- Nematode        → nematicide OR bio-nematicide (Paecilomyces, Purpureocillium) + soil amendments
-- Pest            → insecticide matched to pest, consider biocontrol first
-- Abiotic/Nutrient→ NO pesticide needed. Address the underlying cause (nutrient, water, sunscald)
-
-SEVERITY-BASED STAGING:
-- Mild   (<20% affected) → protectant/contact fungicide first + cultural measures
-- Moderate (20–50%)      → systemic curative + contact protectant combo
-- Severe   (>50%)        → systemic curative + aggressive rotation; WARN about salvage limits
-
-RESISTANCE MANAGEMENT (MANDATORY):
-- Include FRAC group (for fungicides), IRAC group (for insecticides), or HRAC group (for herbicides)
-  for EVERY chemical recommended
-- NEVER recommend the same MoA (Mode of Action) group for consecutive applications
-- Provide a rotation plan: spray 1 = Group X, spray 2 = Group Y, spray 3 = Group X
-- If farmer reports a chemical that already FAILED → likely resistance; avoid that MoA group entirely
-
-POLLINATOR SAFETY:
-- For FLOWERING stage crops: EXCLUDE bee-toxic chemicals (most neonicotinoids — Imidacloprid,
-  Thiamethoxam, Clothianidin; some pyrethroids)
-- Mark each chemical's pollinator_safety: "safe" | "caution" | "avoid_during_bloom"
-- If flowering + must spray → recommend evening application only (after bee activity)
-
-PHI ENFORCEMENT:
-- If crop is in PRE-HARVEST stage and PHI > days to expected harvest → REJECT that chemical
-- Always state PHI prominently
-
-SAFETY COMPLIANCE CHECKS (apply to every chemical):
-- Must be CIB&RC registered for that specific crop in India
-- Cross-check against BANNED list: Monocrotophos, Endosulfan, Methyl Parathion, Phorate,
-  Triazophos, Dichlorvos (on many crops), Lindane, Aldrin, Chlordane, Heptachlor, etc.
-- Check STATE-LEVEL bans (Kerala bans many OPs; Punjab restricts certain herbicides)
-- Class I (extremely hazardous) chemicals → only if no safer alternative exists, with
-  STRONG PPE requirements and trained applicator warning
-- For EXPORT crops: flag if residue limits may exceed destination country MRLs
-
-RULES:
-- NEVER recommend banned pesticides
-- NEVER skip biological/cultural alternatives — IPM requires ALL three pillars
-- Include PHI (Pre-Harvest Interval) + REI (Re-Entry Interval) for every chemical
-- Do NOT recommend spraying if rain expected within 4 hours
-- Adjust dosage for the farmer's actual farm_size_acres
-- Include REAL Indian brand names with approximate MRP in INR
-- Include applicator safety: PPE required, mixing instructions, container disposal
-- Provide cost estimate per acre for the recommended treatment
-- For MEDIUM confidence diagnoses: prefer CONTACT/PROTECTANT (broad-spectrum, lower risk
-  of wrong call) over narrow systemic chemicals
-
-OUTPUT: Valid JSON only. No markdown fences.
-
-{
-  "immediate_actions": ["Remove and destroy infected leaves — bag them, do not leave in field"],
-  "chemical_controls": [
-    {
-      "priority": 1,
-      "product": "Mancozeb 75% WP",
-      "active_ingredient": "Mancozeb",
-      "frac_irac_group": "FRAC M03 (multi-site contact)",
-      "brands": [
-        {"name": "Dithane M-45", "company": "UPL", "pack": "500g", "mrp_approx": 280},
-        {"name": "Indofil M-45", "company": "Indofil", "pack": "500g", "mrp_approx": 260}
-      ],
-      "dosage": "2.5 g per litre water",
-      "dosage_per_acre": "600–800 g in 200–300 L water",
-      "application_method": "Foliar spray — early morning or evening",
-      "frequency": "Every 7–10 days",
-      "max_applications_per_season": 6,
-      "phi_days": 3,
-      "rei_hours": 24,
-      "pollinator_safety": "safe",
-      "cost_estimate_inr_per_acre": "250–350",
-      "safety_precautions": ["Wear gloves, mask, and goggles", "Re-entry after 24 hours", "Triple-rinse empty containers"]
-    }
-  ],
-  "rotation_plan": "Spray 1: Mancozeb (FRAC M03) → Spray 2: Propiconazole (FRAC 3) → Spray 3: Azoxystrobin (FRAC 11) → Repeat. Never use same FRAC group consecutively.",
-  "medicine_combinations": [
-    {
-      "name": "Curative + Preventive",
-      "recommended": true,
-      "for_severity": "moderate to severe",
-      "description": "Systemic for active infection + contact for prevention",
-      "components": [
-        {"product": "Propiconazole 25% EC", "role": "Curative (systemic)", "frac_group": "FRAC 3 (DMI)", "dosage": "1 ml/L"},
-        {"product": "Mancozeb 75% WP", "role": "Preventive (contact)", "frac_group": "FRAC M03", "dosage": "2.5 g/L"}
-      ],
-      "brands": [
-        {"combo_brand": "Nativo 75 WG", "company": "Bayer", "note": "Pre-mixed Tebuconazole+Trifloxystrobin", "mrp_approx": 900}
-      ],
-      "application": "Tank mix in single spray, early morning before 9 AM"
-    },
-    {
-      "name": "Organic + Biological",
-      "recommended": false,
-      "for_severity": "mild",
-      "description": "For organic farmers or pesticide-sensitive/export markets",
-      "components": [
-        {"product": "Bordeaux Mixture 1%", "role": "Curative", "dosage": "10g CuSO4 + 10g lime / L"},
-        {"product": "Trichoderma harzianum", "role": "Biological control", "dosage": "5 g/L"}
-      ],
-      "brands": [],
-      "application": "Alternate spray every 7 days"
-    }
-  ],
-  "biological_options": [
-    {
-      "agent": "Trichoderma viride",
-      "type": "biocontrol fungus",
-      "brands": [{"name": "Ecosense Tricho", "company": "Multiplex", "pack": "1kg", "mrp_approx": 280}],
-      "dosage": "5 g per litre water",
-      "dosage_per_acre": "1 kg in 200 L water",
-      "application_method": "Soil drench around root zone",
-      "phi_days": 0,
-      "safety_precautions": []
-    }
-  ],
-  "organic_alternatives": [
-    {
-      "product": "Pseudomonas fluorescens",
-      "brands": [{"name": "Sudo", "company": "Multiplex", "pack": "1kg", "mrp_approx": 350}],
-      "dosage": "10 g per litre water",
-      "dosage_per_acre": "2 kg in 200 L water",
-      "application_method": "Foliar spray or seed treatment",
-      "phi_days": 0,
-      "safety_precautions": []
-    }
-  ],
-  "cultural_practices": [
-    "Remove and destroy infected plant debris — do not compost",
-    "Improve canopy airflow by proper spacing and pruning",
-    "Switch from overhead/sprinkler to drip irrigation to reduce leaf wetness",
-    "Practice 2–3 year crop rotation with non-host crops"
-  ],
-  "fertilizer_recommendations": [
-    {
-      "product": "Potassium Nitrate (13-0-45)",
-      "npk": "13-0-45",
-      "dosage_per_acre": "5 kg per 200 L water (foliar)",
-      "timing": "Apply 3 days after fungicide spray",
-      "reason": "Potassium strengthens cell walls and improves disease resistance"
-    }
-  ],
-  "do_not_use": ["Monocrotophos — banned by CIB&RC", "Endosulfan — banned since 2011"],
-  "preventive_measures": ["Spray protectant every 7 days during humid weather", "Use resistant/tolerant varieties"],
-  "long_term_recommendations": ["Rotate with non-solanaceous crop next season", "Soil solarization before next planting"],
-  "applicator_safety": {
-    "ppe_required": ["Chemical-resistant gloves", "Face mask/respirator", "Goggles", "Long-sleeved shirt and trousers", "Rubber boots"],
-    "mixing_instructions": "Add chemical to half-filled spray tank, agitate, then top up. Never mix with bare hands.",
-    "disposal": "Triple-rinse empty containers and puncture before disposal. Never reuse pesticide containers for food/water."
-  },
-  "spray_timing_advisory": "Best window: early morning before 9 AM or evening after 5 PM. Avoid spraying if rain expected within 4 hours. Do not spray in wind >15 km/h.",
-  "monitoring_plan": {
-    "follow_up_in_days": 7,
-    "what_to_watch_for": ["New lesions on previously healthy leaves", "Change in lesion color or size", "Spread to adjacent plants"]
-  },
-  "confidence_adjusted_note": null,
-  "relevance_score": 0.88
-}"""
+def _treatment_prompt() -> tuple[str, dict]:
+    p = load_prompt("treatment", bucket_id=user_id_var.get() or None)
+    return p.text, p.meta()
 
 
 def _parse_json(raw: str) -> Optional[dict]:
@@ -295,14 +183,49 @@ async def run_treatment_agent(
     disease = diagnosis.get("primary_diagnosis", {})
     disease_name = disease.get("disease", "Unknown")
 
-    if disease_name in ("Unknown", "UNCERTAIN") or diagnosis.get("confidence_score", 0) < 0.3:
+    # Hard gate: never run treatment LLM when diagnosis is unknown, low
+    # confidence, OOD, or crop mismatch — those are the cases where a
+    # confident-sounding pesticide recommendation could harm the farmer.
+    # DIAGNOSIS_ESCALATE_BELOW is the same threshold used in the
+    # orchestrator's needs_advisor logic; keep them in sync.
+    if (
+        disease_name in ("Unknown", "UNCERTAIN")
+        or diagnosis.get("confidence_score", 0) < DIAGNOSIS_ESCALATE_BELOW
+        or diagnosis.get("is_out_of_distribution")
+        or diagnosis.get("crop_mismatch")
+    ):
+        logger.info(
+            "Treatment gate: skipping LLM (disease=%s conf=%.2f ood=%s mismatch=%s) — cultural-only fallback",
+            disease_name, diagnosis.get("confidence_score", 0),
+            diagnosis.get("is_out_of_distribution"), diagnosis.get("crop_mismatch"),
+        )
         return _fallback_treatment(disease_name), empty_token_info()
 
+    # Load the configured treatment model (single AI_CROP_TREATMENT_MODEL,
+    # no fallback). `tier` is retained as a cache-key salt for backward
+    # compat with persisted cache entries; it does NOT pick the model.
+    cfg = get_feature_config("CROP_TREATMENT")
+    tier = (params.get("tier") or "fast").strip().lower()
+
+    # ── RAG grounding (Phase 7) ──────────────────────────────────────────────
+    # Pull the structured ICAR / CIB&RC payload for this (disease, crop, zone).
+    # The treatment prompt below will REQUIRE the LLM to recommend only from
+    # the actives this grounding lists, with the cultural practices + ETL +
+    # MRL + regulatory notes spelled out so the LLM can't fabricate.
+    zone = zone_for(params.get("state"), params.get("district"))
+    grounding = rag_retrieve(disease_name, params.get("crop_name"), zone)
+
     # ── Cache lookup ──────────────────────────────────────────────────────────
-    cache_key = _get_cache_key(diagnosis, params)
+    # The grounding hash is part of the key — two scans of the same disease
+    # in different agro-zones get different RAG payloads and must not share
+    # a cache slot.
+    cache_key = _get_cache_key(diagnosis, params, tier, grounding)
     cached = _cache_get(cache_key)
     if cached:
-        logger.info("Cache HIT — key=...%s disease=%s cost=$0.0000", cache_key[-8:], disease_name)
+        logger.info(
+            "Cache HIT — key=...%s disease=%s tier=%s cost=$0.0000",
+            cache_key[-8:], disease_name, tier,
+        )
         cached["_cached"] = True
         return cached, empty_token_info("cache-hit")
 
@@ -331,6 +254,49 @@ async def run_treatment_agent(
     if any(kw in growth_stage for kw in ("flower", "bloom", "anthesis")):
         flowering_note = "\n🐝 CROP IS FLOWERING: EXCLUDE all bee-toxic chemicals (neonicotinoids, certain pyrethroids). Mark pollinator_safety for each chemical."
 
+    # ── Grounding block — drives the prompt to recommend only from the KB ──
+    g_actives = grounding.get("actives") or []
+    if g_actives:
+        actives_lines = "\n".join(
+            f"    - {a['name']:<20}  {a['frac_irac_group']:<10}  PHI={a['phi_days']}d  "
+            f"REI={a['rei_hours']}h  pollinator={a['pollinator_safety']}"
+            for a in g_actives
+        )
+    else:
+        actives_lines = "    (no chemical active registered for this crop-disease pair — recommend ONLY cultural / biological measures, name no chemicals)"
+    cultural_lines = "\n".join(f"    - {c}" for c in (grounding.get("cultural_practices") or []))
+    notes_lines    = "\n".join(f"    - {n}" for n in (grounding.get("regulatory_notes") or []))
+    etl_line       = f"    ETL (Economic Threshold Level): {grounding['etl']}" if grounding.get("etl") is not None else "    ETL: not defined for this pair — apply IPM judgement"
+    mrl_lines      = "\n".join(f"    - {k}: {v} mg/kg" for k, v in (grounding.get("mrl") or {}).items()) or "    (no MRL data for the listed actives)"
+
+    grounding_block = f"""
+─── EVIDENCE-BASED GROUNDING (ICAR / CIB&RC label-claim matrix) ───
+Agro-climatic zone: {grounding.get('zone') or 'Unknown'}
+
+REGISTERED ACTIVES FOR THIS CROP-DISEASE PAIR (recommend ONLY from this list):
+{actives_lines}
+
+CULTURAL / NON-CHEMICAL PRACTICES (always include relevant ones):
+{cultural_lines}
+
+ECONOMIC THRESHOLD (below this, prefer monitoring over spraying):
+{etl_line}
+
+FSSAI MRL (mg/kg) for the registered actives (surface in dispensing sheet annex):
+{mrl_lines}
+
+MANDATORY REGULATORY NOTES (append a summary to the report):
+{notes_lines}
+
+HARD CONSTRAINTS DERIVED FROM THIS GROUNDING:
+  • Do NOT recommend a chemical active that is not in the registered list above.
+    Any off-label active will be rejected by the safety validator after this call.
+  • If the registered list is empty, recommend ONLY cultural / biological options
+    and explain in farmer_summary that no chemical is registered for this case.
+  • Always include the regulatory notes verbatim in the report's compliance section.
+───
+"""
+
     user_prompt = f"""Provide complete IPM treatment plan for:
 
 DIAGNOSIS:
@@ -357,7 +323,7 @@ WEATHER CONTEXT:
   Current Risk    : {weather_risk.get('overall_disease_risk', 'UNKNOWN')}
   Risk Factors    : {', '.join(weather_risk.get('risk_factors', [])[:3])}
 {forecast_advisory}
-
+{grounding_block}
 MANDATORY REQUIREMENTS:
 1. Include FRAC/IRAC group for EVERY chemical (e.g., "FRAC 3 (DMI)", "FRAC M03 (multi-site)")
 2. Include a rotation_plan showing MoA group alternation across sprays
@@ -378,6 +344,51 @@ Return JSON only."""
     def _finalise(result):
         if not result:
             return _fallback_treatment(disease_name)
+
+        # ── Defensive schema unwrap ────────────────────────────────────
+        # Some models (Claude in particular) wrap the response in their
+        # own top-level objects like {"diagnosis_summary": {...},
+        # "treatment_plan": {...}, "recommendations": {...}} even though
+        # the prompt asks for a flat structure. Detect this and flatten.
+        #
+        # Strategy: if NONE of the canonical top-level keys are present
+        # but a known wrapper key is, search the entire result tree for
+        # the canonical keys and lift them to the top level.
+        CANONICAL_KEYS = (
+            "immediate_actions", "chemical_controls", "biological_options",
+            "organic_alternatives", "cultural_practices", "preventive_measures",
+            "fertilizer_recommendations", "medicine_combinations",
+            "rotation_plan", "do_not_use", "applicator_safety",
+            "spray_timing_advisory", "monitoring_plan",
+        )
+        if isinstance(result, dict) and not any(k in result for k in CANONICAL_KEYS):
+            # Walk one level into every dict value and pull canonical keys.
+            lifted: dict = {}
+            stack = [result]
+            depth = 0
+            while stack and depth < 4:
+                current = stack.pop()
+                for v in current.values() if isinstance(current, dict) else []:
+                    if isinstance(v, dict):
+                        for ck in CANONICAL_KEYS:
+                            if ck in v and ck not in lifted:
+                                lifted[ck] = v[ck]
+                        stack.append(v)
+                    elif isinstance(v, list):
+                        for item in v:
+                            if isinstance(item, dict):
+                                stack.append(item)
+                depth += 1
+            if lifted:
+                logger.info(
+                    "[Treatment] Detected wrapped schema — lifted %d canonical keys",
+                    len(lifted),
+                )
+                # Merge lifted keys into top-level result without erasing
+                # any wrapper-level metadata.
+                for k, v in lifted.items():
+                    result[k] = v
+
         result.setdefault("immediate_actions", [])
         result.setdefault("chemical_controls", [])
         result.setdefault("rotation_plan", "")
@@ -403,25 +414,51 @@ Return JSON only."""
         result["_cached"] = False
         return result
 
-    # ── Groq (primary) ────────────────────────────────────────────────────────
-    if GROQ_API_KEY:
-        try:
-            raw, tok = await call_groq_text(SYSTEM_PROMPT, user_prompt, GROQ_API_KEY)
-            result = _finalise(_parse_json(raw))
-            _cache_set(cache_key, result)
-            logger.info("LLM response cached — key=...%s", cache_key[-8:])
-            return result, tok
-        except Exception as exc:
-            logger.exception("Groq call failed")
+    # ── Single-model dispatch (no fallback) ──────────────────────────────────
+    # AI_CROP_TREATMENT_MODEL configured in .env. If empty or the key isn't
+    # set, drop straight to the cultural-only fallback so the pipeline still
+    # produces something.
+    if not cfg.api_key:
+        logger.error("No API key for %s — set AI_CROP_TREATMENT_API_KEY", cfg.model)
+        return _fallback_treatment(disease_name), empty_token_info()
 
-    # ── Gemini fallback ───────────────────────────────────────────────────────
-    if GEMINI_API_KEY:
-        try:
-            raw, tok = await call_gemini_text(SYSTEM_PROMPT, user_prompt, GEMINI_API_KEY)
-            result = _finalise(_parse_json(raw))
-            _cache_set(cache_key, result)
-            return result, tok
-        except Exception as exc:
-            logger.exception("Gemini fallback also failed")
+    try:
+        # Resolve per-user variant when A/B is configured. Stamps the
+        # variant meta onto the result so persistence can group by it.
+        treatment_prompt_text, treatment_prompt_meta = _treatment_prompt()
+        # max_tokens=8192 — treatment plans routinely run 3K-4K tokens
+        # output (chemical_controls + biological + organic + cultural +
+        # rotation_plan + brand list). The default 4096 truncates Claude
+        # mid-JSON and the parse step drops the whole thing.
+        raw, tok = await call_llm_text(
+            cfg,
+            system_prompt=treatment_prompt_text,
+            user_prompt=user_prompt,
+            max_tokens=8192,
+        )
+        result = _finalise(_parse_json(raw))
+        result["_model_used"] = cfg.model
+        result["_prompt_meta"] = treatment_prompt_meta
 
-    return _fallback_treatment(disease_name), empty_token_info()
+        # Post-LLM safety validation. This is the deterministic guardrail
+        # that the chemical registry exists for — it strips banned actives,
+        # flags unverified ones, enforces PHI/REI, and refuses chemical
+        # recs entirely when the policy gate (low confidence, OOD, etc.)
+        # is tripped. We MUST cache the sanitized result, not the raw LLM
+        # output, or every cache hit poisons the next request.
+        validation = validate_treatment(result, diagnosis=diagnosis, params=params)
+        sanitized = validation.sanitized_treatment
+
+        _cache_set(cache_key, sanitized)
+        logger.info(
+            "Treatment LLM (%s, tier=%s) — kept=%d blockers=%d warnings=%d cached=...%s",
+            cfg.model, tier,
+            len(sanitized.get("chemical_controls", [])),
+            len(validation.blockers),
+            len(validation.warnings),
+            cache_key[-8:],
+        )
+        return sanitized, tok
+    except Exception:
+        logger.exception("Treatment LLM call failed (model=%s)", cfg.model)
+        return _fallback_treatment(disease_name), empty_token_info()

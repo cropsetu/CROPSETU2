@@ -34,6 +34,13 @@ import {
 } from '../services/sarvam.service.js';
 import { getCurrentSeason } from '../services/ai.chat.service.js';
 import { predictCropDisease } from '../services/ai.predict.service.js';
+import {
+  callFastAPIScan,
+  submitFastAPIScan,
+  getFastAPIScanStatus,
+  flattenFastAPIDiagnosis,
+  extractUsage as extractFastAPIUsage,
+} from '../services/ai.scan.fastapi.js';
 import { checkCredits, deductCredits, getCreditSummary } from '../services/aiCredit.service.js';
 import { buildFarmerChatContext } from '../services/chatContext.service.js';
 import { getWeatherData } from '../services/weather.service.js';
@@ -42,40 +49,10 @@ import prisma from '../config/db.js';
 import logger from '../utils/logger.js';
 
 // ── FastAPI proxy helper ──────────────────────────────────────────────────────
-const AI_BACKEND = ENV.AI_BACKEND_URL || 'http://localhost:8001';
-
-/**
- * POST JSON to FastAPI and return parsed data field.
- * Express passes x-user-id header so FastAPI can log/audit if needed.
- */
-async function callFastAPI(path, body, userId, timeoutMs = 90_000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const resp = await fetch(`${AI_BACKEND}${path}`, {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(userId ? { 'x-user-id': userId } : {}),
-      },
-      body:   JSON.stringify(body),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ detail: `FastAPI ${resp.status}` }));
-      const e   = new Error(err.detail || `AI backend returned ${resp.status}`);
-      e.status  = resp.status;
-      throw e;
-    }
-    const data = await resp.json();
-    return data.data;           // FastAPI wraps in { success, data, message }
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
-  }
-}
+// All Express → FastAPI calls now route through utils/fastapi-signed.js which
+// adds HMAC-SHA256 signatures over (ts, METHOD, path, body_hash). The contract
+// must stay in lock-step with fastapi/security/auth.py — change them together.
+import { callFastAPI } from '../utils/fastapi-signed.js';
 
 /**
  * Flatten a predictCropDisease() result (Node.js format) into the flat shape
@@ -142,14 +119,23 @@ function flattenNodePrediction(result, farmCtx = {}) {
   };
 }
 
-// ── Groq client for Whisper STT fallback ─────────────────────────────────────
-let _groqSTT = null;
+// ── Whisper STT client (Groq by default, OpenAI optional) ───────────────────
+// Reads AI_VOICE_STT_API_KEY from env — set it to a different key in .env
+// to swap providers. Base URL is auto-inferred from the model name:
+//   whisper-large-v3*  → Groq (https://api.groq.com/openai/v1)
+//   whisper-1, gpt-4o-transcribe → OpenAI (https://api.openai.com/v1)
+let _sttClient = null;
 function getGroqSTT() {
-  if (!_groqSTT) {
-    if (!ENV.GROQ_API_KEY) throw new Error('GROQ_API_KEY not set — required for voice transcription');
-    _groqSTT = new OpenAI({ apiKey: ENV.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
+  if (!_sttClient) {
+    const apiKey = ENV.AI_VOICE_STT_API_KEY;
+    if (!apiKey) throw new Error('AI_VOICE_STT_API_KEY not set — required for voice transcription');
+    const model = ENV.AI_VOICE_STT_MODEL || 'whisper-large-v3-turbo';
+    const baseURL = /^whisper-large-v3/.test(model)
+      ? 'https://api.groq.com/openai/v1'
+      : 'https://api.openai.com/v1';
+    _sttClient = new OpenAI({ apiKey, baseURL });
   }
-  return _groqSTT;
+  return _sttClient;
 }
 
 const router = Router();
@@ -239,9 +225,9 @@ async function buildEnrichedProfile(userId, frontendOverrides = {}) {
 }
 
 // ── Free-user AI limits ───────────────────────────────────────────────────────
-const FREE_SCAN_DAILY_LIMIT   = 50;      // max crop scans per day (raised for testing)
-const FREE_CHAT_DAILY_LIMIT   = 20;      // max AI chat messages per day
-const FREE_TOKEN_DAILY_LIMIT  = 50_000;  // max tokens per day
+const FREE_SCAN_DAILY_LIMIT   = 500;       // max crop scans per day (raised for testing)
+const FREE_CHAT_DAILY_LIMIT   = 200;       // max AI chat messages per day
+const FREE_TOKEN_DAILY_LIMIT  = 1_000_000; // max tokens per day (raised for testing)
 
 /**
  * Get today's AIUsage row for the user (ISO date string key = YYYY-MM-DD).
@@ -467,12 +453,15 @@ router.post('/voice', authenticate, aiVoiceLimit, audioUpload.single('audio'), a
       }
     }
 
-    // ── Groq Whisper (fallback) ───────────────────────────────────────────────
+    // ── Whisper STT (Sarvam fallback path) ────────────────────────────────────
+    // Model + API key from AI_VOICE_STT_* env vars (see backend/src/config/env.js).
+    // Default: Groq whisper-large-v3-turbo. Set AI_VOICE_STT_MODEL=whisper-1 +
+    // AI_VOICE_STT_API_KEY=sk-... to swap to OpenAI Whisper.
     if (!transcription) {
-      const groqSTT = getGroqSTT();
-      const result  = await groqSTT.audio.transcriptions.create({
+      const sttClient = getGroqSTT();
+      const result  = await sttClient.audio.transcriptions.create({
         file:            fs.createReadStream(renamedPath),
-        model:           'whisper-large-v3-turbo',
+        model:           ENV.AI_VOICE_STT_MODEL || 'whisper-large-v3-turbo',
         response_format: 'text',
         language:        shortLang,
         prompt:          'FarmMind AI farming assistant. Farmer asking about crops, diseases, mandi prices, schemes.',
@@ -694,6 +683,223 @@ router.get('/conversations/:id', authenticate, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Async-job scan path: POST /scan/submit returns jobId immediately, mobile
+// polls GET /scan/job/:jobId. This is the working solution for the Android
+// OkHttp 60s socket ceiling — long-running ensemble scans no longer drop
+// the request mid-flight. The legacy synchronous POST /scan below stays
+// for callers that don't need this (web upload, internal tooling).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Module-scope map: jobId -> { userId, farmCtx, weatherData, t0, sessionId }.
+// Holds the context the poll endpoint needs to flatten + persist when the
+// FastAPI job completes. Cleared on success/failure or 30 min TTL sweep.
+const pendingScans = new Map();
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60_000;
+  for (const [k, v] of pendingScans) if ((v.t0 || 0) < cutoff) pendingScans.delete(k);
+}, 5 * 60_000).unref?.();
+
+router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
+  upload.single('image')(req, res, (err) => {
+    if (err) return sendError(res, err.message || 'Image upload failed', 400);
+    next();
+  });
+}, async (req, res) => {
+  const file = req.file;
+  if (!file) return sendError(res, 'image file is required — please attach a crop photo', 400);
+  const t0 = Date.now();
+
+  // Same gates as the legacy /scan: rate-limit + credit + free-tier daily cap.
+  if (req.user.role === 'FARMER') {
+    try {
+      const limitErr = await checkScanLimits(req.user.id);
+      if (limitErr) {
+        try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+        return sendError(res, limitErr, 429);
+      }
+    } catch (e) { logger.warn('[AI Scan/submit] limit check failed (non-fatal): %s', e.message); }
+  }
+  const creditCheck = await checkCredits(req.user.id, 'ai_scan_gemini');
+  if (!creditCheck.allowed) {
+    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+    return sendError(res, creditCheck.message || 'Insufficient AI credits', 402);
+  }
+
+  let farmCtx = {};
+  try { farmCtx = JSON.parse(req.body.farmContext || '{}'); } catch { /* ignore */ }
+
+  // Weather fetch is fire-and-forget but synchronous here (1-3s, cheap) so the
+  // poll handler has it ready when the pipeline finishes.
+  const scanPincode = farmCtx.pincode || req.user?.pincode || '000000';
+  const weatherData = await getWeatherData(scanPincode).catch(() => null);
+
+  const lat = parseFloat(req.body.lat);
+  const lon = parseFloat(req.body.lon);
+  const fastapiParams = {
+    crop_name:           farmCtx.cropName || 'Unknown',
+    crop_growth_stage:   farmCtx.growthStage || (farmCtx.cropAge != null ? String(farmCtx.cropAge) : 'Unknown'),
+    crop_variety:        farmCtx.variety || farmCtx.cropVariety || '',
+    soil_type:           farmCtx.soilType || '',
+    irrigation_system:   farmCtx.irrigationType || farmCtx.irrigation || '',
+    previous_crop:       farmCtx.previousCrop || '',
+    farm_size_acres:     farmCtx.landSize || farmCtx.farmSizeAcres || null,
+    affected_area_percent: farmCtx.affectedAreaPercent || null,
+    symptom_description: farmCtx.additionalSymptoms || (Array.isArray(farmCtx.symptoms) ? farmCtx.symptoms.join(', ') : ''),
+    recent_pesticide_used: farmCtx.recentPesticideUsed || '',
+    fertilizer_history:  farmCtx.fertilizerHistory || '',
+    planting_date:       farmCtx.plantingDate || null,
+    field_latitude:      Number.isFinite(lat) ? lat : null,
+    field_longitude:     Number.isFinite(lon) ? lon : null,
+    state:               farmCtx.state || '',
+    district:            farmCtx.district || '',
+    city:                farmCtx.city || '',
+    language:            farmCtx.language || 'en',
+    tier:                farmCtx.tier || 'fast',
+  };
+
+  try {
+    const result = await submitFastAPIScan({
+      filePath:       file.path,
+      mimeType:       file.mimetype,
+      viewType:       farmCtx.imageView || 'close_up',
+      params:         fastapiParams,
+      userId:         req.user.id,
+      requestId:      req.id || undefined,
+      idempotencyKey: req.headers['idempotency-key'] || undefined,
+    });
+
+    // Idempotent inline replay — pipeline was already done. Persist now,
+    // return as if the client had polled once.
+    if (result.status === 'done' && result.data) {
+      try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+      const flat = flattenFastAPIDiagnosis(result.data, farmCtx);
+      const finalised = await _persistDoneScan({
+        userId: req.user.id, farmCtx, weatherData, raw: result.data, flat,
+      });
+      logger.info('[Express/Scan/submit] idempotent inline replay — user=%s elapsed=%dms', req.user.id, Date.now() - t0);
+      return sendSuccess(res, { status: 'done', ...finalised });
+    }
+
+    pendingScans.set(result.jobId, { userId: req.user.id, farmCtx, weatherData, t0 });
+    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+    logger.info('[Express/Scan/submit] enqueued jobId=%s user=%s', result.jobId, req.user.id);
+    return sendSuccess(res, { status: 'queued', jobId: result.jobId });
+
+  } catch (err) {
+    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+    logger.error({ err }, '[Express/Scan/submit] enqueue failed');
+    return sendError(res, `Scan submit failed: ${err.message || 'Unknown error'}`, err.status || 500);
+  }
+});
+
+
+router.get('/scan/job/:jobId', authenticate, async (req, res) => {
+  const { jobId } = req.params;
+  if (!jobId) return sendError(res, 'jobId required', 400);
+
+  let snap;
+  try {
+    snap = await getFastAPIScanStatus({ jobId, userId: req.user.id, requestId: req.id });
+  } catch (err) {
+    logger.error({ err, jobId }, '[Express/Scan/job] status fetch failed');
+    return sendError(res, `Job status fetch failed: ${err.message}`, err.status || 502);
+  }
+
+  if (snap.status === 'queued' || snap.status === 'running') {
+    return sendSuccess(res, { status: snap.status });
+  }
+  if (snap.status === 'failed') {
+    pendingScans.delete(jobId);
+    return sendError(res, snap.error || `Job ${jobId} failed`, 500);
+  }
+  if (snap.status !== 'done' || !snap.data) {
+    return sendError(res, `Unexpected job status: ${snap.status}`, 502);
+  }
+
+  // status === 'done': finalize.
+  const ctx = pendingScans.get(jobId);
+  if (ctx && ctx.userId !== req.user.id) {
+    return sendError(res, 'Job not owned by this user', 403);
+  }
+  // Missing ctx means the submit was on a different process or server-restart
+  // dropped it — we can still flatten the diagnosis but skip Prisma persist
+  // (since farmCtx is gone). The mobile still gets the rich report.
+  const farmCtx = ctx?.farmCtx || {};
+  const weatherData = ctx?.weatherData || null;
+  const flat = flattenFastAPIDiagnosis(snap.data, farmCtx);
+  const finalised = await _persistDoneScan({
+    userId: req.user.id, farmCtx, weatherData, raw: snap.data, flat,
+    skipPersist: !ctx,
+  });
+  pendingScans.delete(jobId);
+  return sendSuccess(res, { status: 'done', ...finalised });
+});
+
+
+// Shared finalizer for both inline-replay (in /scan/submit) and poll (in
+// /scan/job/:jobId). Records usage, deducts credits, persists the
+// CropDiseaseReport, strips _fullReport for the wire response, and returns
+// the client-facing diagnosis dict.
+async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, skipPersist = false }) {
+  const tokenUsage = (() => { const u = extractFastAPIUsage(raw); return { total_tokens: u.tokens, total_cost_usd: u.costUsd }; })();
+  recordScanUsage(userId, tokenUsage).catch(() => {});
+  deductCredits(userId, 'ai_scan_gemini', {
+    model: raw?.meta?.model_diagnose || 'fastapi-agentic',
+    tokensUsed: tokenUsage.total_tokens,
+    description: `Crop scan: ${flat?.disease || 'analysis'}`,
+  }).catch(() => {});
+
+  let savedReportId = null;
+  if (!skipPersist) {
+    try {
+      const riskLevel = (raw?.risk_level || flat.severity || 'low').toUpperCase();
+      const riskScore = riskLevel === 'CRITICAL' ? 95 : riskLevel === 'HIGH' ? 75
+        : riskLevel === 'MODERATE' ? 45 : 15;
+      const saved = await prisma.cropDiseaseReport.create({
+        data: {
+          userId,
+          pincode:         farmCtx.pincode || '000000',
+          cropType:        farmCtx.cropName || flat.crop || 'Unknown',
+          growthStage:     farmCtx.cropAge != null ? String(farmCtx.cropAge) : 'unknown',
+          variety:         farmCtx.variety || null,
+          fieldArea:       farmCtx.landSize || null,
+          symptoms:        Array.isArray(farmCtx.symptoms) ? farmCtx.symptoms : [],
+          imageCount:      1,
+          overallRisk:     riskScore,
+          riskLevel,
+          primaryDisease:  flat.disease || 'Unknown',
+          confidenceScore: (flat.confidence || 0) / 100,
+          diagnosisMethod: 'fastapi-agentic',
+          // Schema is Boolean — true when models agreed (perspective or
+          // ensemble agreement reaches the "all agree" mark). The raw
+          // string ("3/3", "2/3", etc.) is preserved inside fullReport
+          // for anyone who wants the breakdown.
+          modelAgreement:  (() => {
+            const a = raw?.meta?.ensemble_agreement || raw?.meta?.perspective_agreement;
+            if (typeof a !== 'string' || !a.includes('/')) return null;
+            const [num, denom] = a.split('/').map(n => parseInt(n, 10));
+            if (!denom) return null;
+            return num === denom;  // unanimous => true; any dissent => false
+          })(),
+          fullReport:      raw,
+          weatherSnapshot: weatherData || null,
+        },
+      });
+      savedReportId = saved.id;
+    } catch (e) {
+      logger.warn('[AI Scan/job] CropDiseaseReport save failed: %s', e.message);
+    }
+  }
+
+  // Strip the heavy nested fullReport from the WIRE payload, but the mobile
+  // still gets it via diagnosis._fullReport (flattenFastAPIDiagnosis attaches
+  // it). The split below mirrors what the legacy /scan route does.
+  const { _fullReport, ...diagnosisForClient } = flat;
+  return { ...diagnosisForClient, _fullReport, reportId: savedReportId, weatherUsed: !!weatherData };
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/scan  — proxy to FastAPI 5-agent pipeline, save to Prisma
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
@@ -782,29 +988,114 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
       logger.debug('[Express/Scan] Weather enriched: temp=%s, humidity=%s, risk=%s', weatherData.current?.temp, weatherData.current?.humidity, weatherData.weatherRisk?.riskLevel);
     }
 
-    const rawDiagnosis = await predictCropDisease(params, [
-      { path: file.path, type: farmCtx.imageView || 'close_up' },
-    ]);
+    // ── BRANCH: FastAPI agentic pipeline vs in-Express Gemini ───────────────
+    // Toggle via ENV.USE_FASTAPI_FOR_SCAN. The FastAPI path runs the full
+    // agentic pipeline (image-quality CV, weather correlation, vision
+    // diagnosis with router fallback, chemical-registry-validated treatment,
+    // confidence-gated chemicals, structured report). Both paths produce
+    // the SAME flat shape, so the mobile client is identical.
+    let rawDiagnosis;
+    let diagnosis;
+    let diagnosisMethod;
+    let needsRescan = false;
+    let tokenUsage  = { total_tokens: 0, total_cost_usd: 0 };
 
-    // Delete temp file after Gemini has finished reading it
-    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+    if (ENV.USE_FASTAPI_FOR_SCAN) {
+      diagnosisMethod = 'fastapi-agentic';
+      // Translate the existing Node-side params shape into the FastAPI
+      // shape (snake_case keys that orchestrator.run_diagnosis expects).
+      const fastapiParams = {
+        crop_name:           farmCtx.cropName || 'Unknown',
+        crop_growth_stage:   farmCtx.growthStage || (farmCtx.cropAge != null ? String(farmCtx.cropAge) : 'Unknown'),
+        crop_variety:        farmCtx.variety || farmCtx.cropVariety || '',
+        soil_type:           farmCtx.soilType || '',
+        irrigation_system:   farmCtx.irrigationType || farmCtx.irrigation || '',
+        previous_crop:       farmCtx.previousCrop || '',
+        farm_size_acres:     farmCtx.landSize || farmCtx.farmSizeAcres || null,
+        affected_area_percent: farmCtx.affectedAreaPercent || null,
+        symptom_description: farmCtx.additionalSymptoms || (Array.isArray(farmCtx.symptoms) ? farmCtx.symptoms.join(', ') : ''),
+        recent_pesticide_used: farmCtx.recentPesticideUsed || '',
+        fertilizer_history:  farmCtx.fertilizerHistory || '',
+        planting_date:       farmCtx.plantingDate || null,
+        field_latitude:      Number.isFinite(lat) ? lat : null,
+        field_longitude:     Number.isFinite(lon) ? lon : null,
+        state:               farmCtx.state || '',
+        district:            farmCtx.district || '',
+        city:                farmCtx.city || '',
+        language:            farmCtx.language || 'en',
+        // Farmer-chosen quality tier — Fast (default) or Best. The
+        // CropScanScreen sends this via farmContext; AsyncStorage persists
+        // the last choice. FastAPI maps it to per-stage model chains.
+        tier:                farmCtx.tier || 'fast',
+      };
 
-    logger.info('[Express/Scan] Gemini done in %dms — disease=%s conf=%s risk=%s', Date.now()-t0, rawDiagnosis?.primary_disease?.name, rawDiagnosis?.confidence_score, rawDiagnosis?.risk_level);
+      try {
+        rawDiagnosis = await callFastAPIScan({
+          filePath:       file.path,
+          mimeType,
+          viewType:       farmCtx.imageView || 'close_up',
+          params:         fastapiParams,
+          userId:         req.user.id,
+          requestId:      req.id || undefined,
+          idempotencyKey: req.headers['idempotency-key'] || undefined,
+        });
+      } finally {
+        // Clean up the multer temp file regardless of success — the bytes
+        // already live in the FastAPI request body.
+        try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+      }
 
-    // ── Record usage + deduct credits (non-blocking) ──────────────────────────
-    const scanTokens = rawDiagnosis?.meta?.tokens_used || 0;
-    const tokenUsage = { total_tokens: scanTokens, total_cost_usd: 0 };
+      logger.info(
+        '[Express/Scan] FastAPI done in %dms — disease=%s conf=%s tier=%s tokens=%d cost=$%s',
+        Date.now() - t0,
+        rawDiagnosis?.disease?.name_common,
+        rawDiagnosis?.confidence_score,
+        rawDiagnosis?.meta?.tier,
+        rawDiagnosis?.meta?.pipeline_token_usage?.total_tokens || 0,
+        rawDiagnosis?.meta?.pipeline_token_usage?.total_cost_usd || 0,
+      );
+
+      tokenUsage = (() => {
+        const u = extractFastAPIUsage(rawDiagnosis);
+        return { total_tokens: u.tokens, total_cost_usd: u.costUsd };
+      })();
+
+      diagnosis = flattenFastAPIDiagnosis(rawDiagnosis, farmCtx);
+      needsRescan = diagnosis.needsRescan === true;
+    } else {
+      // ── Legacy path: in-Express Gemini call. Identical to previous
+      // behaviour; kept so USE_FASTAPI_FOR_SCAN=false rolls back cleanly. ─
+      diagnosisMethod = 'gemini-direct';
+      rawDiagnosis = await predictCropDisease(params, [
+        { path: file.path, type: farmCtx.imageView || 'close_up' },
+      ]);
+      try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+      logger.info('[Express/Scan] Gemini done in %dms — disease=%s conf=%s risk=%s',
+        Date.now() - t0,
+        rawDiagnosis?.primary_disease?.name,
+        rawDiagnosis?.confidence_score,
+        rawDiagnosis?.risk_level,
+      );
+      const scanTokens = rawDiagnosis?.meta?.tokens_used || 0;
+      tokenUsage = { total_tokens: scanTokens, total_cost_usd: 0 };
+      diagnosis = flattenNodePrediction(rawDiagnosis, farmCtx);
+      needsRescan = rawDiagnosis?.needs_rescan === true;
+    }
+
+    // ── Record usage + deduct credits (non-blocking) — same for both paths ──
     recordScanUsage(req.user.id, tokenUsage).catch(() => {});
     deductCredits(req.user.id, 'ai_scan_gemini', {
-      model: 'gemini-2.5-flash', tokensUsed: scanTokens,
-      description: `Crop scan: ${rawDiagnosis?.primary_disease?.name || 'analysis'}`,
+      model: diagnosisMethod === 'fastapi-agentic'
+        ? (rawDiagnosis?.meta?.model_diagnose || 'fastapi-agentic')
+        : 'gemini-2.5-flash',
+      tokensUsed: tokenUsage.total_tokens,
+      description: `Crop scan: ${diagnosis?.disease || 'analysis'}`,
     }).catch(() => {});
 
-    // Flatten Node.js predict format → flat shape DiagnosisResultScreen expects
-    const diagnosis = flattenNodePrediction(rawDiagnosis, farmCtx);
-    logger.debug('[Express/Scan] disease=%s conf=%s severity=%s treatments=%d', diagnosis.disease, diagnosis.confidence, diagnosis.severity, diagnosis.treatment?.length);
+    logger.debug('[Express/Scan] disease=%s conf=%s severity=%s treatments=%d',
+      diagnosis.disease, diagnosis.confidence, diagnosis.severity, diagnosis.treatment?.length);
 
-    if (rawDiagnosis?.needs_rescan) {
+    if (needsRescan) {
       logger.info('[Express/Scan] needs_rescan — returning early');
       // Still persist the (uncertain) diagnosis so the farmer can share it
       // with a Krushi Kendra seller for a second opinion.
@@ -827,7 +1118,7 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
             riskLevel,
             primaryDisease:  diagnosis.disease || 'Needs rescan',
             confidenceScore: (diagnosis.confidence || 0) / 100,
-            diagnosisMethod: 'gemini-direct',
+            diagnosisMethod,
             fullReport:      rawDiagnosis,
             weatherSnapshot: weatherData || null,
           },
@@ -889,7 +1180,7 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
             riskLevel,
             primaryDisease:  diseaseName,
             confidenceScore: confScore,
-            diagnosisMethod: 'gemini-direct',
+            diagnosisMethod,
             modelAgreement:  null,
             fullReport:      rawDiagnosis,
             weatherSnapshot: weatherData || null,

@@ -31,9 +31,39 @@ from agents.disease_diagnosis_agent import run_disease_diagnosis_agent
 from agents.treatment_agent import run_treatment_agent
 from agents.report_generator_agent import run_report_generator_agent
 from agents.llm_utils import empty_token_info
-from config import IMAGE_QUALITY_THRESHOLD, DIAGNOSIS_ESCALATE_BELOW
-from services.weather_rules import analyze_weather_risk_rules
+from agents.registry import normalize_tier
+from agents.router import describe_chains
+from config import (
+    ALLOW_BEST_TIER,
+    DIAGNOSIS_ESCALATE_BELOW,
+    ENABLE_ENSEMBLE,
+    ENSEMBLE_AMBIGUOUS_DELTA,
+    ENSEMBLE_ESCALATE_BELOW,
+    IMAGE_QUALITY_THRESHOLD,
+    PIPELINE_DEFAULT_TIER,
+)
+from agents import ensemble_agent, reconciler
+from observability.logging import request_id_var, tier_var
+from persistence.diagnosis_repo import record_diagnosis
+from pipeline.budget import BudgetExhausted, PipelineBudget
+from safety import cross_verify
+from services.weather_rules import analyze_weather_risk_rules, disease_is_known
 from services.district_coords import get_weather_coords
+
+
+# Hard cap on the whole pipeline. Per-stage httpx timeouts can pile up
+# (4 stages × 3 retries × 90 s ≈ 18 min worst-case) and the Express
+# proxy aborts at 175 s, leaving the orchestrator running for nothing
+# and burning Anthropic spend. asyncio.wait_for cancels the inner task
+# on timeout — agents are async through-and-through so cancellation
+# propagates cleanly to in-flight LLM calls.
+#
+# 240s gives room for: a Claude Haiku vision diagnose call (60–90s with
+# our 8K system prompt + 8K max output) + treatment LLM (20–40s) + a
+# router fallback hop if the primary fails (another ~60s). Express's
+# default scan timeout is 175s, so callers should bump that to 250s in
+# parallel for this to be visible end-to-end.
+_PIPELINE_TIMEOUT_SECONDS = 240
 
 
 async def run_diagnosis(
@@ -62,9 +92,21 @@ async def run_diagnosis(
 
     images: list of {"path": <temp file path>, "type": <view type>}
     Raises RuntimeError on unrecoverable pipeline failure.
+    Raises TimeoutError if the pipeline exceeds _PIPELINE_TIMEOUT_SECONDS.
     """
     try:
-        return await _run_diagnosis_inner(params, images)
+        return await asyncio.wait_for(
+            _run_diagnosis_inner(params, images),
+            timeout=_PIPELINE_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "[Orchestrator] Pipeline TIMEOUT after %ds — crop=%s",
+            _PIPELINE_TIMEOUT_SECONDS, params.get("crop_name"),
+        )
+        raise TimeoutError(
+            f"Diagnosis pipeline exceeded {_PIPELINE_TIMEOUT_SECONDS}s — please try again."
+        )
     except Exception as exc:
         logger.exception("[Orchestrator] Unhandled pipeline error — crop=%s", params.get("crop_name"))
         raise RuntimeError(f"Diagnosis pipeline failed: {type(exc).__name__}") from exc
@@ -75,6 +117,30 @@ async def _run_diagnosis_inner(
     images: list[dict],
 ) -> dict:
     t_start = time.monotonic()
+
+    # ── Pipeline-wide time budget ─────────────────────────────────────────────
+    # The outer asyncio.wait_for in run_diagnosis still caps the whole thing at
+    # _PIPELINE_TIMEOUT_SECONDS. This PipelineBudget exposes a finer view: each
+    # stage gets a soft cap AND we can detect "no time left for treatment" and
+    # degrade to a cultural-only response rather than hard-timeout in the LLM
+    # call.
+    budget = PipelineBudget(total_seconds=_PIPELINE_TIMEOUT_SECONDS)
+
+    # ── Resolve farmer-chosen tier ("Fast" vs "Best") ─────────────────────────
+    # Request value wins; falls back to PIPELINE_DEFAULT_TIER. ALLOW_BEST_TIER
+    # is the ops kill-switch — if false, every request is forced to "fast"
+    # regardless of what the client sent (used during cost incidents).
+    requested_tier = params.get("tier") or PIPELINE_DEFAULT_TIER
+    tier = normalize_tier(requested_tier)
+    if tier == "best" and not ALLOW_BEST_TIER:
+        logger.warning("[Orchestrator] Best tier disabled by ALLOW_BEST_TIER=false — coerced to fast")
+        tier = "fast"
+    # Stash resolved tier back into params so every downstream agent (and
+    # the treatment cache key) sees the same value.
+    params["tier"] = tier
+    # Stamp tier onto the per-request contextvar so JSON logs from
+    # downstream agents include it without threading it through every call.
+    tier_var.set(tier)
 
     lat = params.get("field_latitude")
     lng = params.get("field_longitude")
@@ -91,6 +157,7 @@ async def _run_diagnosis_inner(
     logger.info(f"[Orchestrator]   Farm Size   : {params.get('farm_size_acres', '?')} acres")
     logger.info(f"[Orchestrator]   GPS         : lat={lat}, lon={lng}")
     logger.info(f"[Orchestrator]   Images      : {len(images)} file(s) → {[i['type'] for i in images]}")
+    logger.info(f"[Orchestrator]   Tier        : {tier}  chains={describe_chains(tier)}")
     logger.info(f"{'='*60}")
 
     # ── STAGE 1: Coordinate fallback + ImageQuality + WeatherFetch in PARALLEL ─
@@ -142,17 +209,41 @@ async def _run_diagnosis_inner(
     logger.info(f"[Orchestrator]   Quality gate    : PASSED (score={quality_score:.2f})")
 
     # ── STAGE 3: Disease Diagnosis (vision + all context) ────────────────────
-    logger.info(f"[Orchestrator] STAGE 3 — DiseaseDiagnosis (Gemini vision)...")
+    logger.info(f"[Orchestrator] STAGE 3 — DiseaseDiagnosis (vision)...")
     # Inject raw weather into params so the diagnosis prompt can show exact metrics
     diag_params = dict(params)
     if weather_data:
         diag_params["_raw_weather"] = weather_data
-    diagnosis, tok_diagnosis = await run_disease_diagnosis_agent(
-        images=images,
-        image_quality=image_quality,
-        weather_risk=weather_risk,
-        params=diag_params,
-    )
+    # Vision is the slowest, most expensive stage — give it the largest soft cap
+    # but still leave enough room for treatment + report.
+    # Diagnose can take 60–90s on Claude Haiku with our 8K-char system
+    # prompt and 8K max output. Sized to leave ~60s for treatment+report
+    # within the 240s pipeline cap.
+    try:
+        diagnosis, tok_diagnosis = await budget.with_budget(
+            run_disease_diagnosis_agent(
+                images=images,
+                image_quality=image_quality,
+                weather_risk=weather_risk,
+                params=diag_params,
+            ),
+            max_seconds=180.0,
+            stage="diagnose",
+            min_required=10.0,
+        )
+    except (BudgetExhausted, asyncio.TimeoutError) as exc:
+        # Catch stage-level timeouts so they don't bubble up and trigger
+        # the outer "exceeded 240s" wrapper. A failed diagnose stage =
+        # rescan path; we surface that cleanly to the client.
+        kind = type(exc).__name__
+        logger.error(
+            "[Orchestrator] STAGE 3 timed out (%s) — returning rescan response",
+            kind,
+        )
+        from agents.disease_diagnosis_agent import _uncertain_fallback
+        from agents.llm_utils import empty_token_info as _empty
+        diagnosis = _uncertain_fallback(f"Diagnose stage exceeded soft cap ({kind})")
+        tok_diagnosis = _empty("diagnose-timeout")
     pd = diagnosis.get("primary_diagnosis", {})
     confidence = diagnosis.get("confidence_score", 0.0)
     logger.info(f"[Orchestrator]   Disease         : {pd.get('disease')} ({pd.get('scientific_name', '')})")
@@ -163,6 +254,74 @@ async def _run_diagnosis_inner(
     logger.info(f"[Orchestrator]   Needs advisor   : {diagnosis.get('needs_advisor')}")
     logger.info(f"[Orchestrator]   Differentials   : {[d.get('disease') for d in diagnosis.get('differentials', [])]}")
 
+    # ── STAGE 3.25: Cascade gate — escalate to ensemble if uncertain ─────────
+    # The cheap pass (Gemini Flash / Haiku) handles the easy majority of
+    # scans on its own. For the hard ones — low confidence OR a tight
+    # primary-vs-differential split — fan out to the frontier ensemble
+    # (Gemini Pro + Claude Sonnet, see registry.STAGE_TIER_CHAINS["ensemble"])
+    # in parallel and let reconciler.fuse() vote. This is what replaces
+    # user-facing "Fast vs Best" tiers with adaptive routing.
+    tok_ensemble = empty_token_info("none-not-escalated")
+    ambiguous = _is_ambiguous(diagnosis, ENSEMBLE_AMBIGUOUS_DELTA)
+    should_escalate = (
+        ENABLE_ENSEMBLE
+        and (confidence < ENSEMBLE_ESCALATE_BELOW or ambiguous)
+        and not diagnosis.get("crop_mismatch")
+        and not diagnosis.get("is_out_of_distribution")
+    )
+    if should_escalate:
+        models = ensemble_agent.select(params.get("crop_name"))
+        logger.info(
+            "[Orchestrator] STAGE 3.25 — Cascade gate ESCALATING (conf=%.2f ambig=%s) → ensemble of %d",
+            confidence, ambiguous, len(models),
+        )
+        try:
+            ensemble_results, tok_ensemble = await budget.with_budget(
+                ensemble_agent.run_parallel(
+                    images=images,
+                    image_quality=image_quality,
+                    weather_risk=weather_risk,
+                    params=diag_params,
+                    models=models,
+                ),
+                max_seconds=120.0,
+                stage="ensemble",
+                min_required=20.0,
+            )
+        except (BudgetExhausted, asyncio.TimeoutError) as exc:
+            logger.warning(
+                "[Orchestrator] Ensemble stage degraded (%s) — keeping primary cheap result",
+                type(exc).__name__,
+            )
+            ensemble_results = []
+        if ensemble_results:
+            fused = reconciler.fuse([diagnosis, *ensemble_results])
+            diagnosis = fused
+            pd = diagnosis.get("primary_diagnosis", {}) or {}
+            confidence = diagnosis.get("confidence_score", 0.0)
+            logger.info(
+                "[Orchestrator]   Reconciled       : %s (agree=%s conf=%.2f)",
+                pd.get("disease"), diagnosis.get("ensemble_agreement"), confidence,
+            )
+    else:
+        logger.info(
+            "[Orchestrator] STAGE 3.25 — Cascade gate SKIPPED (conf=%.2f, ambig=%s, enabled=%s)",
+            confidence, ambiguous, ENABLE_ENSEMBLE,
+        )
+
+    # ── Visual claim verification (Pillow HSV histogram, $0) ─────────────────
+    # Cross-checks the LLM's color/symptom claims ("yellow halos",
+    # "white sporulation") against the actual pixels. Falsified claims
+    # produce a small confidence penalty that feeds into cross_verify.
+    from safety.visual_verify import verify_visual_claims
+    visual_audit = verify_visual_claims(diagnosis, images)
+    diagnosis["_visual_audit"] = visual_audit
+    if visual_audit.get("falsified"):
+        logger.info(
+            "[Orchestrator]   Visual audit    : falsified=%s penalty=-%.3f",
+            visual_audit["falsified"], visual_audit["score_penalty"],
+        )
+
     # ── Escalation check ──────────────────────────────────────────────────────
     if confidence < DIAGNOSIS_ESCALATE_BELOW:
         diagnosis["needs_advisor"] = True
@@ -170,7 +329,15 @@ async def _run_diagnosis_inner(
 
     # ── STAGE 3.5: Cross-Verification (rule-based, $0) ──────────────────────
     logger.info(f"[Orchestrator] STAGE 3.5 — CrossVerification (rule-based, $0)...")
-    diagnosis, confidence = _cross_verify(diagnosis, weather_risk, image_quality)
+    # KB-membership is the §6.5 fix: don't penalize "weather contradicts"
+    # for a disease the rule engine has no opinion on. Compute it once and
+    # pass through so cross_verify doesn't have to re-import weather_rules.
+    primary_disease_name = (diagnosis.get("primary_diagnosis") or {}).get("disease", "")
+    weather_kb_has_disease = disease_is_known(primary_disease_name)
+    diagnosis, confidence = cross_verify.apply(
+        diagnosis, weather_risk, image_quality,
+        weather_kb_has_disease=weather_kb_has_disease,
+    )
     logger.info(f"[Orchestrator]   Post-verification confidence: {confidence:.0%}")
     logger.info(f"[Orchestrator]   Confidence tier: {'HIGH' if confidence >= 0.85 else 'MEDIUM' if confidence >= 0.70 else 'LOW' if confidence >= 0.50 else 'VERY_LOW'}")
     logger.info(f"[Orchestrator]   Penalties applied: {diagnosis.get('confidence_penalties', [])}")
@@ -183,12 +350,39 @@ async def _run_diagnosis_inner(
         logger.info(f"[Orchestrator] ⚠ Cross-verification dropped confidence below {DIAGNOSIS_ESCALATE_BELOW} — escalating")
 
     # ── STAGE 4: Treatment & Fertilizer ──────────────────────────────────────
-    logger.info(f"[Orchestrator] STAGE 4 — TreatmentAgent (Groq)...")
-    treatment, tok_treatment = await run_treatment_agent(
-        diagnosis=diagnosis,
-        weather_risk=weather_risk,
-        params=params,
-    )
+    # Budget-aware: if Stage 3 ate most of the budget, skip the LLM call and
+    # return a cultural-only fallback rather than asyncio.cancel-ing in the
+    # middle of an Anthropic/Groq request.
+    logger.info(f"[Orchestrator] STAGE 4 — TreatmentAgent (router, tier=%s)...", tier)
+    try:
+        # 90s soft cap — Gemini Flash typically returns the full structured
+        # treatment in 5-10s, but Claude Haiku (the fallback) needs 30-60s
+        # for the same prompt. Catch BOTH BudgetExhausted (no budget left
+        # before call) AND asyncio.TimeoutError (stage call exceeded the
+        # 90s cap mid-flight) so the pipeline degrades gracefully instead
+        # of bubbling up as an opaque "exceeded 240s" outer-timeout error.
+        treatment, tok_treatment = await budget.with_budget(
+            run_treatment_agent(
+                diagnosis=diagnosis,
+                weather_risk=weather_risk,
+                params=params,
+            ),
+            max_seconds=90.0,
+            stage="treatment",
+            min_required=8.0,
+        )
+    except (BudgetExhausted, asyncio.TimeoutError) as exc:
+        kind = type(exc).__name__
+        logger.warning("[Orchestrator] STAGE 4 degraded — %s: %s", kind, exc or "treatment exceeded stage budget")
+        from agents.treatment_agent import _fallback_treatment  # local import: degradation path only
+        from agents.llm_utils import empty_token_info as _empty
+        treatment = _fallback_treatment(diagnosis.get("primary_diagnosis", {}).get("disease", "Unknown"))
+        treatment["confidence_adjusted_note"] = (
+            "Treatment LLM skipped due to time budget — cultural & biological "
+            "measures only. Re-run scan for full chemical recommendation."
+        )
+        tok_treatment = _empty("budget-skipped")
+        diagnosis["needs_advisor"] = True
     logger.info(f"[Orchestrator]   Immediate actions   : {len(treatment.get('immediate_actions', []))}")
     logger.info(f"[Orchestrator]   Chemical controls   : {len(treatment.get('chemical_controls', []))}")
     logger.info(f"[Orchestrator]   Organic alternatives: {len(treatment.get('organic_alternatives', []))}")
@@ -214,7 +408,7 @@ async def _run_diagnosis_inner(
     logger.info(f"[Orchestrator]   weather_outlook : {report.get('weather_outlook', {})}")
 
     # ── Token usage aggregation ───────────────────────────────────────────────
-    all_toks = [tok_weather, tok_diagnosis, tok_treatment, tok_report]
+    all_toks = [tok_weather, tok_diagnosis, tok_ensemble, tok_treatment, tok_report]
     total_inp  = sum(t["input_tokens"]  for t in all_toks)
     total_out  = sum(t["output_tokens"] for t in all_toks)
     total_tok  = sum(t["total_tokens"]  for t in all_toks)
@@ -224,6 +418,7 @@ async def _run_diagnosis_inner(
         "agents": {
             "weather_analysis":  tok_weather,
             "disease_diagnosis": tok_diagnosis,
+            "ensemble":          tok_ensemble,
             "treatment":         tok_treatment,
             "report_generator":  tok_report,
         },
@@ -248,6 +443,42 @@ async def _run_diagnosis_inner(
     report["meta"]["confidence_score"] = confidence
     report["meta"]["escalated"] = diagnosis.get("needs_advisor", False)
     report["meta"]["pipeline_token_usage"] = pipeline_token_usage
+    report["meta"]["tier"] = tier
+    report["meta"]["model_diagnose"]  = tok_diagnosis.get("model", "")
+    report["meta"]["model_treatment"] = tok_treatment.get("model", "")
+    report["meta"]["ensemble_used"]      = bool(diagnosis.get("ensemble_used"))
+    report["meta"]["ensemble_agreement"] = diagnosis.get("ensemble_agreement")
+    report["meta"]["ensemble_models"]    = diagnosis.get("ensemble_models") or []
+    report["meta"]["budget"] = budget.snapshot()
+    # Stamp the request_id from the FastAPI middleware so the report and
+    # the persisted row both share a key the mobile app can correlate.
+    report["meta"]["request_id"] = request_id_var.get() or None
+    # Stamp prompt versions so any historical scan can be replayed against
+    # the exact prompt text that ran. Prefer the per-request meta (set by
+    # the agent when A/B routing picked a variant) over the module-level
+    # baseline constants. The persistence layer reads these hashes to
+    # group/eval by prompt version.
+    from agents.disease_diagnosis_agent import DIAGNOSE_PROMPT_META
+    from agents.treatment_agent import TREATMENT_PROMPT_META
+    diagnose_prompt_meta  = diagnosis.get("_prompt_meta")  or DIAGNOSE_PROMPT_META
+    treatment_prompt_meta = treatment.get("_prompt_meta") or TREATMENT_PROMPT_META
+    report["meta"]["prompts"] = {
+        "diagnose":  diagnose_prompt_meta,
+        "treatment": treatment_prompt_meta,
+    }
+    # If a local ONNX classifier ran, surface its top-k into meta for audit.
+    if diagnosis.get("_local_prior"):
+        report["meta"]["local_classifier_prior"] = diagnosis["_local_prior"]
+    # Visual audit summary (HSV pixel check vs LLM color claims).
+    va = diagnosis.get("_visual_audit") or {}
+    if va.get("available"):
+        report["meta"]["visual_audit"] = {
+            "claimed":       va.get("claimed", []),
+            "verified":      va.get("verified", []),
+            "unverified":    va.get("unverified", []),
+            "falsified":     va.get("falsified", []),
+            "score_penalty": va.get("score_penalty", 0.0),
+        }
 
     # Attach raw weather for detailed PDF report
     if weather_data:
@@ -260,112 +491,33 @@ async def _run_diagnosis_inner(
     logger.info(f"[Orchestrator] ✓ Pipeline DONE in {elapsed}s")
     logger.info(f"{'='*60}\n")
 
+    # Fire-and-forget persistence. record_diagnosis() never raises — a DB
+    # outage or schema-creation failure logs a warning and is dropped, so
+    # this can never delay or break the response to the farmer. We use
+    # create_task (not await) so the user gets the report immediately
+    # while the row is inserted in the background.
+    asyncio.create_task(record_diagnosis(params=params, images=images, report=report))
+
     return report
 
 
-# ── Cross-Verification (rule-based, $0) ──────────────────────────────────────
-
-def _cross_verify(
-    diagnosis: dict,
-    weather_risk: dict,
-    image_quality: dict,
-) -> tuple[dict, float]:
-    """
-    Cross-verify diagnosis against weather favorability and image quality.
-    Applies confidence penalties when evidence conflicts.
-    Returns (updated_diagnosis, updated_confidence).
-
-    This is the "skeptic" step — it catches cases where:
-    - Vision says disease X but weather contradicts it
-    - Differentials are too close (ambiguous pair)
-    - Image quality is poor
-    - Pathogen type is ambiguous (bacterial vs fungal)
-    - Crop mismatch detected
-    """
-    confidence = diagnosis.get("confidence_score", 0.0)
-    penalties: list[str] = list(diagnosis.get("confidence_penalties", []))
-
-    # 1. Weather contradiction penalty
-    weather_corr = diagnosis.get("weather_correlation", "PARTIAL")
-    disease_name = diagnosis.get("primary_diagnosis", {}).get("disease", "").lower()
-    favorable = [d.lower() for d in weather_risk.get("favorable_diseases", [])]
-
-    if weather_corr == "CONTRADICTS" and "contradicts_weather" not in str(penalties):
-        confidence -= 0.12
-        penalties.append(f"Weather CONTRADICTS diagnosis (-0.12)")
-
-    # Check if diagnosed disease is NOT in the favorable diseases list
-    if favorable and disease_name and disease_name != "unknown":
-        disease_in_favorable = any(disease_name in f or f in disease_name for f in favorable)
-        if not disease_in_favorable and weather_risk.get("weather_used"):
-            confidence -= 0.05
-            penalties.append(f"Disease '{disease_name}' not in weather-favorable list (-0.05)")
-
-    # 2. Ambiguous differential penalty — top 2 diseases within 10% confidence
-    differentials = diagnosis.get("differentials", [])
-    if differentials:
-        primary_conf = diagnosis.get("confidence_score", 0)
-        top_diff_prob = differentials[0].get("probability", 0)
-        if isinstance(top_diff_prob, (int, float)) and isinstance(primary_conf, (int, float)):
-            if abs(primary_conf - top_diff_prob) < 0.10 and top_diff_prob > 0.25:
-                if "ambiguous_pair" not in str(penalties):
-                    confidence -= 0.08
-                    penalties.append(
-                        f"Ambiguous: primary ({primary_conf:.0%}) vs differential "
-                        f"'{differentials[0].get('disease', '?')}' ({top_diff_prob:.0%}) (-0.08)"
-                    )
-
-    # 3. Image quality penalty
-    img_score = image_quality.get("quality_score", 1.0)
-    if img_score < 0.5 and "image_quality" not in str(penalties):
-        confidence -= 0.10
-        penalties.append(f"Poor image quality ({img_score:.2f}) (-0.10)")
-
-    # 4. Crop mismatch penalty
-    if diagnosis.get("crop_mismatch") and "crop_mismatch" not in str(penalties):
-        confidence -= 0.20
-        penalties.append("Crop mismatch suspected (-0.20)")
-
-    # 5. Out-of-distribution detection
-    if diagnosis.get("is_out_of_distribution") and "out_of_distribution" not in str(penalties):
-        confidence = min(confidence, 0.45)
-        penalties.append("Out-of-distribution image — confidence capped at 0.45")
-
-    # 6. Bacterial vs fungal ambiguity
-    if diagnosis.get("needs_lab_confirmation") and "lab_confirmation" not in str(penalties):
-        confidence -= 0.08
-        penalties.append("Pathogen type ambiguous (bacterial/fungal) — lab confirmation needed (-0.08)")
-
-    # 7. Perspective disagreement cap
-    agreement = diagnosis.get("perspective_agreement", "")
-    if agreement == "0/3" and confidence > 0.55:
-        confidence = 0.55
-        penalties.append("All 3 diagnostic perspectives disagree — confidence capped at 0.55")
-
-    # Clamp confidence
-    confidence = max(0.0, min(1.0, confidence))
-
-    # Update diagnosis with verified confidence
-    diagnosis["confidence_score"] = confidence
-    diagnosis["confidence_penalties"] = penalties
-    if diagnosis.get("primary_diagnosis"):
-        diagnosis["primary_diagnosis"]["confidence"] = confidence
-    diagnosis["needs_advisor"] = diagnosis.get("needs_advisor", False) or confidence < DIAGNOSIS_ESCALATE_BELOW
-
-    # Determine confidence tier for downstream agents
-    if confidence >= 0.85:
-        diagnosis["confidence_tier"] = "HIGH"
-    elif confidence >= 0.70:
-        diagnosis["confidence_tier"] = "MEDIUM"
-    elif confidence >= 0.50:
-        diagnosis["confidence_tier"] = "LOW"
-    else:
-        diagnosis["confidence_tier"] = "VERY_LOW"
-
-    return diagnosis, confidence
-
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _is_ambiguous(diagnosis: dict, delta: float) -> bool:
+    """True if the primary call is "uncertain because of a close differential" —
+    not the same as "low confidence". A model that says 0.62 vs a top
+    differential of 0.55 is admitting it can't tell two diseases apart;
+    pre-emptively escalating beats letting cross_verify catch it later."""
+    diffs = diagnosis.get("differentials") or []
+    if not diffs:
+        return False
+    primary_conf = float(diagnosis.get("confidence_score") or 0)
+    top = diffs[0]
+    p = top.get("probability") if isinstance(top, dict) else None
+    if not isinstance(p, (int, float)):
+        return False
+    return abs(primary_conf - float(p)) < delta and float(p) > 0.25
+
 
 async def _safe_fetch_weather(lat: Optional[float], lng: Optional[float]) -> Optional[dict]:
     if lat is None or lng is None:

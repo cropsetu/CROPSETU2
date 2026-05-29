@@ -1,6 +1,14 @@
 """
 FarmMind Chat Service — CropGuard AI Backend
-Groq (llama-3.3-70b-versatile) primary → Gemini (gemini-2.5-flash) fallback.
+
+Model selection
+  Reads ONE model + ONE API key from .env via `agents/llm_dispatch`:
+    AI_TEXT_CHAT_MODEL=llama-3.3-70b-versatile    (default: Groq Llama)
+    AI_TEXT_CHAT_API_KEY=gsk_...                  (default: GROQ_API_KEY)
+    AI_TEXT_CHAT_BASE_URL=...                     (optional override)
+
+  No fallback — if the configured model fails, the request fails. Admin
+  swaps the model in .env when one provider breaks.
 
 Input : message, history (role/content pairs), farm_profile dict
 Output: { reply, type, structured_data }
@@ -13,9 +21,7 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
-import httpx
-
-from config import GROQ_API_KEY, GEMINI_API_KEY, MODEL_GROQ_CHAT, MODEL_GEMINI_CHAT
+from agents.llm_dispatch import call_llm_text, get_feature_config
 
 logger = logging.getLogger(__name__)
 
@@ -236,74 +242,6 @@ def _classify_response(text: str, structured: Optional[dict]) -> tuple[str, Opti
     return "text", None
 
 
-# ── Groq call ─────────────────────────────────────────────────────────────────
-
-async def _call_groq(system: str, messages: list[dict]) -> tuple[str, dict]:
-    """Returns (reply_text, token_info)."""
-    if not GROQ_API_KEY:
-        raise ValueError("GROQ_API_KEY not set")
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": MODEL_GROQ_CHAT,
-                "messages": [{"role": "system", "content": system}] + messages,
-                "temperature": 0.7,
-                "max_tokens": 2048,
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        usage = data.get("usage", {})
-        token_info = {
-            "model": MODEL_GROQ_CHAT,
-            "input_tokens": usage.get("prompt_tokens", 0),
-            "output_tokens": usage.get("completion_tokens", 0),
-            "total_tokens": usage.get("total_tokens", 0),
-        }
-        return data["choices"][0]["message"]["content"].strip(), token_info
-
-
-# ── Gemini fallback ───────────────────────────────────────────────────────────
-
-async def _call_gemini(system: str, messages: list[dict]) -> tuple[str, dict]:
-    """Returns (reply_text, token_info)."""
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY not set")
-
-    # Convert OpenAI-style history to Gemini contents
-    contents = []
-    for m in messages:
-        role = "user" if m["role"] == "user" else "model"
-        contents.append({"role": role, "parts": [{"text": m["content"]}]})
-
-    # Prepend system as first user turn
-    contents = [{"role": "user", "parts": [{"text": system}]},
-                {"role": "model", "parts": [{"text": "Understood. I am FarmMind, ready to help Indian farmers."}]}] + contents
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_GEMINI_CHAT}:generateContent",
-            headers={"x-goog-api-key": GEMINI_API_KEY},
-            json={"contents": contents, "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.7}},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        usage = data.get("usageMetadata", {})
-        token_info = {
-            "model": MODEL_GEMINI_CHAT,
-            "input_tokens": usage.get("promptTokenCount", 0),
-            "output_tokens": usage.get("candidatesTokenCount", 0),
-            "total_tokens": usage.get("totalTokenCount", 0),
-        }
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip(), token_info
-
-
 # ── Public function ───────────────────────────────────────────────────────────
 
 async def chat_with_farmmind(
@@ -313,6 +251,10 @@ async def chat_with_farmmind(
 ) -> dict[str, Any]:
     """
     Returns: { reply: str, type: str, structured_data: dict|None }
+
+    Uses the single AI_TEXT_CHAT_MODEL / _API_KEY configured in .env.
+    No fallback — if the model fails, the call raises and the route
+    handler returns an error (admin then swaps the model in .env).
     """
     logger.info("[ChatService] farm_profile keys: %s", list(farm_profile.keys()))
     logger.info("[ChatService] soilType=%s, irrigationType=%s, crops=%d, district=%s, farmName=%s",
@@ -322,30 +264,38 @@ async def chat_with_farmmind(
                 farm_profile.get("district", "MISSING"),
                 farm_profile.get("farmName", "MISSING"))
 
+    cfg = get_feature_config("TEXT_CHAT")
     system   = _build_system_prompt(farm_profile)
-    logger.info("[ChatService] System prompt length: %d chars", len(system))
-    messages = [{"role": m["role"], "content": m["content"]} for m in history[-20:]]
-    messages.append({"role": "user", "content": message})
+    logger.info("[ChatService] System prompt length: %d chars; model=%s", len(system), cfg.model)
+    history_msgs = history[-20:]
 
-    reply = None
-    token_info = {"model": "none", "input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    # Format history into a single user-side context string. One-shot
+    # system + user is the cross-provider lowest-common-denominator
+    # shape; the dispatcher routes uniformly across Groq/Gemini/Anthropic
+    # /OpenAI without rewriting per-provider message formats.
+    history_block = ""
+    if history_msgs:
+        formatted = []
+        for m in history_msgs:
+            role = "Farmer" if m["role"] == "user" else "FarmMind"
+            formatted.append(f"{role}: {m['content']}")
+        history_block = "Previous conversation:\n" + "\n".join(formatted) + "\n\n"
+    user_prompt = f"{history_block}Farmer: {message}\nFarmMind:"
 
-    # Try Groq first (FREE)
-    if GROQ_API_KEY:
-        try:
-            reply, token_info = await _call_groq(system, messages)
-        except Exception as exc:
-            logger.warning(f"[ChatService] Groq failed: {exc} — trying Gemini")
-
-    # Fallback to Gemini (FREE)
-    if not reply and GEMINI_API_KEY:
-        try:
-            reply, token_info = await _call_gemini(system, messages)
-        except Exception as exc:
-            logger.warning(f"[ChatService] Gemini failed: {exc}")
+    try:
+        reply, token_info = await call_llm_text(
+            cfg,
+            system_prompt=system,
+            user_prompt=user_prompt,
+        )
+    except Exception as exc:
+        logger.error("[ChatService] %s call failed: %s", cfg.model, exc)
+        raise RuntimeError(f"Chat unavailable — {cfg.model} failed: {exc}")
 
     if not reply:
-        raise RuntimeError("AI service unavailable — all providers failed (Groq, Gemini)")
+        raise RuntimeError(f"Chat unavailable — {cfg.model} returned empty response")
+    logger.info("[ChatService] reply via %s (%d in / %d out tokens)",
+                cfg.model, token_info.get("input_tokens", 0), token_info.get("output_tokens", 0))
 
     structured = _try_extract_json(reply)
     resp_type, structured_data = _classify_response(reply, structured)

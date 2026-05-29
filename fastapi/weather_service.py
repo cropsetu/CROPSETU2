@@ -8,7 +8,9 @@ Open-Meteo docs: https://open-meteo.com/en/docs
 """
 from __future__ import annotations
 
+import json
 import logging
+import time
 
 import httpx
 
@@ -16,10 +18,69 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://api.open-meteo.com/v1/forecast"
 
+# ── Coordinate-bucketed cache ───────────────────────────────────────────────
+# Open-Meteo's grid resolution is ~11 km, so requests within 0.1° of each
+# other receive identical forecasts. Bucket lat/lon to 1 decimal place and
+# share a single fetch across all callers in that bucket for 30 minutes —
+# this cuts the per-scan latency and the ratelimit pressure on Open-Meteo
+# (free tier: 10k req/day, easy to hit during a marketing push).
+_WEATHER_TTL_SECONDS = 30 * 60
+_WEATHER_NAMESPACE = "weather:om"
+
+try:
+    import redis as _redis_lib
+    _redis = _redis_lib.Redis(host="localhost", port=6379, db=0, socket_connect_timeout=2)
+    _redis.ping()
+    _REDIS_OK = True
+except Exception:
+    _redis = None
+    _REDIS_OK = False
+
+_MEM: dict[str, tuple[dict, float]] = {}
+_MEM_MAX = 200
+
+
+def _cache_key(lat: float, lon: float) -> str:
+    return f"{_WEATHER_NAMESPACE}:{round(lat, 1)}:{round(lon, 1)}"
+
+
+def _cache_get(key: str) -> dict | None:
+    if _REDIS_OK:
+        try:
+            raw = _redis.get(key)
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+    entry = _MEM.get(key)
+    if entry:
+        val, ts = entry
+        if time.time() - ts < _WEATHER_TTL_SECONDS:
+            return val
+        _MEM.pop(key, None)
+    return None
+
+
+def _cache_set(key: str, value: dict) -> None:
+    if _REDIS_OK:
+        try:
+            _redis.setex(key, _WEATHER_TTL_SECONDS, json.dumps(value))
+            return
+        except Exception:
+            pass
+    if len(_MEM) >= _MEM_MAX:
+        oldest = min(_MEM, key=lambda k: _MEM[k][1])
+        _MEM.pop(oldest, None)
+    _MEM[key] = (value, time.time())
+
 
 async def fetch_weather(lat: float, lon: float) -> dict:
     """
     Fetch current + 7-day forecast weather for a location.
+
+    Results are cached by rounded coordinates for 30 minutes — see the
+    module-level cache. Bypass the cache by calling _fetch_weather_uncached
+    directly (used by tests).
 
     Returns:
       {
@@ -30,6 +91,18 @@ async def fetch_weather(lat: float, lon: float) -> dict:
         "location": { latitude, longitude },
       }
     """
+    key = _cache_key(lat, lon)
+    cached = _cache_get(key)
+    if cached is not None:
+        logger.info("[Weather] cache HIT lat=%.2f lon=%.2f", lat, lon)
+        return cached
+
+    result = await _fetch_weather_uncached(lat, lon)
+    _cache_set(key, result)
+    return result
+
+
+async def _fetch_weather_uncached(lat: float, lon: float) -> dict:
     params = {
         "latitude": lat,
         "longitude": lon,

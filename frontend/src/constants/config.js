@@ -24,8 +24,18 @@ const PROD_API = process.env.EXPO_PUBLIC_API_BASE_URL
 const PROD_SOCKET = process.env.EXPO_PUBLIC_SOCKET_URL
   || 'wss://cropsetu-backend-production.up.railway.app';
 
-export const API_BASE_URL = __DEV__ ? `http://${DEV_HOST}:3001/api/v1` : PROD_API;
-export const SOCKET_URL   = __DEV__ ? `http://${DEV_HOST}:3001`       : PROD_SOCKET;
+// Resolution order:
+//   1. EXPO_PUBLIC_API_BASE_URL — set in frontend/.env or eas.json. Wins
+//      everywhere (dev, Expo Go, native build, web). Use this to point at
+//      a LAN IP, a tunnel, or directly at the Railway prod URL.
+//   2. __DEV__ default — `http://<DEV_HOST>:3001` for the local Mac.
+//      Note: DEV_HOST=10.0.2.2 only works in the Android *emulator*. On a
+//      physical device or in Expo Go, set EXPO_PUBLIC_API_BASE_URL instead.
+//   3. PROD default — the Railway production URL hardcoded in PROD_API.
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL
+  || (__DEV__ ? `http://${DEV_HOST}:3001/api/v1` : PROD_API);
+export const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL
+  || (__DEV__ ? `http://${DEV_HOST}:3001` : PROD_SOCKET);
 
 // ── Input / upload limits ──────────────────────────────────────────────────
 export const MAX_MESSAGE_LENGTH   = 2000;

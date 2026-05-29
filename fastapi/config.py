@@ -20,12 +20,29 @@ GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
 # ── Google Gemini (chat fallback + vision) ────────────────────────────────────
 GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
 
+# ── Sarvam (Indic translation for report enrichment) ─────────────────────────
+SARVAM_API_KEY: str = os.environ.get("SARVAM_API_KEY", "")
+
 # ── Agent model assignments ───────────────────────────────────────────────────
+# NOTE: The active routing for the disease-detection pipeline now lives in
+# agents/registry.py (STAGE_TIER_CHAINS) — driven by the farmer-facing
+# "Fast vs Best" toggle. The constants below are kept ONLY for non-pipeline
+# call sites (e.g. ad-hoc scripts) and should not be referenced from the
+# scan/diagnose/treatment path.
 MODEL_IMAGE_QUALITY  = "claude-sonnet-4-6"          # vision capable
 MODEL_WEATHER        = "claude-haiku-4-5-20251001"   # fast + cheap
 MODEL_DIAGNOSIS      = "claude-sonnet-4-6"           # highest accuracy
 MODEL_TREATMENT      = "claude-sonnet-4-6"           # balanced
 MODEL_REPORT         = "claude-haiku-4-5-20251001"   # speed > reasoning
+
+# ── Pipeline tier ─────────────────────────────────────────────────────────────
+# Default tier when the client does not send `params.tier`. Operators can flip
+# the production default to "best" without a code change.
+# Valid values: "fast" | "best".
+PIPELINE_DEFAULT_TIER: str = os.environ.get("PIPELINE_DEFAULT_TIER", "fast").strip().lower()
+# Hard cap: if a request asks for "best" but ops want to block premium spend,
+# set ALLOW_BEST_TIER=false to coerce every request to "fast" server-side.
+ALLOW_BEST_TIER: bool = os.environ.get("ALLOW_BEST_TIER", "true").strip().lower() != "false"
 
 # ── Chat / alert model assignments ───────────────────────────────────────────
 MODEL_GROQ_CHAT   = os.environ.get("GROQ_CHAT_MODEL",   "llama-3.3-70b-versatile")
@@ -35,8 +52,23 @@ MODEL_GEMINI_CHAT = os.environ.get("GEMINI_CHAT_MODEL",  "gemini-2.5-flash")
 IMAGE_QUALITY_THRESHOLD   = 0.6
 IMAGE_UNUSABLE_THRESHOLD  = 0.4
 DIAGNOSIS_CONF_THRESHOLD  = 0.7
-DIAGNOSIS_ESCALATE_BELOW  = 0.5
+DIAGNOSIS_ESCALATE_BELOW  = 0.5     # "advise farmer to consult expert" threshold
 TREATMENT_REL_THRESHOLD   = 0.8
+
+# Cascade-into-ensemble: when the cheap diagnose call returns confidence
+# below this value (OR the primary-vs-top-differential delta is too tight),
+# the orchestrator fans out to the parallel ensemble (Gemini Pro + Claude
+# Sonnet) and reconciles. Set higher → more scans escalate (more accuracy,
+# more cost + latency); set lower → ensemble only for the truly hard cases.
+# Tune against the eval/golden_runner.py top-1 metric.
+ENSEMBLE_ESCALATE_BELOW   = float(os.environ.get("ENSEMBLE_ESCALATE_BELOW", "0.80"))
+# Soft kill-switch — set ENABLE_ENSEMBLE=false to keep every scan single-model
+# (useful during a quota incident or when measuring cheap-only baseline).
+ENABLE_ENSEMBLE: bool     = os.environ.get("ENABLE_ENSEMBLE", "true").strip().lower() != "false"
+# Ambiguity gate: when |primary_conf - top_differential_prob| < this AND the
+# differential's own probability > 0.25, treat the result as ambiguous and
+# escalate regardless of absolute confidence. Matches the spec's §6.2.
+ENSEMBLE_AMBIGUOUS_DELTA  = float(os.environ.get("ENSEMBLE_AMBIGUOUS_DELTA", "0.10"))
 
 # ── Retry limits ──────────────────────────────────────────────────────────────
 MAX_IMAGE_RETRIES     = 3

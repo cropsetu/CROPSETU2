@@ -22,6 +22,7 @@
     "db:reassign:animals": "node prisma/reassign-animal-sellers.js",
     "db:unseed:animals": "node prisma/unseed-animals.js",
     "db:seed:all": "node prisma/seed.js && node prisma/seed-crops.js && node prisma/seed-msp.js",
+    "setup": "npm install && npm run db:push && npm run db:seed:all",
     "test": "node --experimental-vm-modules node_modules/.bin/jest --testPathPattern='tests/'",
     "lint:console": "node scripts/check-console-logs.js",
     "mandi:seed": "node scripts/seedMandiData.js",

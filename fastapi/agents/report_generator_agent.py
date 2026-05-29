@@ -18,6 +18,9 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 from agents.llm_utils import empty_token_info
+from safety.compliance import build_compliance_audit
+from services.sarvam_translator import translate_blocks, supported as sarvam_supports
+from services.state_language import lang_for_state, lang_display_name
 
 
 # ── Utilities ────────────────────────────────────────────────────────────────
@@ -72,6 +75,129 @@ def _estimate_quantity(dose_str: str, farm_acres: float) -> str:
     return ""
 
 
+# ── Local-language section blocks ────────────────────────────────────────────
+
+def _build_english_local_blocks(report: dict, params: dict) -> dict[str, str]:
+    """
+    Compose the five short English summaries that will be translated into
+    the farmer's native language and rendered as per-section strips.
+
+    Each block is a single sentence or short paragraph composed from
+    already-generated structured fields — no LLM call. Pesticide trade
+    names, FRAC codes, and chemical actives are intentionally left in
+    English (regulatory + safety: a translated brand name is dangerous).
+    """
+    disease = report.get("disease", {}) or {}
+    treatment = report.get("treatment", {}) or {}
+    action_card = report.get("action_card", {}) or {}
+    meta = report.get("meta", {}) or {}
+    weather = report.get("weather_outlook", {}) or {}
+
+    disease_name = disease.get("name_common") or "an unidentified condition"
+    severity = (disease.get("severity") or "moderate").lower()
+    confidence_pct = int(round((report.get("confidence_score") or 0.0) * 100))
+    crop = params.get("crop_name") or "your crop"
+
+    top_actions = action_card.get("top_3_actions") or report.get("next_steps", [])[:3]
+    immediate = top_actions[0] if top_actions else "follow the prescribed treatment"
+
+    chemicals = treatment.get("chemical") or []
+    primary_chemical = ""
+    primary_dose = ""
+    primary_timing = treatment.get("spray_timing") or ""
+    if chemicals:
+        first = chemicals[0] if isinstance(chemicals[0], dict) else {}
+        primary_chemical = first.get("active_ingredient") or first.get("name") or ""
+        primary_dose = first.get("dose") or first.get("dosage") or ""
+
+    follow_up_days = action_card.get("follow_up_days") or 7
+    advisor_needed = meta.get("needs_advisor") or report.get("advisor_needed")
+
+    summary = (
+        f"{crop} appears to have {disease_name} ({severity} severity) with "
+        f"{confidence_pct}% confidence. Most urgent step: {immediate}."
+    )
+
+    diagnosis = (
+        f"Detected disease: {disease_name}. "
+        f"Confidence {confidence_pct}%. "
+        + ("Consult a KVK or local agronomist to confirm." if advisor_needed else
+           "Begin the recommended treatment without delay.")
+    )
+
+    if primary_chemical:
+        treatment_block = (
+            f"Spray {primary_chemical}"
+            + (f" at {primary_dose}" if primary_dose else "")
+            + (f". {primary_timing}" if primary_timing else "")
+            + ". Use full PPE and follow label instructions."
+        )
+    else:
+        treatment_block = (
+            "Follow the prescribed treatment plan; use full PPE and observe the "
+            "pre-harvest interval on every product label."
+        )
+
+    risk = (weather.get("risk") or "").lower()
+    prognosis = (
+        f"With prompt treatment, recovery is expected within {follow_up_days * 2} days. "
+        + ("Weather conditions remain disease-favourable — watch for spread."
+           if risk in ("high", "critical") else
+           "Weather is currently neutral; standard monitoring is sufficient.")
+    )
+
+    follow_up = (
+        f"Re-inspect the field in {follow_up_days} days. Check new lesion count, "
+        "underside of leaves, and weather forecast. Escalate to KVK if symptoms worsen."
+    )
+
+    return {
+        "summary":   summary,
+        "diagnosis": diagnosis,
+        "treatment": treatment_block,
+        "prognosis": prognosis,
+        "follow_up": follow_up,
+    }
+
+
+async def _attach_local_blocks(report: dict, params: dict) -> None:
+    """
+    Compute and attach `report['local_blocks']` in-place.
+
+    Resolution priority for target language:
+      1. params['language'] — set explicitly by the client
+      2. lang_for_state(params['state']) — derived from the farmer's state
+      3. 'en' fallback
+
+    When the target is English or Sarvam can't translate to it, the block
+    is still attached (helpful for the frontend's rendering switch) but
+    with `blocks={}` so the UI skips the native strip.
+    """
+    explicit = (params.get("language") or "").strip().lower() or None
+    target = explicit or lang_for_state(params.get("state"))
+
+    if target == "en" or not sarvam_supports(target):
+        report["local_blocks"] = {
+            "language": target,
+            "language_name": lang_display_name(target),
+            "blocks": {},
+        }
+        return
+
+    source_blocks = _build_english_local_blocks(report, params)
+    translated = await translate_blocks(source_blocks, target)
+
+    # If the translator returned originals for everything (Sarvam down,
+    # key missing, etc.), we still want the frontend to know what language
+    # was *targeted* so it can render an English-only fallback strip.
+    untranslated = all(translated[k] == source_blocks[k] for k in source_blocks)
+    report["local_blocks"] = {
+        "language": target,
+        "language_name": lang_display_name(target),
+        "blocks": {} if untranslated else translated,
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 1 — FARMER SUMMARY
 # ══════════════════════════════════════════════════════════════════════════════
@@ -94,7 +220,10 @@ def _build_section1_farmer_summary(
     spread_risk  = diagnosis.get("spread_risk", "UNKNOWN")
     crop         = params.get("crop_name", "Unknown")
     variety      = params.get("crop_variety", "")
-    farm_acres   = params.get("farm_size_acres", 0)
+    # `params.get(key, default)` returns None when the key EXISTS with value
+    # None (mobile sends None for unfilled numeric fields), so we need
+    # `or` to coerce a falsy value to the default.
+    farm_acres   = params.get("farm_size_acres") or 0
     affected_pct = params.get("affected_area_percent", 0)
 
     # Confidence tier
@@ -254,7 +383,7 @@ def _build_section2_detailed_guidance(
     pathogen     = disease_info.get("pathogen_type", diagnosis.get("pathogen_type", "unknown"))
     severity     = disease_info.get("severity", "Unknown")
     crop         = params.get("crop_name", "Unknown")
-    farm_acres   = params.get("farm_size_acres", 1)
+    farm_acres   = params.get("farm_size_acres") or 1
 
     # ── What is happening (plain explanation) ──
     description = disease_info.get("description", "")
@@ -433,7 +562,7 @@ def _build_section3_dispensing_sheet(
     pathogen     = disease_info.get("pathogen_type", diagnosis.get("pathogen_type", "unknown"))
     confidence   = diagnosis.get("confidence_score", 0.0)
     crop         = params.get("crop_name", "Unknown")
-    farm_acres   = params.get("farm_size_acres", 1)
+    farm_acres   = params.get("farm_size_acres") or 1
 
     # ── Products table ──
     products = []
@@ -674,52 +803,19 @@ def _build_section4_annex(
     model_agreement = diagnosis.get("perspective_agreement", "unknown")
     penalties = diagnosis.get("confidence_penalties", [])
 
-    # ── D. Compliance Audit Log ──
-    chemicals = treatment.get("chemical_controls", [])
-    compliance_checks = [
-        {
-            "check": "CIB&RC registration",
-            "status": "PASSED",
-            "detail": f"All {len(chemicals)} products registered for {crop.lower()}" if chemicals else "No chemicals recommended",
-        },
-        {
-            "check": "Banned/restricted chemicals",
-            "status": "PASSED",
-            "detail": "No banned or restricted chemicals in recommendation",
-        },
-        {
-            "check": "Dose within label range",
-            "status": "PASSED",
-            "detail": "All doses within approved limits",
-        },
-    ]
-
-    # PHI check
-    if chemicals:
-        max_phi = max((c.get("phi_days", 0) for c in chemicals), default=0)
-        compliance_checks.append({
-            "check": "PHI vs harvest date",
-            "status": "PASSED",
-            "detail": f"PHI {max_phi} days — farmer advised to wait",
-        })
-
-    # Pollinator check
-    growth_stage = (params.get("crop_growth_stage") or "").lower()
-    is_flowering = any(kw in growth_stage for kw in ("flower", "bloom"))
-    compliance_checks.append({
-        "check": "Pollinator safety",
-        "status": "PASSED" if not is_flowering else "CHECKED",
-        "detail": "No bee-toxic chemicals during flowering" if is_flowering else "Crop not in flowering stage",
-    })
-
-    # FRAC rotation check
-    frac_groups = [c.get("frac_irac_group", "") for c in chemicals[:3] if c.get("frac_irac_group")]
-    if len(frac_groups) >= 2:
-        compliance_checks.append({
-            "check": "FRAC rotation stewardship",
-            "status": "PASSED",
-            "detail": f"{' → '.join(frac_groups)} (valid rotation)",
-        })
+    # ── D. Compliance Audit Log (REAL — driven by safety/validator output) ──
+    # The treatment_agent ran the chemical registry validator before this
+    # point and stamped `_safety` onto the treatment dict. build_compliance_audit
+    # reads that, plus the surviving chemicals, plus the diagnosis +
+    # crop/state context, and emits PASSED/WARNING/FAILED/N/A per check.
+    # No more cosmetic "PASSED" strings.
+    audit = build_compliance_audit(
+        diagnosis=diagnosis,
+        treatment=treatment,
+        params=params,
+        validation_meta=treatment.get("_safety"),
+    )
+    compliance_checks = audit["checks"]
 
     # ── E. System Metadata ──
     system_meta = {
@@ -744,6 +840,11 @@ def _build_section4_annex(
         },
         "look_alikes_ruled_out": look_alikes,
         "compliance_audit": compliance_checks,
+        "compliance_summary": audit["summary"],
+        "compliance_registry_version": audit["registry_version"],
+        "compliance_registry_sources": audit["registry_sources"],
+        "safety_blockers":  (treatment.get("_safety") or {}).get("blockers", []),
+        "safety_warnings":  (treatment.get("_safety") or {}).get("warnings", []),
         "system_metadata": system_meta,
         "disclaimer": (
             "This report is generated by an AI-assisted advisory system and serves as a "
@@ -872,6 +973,13 @@ def _generate_template_report(
             "crop_mismatch":          diagnosis.get("crop_mismatch", False),
             "is_out_of_distribution": diagnosis.get("is_out_of_distribution", False),
             "confidence_adjusted_note": treatment.get("confidence_adjusted_note"),
+            "safety": {
+                # Mirror the audit summary at the top level so the mobile app
+                # can render a single "Safety" badge without parsing annex.
+                "registry_version": (treatment.get("_safety") or {}).get("registry_version"),
+                "blockers":         (treatment.get("_safety") or {}).get("blockers", []),
+                "warnings":         (treatment.get("_safety") or {}).get("warnings", []),
+            },
             "_template":              True,
         },
     }
@@ -899,8 +1007,14 @@ async def run_report_generator_agent(
         report_id, generated_at,
     )
 
+    # Native-language summary strips — best-effort enrichment via Sarvam.
+    # Never raises; failures degrade to blocks={} and the frontend hides
+    # the native strip.
+    await _attach_local_blocks(report, params)
+
     logger.info(
-        "Template report built — id=%s disease=%s sections=4 cost=$0.0000",
+        "Template report built — id=%s disease=%s sections=4 lang=%s cost=$0.0000",
         report_id[:8], report["disease"]["name_common"],
+        report.get("local_blocks", {}).get("language", "en"),
     )
     return report, empty_token_info("template")
