@@ -20,81 +20,61 @@ import { authenticate } from '../middleware/auth.js';
 import { sendError } from '../utils/response.js';
 import { deductCredits } from '../services/aiCredit.service.js';
 import { ENV } from '../config/env.js';
+import { getSigned, postSignedJSON } from '../utils/fastapi-signed.js';
 
 const router  = Router();
-const AI_BASE = ENV.AI_BACKEND_URL || 'http://localhost:8001';
 
-// ── Generic proxy helpers ─────────────────────────────────────────────────────
+// ── Generic proxy helpers (HMAC-signed) ───────────────────────────────────────
+// All Express → FastAPI calls go through the shared signed helper so the
+// FastAPI public URL on Railway cannot be hit directly. The same secret is
+// shared with fastapi/security/auth.py.
 
-async function proxyGet(res, path, timeoutMs = 15_000) {
-  const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+function _handleProxyError(res, err, fallbackMsg) {
+  if (err.status === 504 || err.name === 'AbortError') {
+    return sendError(res, 'AgriPredict service timeout', 504);
+  }
+  const detail = err.detail ?? err.message;
+  const isDbDown = typeof detail === 'string' && detail.includes('PostgreSQL unreachable');
+  if (isDbDown) {
+    return sendError(res, 'Price database temporarily unavailable — please try again later', err.status || 503);
+  }
+  if (err.status && err.status >= 400 && err.status < 500) {
+    return sendError(res, detail || fallbackMsg, err.status);
+  }
+  return sendError(res, fallbackMsg, 503);
+}
+
+async function proxyGet(res, path, userId, timeoutMs = 15_000) {
   try {
-    const resp = await fetch(`${AI_BASE}${path}`, {
-      signal: ctrl.signal,
-      headers: { Accept: 'application/json' },
-    });
-    clearTimeout(timer);
-    const body = await resp.json();
-    if (!resp.ok) {
-      const detail = body?.detail || 'AgriPredict service error';
-      const isDbDown = typeof detail === 'string' && detail.includes('PostgreSQL unreachable');
-      return sendError(
-        res,
-        isDbDown ? 'Price database temporarily unavailable — please try again later' : detail,
-        resp.status,
-      );
-    }
-    // FastAPI wraps in { success, data } — pass data through transparently
+    const body = await getSigned(path, { userId, timeoutMs });
+    // FastAPI wraps in { success, data } — pass through transparently
     return res.status(200).json(body);
   } catch (err) {
-    clearTimeout(timer);
-    if (err.name === 'AbortError') return sendError(res, 'AgriPredict service timeout', 504);
-    return sendError(res, 'Price service temporarily unavailable — please try again later', 503);
+    return _handleProxyError(res, err, 'Price service temporarily unavailable — please try again later');
   }
 }
 
-async function proxyPost(res, path, body, timeoutMs = 120_000) {
-  const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+async function proxyPost(res, path, body, userId, timeoutMs = 120_000) {
   try {
-    const resp = await fetch(`${AI_BASE}${path}`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body:    JSON.stringify(body),
-      signal:  ctrl.signal,
-    });
-    clearTimeout(timer);
-    const out = await resp.json();
-    if (!resp.ok) {
-      const detail = out?.detail || 'AgriPredict service error';
-      const isDbDown = typeof detail === 'string' && detail.includes('PostgreSQL unreachable');
-      return sendError(
-        res,
-        isDbDown ? 'Price database temporarily unavailable — please try again later' : detail,
-        resp.status,
-      );
-    }
-    return res.status(resp.status).json(out);
+    const envelope = await postSignedJSON(path, body, { userId, timeoutMs });
+    return res.status(200).json(envelope);
   } catch (err) {
-    clearTimeout(timer);
-    if (err.name === 'AbortError') return sendError(res, 'Prediction timed out — try again', 504);
-    return sendError(res, 'Price service temporarily unavailable — please try again later', 503);
+    return _handleProxyError(res, err, 'Prediction timed out — try again');
   }
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 // GET /api/v1/agripredict/filters/states
-router.get('/filters/states', authenticate, (_req, res) =>
-  proxyGet(res, '/agripredict/filters/states')
+router.get('/filters/states', authenticate, (req, res) =>
+  proxyGet(res, '/agripredict/filters/states', req.user?.id)
 );
 
 // GET /api/v1/agripredict/filters/districts?state=...
 router.get('/filters/districts', authenticate, (req, res) => {
   const { state } = req.query;
   if (!state) return sendError(res, 'state query param required', 400);
-  return proxyGet(res, `/agripredict/filters/districts?state=${encodeURIComponent(state)}`);
+  return proxyGet(res, `/agripredict/filters/districts?state=${encodeURIComponent(state)}`, req.user?.id);
 });
 
 // GET /api/v1/agripredict/filters/commodities?state=...&district=...
@@ -103,7 +83,7 @@ router.get('/filters/commodities', authenticate, (req, res) => {
   if (!state) return sendError(res, 'state query param required', 400);
   const qs = new URLSearchParams({ state });
   if (district) qs.set('district', district);
-  return proxyGet(res, `/agripredict/filters/commodities?${qs}`);
+  return proxyGet(res, `/agripredict/filters/commodities?${qs}`, req.user?.id);
 });
 
 // GET /api/v1/agripredict/prices/history
@@ -112,7 +92,7 @@ router.get('/prices/history', authenticate, (req, res) => {
   if (!commodity || !state) return sendError(res, 'commodity and state are required', 400);
   const qs = new URLSearchParams({ commodity, state });
   if (district) qs.set('district', district);
-  return proxyGet(res, `/agripredict/prices/history?${qs}`);
+  return proxyGet(res, `/agripredict/prices/history?${qs}`, req.user?.id);
 });
 
 // POST /api/v1/agripredict/predict
@@ -123,7 +103,7 @@ router.post('/predict', authenticate, async (req, res) => {
   deductCredits(req.user.id, 'ai_chat_claude', {
     model: 'claude-haiku', description: `Price prediction: ${commodity} in ${state}`,
   }).catch(() => {});
-  return proxyPost(res, '/agripredict/predict', { commodity, state, district }, 120_000);
+  return proxyPost(res, '/agripredict/predict', { commodity, state, district }, req.user?.id, 120_000);
 });
 
 // GET /api/v1/agripredict/compare
@@ -132,7 +112,7 @@ router.get('/compare', authenticate, (req, res) => {
   if (!commodity || !state) return sendError(res, 'commodity and state are required', 400);
   const qs = new URLSearchParams({ commodity, state });
   if (district) qs.set('district', district);
-  return proxyGet(res, `/agripredict/compare?${qs}`);
+  return proxyGet(res, `/agripredict/compare?${qs}`, req.user?.id);
 });
 
 // POST /api/v1/agripredict/sync/trigger  → non-blocking 202
@@ -142,6 +122,7 @@ router.post('/sync/trigger', authenticate, (req, res) => {
   return proxyPost(
     res, '/agripredict/sync/trigger',
     { commodity, state, district: district || null, max_pages: Math.min(max_pages, 50) },
+    req.user?.id,
     10_000  // 202 comes back instantly; actual sync runs in FastAPI background
   );
 });
@@ -152,7 +133,7 @@ router.get('/sync/status', authenticate, (req, res) => {
   const qs = new URLSearchParams();
   if (commodity) qs.set('commodity', commodity);
   if (state)     qs.set('state',     state);
-  return proxyGet(res, `/agripredict/sync/status?${qs}`);
+  return proxyGet(res, `/agripredict/sync/status?${qs}`, req.user?.id);
 });
 
 export default router;

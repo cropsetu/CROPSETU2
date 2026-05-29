@@ -52,6 +52,10 @@ import farmCropCycleRoutes from './routes/farmCropCycle.routes.js';
 
 const app = express();
 
+// JSON APIs don't benefit from conditional GET; the 304 + empty body trips
+// browser-side axios (default validateStatus rejects 3xx) and stale-data bugs.
+app.disable('etag');
+
 // ── Request ID for tracing (attach before any other middleware) ───────────────
 app.use((req, res, _next) => {
   req.id = req.headers['x-request-id'] || crypto.randomUUID();
