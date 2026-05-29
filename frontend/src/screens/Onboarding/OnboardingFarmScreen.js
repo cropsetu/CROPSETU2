@@ -12,6 +12,7 @@ import { EntrySlide } from '../../components/ui/ImmersiveKit';
 import { useLanguage } from '../../context/LanguageContext';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
 import { s, vs, fs, ms } from '../../utils/responsive';
+import { webScreenContainer, webFlexShrink } from '../../utils/webScrollFix';
 
 const SOILS = [
   { key: 'BLACK_COTTON', label: 'Black Cotton', labelMr: 'काळी माती', sk: 'black', bg: ['#3E3631', '#1A1512'] },
@@ -56,9 +57,9 @@ export default function OnboardingFarmScreen({ navigation, route }) {
   };
 
   return (
-    <View style={sty.safe}>
-      <View style={[sty.bg, { backgroundColor: COLORS.pineGreen }]}>
-        <ScrollView contentContainerStyle={sty.inner} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+    <View style={[sty.safe, webScreenContainer]}>
+      <View style={[sty.bg, { backgroundColor: COLORS.pineGreen }, webFlexShrink]}>
+        <ScrollView style={[{ flex: 1 }, webFlexShrink]} contentContainerStyle={sty.inner} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
           {/* Header */}
           <View style={sty.headerRow}>

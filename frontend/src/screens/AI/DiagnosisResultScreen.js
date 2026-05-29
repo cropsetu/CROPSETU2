@@ -203,6 +203,16 @@ export default function DiagnosisResultScreen({ navigation, route }) {
     const isBilingual = language && language !== 'en';
     const langLabel = isBilingual ? `${langNative} (${langObj.name}) + English` : 'English';
 
+    // Backend-translated per-section strips (from FastAPI report_generator local_blocks)
+    const localBlocks = full.local_blocks || {};
+    const localLang = localBlocks.language || '';
+    const localLangName = localBlocks.language_name || '';
+    const localStrips = localBlocks.blocks || {};
+    const showLocal = localLang && localLang !== 'en' && Object.keys(localStrips).length > 0;
+    const localStrip = (key, label) => (showLocal && localStrips[key])
+      ? `<div class="local-msg" lang="${localLang}"><b>${esc(label)} — ${esc(localLangName)}</b>${esc(localStrips[key])}</div>`
+      : '';
+
     // ── Structured pages from backend ────────────────────────────────────────
     const fsp = full.farmer_summary_page || {};
     const dgp = full.detailed_guidance_page || {};
@@ -299,422 +309,758 @@ export default function DiagnosisResultScreen({ navigation, route }) {
     const landTotal = farmCtx.landSize || '';
     const rotationPlanR = fullTx.rotation_plan || dgp.spray_schedule?.rotation_note || '';
 
+    // ── AgriDoc-styled report (English primary + per-section native strips) ──
     return `<!DOCTYPE html>
 <html lang="${language || 'en'}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CropSetu — Crop Disease Report — ${esc(rptId)}</title>
+<title>CropSetu — Crop Disease Detection Report — ${esc(rptId)}</title>
 <style>
-@page{size:A4;margin:6mm 6mm}
+@page{size:A4;margin:8mm 8mm}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Roboto,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;line-height:1.4;font-size:11.5px;background:#fff}
-.page{max-width:780px;margin:0 auto;page-break-after:always}
-.page:last-child{page-break-after:auto}
+body{font-family:Georgia,'Times New Roman',serif;color:#1c2526;line-height:1.5;font-size:11.5px;background:#fefdf8;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 
-.mh{background:linear-gradient(135deg,#1B5E20,#2E7D32,#388E3C);color:#fff;padding:12px 16px;text-align:center}
-.mh h1{font-size:18px;font-weight:900;letter-spacing:1px}.mh .sub{font-size:10px;opacity:.75;margin-top:1px}
+/* Page frame */
+.page{max-width:780px;margin:0 auto;background:#fefdf8;border-left:6px solid #1a5f3f;position:relative}
+.page::before{content:"";position:absolute;left:-6px;top:60%;bottom:0;width:6px;background:#c9a961}
 
-.meta-bar{display:flex;flex-wrap:wrap;gap:2px 14px;background:#f5f5f5;border:1px solid #ddd;border-top:none;padding:5px 12px;font-size:10px}
-.meta-bar .ml{color:#666;font-weight:600}.meta-bar .mv{font-weight:700;color:#1a1a1a}
+/* Header */
+.header{padding:18px 24px 14px;border-bottom:2px solid #1a5f3f;display:flex;justify-content:space-between;align-items:flex-end;gap:16px;background:linear-gradient(180deg,#fefdf8 0%,#f7f3e8 100%)}
+.logo-row{display:flex;align-items:center;gap:12px}
+.crest{width:48px;height:48px;border-radius:50%;background:#1a5f3f;color:#c9a961;border:2px solid #c9a961;display:flex;align-items:center;justify-content:center;font-size:22px}
+.lab-name{font-family:Georgia,serif;font-size:22px;font-weight:900;color:#0e3a26;line-height:1}
+.lab-name .ai{color:#c9a961}
+.lab-sub{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#a07f3d;font-weight:700;margin-top:4px}
+.lab-tag{font-size:9px;color:#6b7280;font-style:italic;margin-top:2px}
+.meta{font-family:'Courier New',monospace;font-size:9.5px;line-height:1.6;text-align:right}
+.meta b{color:#1a5f3f}
+.meta .pill{display:inline-block;background:#1a5f3f;color:#fff;padding:1px 7px;font-weight:600;letter-spacing:.5px;border-radius:2px}
 
-.dv{border:none;border-top:1.5px solid #2E7D32;margin:8px 0}
-.dv2{border:none;border-top:2px double #2E7D32;margin:10px 0}
+/* Title */
+.report-title{text-align:center;padding:14px 24px 4px;font-family:Georgia,serif;font-size:18px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#0e3a26}
+.report-title::after{content:"";display:block;width:48px;height:2px;background:#c9a961;margin:8px auto 0}
+.report-sub{text-align:center;font-size:10px;color:#6b7280;letter-spacing:1.5px;text-transform:uppercase;padding-bottom:14px;border-bottom:1px dashed #d9cfb4}
 
-.pt{background:#E8F5E9;border:1px solid #C8E6C9;border-radius:3px;padding:5px 12px;font-size:12px;font-weight:800;color:#1B5E20;margin:8px 0 6px}
+.body{padding:18px 24px 24px}
 
-.st{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#2E7D32;margin:8px 0 4px;border-bottom:1px solid #C8E6C9;padding-bottom:3px}
+/* Section */
+.section{margin:16px 0;break-inside:avoid}
+.section-h{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-family:Georgia,serif;font-size:13px;font-weight:700;color:#0e3a26;letter-spacing:1px;text-transform:uppercase}
+.section-h .num{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#1a5f3f;color:#c9a961;font-family:'Courier New',monospace;font-size:10px;font-weight:700}
+.section-h .bar{flex:1;height:1px;background:linear-gradient(90deg,#c9a961 0%,transparent 100%)}
 
-.ir{display:flex;padding:2px 0;font-size:11px}.ir .lbl{min-width:150px;color:#666;font-weight:600}.ir .val{font-weight:700;flex:1}
+/* Patient summary card */
+.summary-card{border:1px solid #d9cfb4;background:#f1f7f3;padding:12px 14px;border-left:3px solid #1a5f3f;font-style:italic;font-size:11.5px;line-height:1.6}
+.summary-card b{font-style:normal;color:#0e3a26}
 
-table.dt{width:100%;border-collapse:collapse;margin:4px 0;font-size:11px}
-table.dt th{background:#2E7D32;color:#fff;padding:4px 6px;text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px}
-table.dt td{padding:4px 6px;border-bottom:1px solid #e0e0e0;vertical-align:top}
-table.dt tr:nth-child(even){background:#fafafa}
-table.dt2 th{background:#6A1B9A}
-table.dt3 th{background:#37474F}
+/* Key-value grid */
+.kv-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:2px 20px;font-size:11px}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:8px;padding:4px 0;border-bottom:1px dotted #e3d7b8}
+.kv .k{color:#6b7280;font-weight:500;text-transform:uppercase;font-size:9px;letter-spacing:.8px;align-self:center}
+.kv .v{color:#1c2526;font-weight:500}
+.kv .v.mono{font-family:'Courier New',monospace;font-size:10.5px}
 
-table.at{width:100%;border-collapse:collapse;margin:3px 0;font-size:10.5px}
-table.at td{padding:3px 6px;border:1px solid #e0e0e0}
-table.at .k{font-weight:700;background:#fafafa;width:30%;color:#333}
+.tag{display:inline-block;padding:1px 6px;border-radius:2px;font-size:9px;font-weight:700;letter-spacing:.3px;margin-left:4px}
+.tag.bad{background:#f5e2e0;color:#b8443e}
+.tag.warn{background:#fdf1d8;color:#d99a3a}
+.tag.ok{background:#cfe5d8;color:#0e3a26}
 
-.cl{margin:2px 0 4px;padding:0;list-style:none}
-.cl li{padding:4px 0;border-bottom:1px solid #f0f0f0;display:flex;gap:6px;font-size:11px;line-height:1.5}
-.cl li:last-child{border-bottom:none}
-.cl .num{width:22px;height:22px;border-radius:50%;background:#2E7D32;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0}
-.cl .num.red{background:#C62828}
-.cl .loc{color:#555;font-size:10px;display:block;margin-top:1px}
+/* Image grid */
+.img-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+.specimen{border:1px solid #d9cfb4;background:#fff;padding:6px;position:relative}
+.specimen .img-wrap{aspect-ratio:1.4/1;background:linear-gradient(135deg,#dfe9c8 0%,#a8c789 100%);display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:130px}
+.specimen .img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+.specimen .img-ph{color:#6b7280;font-size:10px;text-align:center;padding:8px}
+.specimen .caption{margin-top:6px;font-size:9.5px;color:#6b7280;font-family:'Courier New',monospace;display:flex;justify-content:space-between}
+.specimen .caption b{color:#1a5f3f}
 
-.sf{display:flex;align-items:flex-start;gap:5px;padding:2px 0;font-size:11px;line-height:1.4}
-.sf .loc{color:#555;font-size:10px;display:block;margin-top:1px}
-.sf-do{color:#1B5E20}.sf-no{color:#C62828}
+/* Primary diagnosis hero */
+.diagnosis-hero{margin-top:8px;border:2px solid #1a5f3f;background:#fff;position:relative;padding:14px 18px;display:flex;gap:18px;align-items:center;justify-content:space-between}
+.diagnosis-hero::before{content:"PRIMARY DIAGNOSIS";position:absolute;top:-8px;left:14px;background:#1a5f3f;color:#c9a961;padding:1px 8px;font-size:9px;letter-spacing:2px;font-weight:700}
+.dx-name{font-family:Georgia,serif;font-size:20px;font-weight:700;color:#0e3a26;line-height:1.15}
+.dx-sci{font-style:italic;color:#6b7280;font-size:11.5px;margin-top:2px}
+.dx-meta{display:flex;gap:14px;margin-top:8px;font-size:10.5px;flex-wrap:wrap}
+.dx-meta div b{display:block;font-size:8.5px;text-transform:uppercase;letter-spacing:.8px;color:#6b7280;font-weight:600;margin-bottom:1px}
+.dx-meta div span{font-weight:600;color:#1c2526}
+.confidence-ring{position:relative;width:120px;height:120px;flex-shrink:0}
+.confidence-ring svg{transform:rotate(-90deg);display:block}
+.confidence-ring .label{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.confidence-ring .label .v{font-family:Georgia,serif;font-size:26px;color:#0e3a26;font-weight:700;line-height:1}
+.confidence-ring .label .l{font-size:8px;text-transform:uppercase;letter-spacing:1.5px;color:#6b7280;margin-top:4px;text-align:center;line-height:1.3}
 
-.bx-green{background:#E8F5E9;border:1px solid #A5D6A7;border-radius:4px;padding:6px 10px;margin:4px 0;font-size:11px;line-height:1.5}
-.bx-yellow{background:#FFF8E1;border:1px solid #FFD54F;border-radius:4px;padding:6px 10px;margin:4px 0;font-size:11px}
-.bx-red{background:#FFEBEE;border:1.5px solid #EF9A9A;border-radius:4px;padding:6px 10px;margin:4px 0;font-size:11px}
-.bx-blue{background:#E3F2FD;border:1px solid #90CAF9;border-radius:4px;padding:6px 10px;margin:4px 0;font-size:11px}
-.bx-purple{background:#F3E5F5;border:1px solid #CE93D8;border-radius:4px;padding:6px 10px;margin:4px 0;font-size:11px}
+/* Severity meters */
+.severity-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.meter{background:#fff;border:1px solid #d9cfb4;padding:10px 12px}
+.meter .lbl{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;font-weight:600;margin-bottom:6px}
+.meter .val{font-family:Georgia,serif;font-size:16px;font-weight:700;color:#b8443e}
+.meter.green .val{color:#1a5f3f}
+.meter .bar{height:6px;background:#eee;border-radius:3px;margin-top:8px;overflow:hidden}
+.meter .bar .fill{height:100%;background:linear-gradient(90deg,#f0c47a,#b8443e)}
+.meter.green .bar .fill{background:linear-gradient(90deg,#b8d6c2,#1a5f3f)}
 
-/* disease box */
-.disease-box{background:#FFF8E1;border:2px solid #FFC107;border-radius:6px;padding:10px 14px;margin:6px 0}
-.disease-box .dn{font-size:20px;font-weight:900;color:#1a1a1a;line-height:1.2}
-.disease-box .dl{font-size:13px;color:#555;margin-top:1px}
-.disease-box .ds{font-size:11px;color:#888;font-style:italic;margin-top:1px}
+/* Differential list */
+.diff{display:grid;grid-template-columns:1fr auto;gap:12px;padding:8px 12px;background:#fff;border:1px solid #d9cfb4;align-items:center;margin-top:6px;font-size:11px}
+.diff .nm{font-weight:600;color:#0e3a26}
+.diff .nm i{display:block;font-weight:400;font-size:10px;color:#6b7280}
+.diff .why{font-size:10.5px;color:#6b7280;margin-top:2px}
 
-/* badges */
-.bg{display:inline-block;padding:3px 10px;border-radius:99px;font-size:9px;font-weight:800;letter-spacing:.3px;margin:1px 2px 1px 0}
-.bg-g{background:#E8F5E9;color:#1B5E20}.bg-o{background:#FFF3E0;color:#E65100}.bg-r{background:#FFEBEE;color:#C62828}
+/* Etiology */
+.etiology-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+.etbox{background:#fff;border:1px solid #d9cfb4;padding:10px 12px}
+.etbox h4{font-family:Georgia,serif;font-size:11px;color:#0e3a26;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.etbox p{font-size:11px;line-height:1.5;margin:0}
 
-/* image row */
-.img-row{display:flex;gap:8px;margin:6px 0}
-.img-card{flex:1;border:1px solid #ddd;border-radius:6px;overflow:hidden}
-.img-card .hd{background:#f5f5f5;padding:4px 8px;font-size:9px;font-weight:700;color:#666;border-bottom:1px solid #ddd}
-.img-card img{width:100%;height:150px;object-fit:cover;display:block}
-.img-ph{width:100%;height:150px;background:#E8F5E9;display:flex;align-items:center;justify-content:center;color:#888;font-size:10px;text-align:center;padding:6px;flex-direction:column}
+/* Prescription */
+.rx-block{margin-top:16px;border:2px solid #c9a961;background:#fff;position:relative}
+.rx-block::before{content:"℞";position:absolute;top:-20px;left:14px;background:#fefdf8;padding:0 8px;font-family:Georgia,serif;font-size:28px;color:#1a5f3f;font-weight:900;line-height:1}
+.rx-block::after{content:"PRESCRIPTION";position:absolute;top:-8px;left:50px;background:#c9a961;color:#0e3a26;padding:1px 8px;font-size:9px;letter-spacing:2px;font-weight:700}
+.rx-table{width:100%;border-collapse:collapse;font-size:10.5px}
+.rx-table th{background:#f1f7f3;color:#0e3a26;text-align:left;padding:8px 10px;font-size:9px;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid #c9a961;font-weight:700}
+.rx-table td{padding:8px 10px;border-bottom:1px dotted #d9cfb4;vertical-align:top}
+.rx-table tr:last-child td{border-bottom:none}
+.rx-table tbody tr:nth-child(even){background:#fbf8ef}
+.rx-table .active{font-weight:600;color:#0e3a26}
+.rx-table .active i{display:block;font-weight:400;font-size:9.5px;color:#6b7280;margin-top:2px;font-style:italic}
+.rx-tier{display:inline-block;font-family:'Courier New',monospace;font-size:8.5px;background:#1a5f3f;color:#c9a961;padding:1px 5px;letter-spacing:.5px;margin-right:4px}
+.rx-tier.bio{background:#2d8659}
+.rx-tier.cult{background:#a07f3d;color:#fff}
 
-/* weather cards */
-.wc-row{display:flex;gap:6px;margin:4px 0;flex-wrap:wrap}
-.wc{flex:1;min-width:90px;border:1px solid #ddd;border-radius:6px;padding:6px;text-align:center}
-.wc .wv{font-size:16px;font-weight:900;color:#1a1a1a}.wc .wl{font-size:8px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:700;margin-top:1px}
-.wc .ws{font-size:9px;font-weight:700;color:#E65100;margin-top:2px}
+.warning{margin-top:10px;padding:8px 12px;background:#f5e2e0;border-left:3px solid #b8443e;font-size:10.5px;line-height:1.5}
+.warning b{color:#b8443e;text-transform:uppercase;letter-spacing:.5px;font-size:10px;display:block;margin-bottom:2px}
 
-/* dispensing num */
-.dn-num{width:24px;height:24px;border-radius:50%;background:#6A1B9A;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:11px}
-.qty-hl{background:#FFF3E0;color:#E65100;font-weight:700;padding:2px 6px;border-radius:4px;font-size:11px}
+/* Prognosis cards */
+.prog-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px}
+.prog{background:#f7f3e8;border:1px solid #d9cfb4;padding:12px;text-align:center}
+.prog .ic{font-family:Georgia,serif;font-size:17px;color:#1a5f3f;font-weight:700;line-height:1.1}
+.prog .lb{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;margin-top:6px;font-weight:600;line-height:1.3}
 
-/* dealer */
-.dealer-box{border:1.5px dashed #666;border-radius:6px;padding:8px 12px;margin:6px 0}
-.dealer-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-top:4px}
-.dealer-field{border-bottom:1px solid #999;padding-bottom:4px;font-size:10px;color:#888}
+/* Follow-up */
+.followup{display:grid;grid-template-columns:1fr 2fr;gap:14px;background:#f1f7f3;border:1px dashed #1a5f3f;padding:12px 14px;margin-top:4px}
+.followup .when{font-family:Georgia,serif;font-size:16px;color:#0e3a26;font-weight:700;line-height:1.2}
+.followup .when span{display:block;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;font-weight:600;margin-top:4px;font-family:Georgia,serif}
+.followup .what{font-size:10.5px;line-height:1.5}
+.followup .what b{color:#0e3a26;display:block;font-size:10px;text-transform:uppercase;letter-spacing:.8px;margin-bottom:2px}
 
-/* footer */
-.pf{background:#2E7D32;color:#fff;padding:4px 12px;display:flex;justify-content:space-between;font-size:8px;margin-top:6px}
-.pf-purple{background:#6A1B9A}.pf-dark{background:#37474F}
+/* Local-language strip — gold-bordered, one per section */
+.local-msg{margin-top:10px;border:1px solid #c9a961;padding:10px 14px;background:#fcf6e3;font-size:11.5px;line-height:1.6}
+.local-msg b{color:#0e3a26;display:block;font-family:Georgia,serif;margin-bottom:4px;font-size:10px;letter-spacing:1px;text-transform:uppercase}
 
-/* compliance check */
-.cc{font-size:11px;padding:2px 0;color:#1B5E20}
+/* Footer */
+.footer{margin-top:20px;border-top:2px solid #1a5f3f;padding:14px 24px 18px;background:#f7f3e8;font-size:9.5px;color:#6b7280;position:relative}
+.sig-row{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:30px 0 10px}
+.sig{border-top:1px solid #1c2526;padding-top:4px;text-align:center}
+.sig b{display:block;color:#1c2526;font-weight:600;letter-spacing:.5px;font-size:10px}
+.sig span{font-size:8.5px;color:#6b7280}
+.stamp{position:absolute;right:30px;top:8px;width:110px;height:110px;border:2px double #b8443e;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#b8443e;transform:rotate(-12deg);opacity:.55;font-family:Georgia,serif;font-size:10px;letter-spacing:1.5px;text-align:center;line-height:1.3;background:rgba(255,255,255,.5);font-weight:700;pointer-events:none}
+.stamp b{font-size:11px;display:block;margin:2px 0}
+.helpline{display:flex;justify-content:space-between;font-family:'Courier New',monospace;font-size:9.5px;margin-bottom:8px;color:#1c2526;flex-wrap:wrap;gap:6px}
+.helpline b{color:#1a5f3f}
+.disclaimer{font-size:8.5px;letter-spacing:.3px;line-height:1.5;color:#6b7280;text-align:center;border-top:1px dotted #d9cfb4;padding-top:8px}
 
-@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+@media print{body{background:#fff}.page{border-left:6px solid #1a5f3f}}
+
+/* ── Extended-detail pages (page 2+) ─────────────────────────────────── */
+/* Force a page break before the second article. */
+.page.cont{page-break-before:always}
+/* Numbered practice list */
+.practice-list{counter-reset:pr;list-style:none;padding:0;margin:6px 0 0}
+.practice-list li{counter-increment:pr;position:relative;padding:8px 12px 8px 36px;background:#fff;border:1px solid #d9cfb4;margin-bottom:6px;font-size:11px;line-height:1.5}
+.practice-list li::before{content:counter(pr);position:absolute;left:10px;top:50%;transform:translateY(-50%);width:20px;height:20px;border-radius:50%;background:#1a5f3f;color:#c9a961;font-family:'Courier New',monospace;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+/* Two-column safety lists */
+.safety-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}
+.safety-cols .col{background:#fff;border:1px solid #d9cfb4;padding:10px 12px}
+.safety-cols .col h4{font-family:Georgia,serif;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;padding-bottom:4px;border-bottom:1px dotted #d9cfb4}
+.safety-cols .col.do h4{color:#0e3a26}
+.safety-cols .col.dont h4{color:#b8443e}
+.safety-cols ul{list-style:none;padding:0;margin:0}
+.safety-cols li{font-size:10.5px;padding:4px 0 4px 16px;line-height:1.45;position:relative}
+.safety-cols .do li::before{content:"✓";position:absolute;left:0;color:#1a5f3f;font-weight:700}
+.safety-cols .dont li::before{content:"✗";position:absolute;left:0;color:#b8443e;font-weight:700}
+/* Product/biological cards */
+.bio-card{border:1px solid #d9cfb4;background:#fff;padding:10px 12px;margin-bottom:8px}
+.bio-card .h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px}
+.bio-card .h .nm{font-family:Georgia,serif;font-size:12.5px;color:#0e3a26;font-weight:700}
+.bio-card .h .nm i{display:block;font-weight:400;font-size:10px;color:#6b7280;font-style:italic;margin-top:2px}
+.bio-card .h .cost{font-family:'Courier New',monospace;font-size:11px;color:#1a5f3f;font-weight:700;white-space:nowrap}
+.bio-card .meta{display:grid;grid-template-columns:repeat(2,1fr);gap:4px 18px;font-size:10.5px;margin-top:4px}
+.bio-card .meta div{padding:2px 0}
+.bio-card .meta b{color:#6b7280;font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;font-weight:600;display:inline-block;min-width:80px}
+.bio-card .brands{margin-top:6px;font-size:10px;color:#6b7280}
+.bio-card .brands b{color:#1a5f3f;font-weight:600}
+/* Dispensing sheet table */
+.disp-table{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:6px}
+.disp-table th{background:#1a5f3f;color:#c9a961;text-align:left;padding:7px 9px;font-size:9px;letter-spacing:1px;text-transform:uppercase;font-weight:700}
+.disp-table td{padding:8px 9px;border-bottom:1px dotted #d9cfb4;vertical-align:top}
+.disp-table tr:nth-child(even) td{background:#fbf8ef}
+.disp-table .nm{font-weight:600;color:#0e3a26}
+.disp-table .nm i{display:block;font-weight:400;font-size:9.5px;color:#6b7280;font-style:italic;margin-top:1px}
+.disp-table .pr{font-family:'Courier New',monospace;font-weight:700;color:#1a5f3f;text-align:right;white-space:nowrap}
+.disp-total{margin-top:6px;padding:8px 12px;background:#1a5f3f;color:#fff;font-family:Georgia,serif;font-size:12px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.disp-total span{font-family:'Courier New',monospace;color:#c9a961}
+/* Compliance audit */
+.audit-row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;padding:8px 12px;background:#fff;border:1px solid #d9cfb4;margin-bottom:5px;font-size:11px;align-items:center}
+.audit-row .check{font-family:Georgia,serif;font-weight:700;color:#0e3a26}
+.audit-row .check i{display:block;font-weight:400;font-size:10px;color:#6b7280;font-style:normal;margin-top:1px}
+.audit-row .status{padding:3px 9px;font-size:9px;letter-spacing:1.2px;font-weight:700;border-radius:2px}
+.audit-row .status.PASSED{background:#cfe5d8;color:#0e3a26}
+.audit-row .status.WARNING{background:#fdf1d8;color:#d99a3a}
+.audit-row .status.FAILED{background:#f5e2e0;color:#b8443e}
+.audit-row .status.N\/A{background:#eee;color:#6b7280}
+/* Evidence matrix */
+.ev-table{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:6px}
+.ev-table th{background:#f1f7f3;color:#0e3a26;text-align:left;padding:6px 9px;font-size:9px;letter-spacing:1px;text-transform:uppercase;font-weight:700;border-bottom:1px solid #c9a961}
+.ev-table td{padding:7px 9px;border-bottom:1px dotted #d9cfb4}
+.ev-table tr.primary{background:#fdf6df}
+.ev-table tr.primary td{font-weight:600}
+.ev-table .pct{font-family:'Courier New',monospace;text-align:right}
+/* Forecast strip */
+.fc-row{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:6px}
+.fc-cell{background:#fff;border:1px solid #d9cfb4;padding:8px 6px;text-align:center;font-size:10px}
+.fc-cell .d{font-family:Georgia,serif;font-weight:700;color:#0e3a26;font-size:10.5px}
+.fc-cell .t{margin-top:2px;color:#1c2526;font-family:'Courier New',monospace;font-size:9.5px}
+.fc-cell .r{margin-top:2px;color:#1a5f3f;font-size:9px;font-weight:600}
+.fc-cell .r.wet{color:#3a78b3}
+/* Metadata */
+.meta-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:2px 20px;font-size:10.5px;margin-top:6px;background:#fff;border:1px solid #d9cfb4;padding:10px 14px}
+.meta-grid div{padding:3px 0;border-bottom:1px dotted #eee}
+.meta-grid b{color:#6b7280;font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;font-weight:600;display:inline-block;min-width:120px}
+.meta-grid .mono{font-family:'Courier New',monospace;font-size:10px}
+/* Visual audit pills */
+.va-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.va-pill{padding:3px 8px;font-size:10px;border-radius:2px;font-family:'Courier New',monospace}
+.va-pill.ok{background:#cfe5d8;color:#0e3a26}
+.va-pill.no{background:#f5e2e0;color:#b8443e}
+.va-pill.un{background:#fdf1d8;color:#d99a3a}
 </style>
 </head>
 <body>
+<article class="page">
 
-<!-- ═══════════════════════════════════════════════════════════════
-     PAGE 1 — FARMER SUMMARY
-     ═══════════════════════════════════════════════════════════════ -->
-<div class="page">
-<div class="mh">
-  <h1>CROPSETU — CROP DISEASE REPORT</h1>
-  <div class="sub">AI-Powered Crop Disease Advisory</div>
-</div>
-<div class="meta-bar">
-  <span><span class="ml">Report ID:</span> <span class="mv">${esc(rptId)}</span></span>
-  <span><span class="ml">Generated:</span> <span class="mv">${esc(dateStr)}, ${esc(timeStr)} IST</span></span>
-  <span><span class="ml">Language:</span> <span class="mv">${esc(langLabel)}</span></span>
-  <span><span class="ml">AI Confidence:</span> <span class="mv">${esc(confTierR)} ${confBar} (${confPct}%)</span></span>
-</div>
-
-<div class="pt">PAGE 1 — FARMER SUMMARY</div>
-
-<div class="st">👤 FARMER${isBilingual ? ` | ${esc(t('farmerDetails') || langNative)}` : ''}</div>
-<div class="ir"><span class="lbl">Name</span><span class="val">${esc(farmerName)}</span></div>
-${farmerPhone ? `<div class="ir"><span class="lbl">Phone</span><span class="val">${esc(farmerPhone)}</span></div>` : ''}
-<div class="ir"><span class="lbl">Village / Location</span><span class="val">${esc(farmerVillage) || '—'}</span></div>
-<div class="ir"><span class="lbl">Farm size</span><span class="val">${na(landTotal, ' acres')}${affectedArea ? ` (affected area: ${esc(affectedArea)})` : ''}</span></div>
-
-<div class="st">🌾 CROP${isBilingual ? ` | ${esc(t('cropDetails') || '')}` : ''}</div>
-<div class="ir"><span class="lbl">Crop</span><span class="val">${esc(crop)}${farmCtx.cropVariety || farmCtx.variety ? ` — variety: ${esc(farmCtx.cropVariety || farmCtx.variety)}` : ''}</span></div>
-<div class="ir"><span class="lbl">Stage</span><span class="val">${na(stage)}${farmCtx.cropAge ? ` | Days since sowing: ${farmCtx.cropAge}` : ''}</span></div>
-${farmCtx.soilType ? `<div class="ir"><span class="lbl">Soil type</span><span class="val">${esc(farmCtx.soilType)}</span></div>` : ''}
-${farmCtx.irrigationType ? `<div class="ir"><span class="lbl">Irrigation</span><span class="val">${esc(farmCtx.irrigationType)}</span></div>` : ''}
-<div class="ir"><span class="lbl">Severity</span><span class="val">${esc(sevTxt)}</span></div>
-
-<hr class="dv"/>
-
-<div class="disease-box">
-  <div style="font-size:10px;font-weight:800;letter-spacing:2px;color:#E65100;margin-bottom:4px">🔬 DIAGNOSIS${isBilingual ? ` | ${esc(t('diagnosis.title') || '')}` : ''}</div>
-  <div class="dn">${esc(diseaseName)}</div>
-  ${diseaseLocal ? `<div class="dl">${esc(diseaseLocal)}</div>` : ''}
-  ${diseaseSci ? `<div class="ds">${esc(diseaseSci)}${diseasePathogen ? ` — ${esc(diseasePathogen)}` : ''}</div>` : ''}
-  <div style="margin-top:8px">
-    <span class="bg ${confPct >= 85 ? 'bg-g' : confPct >= 70 ? 'bg-o' : 'bg-r'}">✓ ${esc(confTierR)} CONFIDENCE · ${confPct}%</span>
-    <span class="bg ${severity === 'critical' || severity === 'high' ? 'bg-r' : severity === 'moderate' ? 'bg-o' : 'bg-g'}">${esc(sevTxt)} SEVERITY</span>
-    <span class="bg bg-r">⚠ ${esc(urgText)}</span>
-  </div>
-</div>
-
-<!-- Images -->
-<div class="img-row">
-  <div class="img-card">
-    <div class="hd">📷 Submitted Leaf Photo</div>
-    ${imgSrc ? `<img src="${imgSrc}" alt="Crop photo"/>` : '<div class="img-ph">Photo captured during scan</div>'}
-  </div>
-  <div class="img-card">
-    <div class="hd">🔥 AI Analysis</div>
-    <div class="img-ph" style="flex-direction:column">
-      <div style="font-size:32px;font-weight:900;color:#2E7D32">${confPct}%</div>
-      <div style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:1px;margin:4px 0">AI Confidence</div>
-      <div style="font-weight:700;font-size:13px">${esc(diseaseName)}</div>
-      ${diseaseSci ? `<div style="font-size:10px;color:#888;font-style:italic">${esc(diseaseSci)}</div>` : ''}
+  <header class="header">
+    <div class="logo-row">
+      <div class="crest">\u{1F33F}</div>
+      <div>
+        <div class="lab-name">CropSetu<span class="ai">AI</span></div>
+        <div class="lab-sub">Plant Pathology · Diagnostic Lab</div>
+        <div class="lab-tag">An AI-assisted crop health diagnostic service</div>
+      </div>
     </div>
-  </div>
-</div>
-
-<!-- What to do this week -->
-<div class="st">✅ WHAT TO DO THIS WEEK${isBilingual ? ` | ${esc(t('diagnosis.weeklyActions') || '')}` : ''}</div>
-<ul class="cl">
-${weeklyActions.map((a, i) => `  <li>
-    <span class="num${i === 0 ? ' red' : ''}">${i + 1}</span>
-    <div>
-      ${esc(a.action || a)}
-      ${a.action_local ? `<span class="loc">${esc(a.action_local)}</span>` : ''}
+    <div class="meta">
+      <div><span class="pill">${esc(rptId)}</span></div>
+      <div><b>Date:</b> ${esc(dateStr)} · ${esc(timeStr)} IST</div>
+      <div><b>Pathologist (AI):</b> CropSetu v${esc(sysMeta.version || '2.4.1')}</div>
+      <div><b>Vision Model:</b> ${esc(sysMeta.diagnosis_model || 'Gemini 2.5 Flash')}</div>
+      <div><b>Language:</b> English${showLocal ? ` + ${esc(localLangName)}` : ''}</div>
     </div>
-  </li>`).join('\n')}
-</ul>
+  </header>
 
-<div class="pf"><span>🌿 CropSetu · Report ${esc(rptId)}</span><span>Page 1 of 4 · Farmer Summary</span></div>
-</div>
+  <div class="report-title">Crop Disease Detection Report</div>
+  <div class="report-sub">— Confidential · For agricultural advisory use only —</div>
 
-<!-- ═══════════════════════════════════════════════════════════════
-     PAGE 2 — FARMER DETAIL (Bilingual)
-     ═══════════════════════════════════════════════════════════════ -->
-<div class="page">
-<div class="pt" style="background:#C8E6C9;border-color:#A5D6A7">PAGE 2 — DETAILED GUIDANCE${isBilingual ? ` | ${esc(t('diagnosis.detailedGuidance') || '')}` : ''}</div>
+  <div class="body">
 
-<!-- What is happening -->
-${whatHappening ? `
-<div class="st">🌿 WHAT IS HAPPENING${isBilingual ? ` | ${esc(t('diagnosis.whatHappening') || '')}` : ''}</div>
-<div class="bx-green">
-  ${esc(whatHappening)}
-  ${whatHappeningLocal ? `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #A5D6A7;color:#555;font-size:11px">${esc(whatHappeningLocal)}</div>` : ''}
-</div>` : ''}
+    <!-- 1. PATIENT SUMMARY -->
+    <section class="section">
+      <div class="section-h"><span class="num">1</span> Patient Summary <span class="bar"></span></div>
+      <div class="summary-card">
+        <b>${na(landTotal, '-acre')} ${esc(crop)}${farmCtx.cropVariety || farmCtx.variety ? ` (${esc(farmCtx.cropVariety || farmCtx.variety)})` : ''}${stage ? `, ${esc(stage)}` : ''}${farmCtx.cropAge ? `, ${esc(farmCtx.cropAge)} DAS` : ''}</b>${farmerVillage ? `, located in ${esc(farmerVillage)}` : ''}.
+        ${farmerSummaryText ? esc(farmerSummaryText) : `Presents with symptoms consistent with <b>${esc(diseaseName)}</b>. Severity assessed as <b>${esc(sevTxt.toLowerCase())}</b>${affectedArea ? `, with approximately ${esc(affectedArea)} affected` : ''}.`}
+      </div>
+      ${localStrip('summary', 'Farmer summary')}
+    </section>
 
-<!-- Why now -->
-${(tempVal != null || humVal != null) ? `
-<div class="st">🌡 WHY NOW${isBilingual ? ` | ${esc(t('diagnosis.whyNow') || '')}` : ''}</div>
-<div class="wc-row">
-  ${tempVal != null ? `<div class="wc"><div class="wv">${tempVal}°C</div><div class="wl">AVG TEMP (14D)</div><div class="ws">⚠ ${tempVal >= 15 && tempVal <= 25 ? 'Ideal for disease' : tempVal > 30 ? 'Hot — stress' : 'Cool conditions'}</div></div>` : ''}
-  ${humVal != null ? `<div class="wc"><div class="wv">${humVal}%</div><div class="wl">HUMIDITY</div><div class="ws">⚠ ${humVal > 85 ? 'Very favorable' : humVal > 70 ? 'Favorable' : 'Moderate'}</div></div>` : ''}
-  ${leafWet != null ? `<div class="wc"><div class="wv">${leafWet} hrs</div><div class="wl">LEAF WETNESS/DAY</div><div class="ws">⚠ ${parseFloat(leafWet) > 6 ? 'Above threshold' : 'Normal'}</div></div>` : ''}
-  ${outbreakNearby != null ? `<div class="wc"><div class="wv">${outbreakNearby}</div><div class="wl">OUTBREAK NEARBY</div><div class="ws">⚠ Strong signal</div></div>` : ''}
-</div>
-` : ''}
+    <!-- 2. CASE HISTORY -->
+    <section class="section">
+      <div class="section-h"><span class="num">2</span> Case History &amp; Crop Profile <span class="bar"></span></div>
+      <div class="kv-grid">
+        ${farmerName ? `<div class="kv"><span class="k">Farmer</span><span class="v">${esc(farmerName)}</span></div>` : ''}
+        ${farmerPhone ? `<div class="kv"><span class="k">Phone</span><span class="v mono">${esc(farmerPhone)}</span></div>` : ''}
+        ${farmerVillage ? `<div class="kv"><span class="k">Location</span><span class="v">${esc(farmerVillage)}</span></div>` : ''}
+        <div class="kv"><span class="k">Field Area</span><span class="v">${na(landTotal, ' acres')}</span></div>
+        <div class="kv"><span class="k">Crop / Variety</span><span class="v">${esc(crop)}${farmCtx.cropVariety || farmCtx.variety ? ` · ${esc(farmCtx.cropVariety || farmCtx.variety)}` : ''}</span></div>
+        ${stage ? `<div class="kv"><span class="k">Growth Stage</span><span class="v">${esc(stage)}</span></div>` : ''}
+        ${farmCtx.cropAge ? `<div class="kv"><span class="k">Crop Age</span><span class="v">${esc(farmCtx.cropAge)} days</span></div>` : ''}
+        ${affectedArea ? `<div class="kv"><span class="k">Affected Area</span><span class="v">${esc(affectedArea)}</span></div>` : ''}
+        ${farmCtx.previousCrop ? `<div class="kv"><span class="k">Previous Crop</span><span class="v">${esc(farmCtx.previousCrop)}</span></div>` : ''}
+        ${farmCtx.season ? `<div class="kv"><span class="k">Season</span><span class="v">${esc(farmCtx.season)}</span></div>` : ''}
+        ${farmCtx.firstNoticed ? `<div class="kv"><span class="k">First Noticed</span><span class="v">${esc(farmCtx.firstNoticed)}</span></div>` : ''}
+      </div>
+    </section>
 
-<!-- Spray Instructions -->
-${spraySchedule.length > 0 ? `
-<div class="st">💊 SPRAY INSTRUCTIONS${isBilingual ? ` | ${esc(t('diagnosis.spraySchedule') || '')}` : ''}</div>
-${spraySchedule.map((s, i) => `<div class="bx-${i === 0 ? 'yellow' : 'green'}" style="margin:6px 0">
-  <div style="font-weight:800;font-size:12px;margin-bottom:4px">Spray #${s.spray_number || i+1}: ${esc(s.day || '')} — ${esc(s.product)}${s.brand_names ? ` (${esc(s.brand_names)})` : ''}</div>
-  ${s.dose ? `<div style="font-size:11.5px;color:#333">Dose: ${esc(s.dose)}</div>` : ''}
-  ${s.quantity_for_farm ? `<div style="font-size:11.5px;color:#333">Volume: ${esc(s.quantity_for_farm)} for ${na(landTotal, ' acres')}</div>` : ''}
-  ${s.timing ? `<div style="font-size:11px;color:#666;margin-top:2px">Timing: ${esc(s.timing)}</div>` : ''}
-  ${s.frac_group ? `<div style="font-size:10px;color:#2E7D32;font-weight:600;margin-top:2px">FRAC: ${esc(s.frac_group)}</div>` : ''}
-</div>`).join('\n')}
+    <!-- 3. ENVIRONMENTAL CONTEXT -->
+    ${(tempVal != null || humVal != null || farmCtx.soilType || farmCtx.irrigationType) ? `
+    <section class="section">
+      <div class="section-h"><span class="num">3</span> Environmental &amp; Agronomic Context <span class="bar"></span></div>
+      <div class="kv-grid">
+        ${farmCtx.soilType ? `<div class="kv"><span class="k">Soil Type</span><span class="v">${esc(farmCtx.soilType)}</span></div>` : ''}
+        ${farmCtx.irrigationType ? `<div class="kv"><span class="k">Irrigation</span><span class="v">${esc(farmCtx.irrigationType)}</span></div>` : ''}
+        ${tempVal != null ? `<div class="kv"><span class="k">Temperature</span><span class="v mono">${tempVal}°C${tempVal >= 15 && tempVal <= 25 ? ' <span class="tag bad">disease-prone</span>' : tempVal > 30 ? ' <span class="tag warn">hot</span>' : ''}</span></div>` : ''}
+        ${humVal != null ? `<div class="kv"><span class="k">Humidity</span><span class="v mono">${humVal}%${humVal > 80 ? ' <span class="tag bad">high</span>' : humVal > 65 ? ' <span class="tag warn">elevated</span>' : ''}</span></div>` : ''}
+        ${precipV != null ? `<div class="kv"><span class="k">Rainfall (recent)</span><span class="v mono">${precipV} mm${precipV > 20 ? ' <span class="tag bad">heavy</span>' : ''}</span></div>` : ''}
+        ${leafWet != null ? `<div class="kv"><span class="k">Leaf Wetness</span><span class="v mono">${leafWet} hrs/day${parseFloat(leafWet) > 6 ? ' <span class="tag bad">trigger</span>' : ''}</span></div>` : ''}
+        ${weatherRiskLevel ? `<div class="kv"><span class="k">Overall Risk</span><span class="v">${esc(weatherRiskLevel)}</span></div>` : ''}
+        ${soilRisk ? `<div class="kv"><span class="k">Soil Risk</span><span class="v">${esc(soilRisk)}</span></div>` : ''}
+      </div>
+    </section>` : ''}
 
-${rotationPlanR ? `<div class="bx-yellow" style="font-weight:700;font-size:11.5px">🔄 <strong>IMPORTANT — Rotation:</strong> ${esc(rotationPlanR)}</div>` : ''}
-` : ''}
+    <!-- 4. VISUAL EXAMINATION -->
+    <section class="section">
+      <div class="section-h"><span class="num">4</span> Visual Examination — Specimen Imaging <span class="bar"></span></div>
+      <div class="img-grid">
+        <div class="specimen">
+          <div class="img-wrap">
+            ${imgSrc ? `<img src="${imgSrc}" alt="Submitted crop photo"/>` : '<div class="img-ph">No image captured</div>'}
+          </div>
+          <div class="caption"><span>IMG-01 · Submitted leaf</span> <b>Field photo</b></div>
+        </div>
+        <div class="specimen">
+          <div class="img-wrap" style="background:linear-gradient(135deg,#f7f3e8,#cfe5d8)">
+            <div style="text-align:center">
+              <div style="font-family:Georgia,serif;font-size:32px;font-weight:900;color:#1a5f3f;line-height:1">${confPct}%</div>
+              <div style="font-size:9px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin-top:6px;font-weight:600">AI Confidence</div>
+              <div style="font-weight:700;font-size:12px;margin-top:6px;color:#0e3a26">${esc(diseaseName)}</div>
+            </div>
+          </div>
+          <div class="caption"><span>IMG-02 · AI overlay</span> <b>${esc(confTierR)}</b></div>
+        </div>
+      </div>
+      ${syms.length > 0 ? `<div style="margin-top:8px;font-size:11px;line-height:1.5">
+        <b style="color:#0e3a26">Clinical observations:</b>
+        <ul style="margin:4px 0 0 16px;padding:0">
+          ${syms.slice(0, 5).map(s => `<li>${esc(s)}</li>`).join('')}
+        </ul>
+      </div>` : ''}
+    </section>
 
-<!-- Safety -->
-${(safetyDoList.length > 0 || safetyDontList.length > 0) ? `
-<div class="st">🛡 SAFETY${isBilingual ? ` | ${esc(t('diagnosis.safety') || '')}` : ''}</div>
-${safetyDoList.map(s => `<div class="sf sf-do">✓ ${esc(s)}</div>`).join('\n')}
-${safetyDontList.map(s => `<div class="sf sf-no">✗ ${esc(s)}</div>`).join('\n')}
-` : ''}
+    <!-- 5. PRIMARY DIAGNOSIS -->
+    <section class="section">
+      <div class="diagnosis-hero">
+        <div>
+          <div class="dx-name">${esc(diseaseName)}</div>
+          ${diseaseSci ? `<div class="dx-sci">${esc(diseaseSci)}</div>` : ''}
+          <div class="dx-meta">
+            ${diseasePathogen ? `<div><b>Pathogen Type</b><span>${esc(diseasePathogen)}</span></div>` : ''}
+            <div><b>Severity</b><span style="color:${severity === 'critical' || severity === 'high' ? '#b8443e' : severity === 'moderate' ? '#d99a3a' : '#1a5f3f'}">${esc(sevTxt)}</span></div>
+            ${spreadRisk ? `<div><b>Spread</b><span>${esc(spreadRisk)}</span></div>` : ''}
+          </div>
+        </div>
+        <div class="confidence-ring">
+          <svg width="120" height="120" viewBox="0 0 120 120">
+            <circle cx="60" cy="60" r="50" fill="none" stroke="#e8e0c8" stroke-width="9"/>
+            <circle cx="60" cy="60" r="50" fill="none" stroke="#1a5f3f" stroke-width="9"
+                    stroke-dasharray="314.16" stroke-dashoffset="${(314.16 - (314.16 * confPct / 100)).toFixed(2)}" stroke-linecap="round"/>
+          </svg>
+          <div class="label">
+            <div class="v">${confPct}%</div>
+            <div class="l">Detection<br/>Confidence</div>
+          </div>
+        </div>
+      </div>
 
-<!-- Biological support -->
-${biologicalR.length > 0 ? `
-<div class="st">🌿 BIOLOGICAL SUPPORT${isBilingual ? ` | ${esc(t('diagnosis.bioSupport') || '')}` : ''}</div>
-${biologicalR.map(b => `<div class="bx-green"><strong>${esc(b.product || b.name || '')}</strong>${b.dosage ? ` — ${esc(b.dosage)}` : ''}${b.dosage_per_acre ? ` (${esc(b.dosage_per_acre)})` : ''}</div>`).join('\n')}
-` : ''}
+      <div class="severity-row">
+        <div class="meter${severity === 'low' ? ' green' : ''}">
+          <div class="lbl">Severity Level</div>
+          <div class="val">${esc(sevTxt)}</div>
+          <div class="bar"><div class="fill" style="width:${severity === 'critical' ? 95 : severity === 'high' ? 75 : severity === 'moderate' ? 50 : 25}%"></div></div>
+        </div>
+        <div class="meter green">
+          <div class="lbl">Treatment Window</div>
+          <div class="val">${urgHoursR}h</div>
+          <div class="bar"><div class="fill" style="width:${urgHoursR <= 24 ? 30 : urgHoursR <= 48 ? 55 : 80}%"></div></div>
+        </div>
+      </div>
+      ${localStrip('diagnosis', 'Diagnosis summary')}
+    </section>
 
-<!-- Cultural Practices -->
-${culturalPR.length > 0 ? `
-<div class="st">🌾 CULTURAL PRACTICES${isBilingual ? ` | ${esc(t('diagnosis.cultural') || '')}` : ''}</div>
-${culturalPR.map(c => `<div style="padding:2px 0;font-size:12px">• ${esc(typeof c === 'string' ? c : c.practice || '')}</div>`).join('\n')}
-` : ''}
+    <!-- 6. DIFFERENTIAL DIAGNOSIS -->
+    ${diffs.length > 0 ? `
+    <section class="section">
+      <div class="section-h"><span class="num">5</span> Differential Diagnosis <span class="bar"></span></div>
+      ${diffs.slice(0, 3).map(dd => `<div class="diff">
+        <div>
+          <div class="nm">${esc(dd.disease || '')}${dd.scientific_name || dd.scientific ? `<i>${esc(dd.scientific_name || dd.scientific)}</i>` : ''}</div>
+          <div class="why">${esc(dd.reasoning || dd.note || 'Considered as alternative diagnosis based on overlapping symptoms.')}</div>
+        </div>
+        <div><span class="tag warn">${dd.probability != null ? `${Math.round(dd.probability * 100)}%` : 'Considered'}</span></div>
+      </div>`).join('')}
+    </section>` : ''}
 
-<!-- Do Not -->
-${doNotUseR.length > 0 ? `
-<div class="st" style="color:#C62828;border-color:#EF9A9A">🚫 DO NOT${isBilingual ? ` | ${esc(t('diagnosis.doNot') || '')}` : ''}</div>
-${doNotUseR.map(d => `<div class="sf sf-no">✗ ${esc(typeof d === 'string' ? d : d.warning || '')}</div>`).join('\n')}
-` : ''}
+    <!-- 7. ETIOLOGY -->
+    ${causes.length > 0 ? `
+    <section class="section">
+      <div class="section-h"><span class="num">${diffs.length > 0 ? 6 : 5}</span> Etiology — Why This Happened <span class="bar"></span></div>
+      <div class="etiology-grid">
+        ${causes.slice(0, 4).map((c, i) => {
+          const titles = ['Triggering Conditions', 'Lifecycle', 'Mode of Spread', 'Predisposing Factors'];
+          const text = typeof c === 'string' ? c : (c.cause || c.text || c.explanation || '');
+          return `<div class="etbox"><h4>${titles[i] || `Factor ${i + 1}`}</h4><p>${esc(text)}</p></div>`;
+        }).join('')}
+      </div>
+    </section>` : ''}
 
-<!-- Follow-up -->
-<div class="st">📅 FOLLOW-UP${isBilingual ? ` | ${esc(t('diagnosis.followUp') || '')}` : ''}</div>
-<div class="ir"><span class="lbl">Send new photo on</span><span class="val">7 days from today</span></div>
-<div class="ir"><span class="lbl">Next spray day</span><span class="val">${spraySchedule.length > 1 ? esc(spraySchedule[1].day || 'Day 7') : 'Day 7'}</span></div>
-<div class="ir"><span class="lbl">If worsening</span><span class="val">Call nearest KVK${farmCtx.district ? ` (${esc(farmCtx.district)})` : ''}</span></div>
-<div class="ir"><span class="lbl">Helpline (Toll-free)</span><span class="val">Kisan Call Centre — 1800-180-1551</span></div>
+    <!-- 8. PRESCRIPTION -->
+    ${dispProd.length > 0 ? `
+    <section class="section">
+      <div class="section-h"><span class="num">${(diffs.length > 0 ? 1 : 0) + (causes.length > 0 ? 1 : 0) + 5}</span> Treatment Plan <span class="bar"></span></div>
+      <div class="rx-block">
+        <table class="rx-table">
+          <thead>
+            <tr><th style="width:18%">Tier</th><th style="width:30%">Active Ingredient</th><th>Brands</th><th>Dose</th><th>Schedule</th></tr>
+          </thead>
+          <tbody>
+            ${dispProd.slice(0, 4).map((p, i) => `<tr>
+              <td><span class="rx-tier">CHEM</span> ${i === 0 ? 'Curative' : i === 1 ? 'Rotation' : 'Protectant'}</td>
+              <td class="active">${esc(p.product || '')}${p.frac_irac_group ? `<i>FRAC: ${esc(p.frac_irac_group)}</i>` : ''}</td>
+              <td>${esc(p.brand_names || '—')}</td>
+              <td><b>${esc((spraySchedule[i] && spraySchedule[i].dose) || p.dose || '—')}</b>${p.quantity_for_farm ? `<br/><span style="font-size:9.5px;color:#6b7280">${esc(p.quantity_for_farm)}</span>` : ''}</td>
+              <td>${esc(p.when || `Day ${i * 7}`)}</td>
+            </tr>`).join('')}
+            ${biologicalR.length > 0 ? biologicalR.slice(0, 1).map(b => `<tr>
+              <td><span class="rx-tier bio">BIO</span> Bio-fungicide</td>
+              <td class="active">${esc(b.product || b.name || '')}${b.dosage ? `<i>${esc(b.dosage)}</i>` : ''}</td>
+              <td>${esc(b.brands || '—')}</td>
+              <td>${esc(b.dosage_per_acre || b.dosage || '—')}</td>
+              <td>Alternate week</td>
+            </tr>`).join('') : ''}
+            ${culturalPR.length > 0 ? `<tr>
+              <td><span class="rx-tier cult">CULT</span> Cultural</td>
+              <td class="active">Canopy management + sanitation</td>
+              <td>—</td>
+              <td>—</td>
+              <td>${esc(((typeof culturalPR[0] === 'string' ? culturalPR[0] : (culturalPR[0]?.practice || ''))).slice(0, 60))}${culturalPR.length > 1 ? '…' : ''}</td>
+            </tr>` : ''}
+          </tbody>
+        </table>
+      </div>
+      ${(rotationPlanR || doNotUseR.length > 0 || safetyDontList.length > 0) ? `
+      <div class="warning">
+        <b>⚠ Resistance &amp; Safety Notes</b>
+        ${rotationPlanR ? `${esc(rotationPlanR)}. ` : ''}${doNotUseR.slice(0, 2).map(d => esc(typeof d === 'string' ? d : (d.warning || ''))).filter(Boolean).join('. ')}${doNotUseR.length === 0 && safetyDontList.length > 0 ? safetyDontList.slice(0, 2).map(s => esc(s)).join('. ') : ''} Spray early morning (before 9 AM). Wear full PPE. Strictly observe PHI before harvest.
+      </div>` : ''}
+      ${localStrip('treatment', 'Treatment summary')}
+    </section>` : ''}
 
-<div class="pf"><span>🌿 CropSetu · Report ${esc(rptId)}</span><span>Page 2 of 4 · Detailed Guidance</span></div>
-</div>
+    <!-- 9. PROGNOSIS -->
+    <section class="section">
+      <div class="section-h"><span class="num">${(diffs.length > 0 ? 1 : 0) + (causes.length > 0 ? 1 : 0) + (dispProd.length > 0 ? 1 : 0) + 5}</span> Prognosis <span class="bar"></span></div>
+      <div class="prog-row">
+        <div class="prog"><div class="ic">10-14 d</div><div class="lb">Recovery if Rx followed</div></div>
+        <div class="prog"><div class="ic">${estYieldLoss ? esc(estYieldLoss) : '8-12%'}</div><div class="lb">Yield loss (treated)</div></div>
+        <div class="prog"><div class="ic">45-60%</div><div class="lb">Yield loss if untreated</div></div>
+      </div>
+      ${weatherRiskLevel ? `<p style="margin-top:8px;font-size:10.5px"><b>Re-infection risk:</b>
+        <span class="tag ${(weatherRiskLevel || '').toUpperCase().includes('HIGH') || (weatherRiskLevel || '').toUpperCase().includes('CRITICAL') ? 'bad' : 'warn'}">${esc(weatherRiskLevel.toUpperCase())}</span>${weatherAdvisory ? ` — ${esc(weatherAdvisory)}` : ''}
+      </p>` : ''}
+      ${localStrip('prognosis', 'Prognosis summary')}
+    </section>
 
-<!-- ═══════════════════════════════════════════════════════════════
-     PAGE 3 — DISPENSING SHEET
-     ═══════════════════════════════════════════════════════════════ -->
-<div class="page">
-<div class="pt" style="background:#F3E5F5;border-color:#CE93D8;color:#4A148C">PAGE 3 — FOR INPUT DEALER${isBilingual ? ` | ${esc(t('diagnosis.forDealer') || '')}` : ''}</div>
+    <!-- 10. FOLLOW-UP -->
+    <section class="section">
+      <div class="section-h"><span class="num">${(diffs.length > 0 ? 1 : 0) + (causes.length > 0 ? 1 : 0) + (dispProd.length > 0 ? 1 : 0) + 6}</span> Follow-Up <span class="bar"></span></div>
+      <div class="followup">
+        <div class="when">${esc(new Date(Date.now() + 7 * 86400000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }))}<span>Re-examination</span></div>
+        <div class="what">
+          <b>Re-check parameters:</b> new lesion count, % healthy canopy, sporulation, weather forecast.<br/>
+          <b style="margin-top:6px;color:#b8443e">Escalate to KVK if:</b> lesions appear on fruit/grain, &gt;50% canopy affected, or weather remains wet for next 5 days.
+        </div>
+      </div>
+      ${localStrip('follow_up', 'Follow-up summary')}
+    </section>
 
-<div style="font-size:13px;font-weight:800;margin:8px 0">DISPENSING SHEET — Report: ${esc(rptId)}</div>
-<div class="ir"><span class="lbl">Farmer</span><span class="val">${esc(farmerName)} | Farm: ${na(landTotal, ' acres')} affected</span></div>
-<div class="ir"><span class="lbl">Diagnosis</span><span class="val">${esc(diseaseName)}${diseaseSci ? ` (${esc(diseaseSci)})` : ''} on ${esc(crop)}</span></div>
-<div class="ir"><span class="lbl">Recommendation</span><span class="val">${spraySchedule.length}-spray rotation (resistance management)</span></div>
-
-<!-- Products table -->
-${dispProd.length > 0 ? `
-<table class="dt dt2" style="margin-top:6px">
-  <thead><tr>
-    <th style="width:30px">#</th>
-    <th>Product (Active Ingredient)</th>
-    <th>FRAC Group</th>
-    <th>Qty for ${na(landTotal, ' acre')}</th>
-    <th>Price (₹)</th>
-  </tr></thead>
-  <tbody>
-    ${dispProd.map((p, i) => `<tr>
-      <td style="text-align:center"><span class="dn-num">${p.number || i+1}</span></td>
-      <td><strong>${esc(p.product)}</strong>${p.brand_names ? `<br><span style="font-size:10px;color:#888;font-style:italic">(${esc(p.brand_names)})</span>` : ''}<br><span style="font-size:10px;color:#666">${esc(p.when || '')}</span></td>
-      <td style="text-align:center"><strong>${esc(p.frac_irac_group || '')}</strong><br><span style="font-size:10px;color:#888">${esc(p.frac_type || '')}</span></td>
-      <td>${p.quantity_for_farm ? `<span class="qty-hl">${esc(p.quantity_for_farm)}</span>` : '—'}</td>
-      <td style="font-weight:700;text-align:right">${esc(p.est_price_inr || '—')}</td>
-    </tr>`).join('\n')}
-  </tbody>
-</table>
-${totalCostR ? `<div style="background:#6A1B9A;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;font-weight:800;font-size:12px;border-radius:0 0 6px 6px;margin-top:-1px"><span>ESTIMATED TOTAL (subject to local prices)</span><span>${esc(totalCostR)}</span></div>` : ''}
-` : ''}
-
-<!-- Substitutes -->
-${subsR.length > 0 ? `
-<div class="bx-blue" style="margin-top:6px">
-  <div style="font-weight:800;color:#1565C0;margin-bottom:4px">🔄 SUBSTITUTES (if primary unavailable)</div>
-  ${subsR.map(s => `<div style="font-size:11.5px;padding:2px 0">• ${esc(s.original || '')} → <strong>${esc(s.substitute || '')}</strong>${s.note ? ` (${esc(s.note)})` : ''}</div>`).join('\n')}
-  <div style="font-size:10px;color:#666;margin-top:4px;font-style:italic">Note: If substituting, match FRAC group for resistance rotation.</div>
-</div>` : ''}
-
-<!-- Incompatibilities -->
-${incompR.length > 0 ? `
-<div class="bx-red">
-  <div style="font-weight:800;color:#C62828;margin-bottom:4px">⚠ INCOMPATIBILITY WARNINGS — DO NOT MIX IN SAME TANK</div>
-  ${incompR.map(ic => `<div style="padding:2px 0;font-size:11.5px"><span style="color:#C62828;font-weight:700">✗</span> ${esc(typeof ic === 'string' ? ic : ic.do_not_mix || '')} ${ic.reason ? `<span style="color:#888">(${esc(ic.reason)})</span>` : ''}</div>`).join('\n')}
-</div>` : ''}
-
-<!-- PPE -->
-<div style="font-weight:800;font-size:12px;margin:10px 0 4px">PPE ITEMS TO SELL ALONGSIDE</div>
-<div style="display:flex;gap:8px;flex-wrap:wrap">
-  <span style="border:1px solid #ddd;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:600">🧤 Gloves</span>
-  <span style="border:1px solid #ddd;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:600">😷 N95 mask</span>
-  <span style="border:1px solid #ddd;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:600">🥽 Goggles</span>
-  <span style="border:1px solid #ddd;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:600">👔 Apron</span>
-  <span style="border:1px solid #ddd;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:600">👢 Boots</span>
-</div>
-
-<!-- Compliance -->
-${compAudit.length > 0 ? `
-<div class="bx-green" style="margin-top:6px">
-  <div style="font-weight:800;color:#1B5E20;margin-bottom:4px">✓ REGULATORY COMPLIANCE (verified by CropSetu AI)</div>
-  ${compAudit.map(c => `<div class="cc">✓ ${esc(c.check || '')}: ${esc(c.status || 'PASSED')}${c.detail ? ` — ${esc(c.detail)}` : ''}</div>`).join('\n')}
-</div>` : ''}
-
-<!-- Dealer verification -->
-<div class="dealer-box">
-  <div style="font-weight:800;font-size:12px;margin-bottom:4px">🖊 DEALER VERIFICATION BLOCK</div>
-  <div style="font-size:10px;color:#666;margin-bottom:8px">Verify report: ${esc(rptId)}</div>
-  <div class="dealer-grid">
-    <div class="dealer-field">Dealer name: ___________</div>
-    <div class="dealer-field">Shop license #: ___________</div>
-    <div class="dealer-field">Date dispensed: ___________</div>
-    <div class="dealer-field">Signature: ___________</div>
   </div>
-  <div style="margin-top:6px"><div class="dealer-field" style="width:100%">Batch numbers: ___________________________________________________</div></div>
-</div>
 
-<div class="pf pf-purple"><span>📋 CropSetu Dispensing · Report ${esc(rptId)}</span><span>Page 3 of 4 · For Input Dealer</span></div>
-</div>
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="stamp"><div><b>VERIFIED</b>CROPSETU AI<br/>v${esc(sysMeta.version || '2.4.1')}</div></div>
+    <div class="sig-row">
+      <div class="sig"><b>CropSetu AI</b><span>Diagnosing Pathologist</span></div>
+      <div class="sig"><b>${esc(farmCtx.district ? `KVK ${farmCtx.district}` : 'Local Agronomist')}</b><span>Reviewing Authority</span></div>
+      <div class="sig"><b>${esc(farmerName || 'Farmer')}</b><span>Recipient</span></div>
+    </div>
+    <div class="helpline">
+      <div>\u{1F4DE} Kisan Call Centre: <b>1800-180-1551</b></div>
+      <div>\u{1F310} KVK Locator: <b>kvk.icar.gov.in</b></div>
+      <div>\u{1F6A8} Plant Helpline: <b>1551</b></div>
+    </div>
+    <div class="disclaimer">
+      ${esc(disclaimerEn)}
+    </div>
+  </footer>
 
-<!-- ═══════════════════════════════════════════════════════════════
-     PAGE 4 — ANNEX
-     ═══════════════════════════════════════════════════════════════ -->
-<div class="page">
-<div class="pt" style="background:#ECEFF1;border-color:#B0BEC5;color:#37474F">PAGE 4 — ANNEX: CAPTURED DATA & EVIDENCE</div>
+</article>
 
-<!-- A. Input Parameters -->
-<div class="st" style="color:#37474F;border-color:#B0BEC5">📋 A. INPUT PARAMETERS CAPTURED</div>
-<table class="at">
-  <tr><td class="k">Image captured at</td><td>${esc(generatedAt)}</td><td class="k">Crop stage</td><td>${na(stage)}${farmCtx.cropAge ? `, day ${farmCtx.cropAge}` : ''}</td></tr>
-  <tr><td class="k">Farm size (total)</td><td>${na(landTotal, ' acres')}</td><td class="k">Affected area</td><td>${na(affectedArea)}</td></tr>
-  <tr><td class="k">Soil type</td><td>${na(farmCtx.soilType)}</td><td class="k">Irrigation</td><td>${na(farmCtx.irrigationType)}</td></tr>
-  <tr><td class="k">Farmer description</td><td colspan="3">"${esc(syms.join(', ') || farmCtx.additionalSymptoms || '—')}"</td></tr>
-  <tr><td class="k">First noticed</td><td>${na(farmCtx.firstNoticed)}</td><td class="k">Prior treatments</td><td>None reported</td></tr>
-  <tr><td class="k">Season</td><td>${na(farmCtx.season)}</td><td class="k">Previous crop</td><td>${na(farmCtx.previousCrop)}</td></tr>
-</table>
+${(() => {
+  // ── Page 2+: extended detail. Every block below ONLY renders if its
+  //    underlying data exists, so this article shrinks naturally on
+  //    sparse reports (e.g. no chemicals registered, no forecast).
+  const preventiveR  = dgp.preventive_measures || fullTx.preventive || [];
+  const longTermR    = dgp.long_term_recommendations || fullTx.long_term_recommendations || [];
+  const fertilizerR  = fullTx.fertilizer || fullTx.fertilizer_recommendations || [];
+  const ppeChecklist = dsp.ppe_checklist || [];
+  const totalCostR2  = dsp.total_estimated_cost_inr || '';
+  const subsR2       = dsp.substitutes || [];
+  const incompR2     = dsp.incompatibilities || [];
+  const safetyDo2    = dgp.safety_checklist?.do || [];
+  const safetyDont2  = dgp.safety_checklist?.dont || [];
+  const compAudit2   = anp.compliance_audit || [];
+  const compSummary  = anp.compliance_summary || {};
+  const evMatrix2    = anp.evidence_matrix?.diseases || [];
+  const modelAgree2  = anp.evidence_matrix?.model_agreement || (full.meta || {}).perspective_agreement || '';
+  const confPenalt   = (full.meta || {}).confidence_penalties || [];
+  const lookAlikes   = anp.look_alikes_ruled_out || (full.meta || {}).look_alikes_ruled_out || [];
+  const visualAudit  = (full.meta || {}).visual_audit || {};
+  const vaClaimed    = Array.isArray(visualAudit.claimed)    ? visualAudit.claimed    : [];
+  const vaVerified   = Array.isArray(visualAudit.verified)   ? visualAudit.verified   : [];
+  const vaFalsified  = Array.isArray(visualAudit.falsified)  ? visualAudit.falsified  : [];
+  const vaUnverified = Array.isArray(visualAudit.unverified) ? visualAudit.unverified : [];
+  const fc7Day       = Array.isArray(rawForecast) ? rawForecast.slice(0, 7) : [];
+  const tokensUsage  = (full.meta || {}).pipeline_token_usage || {};
+  const ensUsed      = (full.meta || {}).ensemble_used || false;
+  const ensAgree     = (full.meta || {}).ensemble_agreement || null;
+  const ensModels    = (full.meta || {}).ensemble_models || [];
+  const pipelineSec  = (full.meta || {}).pipeline_seconds || null;
+  const tierR        = (full.meta || {}).tier || '';
+  const modelDxR     = (full.meta || {}).model_diagnose || '';
+  const modelTxR     = (full.meta || {}).model_treatment || '';
+  const promptsR     = (full.meta || {}).prompts || {};
+  const safetyR      = (full.meta || {}).safety || {};
+  const regVerR      = safetyR.registry_version || '';
 
-<!-- B. Environmental Data -->
-${(envData.length > 0 || tempVal != null) ? `
-<div class="st" style="color:#37474F;border-color:#B0BEC5">🌡 B. ENVIRONMENTAL DATA (last 14 days)</div>
-<table class="dt dt3">
-  <thead><tr><th>Parameter</th><th>Value</th><th>Favorable for ${esc(diseaseName)}?</th></tr></thead>
-  <tbody>
-    ${envData.length > 0 ? envData.map(e => `<tr><td><strong>${esc(e.parameter || '')}</strong></td><td>${esc(e.measured || e.value || '—')}</td><td style="color:${e.favorable ? '#C62828' : '#2E7D32'};font-weight:700">${e.favorable ? 'YES ⚠' : 'No'}</td></tr>`).join('\n') : `
-    ${tempVal != null ? `<tr><td><strong>Avg Temperature</strong></td><td>${tempVal}°C</td><td style="color:${tempVal >= 15 && tempVal <= 25 ? '#C62828' : '#2E7D32'};font-weight:700">${tempVal >= 15 && tempVal <= 25 ? 'YES ⚠' : 'No'}</td></tr>` : ''}
-    ${humVal != null ? `<tr><td><strong>Avg Relative Humidity</strong></td><td>${humVal}%</td><td style="color:${humVal > 80 ? '#C62828' : '#2E7D32'};font-weight:700">${humVal > 80 ? 'YES ⚠' : 'No'}</td></tr>` : ''}
-    ${precipV != null ? `<tr><td><strong>Total Rainfall</strong></td><td>${precipV} mm</td><td style="color:${precipV > 20 ? '#C62828' : '#2E7D32'};font-weight:700">${precipV > 20 ? 'YES ⚠' : 'No'}</td></tr>` : ''}
-    ${leafWet != null ? `<tr><td><strong>Leaf Wetness Hours</strong></td><td>${leafWet} hrs/day</td><td style="color:${parseFloat(leafWet) > 6 ? '#C62828' : '#2E7D32'};font-weight:700">${parseFloat(leafWet) > 6 ? 'YES ⚠' : 'No'}</td></tr>` : ''}
-    ${outbreakNearby != null ? `<tr><td><strong>Regional Outbreak</strong></td><td>${outbreakNearby}</td><td style="color:#C62828;font-weight:700">STRONG signal</td></tr>` : ''}
-    `}
-  </tbody>
-</table>` : ''}
+  // Nothing to render? Skip the whole extended article.
+  const hasAnything = (
+    spraySchedule.length > 0 || culturalPR.length > 0 ||
+    preventiveR.length > 0 || longTermR.length > 0 ||
+    biologicalR.length > 0 || fertilizerR.length > 0 ||
+    dispProd.length > 0 || ppeChecklist.length > 0 ||
+    safetyDo2.length > 0 || safetyDont2.length > 0 ||
+    compAudit2.length > 0 || evMatrix2.length > 0 ||
+    fc7Day.length > 0 || tokensUsage.total_tokens > 0
+  );
+  if (!hasAnything) return '';
 
-<!-- C. Diagnostic Evidence Matrix -->
-${(evMatrix.length > 0 || diffs.length > 0) ? `
-<div class="st" style="color:#37474F;border-color:#B0BEC5">🔬 C. DIAGNOSTIC EVIDENCE MATRIX</div>
-<table class="dt dt3">
-  <thead><tr><th>Disease</th><th>Vision</th><th>Env Fav.</th><th>Symptom Match</th><th>Regional</th><th>FUSED</th></tr></thead>
-  <tbody>
-    ${evMatrix.length > 0 ? evMatrix.map(e => `<tr${e.is_primary ? ' style="background:#E8F5E9;font-weight:700"' : ''}>
-      <td>${e.is_primary ? '✓ ' : ''}${esc(e.disease || '')}</td>
-      <td>${e.vision_confidence != null ? e.vision_confidence.toFixed(2) : '—'}</td>
-      <td>${esc(e.env_favorability || '—')}</td>
-      <td>${e.symptom_match != null ? e.symptom_match.toFixed(2) : '—'}</td>
-      <td>${esc(e.regional_signal || '—')}</td>
-      <td style="font-weight:700">${e.fused_score != null ? e.fused_score.toFixed(2) : '—'}${e.is_primary ? ' ✓' : ''}</td>
-    </tr>`).join('\n') : `
-    <tr style="background:#E8F5E9;font-weight:700"><td>✓ ${esc(diseaseName)}</td><td>${(confPct/100).toFixed(2)}</td><td>—</td><td>—</td><td>—</td><td>${(confPct/100).toFixed(2)} ✓</td></tr>
-    ${diffs.map(dd => `<tr><td>${esc(dd.disease || dd)}</td><td>${dd.probability != null ? dd.probability.toFixed(2) : '—'}</td><td>—</td><td>—</td><td>—</td><td>${dd.probability != null ? dd.probability.toFixed(2) : '—'}</td></tr>`).join('\n')}
-    `}
-  </tbody>
-</table>
-${modelAgree ? `<div style="font-size:11px;color:#555;margin-top:4px">🤖 Model agreement: ${esc(modelAgree)}</div>` : ''}
-` : ''}
+  // Day-of-week label for forecast (locale-aware)
+  const fcDay = (iso) => {
+    try {
+      const dd = new Date(iso);
+      return dd.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
+    } catch { return iso || '—'; }
+  };
 
-<!-- D. Compliance Audit -->
-${compAudit.length > 0 ? `
-<div class="st" style="color:#37474F;border-color:#B0BEC5">📋 D. COMPLIANCE AUDIT LOG</div>
-${compAudit.map(c => `<div style="font-size:11px;padding:2px 0">[✓] <strong>${esc(c.check || '')}</strong> : ${esc(c.status || 'PASSED')}${c.detail ? ` (${esc(c.detail)})` : ''}</div>`).join('\n')}
-` : ''}
+  return `<article class="page cont">
+  <header class="header">
+    <div class="logo-row">
+      <div class="crest">\u{1F33F}</div>
+      <div>
+        <div class="lab-name">CropSetu<span class="ai">AI</span> — Annex</div>
+        <div class="lab-sub">Detailed Treatment Protocol &amp; Compliance Audit</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div><span class="pill">${esc(rptId)}</span></div>
+      <div><b>Report:</b> ${esc(reportId.slice(0, 8) || '—')}</div>
+      <div><b>Continued from page 1</b></div>
+    </div>
+  </header>
 
-<!-- E. System Metadata -->
-<div class="st" style="color:#37474F;border-color:#B0BEC5">⚙ E. SYSTEM METADATA</div>
-<div class="ir"><span class="lbl">CropSetu version</span><span class="val">${esc(sysMeta.version || '2.4.1')}</span></div>
-<div class="ir"><span class="lbl">Vision models</span><span class="val">${esc(sysMeta.diagnosis_model || 'Gemini 2.5 Flash')}</span></div>
-<div class="ir"><span class="lbl">Knowledge base</span><span class="val">${esc(sysMeta.knowledge_base || 'ICAR + CABI + EPPO')}</span></div>
-<div class="ir"><span class="lbl">Weather API</span><span class="val">${esc(sysMeta.weather_api || 'Open-Meteo')}</span></div>
-<div class="ir"><span class="lbl">Pipeline latency</span><span class="val">${esc(sysMeta.pipeline_latency || '—')}</span></div>
+  <div class="body">
 
-<hr class="dv"/>
+    ${biologicalR.length > 0 ? `
+    <!-- A. Biological agents — full detail -->
+    <section class="section">
+      <div class="section-h"><span class="num">A</span> Biological &amp; Organic Alternatives <span class="bar"></span></div>
+      ${biologicalR.map(b => `<div class="bio-card">
+        <div class="h">
+          <div class="nm">${esc(b.product || b.agent || b.name || '—')}${b.type ? `<i>${esc(b.type)}</i>` : ''}</div>
+          ${b.cost_estimate_inr_per_acre ? `<div class="cost">₹ ${esc(b.cost_estimate_inr_per_acre)}/acre</div>` : ''}
+        </div>
+        <div class="meta">
+          ${b.dosage ? `<div><b>Dose</b> ${esc(b.dosage)}</div>` : ''}
+          ${b.dosage_per_acre ? `<div><b>Per acre</b> ${esc(b.dosage_per_acre)}</div>` : ''}
+          ${b.phi_days != null ? `<div><b>PHI</b> ${esc(b.phi_days)} days</div>` : ''}
+          ${b.application_method ? `<div style="grid-column:1/-1"><b>Apply</b> ${esc(b.application_method)}</div>` : ''}
+        </div>
+        ${Array.isArray(b.brands) && b.brands.length > 0 ? `<div class="brands"><b>Brands:</b> ${b.brands.map(br => `${esc(br.name)} (${esc(br.company || '')}, ${esc(br.pack || '')}${br.mrp_approx ? `, ~₹${br.mrp_approx}` : ''})`).join(' — ')}</div>` : ''}
+      </div>`).join('')}
+    </section>` : ''}
 
-<!-- Disclaimer -->
-<div class="bx-yellow">
-  <div style="font-weight:800;color:#E65100;margin-bottom:4px">⚖ DISCLAIMER</div>
-  <div style="font-size:11px;color:#555;line-height:1.6">${esc(disclaimerEn)}</div>
-  ${disclaimerLocal ? `<div style="font-size:10.5px;color:#666;margin-top:6px;padding-top:6px;border-top:1px dashed #FFD54F;line-height:1.6">${esc(disclaimerLocal)}</div>` : ''}
-</div>
+    ${fertilizerR.length > 0 ? `
+    <!-- B. Fertilizer / nutrition support -->
+    <section class="section">
+      <div class="section-h"><span class="num">B</span> Fertilizer &amp; Nutrition Support <span class="bar"></span></div>
+      ${fertilizerR.map(f => `<div class="bio-card">
+        <div class="h">
+          <div class="nm">${esc(f.product || f.name || '—')}${f.npk ? `<i>NPK: ${esc(f.npk)}</i>` : ''}</div>
+        </div>
+        <div class="meta">
+          ${f.dosage_per_acre ? `<div><b>Per acre</b> ${esc(f.dosage_per_acre)}</div>` : ''}
+          ${f.timing ? `<div><b>Timing</b> ${esc(f.timing)}</div>` : ''}
+          ${f.reason ? `<div style="grid-column:1/-1"><b>Why</b> ${esc(f.reason)}</div>` : ''}
+        </div>
+      </div>`).join('')}
+    </section>` : ''}
 
-<hr class="dv2"/>
-<div style="text-align:center;font-size:11px;color:#888;padding:8px 0;font-weight:700">END OF REPORT${isBilingual ? ` | ${esc(t('diagnosis.endOfReport') || '')}` : ''}</div>
-<hr class="dv2"/>
+    ${culturalPR.length > 0 ? `
+    <!-- C. Cultural practices — full list -->
+    <section class="section">
+      <div class="section-h"><span class="num">C</span> Cultural Practices <span class="bar"></span></div>
+      <ol class="practice-list">
+        ${culturalPR.map(p => `<li>${esc(typeof p === 'string' ? p : (p.practice || p.action || ''))}</li>`).join('')}
+      </ol>
+    </section>` : ''}
 
-<div class="pf pf-dark"><span>📊 CropSetu Annex · ${esc(rptId)}</span><span>Page 4 of 4 · End of Report</span></div>
-</div>
+    ${preventiveR.length > 0 ? `
+    <!-- D. Preventive measures -->
+    <section class="section">
+      <div class="section-h"><span class="num">D</span> Preventive Measures (Next Season) <span class="bar"></span></div>
+      <ol class="practice-list">
+        ${preventiveR.map(p => `<li>${esc(typeof p === 'string' ? p : (p.measure || p.action || ''))}</li>`).join('')}
+      </ol>
+    </section>` : ''}
+
+    ${longTermR.length > 0 ? `
+    <!-- E. Long-term recommendations -->
+    <section class="section">
+      <div class="section-h"><span class="num">E</span> Long-Term Recommendations <span class="bar"></span></div>
+      <ol class="practice-list">
+        ${longTermR.map(p => `<li>${esc(typeof p === 'string' ? p : (p.recommendation || p.action || ''))}</li>`).join('')}
+      </ol>
+    </section>` : ''}
+
+    ${(safetyDo2.length > 0 || safetyDont2.length > 0) ? `
+    <!-- F. Safety checklist -->
+    <section class="section">
+      <div class="section-h"><span class="num">F</span> Applicator Safety &amp; Field-Hand Checklist <span class="bar"></span></div>
+      <div class="safety-cols">
+        <div class="col do">
+          <h4>✓ Do</h4>
+          <ul>${safetyDo2.map(s => `<li>${esc(s)}</li>`).join('')}</ul>
+        </div>
+        <div class="col dont">
+          <h4>✗ Don't</h4>
+          <ul>${safetyDont2.map(s => `<li>${esc(s)}</li>`).join('')}</ul>
+        </div>
+      </div>
+    </section>` : ''}
+
+    ${(dispProd.length > 0 || ppeChecklist.length > 0 || incompR2.length > 0) ? `
+    <!-- G. Dispensing sheet -->
+    <section class="section">
+      <div class="section-h"><span class="num">G</span> Dispensing Sheet — What to Buy <span class="bar"></span></div>
+      ${dispProd.length > 0 ? `<table class="disp-table">
+        <thead><tr><th>#</th><th>Product</th><th>Brands</th><th>Qty</th><th>When</th><th>FRAC</th><th class="pr">Est. Cost</th></tr></thead>
+        <tbody>
+          ${dispProd.map((p, i) => `<tr>
+            <td>${i + 1}</td>
+            <td class="nm">${esc(p.product || '')}${p.active_ingredient ? `<i>${esc(p.active_ingredient)}</i>` : ''}</td>
+            <td>${esc(p.brand_names || '—')}</td>
+            <td>${esc(p.quantity_for_farm || '—')}</td>
+            <td>${esc(p.when || '—')}</td>
+            <td>${esc(p.frac_irac_group || '—')}</td>
+            <td class="pr">${esc(p.est_price_inr || '—')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` : ''}
+      ${totalCostR2 ? `<div class="disp-total"><span>TOTAL ESTIMATED COST</span><span>${esc(totalCostR2)}</span></div>` : ''}
+      ${ppeChecklist.length > 0 ? `<div style="margin-top:10px"><b style="font-size:10px;letter-spacing:.8px;color:#6b7280;text-transform:uppercase">Required PPE:</b><div style="margin-top:4px;font-size:10.5px">${ppeChecklist.map(p => `✓ ${esc(p)}`).join('   ')}</div></div>` : ''}
+      ${incompR2.length > 0 ? `<div class="warning" style="margin-top:10px">
+        <b>⚠ Do Not Mix</b>
+        ${incompR2.map(x => `<div>• <b>${esc(x.do_not_mix || '')}</b> — ${esc(x.reason || '')}</div>`).join('')}
+      </div>` : ''}
+    </section>` : ''}
+
+    ${(compAudit2.length > 0 || regVerR) ? `
+    <!-- H. Compliance audit -->
+    <section class="section">
+      <div class="section-h"><span class="num">H</span> Regulatory Compliance Audit <span class="bar"></span></div>
+      ${compAudit2.map(c => `<div class="audit-row">
+        <div class="check">${esc(c.check || '')}${c.detail ? `<i>${esc(c.detail)}</i>` : ''}</div>
+        <div></div>
+        <div class="status ${esc(c.status || 'N/A')}">${esc(c.status || 'N/A')}</div>
+      </div>`).join('')}
+      <div style="margin-top:8px;font-size:9.5px;color:#6b7280;font-family:'Courier New',monospace">
+        Summary: ${compSummary.passed || 0} passed • ${compSummary.warning || 0} warning • ${compSummary.failed || 0} failed • ${compSummary.na || 0} n/a
+        ${regVerR ? `— registry ${esc(regVerR)}` : ''}
+      </div>
+    </section>` : ''}
+
+    ${evMatrix2.length > 0 ? `
+    <!-- I. Evidence matrix -->
+    <section class="section">
+      <div class="section-h"><span class="num">I</span> Evidence Matrix — How the AI Reached Its Verdict <span class="bar"></span></div>
+      <table class="ev-table">
+        <thead><tr><th>Disease</th><th class="pct">Vision</th><th class="pct">Env.</th><th class="pct">Symptom</th><th class="pct">Fused</th></tr></thead>
+        <tbody>
+          ${evMatrix2.map(e => `<tr class="${e.is_primary ? 'primary' : ''}">
+            <td>${esc(e.disease || '')}${e.is_primary ? ' ★' : ''}</td>
+            <td class="pct">${e.vision_confidence != null ? Math.round(e.vision_confidence * 100) + '%' : '—'}</td>
+            <td class="pct">${esc(e.env_favorability || '—')}</td>
+            <td class="pct">${e.symptom_match != null ? Math.round(e.symptom_match * 100) + '%' : '—'}</td>
+            <td class="pct"><b>${e.fused_score != null ? Math.round(e.fused_score * 100) + '%' : '—'}</b></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      ${modelAgree2 ? `<div style="margin-top:6px;font-size:10px;color:#6b7280">Model perspective agreement: <b style="color:#0e3a26">${esc(modelAgree2)}</b></div>` : ''}
+      ${confPenalt.length > 0 ? `<div style="margin-top:4px;font-size:10px;color:#6b7280">Confidence penalties: ${confPenalt.map(p => esc(p)).join('; ')}</div>` : ''}
+    </section>` : ''}
+
+    ${lookAlikes.length > 0 ? `
+    <!-- J. Look-alikes ruled out -->
+    <section class="section">
+      <div class="section-h"><span class="num">J</span> Look-Alikes Ruled Out <span class="bar"></span></div>
+      ${lookAlikes.map(l => `<div class="diff" style="margin-bottom:5px">
+        <div><div class="nm">${esc(l.disease || '')}</div><div class="why">${esc(l.why_ruled_out || l.reason || '')}</div></div>
+        <div class="tag warn">RULED OUT</div>
+      </div>`).join('')}
+    </section>` : ''}
+
+    ${(vaClaimed.length > 0 || vaVerified.length > 0 || vaFalsified.length > 0) ? `
+    <!-- K. Visual audit -->
+    <section class="section">
+      <div class="section-h"><span class="num">K</span> Visual Audit — Pixel-Level Verification <span class="bar"></span></div>
+      <div style="font-size:10.5px;color:#6b7280;margin-bottom:6px">The AI's visual claims are cross-checked against an HSV histogram of the actual image pixels. Falsified claims reduce overall confidence.</div>
+      <div style="font-size:11px;margin-bottom:4px"><b style="color:#6b7280;font-size:9.5px;letter-spacing:.8px;text-transform:uppercase">Verified:</b> <span class="va-row">${vaVerified.map(c => `<span class="va-pill ok">✓ ${esc(c)}</span>`).join('')}</span></div>
+      ${vaFalsified.length > 0 ? `<div style="font-size:11px;margin-bottom:4px"><b style="color:#6b7280;font-size:9.5px;letter-spacing:.8px;text-transform:uppercase">Falsified:</b> <span class="va-row">${vaFalsified.map(c => `<span class="va-pill no">✗ ${esc(c)}</span>`).join('')}</span></div>` : ''}
+      ${vaUnverified.length > 0 ? `<div style="font-size:11px;margin-bottom:4px"><b style="color:#6b7280;font-size:9.5px;letter-spacing:.8px;text-transform:uppercase">Unverified:</b> <span class="va-row">${vaUnverified.map(c => `<span class="va-pill un">? ${esc(c)}</span>`).join('')}</span></div>` : ''}
+      ${visualAudit.score_penalty ? `<div style="margin-top:6px;font-size:10px;color:#b8443e">Confidence penalty applied: −${visualAudit.score_penalty}</div>` : ''}
+    </section>` : ''}
+
+    ${fc7Day.length > 0 ? `
+    <!-- L. 7-day weather forecast -->
+    <section class="section">
+      <div class="section-h"><span class="num">L</span> 7-Day Weather Forecast — Disease Window Outlook <span class="bar"></span></div>
+      <div class="fc-row">
+        ${fc7Day.map(f => `<div class="fc-cell">
+          <div class="d">${esc(fcDay(f.date))}</div>
+          <div class="t">${f.temp_min != null ? Math.round(f.temp_min) : '?'}–${f.temp_max != null ? Math.round(f.temp_max) : '?'}°C</div>
+          <div class="r ${(f.precipitation_sum || 0) > 1 ? 'wet' : ''}">${f.precipitation_sum != null ? f.precipitation_sum.toFixed(1) + 'mm' : '—'}${f.precipitation_probability != null ? ` ${f.precipitation_probability}%` : ''}</div>
+        </div>`).join('')}
+      </div>
+      ${weatherForecast ? `<div style="margin-top:6px;font-size:10.5px;color:#6b7280;font-style:italic">${esc(weatherForecast)}</div>` : ''}
+    </section>` : ''}
+
+    <!-- M. System metadata -->
+    <section class="section">
+      <div class="section-h"><span class="num">M</span> System Metadata — How This Report Was Built <span class="bar"></span></div>
+      <div class="meta-grid">
+        ${modelDxR ? `<div><b>Diagnosis model</b> <span class="mono">${esc(modelDxR)}</span></div>` : ''}
+        ${modelTxR ? `<div><b>Treatment model</b> <span class="mono">${esc(modelTxR)}</span></div>` : ''}
+        ${tierR ? `<div><b>Tier</b> ${esc(tierR)}</div>` : ''}
+        ${ensUsed ? `<div><b>Ensemble used</b> Yes (${ensModels.length} models)</div>` : `<div><b>Ensemble used</b> No (cheap pass was confident)</div>`}
+        ${ensAgree ? `<div><b>Ensemble agreement</b> ${esc(ensAgree)}</div>` : ''}
+        ${ensModels.length > 0 ? `<div><b>Ensemble models</b> <span class="mono">${ensModels.map(m => esc(m)).join(', ')}</span></div>` : ''}
+        ${pipelineSec ? `<div><b>Pipeline latency</b> ${pipelineSec.toFixed(2)}s</div>` : ''}
+        ${tokensUsage.total_tokens ? `<div><b>Total tokens</b> ${tokensUsage.total_tokens.toLocaleString()}</div>` : ''}
+        ${tokensUsage.total_cost_usd != null ? `<div><b>Total cost</b> $${tokensUsage.total_cost_usd.toFixed(5)}</div>` : ''}
+        ${promptsR.diagnose?.version ? `<div><b>Diagnose prompt</b> <span class="mono">${esc(promptsR.diagnose.version)} (${esc(promptsR.diagnose.hash || '')})</span></div>` : ''}
+        ${promptsR.treatment?.version ? `<div><b>Treatment prompt</b> <span class="mono">${esc(promptsR.treatment.version)} (${esc(promptsR.treatment.hash || '')})</span></div>` : ''}
+        ${reportId ? `<div style="grid-column:1/-1"><b>Report ID</b> <span class="mono">${esc(reportId)}</span></div>` : ''}
+      </div>
+    </section>
+
+  </div>
+</article>`;
+})()}
 
 </body>
 </html>`;

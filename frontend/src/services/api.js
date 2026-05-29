@@ -57,13 +57,25 @@ export function safeErrorMessage(error, fallback = 'Something went wrong. Please
 const baseConfig = {
   baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
+  // Accept 2xx + 3xx. Browsers can revalidate via If-None-Match and surface a
+  // raw 304 to JS (depends on cache mode); the default 200-299-only policy
+  // would reject that and break perfectly-good cached data.
+  validateStatus: (status) => status >= 200 && status < 400,
 };
 
 // Default: snappy. For everything except AI scan / orchestrator pipelines.
 const api   = axios.create({ ...baseConfig, timeout: 15_000  });
 
-// AI: long-running. Crop scan can take 30–90 s on the 5-agent pipeline.
-const aiApi = axios.create({ ...baseConfig, timeout: 120_000 });
+// AI: long-running. Crop scan can take 30–90 s on the 5-agent pipeline,
+// and up to 120 s when the cascade-into-ensemble flow escalates (Gemini
+// Pro + Claude Sonnet voted in parallel, then reconciled). Express now
+// polls the FastAPI async job queue for up to 180 s server-side; this
+// timeout sits above that so the mobile request doesn't abort before
+// Express has a chance to return the result.
+//
+// TODO: switch to mobile-side polling of /ai/scan/{job_id} so we don't
+// need long-lived HTTP connections from the device at all.
+const aiApi = axios.create({ ...baseConfig, timeout: 200_000 });
 
 // ── Shared interceptors ───────────────────────────────────────────────────────
 function attachInterceptors(instance) {

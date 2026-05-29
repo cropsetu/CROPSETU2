@@ -146,12 +146,19 @@ export async function scanCropImage(imageUri, farmContext = {}, pickerMimeType =
     }
   }
 
-  // ── Upload with timeout ───────────────────────────────────────────────────
-  const SCAN_TIMEOUT_MS = 150_000; // 2.5 min
+  // ── Upload — hits /scan/submit which returns a jobId in <500ms ────────────
+  // The whole point of switching from /scan to /scan/submit: the legacy
+  // endpoint held the HTTP connection open for the entire pipeline
+  // (often 60-120s when the ensemble fires), which blows the Android
+  // OkHttp 60s readTimeout that FileSystem.uploadAsync uses internally.
+  // /scan/submit returns immediately with { status: "queued", jobId };
+  // we then poll via axios (which sends short, individual requests)
+  // until the worker finishes.
+  const SUBMIT_TIMEOUT_MS = 30_000; // upload + enqueue should take <10s
 
   const doUpload = async (authToken) => {
-    const result = await FileSystem.uploadAsync(
-      `${API_BASE_URL}/ai/scan`,
+    return FileSystem.uploadAsync(
+      `${API_BASE_URL}/ai/scan/submit`,
       uploadUri,
       {
         httpMethod:  'POST',
@@ -162,11 +169,10 @@ export async function scanCropImage(imageUri, farmContext = {}, pickerMimeType =
         parameters:  { farmContext: JSON.stringify(farmContext) },
       },
     );
-    return result;
   };
 
   const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Scan timed out — the AI is taking longer than usual. Please try again.')), SCAN_TIMEOUT_MS)
+    setTimeout(() => reject(new Error('Scan upload timed out. Please check your connection and try again.')), SUBMIT_TIMEOUT_MS)
   );
 
   let uploadResult = await Promise.race([doUpload(token), timeoutPromise]);
@@ -203,8 +209,59 @@ export async function scanCropImage(imageUri, farmContext = {}, pickerMimeType =
     throw e;
   }
 
-  const json = JSON.parse(uploadResult.body);
-  return json.data;
+  // ── Submit response: either inline-done (idempotent replay) or { jobId } ──
+  const submitJson = JSON.parse(uploadResult.body);
+  const submitData = submitJson?.data || {};
+
+  // Server may have served a cached result inline; if so, we're done.
+  if (submitData.status === 'done' && submitData.disease) {
+    return submitData;
+  }
+
+  const jobId = submitData.jobId;
+  if (!jobId) {
+    throw new Error('Scan submit did not return a jobId — please retry');
+  }
+
+  // ── Poll for completion via axios (short individual requests, no socket
+  //    timeout risk). Backend's task budget is ~240s; we wait up to 300s here
+  //    so a slow ensemble run completes cleanly. Interval is 2s, which is
+  //    short enough to feel responsive without hammering the server.
+  const POLL_INTERVAL_MS = 2_000;
+  const POLL_MAX_MS      = 300_000;
+  const startedAt = Date.now();
+  // Brief delay before first poll — the worker typically takes >2s to even
+  // pick the task off the queue.
+  await new Promise(r => setTimeout(r, 1_500));
+
+  while (Date.now() - startedAt < POLL_MAX_MS) {
+    let pollResp;
+    try {
+      const { data } = await api.get(`/ai/scan/job/${encodeURIComponent(jobId)}`);
+      pollResp = data?.data || {};
+    } catch (err) {
+      // Network blip — retry next tick. Hard failures (4xx/5xx with body)
+      // bubble up as a real error.
+      const status = err?.response?.status;
+      if (status && status >= 400) {
+        throw new Error(err?.response?.data?.error?.message || `Status check failed (HTTP ${status})`);
+      }
+      if (__DEV__) console.warn('[scanCropImage] transient poll error:', err?.message);
+      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+      continue;
+    }
+
+    if (pollResp.status === 'done') {
+      return pollResp;
+    }
+    if (pollResp.status === 'failed') {
+      throw new Error(pollResp.error || 'Diagnosis pipeline failed on the server');
+    }
+    // queued | running — wait and re-check
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+  }
+
+  throw new Error('Scan timed out — the AI is taking longer than usual. Please try again.');
 }
 
 /**

@@ -13,6 +13,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { completeOnboarding, skipOnboarding } from '../../services/farmApi';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
 import { s, vs, fs, ms } from '../../utils/responsive';
+import { webScreenContainer, webFlexShrink } from '../../utils/webScrollFix';
 
 const CROPS = [
   'Soybean', 'Cotton', 'Rice', 'Wheat', 'Maize', 'Sugarcane',
@@ -54,8 +55,8 @@ export default function OnboardingCropsScreen({ navigation, route }) {
   };
 
   return (
-    <View style={sty.safe}>
-      <View style={[sty.bg, { backgroundColor: COLORS.pineGreen }]}>
+    <View style={[sty.safe, webScreenContainer]}>
+      <View style={[sty.bg, { backgroundColor: COLORS.pineGreen }, webFlexShrink]}>
 
         {/* Header */}
         <View style={sty.headerArea}>
@@ -76,9 +77,9 @@ export default function OnboardingCropsScreen({ navigation, route }) {
         </View>
 
         {/* Crop Grid inside card */}
-        <View style={sty.cardWrap}>
-          <View style={sty.card}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={sty.grid}>
+        <View style={[sty.cardWrap, webFlexShrink]}>
+          <View style={[sty.card, webFlexShrink]}>
+            <ScrollView style={[{ flex: 1 }, webFlexShrink]} showsVerticalScrollIndicator={false} contentContainerStyle={sty.grid}>
               {CROPS.map(crop => {
                 const sel = selected.has(crop);
                 return (

@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler';
-import React from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, ActivityIndicator, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
@@ -49,6 +49,20 @@ function RootNavigator() {
 }
 
 export default function App() {
+  // Web only: RN-Web defaults to `html/body { height:100%; overflow:hidden }`,
+  // which kills page scroll and collapses screens whose layout depends on
+  // `flex:1` propagating from a non-existent definite parent height (the result
+  // is a white screen). Restore native document scroll once at app start.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const targets = [document.documentElement, document.body, document.getElementById('root')].filter(Boolean);
+    targets.forEach((el) => {
+      el.style.overflow = 'auto';
+      el.style.height = 'auto';
+      el.style.minHeight = '100%';
+    });
+  }, []);
+
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,

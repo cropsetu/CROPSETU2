@@ -25,6 +25,7 @@ import { compressImage } from '../../utils/mediaCompressor';
 import api from '../../services/api';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
 import { s, vs, fs, ms } from '../../utils/responsive';
+import { webScreenContainer, useAbsoluteBarScrollStyle } from '../../utils/webScrollFix';
 
 const SOILS = [
   { key: 'BLACK_COTTON', label: 'Black Cotton', sk: 'black', bg: ['#3E3631', '#1A1512'] },
@@ -54,6 +55,7 @@ const CROPS = [
 export default function OnboardingProfileScreen({ navigation }) {
   const { t } = useLanguage();
   const { updateUser } = useAuth();
+  const scrollStyle = useAbsoluteBarScrollStyle();
 
   // Profile photo
   const [avatarUri, setAvatarUri] = useState(null);
@@ -199,9 +201,10 @@ export default function OnboardingProfileScreen({ navigation }) {
   const initials = firstName ? firstName[0].toUpperCase() : '?';
 
   return (
-    <View style={sty.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+    <View style={[sty.container, webScreenContainer]}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, minHeight: 0 }}>
         <ScrollView
+          style={scrollStyle}
           contentContainerStyle={sty.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -424,7 +427,7 @@ export default function OnboardingProfileScreen({ navigation }) {
             </View>
           </View>
 
-          <View style={{ height: vs(100) }} />
+          <View style={{ height: vs(180) }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
