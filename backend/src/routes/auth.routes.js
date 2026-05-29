@@ -27,15 +27,8 @@ import logger from '../utils/logger.js';
 
 const router = Router();
 
-// OTP send is strictly rate-limited per phone
-const otpLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 min
-  max: ENV.OTP_RATE_LIMIT_MAX,
-  keyGenerator: (req) => req.body?.phone || req.ip,
-  message: { success: false, error: { message: 'Too many OTP requests. Try again in 10 minutes.' } },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// OTP send rate limit — disabled for now; re-enable before production.
+const otpLimiter = (_req, _res, next) => next();
 
 // ── POST /send-otp ─────────────────────────────────────────────────────────────
 router.post(

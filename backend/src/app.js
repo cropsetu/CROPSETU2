@@ -122,13 +122,14 @@ app.use(skipMultipart(express.json({ limit: '100kb' })));
 app.use(skipMultipart(express.urlencoded({ extended: true, limit: '100kb' })));
 
 // ── Global rate limit ─────────────────────────────────────────────────────────
-app.use(rateLimit({
-  windowMs: ENV.RATE_LIMIT_WINDOW_MS,
-  max:      ENV.RATE_LIMIT_MAX,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, error: { message: 'Too many requests' } },
-}));
+// Disabled for now — re-enable before production by uncommenting below.
+// app.use(rateLimit({
+//   windowMs: ENV.RATE_LIMIT_WINDOW_MS,
+//   max:      ENV.RATE_LIMIT_MAX,
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: { success: false, error: { message: 'Too many requests' } },
+// }));
 
 // ── Health probes ─────────────────────────────────────────────────────────────
 // /healthz — liveness. Returns 200 as long as the process is alive.

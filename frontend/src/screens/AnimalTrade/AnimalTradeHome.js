@@ -241,7 +241,7 @@ function CardRow({ pair, onPress, t, rowIndex = 0 }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function AnimalTradeHome({ navigation }) {
+export default function AnimalTradeHome({ navigation, route }) {
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const { onScroll: hideOnScroll, headerAnimatedStyle, showTopBtn } = useScrollHeader(200);
@@ -272,6 +272,21 @@ export default function AnimalTradeHome({ navigation }) {
       fetchListings();
     }, [])
   );
+
+  // When AddAnimalListing finishes successfully it navigates here with a
+  // `freshListingId` param. Reset filters so the new card is guaranteed to be
+  // in view, scroll to top, and clear the param so re-focus doesn't loop.
+  useEffect(() => {
+    const fresh = route?.params?.freshListingId;
+    if (!fresh) return;
+    setActiveFilter('All');
+    setSearchQuery('');
+    setDistanceKm(null);
+    setSortBy('sortLatest');
+    fetchListings();
+    setTimeout(() => listRef.current?.scrollToOffset?.({ offset: 0, animated: true }), 100);
+    navigation.setParams({ freshListingId: undefined, ts: undefined });
+  }, [route?.params?.freshListingId, route?.params?.ts]);
 
   async function fetchListings(isRefresh = false) {
     if (isRefresh) setRefreshing(true);
@@ -357,8 +372,14 @@ export default function AnimalTradeHome({ navigation }) {
                 </TouchableOpacity>
               ) : null}
             </View>
-            <TouchableOpacity style={S.addBtn} onPress={() => navigation.navigate('AddAnimalListing')}>
-              <Ionicons name="add" size={24} color={COLORS.white} />
+            {/* The "+" button used to live here, duplicating the bottom FAB.
+                Replaced with the Chat inbox entry-point. */}
+            <TouchableOpacity
+              style={S.chatBtn}
+              onPress={() => navigation.navigate('MyAnimalChats')}
+              accessibilityLabel={t('chatWithSeller') || 'Chat with Seller'}
+            >
+              <Ionicons name="chatbubbles" size={22} color={COLORS.white} />
             </TouchableOpacity>
           </View>
         </View>
@@ -484,7 +505,10 @@ const S = StyleSheet.create({
 
   header:   { backgroundColor: COLORS.surface, paddingTop: 8 },
   topBar:   { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingBottom: 15, gap: 10 },
-  addBtn:   {
+  // Inbox entry-point next to the search bar — opens MyAnimalChats.
+  // Same chip dimensions as the old "+" button so the search bar layout
+  // doesn't shift.
+  chatBtn:  {
     width: 46, height: 46, borderRadius: 16, backgroundColor: GREEN,
     alignItems: 'center', justifyContent: 'center',
   },

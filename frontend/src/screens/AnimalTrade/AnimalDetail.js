@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SHADOWS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 
 const { width: W } = Dimensions.get('window');
@@ -29,10 +30,16 @@ function InfoRow({ icon, label, value }) {
 export default function AnimalDetail({ route, navigation }) {
   const { listing } = route.params;
   const { t } = useLanguage();
+  const { user } = useAuth();
   const scrollY   = useRef(new Animated.Value(0)).current;
   const contentAnim = useRef(new Animated.Value(0)).current;
 
   const imageUrl = listing.images && listing.images[0] ? listing.images[0] : null;
+
+  // Owner check: the bottom action bar shows different buttons for the seller
+  // (Edit / Inbox) vs a buyer (Call / Chat). `sellerId` is set on listings
+  // fetched from the API; the mock-data fallback uses `sellerId` too.
+  const isOwner = !!(user?.id && listing?.sellerId && user.id === listing.sellerId);
 
   useEffect(() => {
     Animated.timing(contentAnim, {
@@ -56,8 +63,17 @@ export default function AnimalDetail({ route, navigation }) {
     navigation.navigate('Chat', {
       listingId: listing.id,
       sellerName: listing.sellerName,
-      sellerId: listing.id,
+      sellerId: listing.sellerId || listing.id,
     });
+  };
+
+  const handleEdit = () => {
+    navigation.navigate('AddAnimalListing', { listing });
+  };
+
+  const handleViewInbox = () => {
+    // Jump to the global chat inbox; the user can filter by listing visually.
+    navigation.navigate('MyAnimalChats');
   };
 
   return (
@@ -189,18 +205,37 @@ export default function AnimalDetail({ route, navigation }) {
         </Animated.View>
       </Animated.ScrollView>
 
-      {/* Bottom Action Buttons */}
+      {/* Bottom Action Buttons — owner sees Edit / Inbox; everyone else sees
+          Call / Chat. We deliberately hide Call+Chat for the owner because
+          they can't transact with themselves. */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.callBtn} onPress={handleCall}>
-          <Ionicons name="call" size={20} color={COLORS.primary} />
-          <Text style={styles.callBtnText}>{t('callSeller')}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.chatBtn} onPress={handleChat}>
-          <LinearGradient colors={[COLORS.primary, COLORS.greenDeep]} style={styles.chatGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-            <Ionicons name="chatbubbles" size={20} color={COLORS.white} />
-            <Text style={styles.chatBtnText}>{t('chatWithSeller')}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+        {isOwner ? (
+          <>
+            <TouchableOpacity style={styles.callBtn} onPress={handleEdit}>
+              <Ionicons name="create-outline" size={20} color={COLORS.primary} />
+              <Text style={styles.callBtnText}>Edit Listing</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.chatBtn} onPress={handleViewInbox}>
+              <LinearGradient colors={[COLORS.primary, COLORS.greenDeep]} style={styles.chatGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+                <Ionicons name="chatbubbles" size={20} color={COLORS.white} />
+                <Text style={styles.chatBtnText}>View Inbox</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.callBtn} onPress={handleCall}>
+              <Ionicons name="call" size={20} color={COLORS.primary} />
+              <Text style={styles.callBtnText}>{t('callSeller')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.chatBtn} onPress={handleChat}>
+              <LinearGradient colors={[COLORS.primary, COLORS.greenDeep]} style={styles.chatGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+                <Ionicons name="chatbubbles" size={20} color={COLORS.white} />
+                <Text style={styles.chatBtnText}>{t('chatWithSeller')}</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </View>
     </AnimatedScreen>

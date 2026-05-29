@@ -5,14 +5,14 @@ import { COLORS } from '../../constants/colors';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Image, ActivityIndicator, RefreshControl, Platform, Alert,
+  Image, ActivityIndicator, RefreshControl, Platform, Alert, Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
 
-function ListingCard({ item, onDelete }) {
+function ListingCard({ item, onDelete, onEdit }) {
   const firstImg = item.images?.[0];
   const price    = typeof item.price === 'number' ? item.price : parseFloat(item.price || 0);
   const date     = item.createdAt
@@ -47,16 +47,11 @@ function ListingCard({ item, onDelete }) {
           <Text style={styles.footerTxt}>{item.viewCount ?? 0} views</Text>
           <Text style={[styles.footerTxt, { marginLeft: 10 }]}>{date}</Text>
         </View>
-        <TouchableOpacity
-          style={styles.deleteBtn}
-          onPress={() =>
-            Alert.alert('Remove Listing', 'Are you sure you want to delete this listing?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Delete', style: 'destructive', onPress: () => onDelete(item.id) },
-            ])
-          }
-        >
-          <Ionicons name="trash-outline" size={16} color={COLORS.error} />
+        <TouchableOpacity style={styles.actionBtn} onPress={() => onEdit(item)}>
+          <Ionicons name="create-outline" size={18} color={COLORS.primary} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => onDelete(item)}>
+          <Ionicons name="trash-outline" size={18} color={COLORS.error} />
         </TouchableOpacity>
       </View>
     </View>
@@ -68,6 +63,9 @@ export default function MyAnimalListingsScreen({ navigation }) {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error,      setError]      = useState(null);
+  // Delete-confirm modal: the listing being asked about, or null.
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting,      setDeleting]      = useState(false);
 
   const fetchListings = useCallback(async (refresh = false) => {
     try {
@@ -93,13 +91,37 @@ export default function MyAnimalListingsScreen({ navigation }) {
 
   const handleRefresh = () => { setRefreshing(true); fetchListings(true); };
 
-  const handleDelete = async (id) => {
+  // The card's trash button just opens the confirm modal — the actual API
+  // call fires from the modal's "Delete" button below. Using a state-driven
+  // Modal is required because RN's Alert.alert multi-button confirm does NOT
+  // work on React Native for Web (silently drops the buttons).
+  const requestDelete = (item) => setPendingDelete(item);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete || deleting) return;
+    setDeleting(true);
+    const id = pendingDelete.id;
     try {
       await api.delete(`/animals/${id}`);
       setListings((prev) => prev.filter((l) => l.id !== id));
-    } catch {
-      Alert.alert('Error', 'Could not delete listing. Please try again.');
+      setPendingDelete(null);
+    } catch (e) {
+      const msg = e?.response?.data?.error?.message
+        || e?.message
+        || 'Could not delete listing. Please try again.';
+      setPendingDelete(null);
+      // Brief alert for the error case — single-button alerts work fine on web.
+      Alert.alert('Delete failed', msg);
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const handleEdit = (item) => {
+    navigation.navigate('AnimalTrade', {
+      screen: 'AddAnimalListing',
+      params: { listing: item },
+    });
   };
 
   if (loading) {
@@ -141,7 +163,7 @@ export default function MyAnimalListingsScreen({ navigation }) {
           data={listings}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
-          renderItem={({ item }) => <ListingCard item={item} onDelete={handleDelete} />}
+          renderItem={({ item }) => <ListingCard item={item} onDelete={requestDelete} onEdit={handleEdit} />}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={[COLORS.primary]} />}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           ListEmptyComponent={
@@ -159,6 +181,47 @@ export default function MyAnimalListingsScreen({ navigation }) {
           }
         />
       )}
+
+      {/* Delete confirmation — Modal works on iOS / Android / Web; multi-button
+          Alert.alert does NOT work on web. */}
+      <Modal
+        visible={!!pendingDelete}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !deleting && setPendingDelete(null)}
+      >
+        <View style={styles.confirmBackdrop}>
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmIconCircle}>
+              <Ionicons name="trash" size={28} color={COLORS.error} />
+            </View>
+            <Text style={styles.confirmTitle}>Remove Listing?</Text>
+            <Text style={styles.confirmBody}>
+              {pendingDelete
+                ? `"${pendingDelete.animal}${pendingDelete.breed ? ' — ' + pendingDelete.breed : ''}" will be removed from the marketplace.`
+                : 'Are you sure?'}
+            </Text>
+            <View style={styles.confirmBtnRow}>
+              <TouchableOpacity
+                disabled={deleting}
+                style={[styles.confirmBtn, styles.confirmBtnSecondary]}
+                onPress={() => setPendingDelete(null)}
+              >
+                <Text style={styles.confirmBtnTextSecondary}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={deleting}
+                style={[styles.confirmBtn, styles.confirmBtnDanger, deleting && { opacity: 0.6 }]}
+                onPress={confirmDelete}
+              >
+                {deleting
+                  ? <ActivityIndicator color={COLORS.white} />
+                  : <Text style={styles.confirmBtnTextDanger}>Delete</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -195,6 +258,7 @@ const styles = StyleSheet.create({
   footer:      { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: COLORS.border, paddingHorizontal: 14, paddingVertical: 10 },
   footerLeft:  { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 },
   footerTxt:   { fontSize: 12, color: COLORS.textMedium },
+  actionBtn:   { padding: 6, marginLeft: 4 },
   deleteBtn:   { padding: 6 },
 
   errorTxt: { fontSize: 15, color: COLORS.error, textAlign: 'center' },
@@ -203,4 +267,37 @@ const styles = StyleSheet.create({
 
   emptyTitle:    { fontSize: 18, fontWeight: '700', color: COLORS.gray700dark, marginTop: 12 },
   emptySubtitle: { fontSize: 14, color: COLORS.textMedium, textAlign: 'center', marginTop: 4 },
+
+  confirmBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center', alignItems: 'center', padding: 24,
+  },
+  confirmCard: {
+    width: '100%', maxWidth: 360, backgroundColor: COLORS.surface,
+    borderRadius: 18, padding: 22, alignItems: 'center',
+    shadowColor: COLORS.black, shadowOpacity: 0.15, shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 }, elevation: 6,
+  },
+  confirmIconCircle: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 12,
+  },
+  confirmTitle: {
+    fontSize: 18, fontWeight: '800', color: COLORS.textDark,
+    textAlign: 'center', marginBottom: 6,
+  },
+  confirmBody: {
+    fontSize: 14, color: COLORS.textMedium, textAlign: 'center',
+    lineHeight: 20, marginBottom: 18,
+  },
+  confirmBtnRow: { flexDirection: 'row', gap: 10, width: '100%' },
+  confirmBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  confirmBtnSecondary: { backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.border },
+  confirmBtnDanger:    { backgroundColor: COLORS.error },
+  confirmBtnTextSecondary: { fontSize: 15, fontWeight: '700', color: COLORS.textDark },
+  confirmBtnTextDanger:    { fontSize: 15, fontWeight: '800', color: COLORS.white },
 });

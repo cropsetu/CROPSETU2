@@ -13,7 +13,7 @@ import { createFarm, listFarms, getFarmDetail, updateFarm, deleteFarm, setActive
 const router = Router();
 router.use(authenticate);
 
-const writeLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, keyGenerator: r => r.user?.id || r.ip });
+const writeLimit = (_req, _res, next) => next();   // rate limit disabled for now
 
 const OPT = { values: 'falsy' }; // skip validation for null, "", undefined, 0
 const farmValidators = [

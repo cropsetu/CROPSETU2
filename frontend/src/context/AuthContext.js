@@ -3,6 +3,7 @@
  */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import api, { saveTokens, clearTokens, getAccessToken, getUserId } from '../services/api';
+import { resetSocket } from '../services/socket';
 
 const AuthContext = createContext(null);
 
@@ -54,6 +55,7 @@ export function AuthProvider({ children }) {
     } catch {
       // ignore
     }
+    resetSocket();
     await clearTokens();
     setUser(null);
     setIsLoggedIn(false);

@@ -24,7 +24,7 @@ router.use((req, _res, next) => {
   if (p.startsWith('/farms/') || p.startsWith('/cycles/')) return authenticate(req, _res, next);
   return next('router');
 });
-const wl = rateLimit({ windowMs: 15 * 60 * 1000, max: 40, keyGenerator: r => r.user?.id || r.ip });
+const wl = (_req, _res, next) => next();   // rate limit disabled for now
 
 // List cycles for a farm
 router.get('/farms/:farmId/cycles', [param('farmId').isUUID(), query('season').optional(), query('year').optional().isInt(), query('status').optional()], validate, async (req, res) => {

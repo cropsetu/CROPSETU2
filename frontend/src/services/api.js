@@ -5,6 +5,7 @@
  * Both share the same auth + refresh + safe-error interceptors.
  */
 import axios from 'axios';
+import { Platform } from 'react-native';
 import { setItem, getItem, deleteItem } from '../utils/storage';
 import { API_BASE_URL, STORAGE_KEYS } from '../constants/config';
 
@@ -67,15 +68,23 @@ const aiApi = axios.create({ ...baseConfig, timeout: 120_000 });
 
 // ── Shared interceptors ───────────────────────────────────────────────────────
 function attachInterceptors(instance) {
-  // Strip Content-Type for multipart/form-data so React Native's native
-  // networking layer (OkHttp / NSURLSession) can set the correct
-  // multipart/form-data; boundary=... header automatically.
+  // For multipart/form-data, the platform's networking layer must set the
+  // Content-Type itself so it includes the correct boundary parameter:
+  //   - Native (RN OkHttp/NSURLSession): set to 'multipart/form-data' and
+  //     the layer rewrites it with the boundary.
+  //   - Web (browser XHR/fetch): DELETE Content-Type entirely; the browser
+  //     refuses to add the boundary if we already specified the header.
   instance.interceptors.request.use((config) => {
     if (config.data instanceof FormData) {
-      if (typeof config.headers?.set === 'function') {
-        config.headers.set('Content-Type', 'multipart/form-data');
+      if (Platform.OS === 'web') {
+        if (typeof config.headers?.delete === 'function') config.headers.delete('Content-Type');
+        else delete config.headers['Content-Type'];
       } else {
-        config.headers['Content-Type'] = 'multipart/form-data';
+        if (typeof config.headers?.set === 'function') {
+          config.headers.set('Content-Type', 'multipart/form-data');
+        } else {
+          config.headers['Content-Type'] = 'multipart/form-data';
+        }
       }
     }
     return config;

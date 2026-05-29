@@ -44,16 +44,8 @@ router.use(authenticate); // all user routes require auth
 const avatarUpload = createAvatarUploader();
 
 // ── [M1] Per-endpoint rate limiter for expensive write operations ─────────────
-// 20 writes per 15 minutes per user IP is generous for profile updates
-// but tight enough to block spamming the transaction-heavy PUT /me.
-const profileWriteLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  keyGenerator: (req) => req.user?.id || req.ip,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, error: { message: 'Too many profile updates. Try again later.' } },
-});
+// Profile write rate limit — disabled for now; re-enable before production.
+const profileWriteLimit = (_req, _res, next) => next();
 
 // ── Helper: recalculate profile completion (0-100) ────────────────────────────
 function calcProfileCompletion(user, sellerProfile) {

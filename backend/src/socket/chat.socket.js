@@ -83,7 +83,12 @@ export function registerChatSocket(io) {
         data: { chatId, senderId: userId, text: safeText },
       });
       await prisma.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } }).catch(() => {});
-      io.to(chatId).emit('new_message', message);
+      const payload = { ...message, chatId };
+      io.to(chatId).emit('new_message', payload);
+      // Also reach each participant's user room so an inbox screen (which
+      // doesn't join chat rooms) can update its row in real time.
+      io.to(`user:${chat.buyerId}`).emit('new_message', payload);
+      io.to(`user:${chat.sellerId}`).emit('new_message', payload);
     });
 
     socket.on('mark_read', async ({ chatId }) => {

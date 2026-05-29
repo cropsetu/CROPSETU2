@@ -236,6 +236,7 @@ import AICreditsScreen      from '../screens/AI/AICreditsScreen';
 import AnimalTradeHome  from '../screens/AnimalTrade/AnimalTradeHome';
 import AnimalDetail     from '../screens/AnimalTrade/AnimalDetail';
 import AddAnimalListing from '../screens/AnimalTrade/AddAnimalListing';
+import MyAnimalChatsScreen from '../screens/AnimalTrade/MyAnimalChatsScreen';
 import ChatScreen       from '../screens/AnimalTrade/ChatScreen';
 
 // Rent
@@ -362,6 +363,7 @@ function AnimalTradeNavigator() {
       <AnimalStack.Screen name="AnimalTradeHome"  component={AnimalTradeHome}  options={{ headerShown: false }} />
       <AnimalStack.Screen name="AnimalDetail"     component={AnimalDetail}     options={{ title: t('animalDetail.animalDetails') }} />
       <AnimalStack.Screen name="AddAnimalListing" component={AddAnimalListing} options={{ title: t('sellYourAnimal') }} />
+      <AnimalStack.Screen name="MyAnimalChats"    component={MyAnimalChatsScreen} options={{ headerShown: false }} />
       <AnimalStack.Screen name="Chat"             component={ChatScreen}       options={({ route }) => ({ title: route.params?.sellerName || t('nav.chat') })} />
     </AnimalStack.Navigator>
   );

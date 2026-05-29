@@ -23,41 +23,11 @@ import { sendError } from '../utils/response.js';
  * @param {function} [opts.keyGenerator] — (req) => string
  * @param {string} [opts.message]  — error message on limit hit
  */
-export function redisRateLimit({
-  max = 60,
-  windowSec = 60,
-  prefix = 'rl',
-  keyGenerator = null,
-  message = 'Too many requests. Please try again later.',
-} = {}) {
-  return async (req, res, next) => {
-    try {
-      const key = `${prefix}:${keyGenerator ? keyGenerator(req) : (req.user?.id || req.ip)}`;
-
-      const count = await redis.incr(key);
-
-      // Set expiry on first request in the window
-      if (count === 1) {
-        await redis.expire(key, windowSec);
-      }
-
-      // Set rate limit headers
-      res.setHeader('X-RateLimit-Limit', max);
-      res.setHeader('X-RateLimit-Remaining', Math.max(0, max - count));
-
-      if (count > max) {
-        const ttl = await redis.ttl(key);
-        res.setHeader('Retry-After', ttl > 0 ? ttl : windowSec);
-        return sendError(res, message, 429);
-      }
-
-      next();
-    } catch {
-      // Redis unavailable — fail open (allow the request)
-      // In-memory express-rate-limit still provides baseline protection
-      next();
-    }
-  };
+// Rate limiting disabled for now — re-enable before production by restoring
+// the original implementation from git history.
+// eslint-disable-next-line no-unused-vars
+export function redisRateLimit(_opts = {}) {
+  return (_req, _res, next) => next();
 }
 
 /**

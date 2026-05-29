@@ -78,6 +78,10 @@ try {
 
 registerChatSocket(io);
 
+// Expose io to Express route handlers via `req.app.get('io')` so HTTP-sent
+// chat messages can be broadcast on the socket bus for real-time delivery.
+app.set('io', io);
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 async function start() {
   try {

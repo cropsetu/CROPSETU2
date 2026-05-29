@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, SafeAreaView, Alert, Switch, ActivityIndicator, Image,
+  Platform, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,7 +11,7 @@ import { COLORS, SHADOWS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { compressImage } from '../../utils/mediaCompressor';
+import { prepareImageForFormData } from '../../utils/mediaCompressor';
 
 const ANIMAL_TYPE_KEYS = ['animalCow', 'animalBuffalo', 'animalGoat', 'animalBullock', 'animalSheep', 'animalPig', 'animalHorse', 'animalCamel'];
 // English values used for form submission (backend expects English)
@@ -47,18 +48,44 @@ function InputField({ label, placeholder, value, onChangeText, keyboardType = 'd
   );
 }
 
-export default function AddAnimalListing({ navigation }) {
+export default function AddAnimalListing({ navigation, route }) {
   const { t } = useLanguage();
   const { coords } = useLocation();
   const { user } = useAuth();
-  const defaultLocation = [user?.village, user?.taluka, user?.district].filter(Boolean).join(', ') || '';
-  const [form, setForm] = useState({
+
+  // Edit mode: a `listing` object passed via route.params turns this screen
+  // into an Update form. POST → PUT, existing fields are prefilled, existing
+  // images stay attached unless removed.
+  const editing = route?.params?.listing || null;
+
+  const defaultLocation = editing?.sellerLocation
+    || [user?.village, user?.taluka, user?.district, user?.city, user?.state].filter(Boolean).join('');
+
+  // Extract numeric milk yield ("12 Litre/Day" → "12") for editing.
+  const parseMilkYield = (s) => (s ? String(s).replace(/[^\d.]/g, '') : '');
+
+  const [form, setForm] = useState(() => editing ? {
+    animal: editing.animal || '',
+    breed: editing.breed || '',
+    age: editing.age || '',
+    gender: editing.gender === 'MALE' ? 'Male' : 'Female',
+    weight: editing.weight || '',
+    milkYield: parseMilkYield(editing.milkYield),
+    price: editing.price != null ? String(editing.price) : '',
+    description: editing.description || '',
+    location: editing.sellerLocation || defaultLocation,
+    vaccinated: Array.isArray(editing.tags) && editing.tags.includes('Vaccinated'),
+  } : {
     animal: '', breed: '', age: '', gender: 'Female', weight: '',
     milkYield: '', price: '', description: '', location: defaultLocation, vaccinated: false,
   });
+  // Existing remote image URLs (only meaningful in edit mode).
+  const [existingImages, setExistingImages] = useState(editing?.images || []);
   const [photos,   setPhotos]   = useState([]);
   const [loading,  setLoading]  = useState(false);
   const [gpsState, setGpsState] = useState('idle');
+  // Success popup state: { animal, breed, id } when shown, null when hidden.
+  const [success,  setSuccess]  = useState(null);
 
   const update = (key, value) => setForm(f => ({ ...f, [key]: value }));
 
@@ -77,8 +104,9 @@ export default function AddAnimalListing({ navigation }) {
   };
 
   const handleSubmit = async () => {
-    // Frontend must match backend required fields — age, weight, breed, price, location, animal
-    if (!form.animal || !form.breed || !form.age || !form.weight || !form.price || !form.location) {
+    // Required fields — location is optional client-side; backend falls back
+    // to the user's profile (district/state) when blank.
+    if (!form.animal || !form.breed || !form.age || !form.weight || !form.price) {
       Alert.alert(t('addAnimal.missingInfo'), t('addAnimal.missingInfoMsg'));
       return;
     }
@@ -106,46 +134,62 @@ export default function AddAnimalListing({ navigation }) {
       formData.append('gender',         form.gender === 'Male' ? 'MALE' : 'FEMALE');
       formData.append('weight',         form.weight);
       formData.append('price',          String(priceNum));
-      formData.append('sellerLocation', form.location);
+      if (form.location?.trim()) formData.append('sellerLocation', form.location.trim());
       if (form.milkYield)   formData.append('milkYield',   form.milkYield + ' Litre/Day');
       if (form.description) formData.append('description', form.description);
       if (lat != null)      formData.append('lat', String(lat));
       if (lng != null)      formData.append('lng', String(lng));
       if (form.vaccinated) formData.append('tags', 'Vaccinated');
 
+      // Edit mode: tell backend which already-uploaded image URLs to keep.
+      // Sending the field (even empty) signals "replace images list".
+      if (editing) {
+        if (existingImages.length === 0) {
+          formData.append('existingImages', '');
+        } else {
+          for (const url of existingImages) formData.append('existingImages', url);
+        }
+      }
+
       let uploadedCount = 0;
-      for (const photo of photos) {
+      for (let i = 0; i < photos.length; i++) {
+        const photo = photos[i];
         try {
-          const { uri: compressedUri } = await compressImage(photo.uri, { needBase64: false });
-          formData.append('images', {
-            uri: compressedUri,
-            name: `animal_${Date.now()}_${uploadedCount}.jpg`,
-            type: 'image/jpeg',
-          });
+          const filePart = await prepareImageForFormData(photo.uri, `animal_${i}`);
+          if (Platform.OS === 'web') {
+            // Web's FormData needs a real Blob/File — the {uri,name,type}
+            // shorthand only works on native (iOS/Android). Fetch the URI
+            // (blob: or data: URL produced by ImageManipulator) into a Blob.
+            const resp = await fetch(filePart.uri);
+            const blob = await resp.blob();
+            formData.append('images', blob, filePart.name);
+          } else {
+            formData.append('images', filePart);
+          }
           uploadedCount++;
         } catch (imgErr) {
-          console.warn('[AddAnimalListing] image compress failed:', imgErr?.message);
+          console.warn('[AddAnimalListing] image prep failed:', imgErr?.message);
         }
       }
+      console.log('[AddAnimalListing] uploading', uploadedCount, 'of', photos.length, 'photos on', Platform.OS);
 
-      if (uploadedCount === 0 && photos.length > 0) {
-        // All compressions failed — try uploading originals as-is
-        for (const photo of photos) {
-          formData.append('images', {
-            uri: photo.uri,
-            name: `animal_raw_${Date.now()}.jpg`,
-            type: 'image/jpeg',
-          });
-        }
+      if (editing) {
+        const { data } = await api.put(`/animals/${editing.id}`, formData, { timeout: 90000 });
+        setSuccess({
+          mode: 'update',
+          id: data?.data?.id || editing.id,
+          animal: form.animal,
+          breed: form.breed,
+        });
+      } else {
+        const { data } = await api.post('/animals', formData, { timeout: 90000 });
+        setSuccess({
+          mode: 'create',
+          id: data?.data?.id,
+          animal: form.animal,
+          breed: form.breed,
+        });
       }
-
-      await api.post('/animals', formData, {
-        timeout: 90000,
-      });
-
-      Alert.alert(t('listingPosted'), t('listingPostedMsg'), [
-        { text: t('ok'), onPress: () => navigation.goBack() },
-      ]);
     } catch (err) {
       // Surface the ACTUAL backend validation error so users can self-diagnose
       const details   = err?.response?.data?.error?.details;
@@ -171,8 +215,21 @@ export default function AddAnimalListing({ navigation }) {
           <Text style={styles.sectionTitle}>{t('addAnimal.addPhotosTitle', { count: photos.length })}</Text>
           <Text style={styles.sectionSub}>{t('addAnimal.goodPhotos')}</Text>
           <View style={styles.photoRow}>
+            {/* Already-uploaded photos (edit mode) */}
+            {existingImages.map((url, i) => (
+              <View key={`existing-${i}`} style={styles.photoThumb}>
+                <Image source={{ uri: url }} style={styles.photoImg} />
+                <TouchableOpacity
+                  style={styles.photoRemove}
+                  onPress={() => setExistingImages(arr => arr.filter((_, pi) => pi !== i))}
+                >
+                  <Ionicons name="close-circle" size={20} color={COLORS.error} />
+                </TouchableOpacity>
+              </View>
+            ))}
+            {/* Newly-picked photos */}
             {photos.map((photo, i) => (
-              <View key={i} style={styles.photoThumb}>
+              <View key={`new-${i}`} style={styles.photoThumb}>
                 <Image source={{ uri: photo.uri }} style={styles.photoImg} />
                 <TouchableOpacity
                   style={styles.photoRemove}
@@ -182,7 +239,7 @@ export default function AddAnimalListing({ navigation }) {
                 </TouchableOpacity>
               </View>
             ))}
-            {photos.length < 4 && (
+            {existingImages.length + photos.length < 4 && (
               <TouchableOpacity style={styles.photoAdd} onPress={pickPhoto}>
                 <Ionicons name="camera-outline" size={32} color={COLORS.primary} />
                 <Text style={styles.photoAddText}>{t('addAnimal.addPhoto')}</Text>
@@ -316,6 +373,59 @@ export default function AddAnimalListing({ navigation }) {
           </View>
         </TouchableOpacity>
       </View>
+
+      {/* Success Popup — shown after a successful POST or PUT */}
+      <Modal
+        visible={!!success}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSuccess(null)}
+      >
+        <View style={styles.successBackdrop}>
+          <View style={styles.successCard}>
+            <View style={styles.successIconCircle}>
+              <Ionicons name="checkmark" size={42} color={COLORS.white} />
+            </View>
+            <Text style={styles.successTitle}>
+              {success?.mode === 'update' ? 'Listing Updated!' : t('listingPosted') || 'Listing Posted!'}
+            </Text>
+            <Text style={styles.successBody}>
+              {success?.mode === 'update'
+                ? 'Your changes have been saved.'
+                : (t('listingPostedMsg') || 'Your animal listing is now live. Buyers can contact you shortly.')}
+            </Text>
+            {success?.animal ? (
+              <View style={styles.successPill}>
+                <Ionicons name="paw" size={14} color={COLORS.primary} />
+                <Text style={styles.successPillTxt} numberOfLines={1}>
+                  {success.animal}{success.breed ? ` · ${success.breed}` : ''}
+                </Text>
+              </View>
+            ) : null}
+            <View style={styles.successBtnRow}>
+              <TouchableOpacity
+                style={[styles.successBtn, styles.successBtnSecondary]}
+                onPress={() => {
+                  setSuccess(null);
+                  navigation.goBack();
+                }}
+              >
+                <Text style={styles.successBtnTextSecondary}>Close</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.successBtn, styles.successBtnPrimary]}
+                onPress={() => {
+                  const id = success?.id;
+                  setSuccess(null);
+                  navigation.navigate('AnimalTradeHome', { freshListingId: id, ts: Date.now() });
+                }}
+              >
+                <Text style={styles.successBtnTextPrimary}>View Animals</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -365,4 +475,42 @@ const styles = StyleSheet.create({
   submitBtn:   { borderRadius: 14, overflow: 'hidden' },
   submitInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 16, borderRadius: 14 },
   submitText:  { fontSize: 17, fontWeight: '800', color: COLORS.white, fontFamily: 'Inter_800ExtraBold' },
+
+  successBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center', alignItems: 'center', padding: 24,
+  },
+  successCard: {
+    width: '100%', maxWidth: 380, backgroundColor: COLORS.surface,
+    borderRadius: 20, padding: 24, alignItems: 'center',
+    ...SHADOWS.small,
+  },
+  successIconCircle: {
+    width: 72, height: 72, borderRadius: 36, backgroundColor: COLORS.primary,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 14,
+  },
+  successTitle: {
+    fontSize: 20, fontWeight: '800', color: COLORS.textDark,
+    textAlign: 'center', marginBottom: 8,
+  },
+  successBody: {
+    fontSize: 14, color: COLORS.textMedium, textAlign: 'center',
+    lineHeight: 20, marginBottom: 14,
+  },
+  successPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 6,
+    backgroundColor: COLORS.greenBreeze, borderRadius: 999,
+    marginBottom: 18, maxWidth: '100%',
+  },
+  successPillTxt: { fontSize: 13, fontWeight: '700', color: COLORS.primary },
+  successBtnRow: { flexDirection: 'row', gap: 10, width: '100%' },
+  successBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  successBtnSecondary: { backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.border },
+  successBtnPrimary:   { backgroundColor: COLORS.primary },
+  successBtnTextSecondary: { fontSize: 15, fontWeight: '700', color: COLORS.textDark },
+  successBtnTextPrimary:   { fontSize: 15, fontWeight: '800', color: COLORS.white },
 });

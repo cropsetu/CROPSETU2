@@ -1,159 +1,360 @@
-import React, { useState, useRef, useEffect } from 'react';
+/**
+ * ChatScreen — single conversation between buyer and seller about a listing.
+ *
+ * Two entry-points to this screen:
+ *   1) From AnimalDetail's "Chat with Seller" button — only `listingId`,
+ *      `sellerId`, `sellerName` are passed. We POST /animals/:listingId/chat
+ *      to upsert the Chat row, then load messages.
+ *   2) From MyAnimalChats inbox — `chatId` is already known, we skip the
+ *      upsert and load messages directly.
+ *
+ * Sends messages via POST /animals/chats/:chatId/messages.
+ * Polls every 5s while focused; switch to socket events later without
+ * changing the rest of this file (setMessages is idempotent on last id).
+ */
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  TextInput, SafeAreaView, KeyboardAvoidingView, Platform,
+  TextInput, SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, SHADOWS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
+import api from '../../services/api';
+import { connectSocket } from '../../services/socket';
 
-function MessageBubble({ message }) {
-  const isMe = message.senderId === 'me';
+const POLL_MS    = 8000;   // socket is primary; polling is fallback only
+const MAX_CHARS  = 2000;
+const COUNTER_AT = 1800;    // show char counter when within 200 of cap
+
+function formatTime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function MessageBubble({ message, isMe, otherName, onRetry }) {
   return (
     <View style={[styles.messagRow, isMe && styles.messageRowMe]}>
       {!isMe && (
         <View style={styles.avatarSmall}>
-          <Text style={styles.avatarSmallText}>
-            {message.senderName?.charAt(0) || 'S'}
-          </Text>
+          <Text style={styles.avatarSmallText}>{otherName?.charAt(0)?.toUpperCase() || 'S'}</Text>
         </View>
       )}
-      <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
+      <TouchableOpacity
+        activeOpacity={message.failed ? 0.6 : 1}
+        onPress={() => message.failed && onRetry?.(message)}
+        style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem, message.failed && styles.bubbleFailed]}
+      >
         <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{message.text}</Text>
-        <Text style={[styles.bubbleTime, isMe && { color: COLORS.primaryPale }]}>{message.time}</Text>
-      </View>
+        <View style={styles.bubbleFooter}>
+          <Text style={[styles.bubbleTime, isMe && { color: COLORS.primaryPale }]}>
+            {formatTime(message.createdAt)}
+          </Text>
+          {message.pending ? (
+            <Ionicons name="time-outline" size={11} color={isMe ? COLORS.primaryPale : COLORS.textLight} style={{ marginLeft: 4 }} />
+          ) : message.failed ? (
+            <Text style={styles.failedHint}>· tap to retry</Text>
+          ) : isMe ? (
+            <Ionicons name="checkmark-done" size={12} color={message.readAt ? '#7DD3FC' : COLORS.primaryPale} style={{ marginLeft: 4 }} />
+          ) : null}
+        </View>
+      </TouchableOpacity>
     </View>
   );
 }
 
-function QuickReply({ text, onPress }) {
-  return (
-    <TouchableOpacity style={styles.quickReply} onPress={() => onPress(text)}>
-      <Text style={styles.quickReplyText}>{text}</Text>
-    </TouchableOpacity>
-  );
-}
+// Approximate native stack header + status bar; close enough for the
+// KeyboardAvoidingView offset on iOS without pulling in extra deps.
+const APPROX_HEADER_OFFSET = Platform.OS === 'ios' ? 88 : 0;
 
 export default function ChatScreen({ route }) {
-  const { sellerName } = route.params;
+  const { listingId, sellerName, chatId: initialChatId } = route.params || {};
   const { t } = useLanguage();
-  const [messages, setMessages] = useState([]);
+  const { user } = useAuth();
+
+  const [chatId,    setChatId]    = useState(initialChatId || null);
+  const [messages,  setMessages]  = useState([]);
   const [inputText, setInputText] = useState('');
+  const [loading,   setLoading]   = useState(true);
+  const [sending,   setSending]   = useState(false);
+  const [error,     setError]     = useState(null);
+  const [focused,   setFocused]   = useState(false);
+
   const flatListRef = useRef(null);
+  const pollTimerRef = useRef(null);
 
-  const quickReplies = [
-    'Kya price negotiate ho sakta hai?',
-    'Kya delivery possible hai?',
-    'Animal ki photos bhejein',
-    'Kab milna sambhav hai?',
-  ];
+  // ── Init ────────────────────────────────────────────────────────────────────
+  const init = useCallback(async () => {
+    try {
+      setError(null);
+      setLoading(true);
+      let cid = chatId;
+      if (!cid) {
+        if (!listingId) throw new Error('Missing listingId');
+        const { data } = await api.post(`/animals/${listingId}/chat`);
+        cid = data?.data?.id;
+        setChatId(cid);
+      }
+      if (!cid) throw new Error('Failed to open chat');
+      const { data: msgs } = await api.get(`/animals/chats/${cid}/messages`, { params: { limit: 100 } });
+      setMessages(msgs?.data || []);
+    } catch (e) {
+      setError(e?.response?.data?.error?.message || e?.message || 'Failed to open chat');
+    } finally {
+      setLoading(false);
+    }
+  }, [chatId, listingId]);
 
-  const sendMessage = (text) => {
-    if (!text.trim()) return;
-    const newMsg = {
-      id: `m${Date.now()}`,
-      senderId: 'me',
-      text: text.trim(),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      date: 'Today',
+  useEffect(() => { init(); }, []);
+
+  // Diff helper: detects changes the cheap last-id check would miss —
+  // specifically, readAt updates on existing messages (read receipts).
+  const isSameState = useCallback((prev, next) => {
+    if (prev.length !== next.length) return false;
+    for (let i = 0; i < prev.length; i++) {
+      const a = prev[i], b = next[i];
+      if (!a || !b) return false;
+      if (a.id !== b.id) return false;
+      // readAt is the only mutable field that comes back from GET — compare it.
+      if ((a.readAt || null) !== (b.readAt || null)) return false;
+    }
+    return true;
+  }, []);
+
+  const mergeServerMessages = useCallback((prev, rows) => {
+    if (isSameState(prev, rows)) return prev;
+    const pending = prev.filter(m => m.pending || m.failed);
+    return [...rows, ...pending];
+  }, [isSameState]);
+
+  // ── Poll (fallback when socket is disconnected) ─────────────────────────────
+  useFocusEffect(useCallback(() => {
+    if (!chatId) return;
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const { data } = await api.get(`/animals/chats/${chatId}/messages`, { params: { limit: 100 } });
+        setMessages(prev => mergeServerMessages(prev, data?.data || []));
+      } catch { /* keep polling */ }
+    }, POLL_MS);
+    return () => clearInterval(pollTimerRef.current);
+  }, [chatId, mergeServerMessages]));
+
+  // ── Socket: real-time messages + read receipts ─────────────────────────────
+  useFocusEffect(useCallback(() => {
+    if (!chatId || !user?.id) return;
+    let alive = true;
+    let socketRef = null;
+    let onNewMessage, onMessagesRead;
+
+    (async () => {
+      try {
+        const s = await connectSocket();
+        if (!alive) return;
+        socketRef = s;
+        s.emit('join_chat', { chatId });
+
+        // Mark the counterpart's messages as read for THIS user — fires
+        // a `messages_read` event back to the room so the other side sees ✓✓ instantly.
+        s.emit('mark_read', { chatId });
+
+        onNewMessage = (msg) => {
+          if (!msg || msg.chatId !== chatId) return;
+          setMessages(prev => {
+            // Replace optimistic temp row by senderId+text match, or append.
+            const idx = prev.findIndex(m => m.pending && m.senderId === msg.senderId && m.text === msg.text);
+            if (idx >= 0) {
+              const next = prev.slice();
+              next[idx] = msg;
+              return next;
+            }
+            if (prev.some(m => m.id === msg.id)) return prev;
+            return [...prev, msg];
+          });
+          // If the message is from the counterpart, mark read immediately.
+          if (msg.senderId !== user.id) s.emit('mark_read', { chatId });
+        };
+
+        // Counterpart just read everything we sent — flip our ✓✓ to blue.
+        onMessagesRead = ({ chatId: cid, userId: readerId }) => {
+          if (cid !== chatId || readerId === user.id) return;
+          const now = new Date().toISOString();
+          setMessages(prev => prev.map(m =>
+            m.senderId === user.id && !m.readAt ? { ...m, readAt: now } : m
+          ));
+        };
+
+        s.on('new_message', onNewMessage);
+        s.on('messages_read', onMessagesRead);
+      } catch { /* socket unavailable; HTTP polling covers it */ }
+    })();
+
+    return () => {
+      alive = false;
+      if (socketRef) {
+        if (onNewMessage)   socketRef.off('new_message', onNewMessage);
+        if (onMessagesRead) socketRef.off('messages_read', onMessagesRead);
+      }
     };
-    setMessages(prev => [...prev, newMsg]);
-    setInputText('');
-
-    // Simulate reply after 1.5s
-    setTimeout(() => {
-      const replies = [
-        'Ji zaroor, aap aa ke dekh sakte ho.',
-        'Haan, delivery possible hai 100km tak.',
-        'Photo bhej raha hoon abhi.',
-        'Kal subah 10 baje milein?',
-      ];
-      const reply = {
-        id: `m${Date.now() + 1}`,
-        senderId: 'other',
-        senderName: sellerName,
-        text: replies[Math.floor(Math.random() * replies.length)],
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        date: 'Today',
-      };
-      setMessages(prev => [...prev, reply]);
-    }, 1500);
-  };
+  }, [chatId, user?.id]));
 
   useEffect(() => {
-    setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-  }, [messages]);
+    if (!messages.length) return;
+    setTimeout(() => flatListRef.current?.scrollToEnd?.({ animated: true }), 60);
+  }, [messages.length]);
 
+  // ── Send (optimistic, with retry) ──────────────────────────────────────────
+  const sendMessage = async (text, retryOf = null) => {
+    const trimmed = (text || '').trim();
+    if (!trimmed || sending || !chatId) return;
+    const tempId = retryOf || `temp-${Date.now()}`;
+    if (retryOf) {
+      // Flip the existing row to pending instead of inserting a new one.
+      setMessages(prev => prev.map(m => m.id === retryOf ? { ...m, pending: true, failed: false } : m));
+    } else {
+      setMessages(prev => [...prev, {
+        id: tempId, senderId: user?.id, text: trimmed,
+        createdAt: new Date().toISOString(), pending: true,
+      }]);
+      setInputText('');
+    }
+    setSending(true);
+    try {
+      const { data } = await api.post(`/animals/chats/${chatId}/messages`, { text: trimmed });
+      const saved = data?.data;
+      setMessages(prev => prev.map(m => m.id === tempId ? saved : m));
+    } catch {
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, pending: false, failed: true } : m));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const retryFailed = (msg) => sendMessage(msg.text, msg.id);
+
+  // ── Key handling — web: Enter sends, Shift+Enter newline ───────────────────
+  const onKeyPress = (e) => {
+    if (Platform.OS !== 'web') return;
+    if (e?.nativeEvent?.key === 'Enter' && !e?.nativeEvent?.shiftKey) {
+      e.preventDefault?.();
+      sendMessage(inputText);
+    }
+  };
+
+  // ── Derived UI flags ───────────────────────────────────────────────────────
+  const canSend  = !!chatId && !sending && inputText.trim().length > 0;
+  const disabled = !chatId || loading;
+  const overCap  = inputText.length >= MAX_CHARS;
+  const showCount = inputText.length >= COUNTER_AT;
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
-      {/* Chat Header Info */}
+      {/* Header */}
       <View style={styles.chatHeader}>
         <View style={styles.chatAvatar}>
-          <Text style={styles.chatAvatarText}>{sellerName?.charAt(0)}</Text>
+          <Text style={styles.chatAvatarText}>{sellerName?.charAt(0)?.toUpperCase() || '?'}</Text>
         </View>
-        <View>
-          <Text style={styles.chatName}>{sellerName}</Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.chatName} numberOfLines={1}>{sellerName || 'Conversation'}</Text>
           <View style={styles.onlineRow}>
             <View style={styles.onlineDot} />
-            <Text style={styles.onlineText}>{t('chat.online')}</Text>
+            <Text style={styles.onlineText}>{t('chat.online') || 'Online'}</Text>
           </View>
         </View>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        {/* Messages */}
-        <FlatList
-          windowSize={5}
-          maxToRenderPerBatch={10}
-          removeClippedSubviews
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => <MessageBubble message={item} />}
-          contentContainerStyle={styles.messagesList}
-          showsVerticalScrollIndicator={false}
-        />
-
-        {/* Quick Replies */}
-        <View>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={APPROX_HEADER_OFFSET}
+      >
+        {/* Body */}
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+            <Text style={styles.mutedTxt}>Loading conversation…</Text>
+          </View>
+        ) : error ? (
+          <View style={styles.center}>
+            <Ionicons name="alert-circle-outline" size={48} color={COLORS.error} />
+            <Text style={styles.errorTxt}>{error}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={init}>
+              <Text style={styles.retryTxt}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
           <FlatList
+            ref={flatListRef}
             windowSize={5}
             maxToRenderPerBatch={10}
             removeClippedSubviews
-            horizontal
-            data={quickReplies}
-            keyExtractor={i => i}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.quickRepliesContainer}
+            data={messages}
+            keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
-              <QuickReply text={item} onPress={sendMessage} />
+              <MessageBubble
+                message={item}
+                isMe={item.senderId === user?.id}
+                otherName={sellerName}
+                onRetry={retryFailed}
+              />
             )}
+            contentContainerStyle={messages.length === 0 ? styles.messagesListEmpty : styles.messagesList}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={
+              <View style={styles.emptyWrap}>
+                <View style={styles.emptyIcon}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={36} color={COLORS.primary} />
+                </View>
+                <Text style={styles.emptyTitle}>Say hello 👋</Text>
+                <Text style={styles.emptyHint}>
+                  Send a message to start the conversation with {sellerName || 'the seller'}.
+                </Text>
+              </View>
+            }
           />
-        </View>
+        )}
 
-        {/* Input */}
-        <View style={styles.inputBar}>
-          <TouchableOpacity style={styles.attachBtn}>
-            <Ionicons name="attach" size={24} color={COLORS.textMedium} />
-          </TouchableOpacity>
-          <TextInput
-            style={styles.messageInput}
-            placeholder={t('chat.typePlaceholder')}
-            placeholderTextColor={COLORS.textLight}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            maxLength={500}
-          />
-          <TouchableOpacity
-            style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
-            onPress={() => sendMessage(inputText)}
-            disabled={!inputText.trim()}
-          >
-            <Ionicons name="send" size={20} color={inputText.trim() ? COLORS.textWhite : COLORS.textLight} />
-          </TouchableOpacity>
+        {/* Composer */}
+        <View style={styles.composerWrap}>
+          <View style={[styles.composer, focused && styles.composerFocused, disabled && styles.composerDisabled]}>
+            <TextInput
+              style={styles.input}
+              placeholder={
+                disabled
+                  ? 'Loading…'
+                  : (t('chat.typePlaceholder') || 'Type a message…')
+              }
+              placeholderTextColor={COLORS.textLight}
+              value={inputText}
+              onChangeText={(v) => setInputText(v.length > MAX_CHARS ? v.slice(0, MAX_CHARS) : v)}
+              onFocus={() => setFocused(true)}
+              onBlur={()  => setFocused(false)}
+              onKeyPress={onKeyPress}
+              multiline
+              editable={!disabled}
+              maxLength={MAX_CHARS}
+              blurOnSubmit={false}
+              returnKeyType="default"
+            />
+            <TouchableOpacity
+              style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
+              onPress={() => sendMessage(inputText)}
+              disabled={!canSend}
+              accessibilityLabel="Send message"
+            >
+              {sending
+                ? <ActivityIndicator color={COLORS.textWhite} size="small" />
+                : <Ionicons name="send" size={18} color={canSend ? COLORS.textWhite : COLORS.textLight} />}
+            </TouchableOpacity>
+          </View>
+          {(showCount || overCap) && (
+            <Text style={[styles.charCount, overCap && { color: COLORS.error }]}>
+              {inputText.length} / {MAX_CHARS}
+            </Text>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -162,7 +363,9 @@ export default function ChatScreen({ route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
+  center:    { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 10 },
 
+  // ── Header ──
   chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, padding: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   chatAvatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
   chatAvatarText: { fontSize: 18, fontWeight: '800', color: COLORS.textWhite },
@@ -171,26 +374,65 @@ const styles = StyleSheet.create({
   onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.success },
   onlineText: { fontSize: 13, color: COLORS.success, fontWeight: '600' },
 
-  messagesList: { padding: 16, paddingBottom: 8 },
-  messagRow: { flexDirection: 'row', marginBottom: 12, alignItems: 'flex-end', gap: 8 },
-  messageRowMe: { flexDirection: 'row-reverse' },
-  avatarSmall: { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.primaryLight, justifyContent: 'center', alignItems: 'center' },
-  avatarSmallText: { fontSize: 13, fontWeight: '700', color: COLORS.textWhite },
+  // ── Messages list ──
+  messagesList:      { padding: 16, paddingBottom: 12 },
+  messagesListEmpty: { flexGrow: 1, justifyContent: 'center', padding: 24 },
 
-  bubble: { maxWidth: '75%', borderRadius: 18, padding: 12 },
-  bubbleMe: { backgroundColor: COLORS.primary, borderBottomRightRadius: 4 },
-  bubbleThem: { backgroundColor: COLORS.surface, borderBottomLeftRadius: 4, ...SHADOWS.small },
-  bubbleText: { fontSize: 15, color: COLORS.textDark, lineHeight: 22 },
-  bubbleTextMe: { color: COLORS.textWhite },
-  bubbleTime: { fontSize: 11, color: COLORS.textLight, marginTop: 4, textAlign: 'right' },
+  // ── Bubbles ──
+  messagRow:        { flexDirection: 'row', marginBottom: 12, alignItems: 'flex-end', gap: 8 },
+  messageRowMe:     { flexDirection: 'row-reverse' },
+  avatarSmall:      { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.primaryLight, justifyContent: 'center', alignItems: 'center' },
+  avatarSmallText:  { fontSize: 13, fontWeight: '700', color: COLORS.textWhite },
 
-  quickRepliesContainer: { paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
-  quickReply: { backgroundColor: COLORS.surface, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1.5, borderColor: COLORS.primary },
-  quickReplyText: { fontSize: 13, color: COLORS.primary, fontWeight: '600' },
+  bubble:        { maxWidth: '78%', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14 },
+  bubbleMe:      { backgroundColor: COLORS.primary, borderBottomRightRadius: 4 },
+  bubbleThem:    { backgroundColor: COLORS.surface, borderBottomLeftRadius: 4, ...SHADOWS.small },
+  bubbleFailed:  { borderWidth: 1, borderColor: COLORS.error, opacity: 0.9 },
+  bubbleText:    { fontSize: 15, color: COLORS.textDark, lineHeight: 21 },
+  bubbleTextMe:  { color: COLORS.textWhite },
+  bubbleFooter:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 4 },
+  bubbleTime:    { fontSize: 11, color: COLORS.textLight },
+  failedHint:    { fontSize: 11, color: COLORS.error, marginLeft: 4, fontWeight: '600' },
 
-  inputBar: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 12, backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border },
-  attachBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
-  messageInput: { flex: 1, backgroundColor: COLORS.inputBg, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, color: COLORS.textDark, maxHeight: 100, borderWidth: 1, borderColor: COLORS.border },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
+  // ── Empty state ──
+  emptyWrap:  { alignItems: 'center', gap: 10, paddingHorizontal: 32 },
+  emptyIcon:  { width: 76, height: 76, borderRadius: 38, backgroundColor: COLORS.greenBreeze || COLORS.primaryLight, justifyContent: 'center', alignItems: 'center' },
+  emptyTitle: { fontSize: 18, fontWeight: '800', color: COLORS.textDark, marginTop: 4 },
+  emptyHint:  { fontSize: 14, color: COLORS.textMedium, textAlign: 'center', lineHeight: 20 },
+  mutedTxt:   { fontSize: 13, color: COLORS.textMedium },
+
+  // ── Composer ──
+  composerWrap: {
+    backgroundColor: COLORS.surface,
+    borderTopWidth: 1, borderTopColor: COLORS.border,
+    paddingHorizontal: 12, paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 10,
+  },
+  composer: {
+    flexDirection: 'row', alignItems: 'flex-end', gap: 8,
+    backgroundColor: COLORS.inputBg, borderRadius: 22,
+    borderWidth: 1.5, borderColor: 'transparent',
+    paddingLeft: 14, paddingRight: 4, paddingVertical: 4,
+  },
+  composerFocused:  { borderColor: COLORS.primary, backgroundColor: COLORS.surface },
+  composerDisabled: { opacity: 0.6 },
+
+  input: {
+    flex: 1,
+    paddingVertical: Platform.OS === 'web' ? 10 : 8,
+    fontSize: 15, color: COLORS.textDark,
+    maxHeight: 120, minHeight: 36,
+    // Disable the web default outline since our wrapper shows focus.
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : null),
+  },
+
+  sendBtn:         { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', alignSelf: 'flex-end', marginBottom: 2 },
   sendBtnDisabled: { backgroundColor: COLORS.border },
+
+  charCount: { alignSelf: 'flex-end', marginTop: 4, marginRight: 6, fontSize: 11, color: COLORS.textLight },
+
+  // ── Error ──
+  errorTxt: { fontSize: 14, color: COLORS.error, textAlign: 'center' },
+  retryBtn: { backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 24, paddingVertical: 10 },
+  retryTxt: { color: COLORS.white, fontWeight: '700', fontSize: 15 },
 });
