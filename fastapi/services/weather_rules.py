@@ -34,6 +34,27 @@ _DISEASE_CONDITIONS: list[tuple[str, float, float, float, float]] = [
 _DRY_HOT_PESTS = {"Thrips / Aphids"}
 
 
+# Set of canonical disease names this rule engine knows anything about.
+# safety/cross_verify.py uses this to gate the "weather contradicts diagnosis"
+# penalty: a disease absent from this list is "unknown to the KB" rather than
+# "contradicted by it" — applying a contradiction penalty in that case
+# punishes valid diagnoses for the KB's narrowness.
+_KNOWN_DISEASES = {name.lower() for name, *_ in _DISEASE_CONDITIONS}
+
+
+def disease_is_known(disease: str | None) -> bool:
+    """True if this disease appears in the weather rule KB (substring match,
+    case-insensitive). Used by safety/cross_verify.py to decide whether a
+    'weather contradicts' signal is meaningful."""
+    name = (disease or "").strip().lower()
+    if not name:
+        return False
+    for known in _KNOWN_DISEASES:
+        if known in name or name in known:
+            return True
+    return False
+
+
 def _favorable_diseases(temp: float, humidity: float, leaf_wet_hrs: float) -> list[str]:
     """Return list of diseases favored by current conditions."""
     result = []
