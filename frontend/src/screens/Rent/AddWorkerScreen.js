@@ -8,7 +8,7 @@ import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, Image, StatusBar,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,7 +17,8 @@ import api from '../../services/api';
 import { compressImage, compressVideo } from '../../utils/mediaCompressor';
 import { useLanguage } from '../../context/LanguageContext';
 import { useLocation } from '../../context/LocationContext';
-import { COLORS } from '../../constants/colors';
+import { COLORS, SHADOWS } from '../../constants/colors';
+import RentAvailabilityPicker from '../../components/ui/RentAvailabilityPicker';
 
 
 const SKILL_KEYS = [
@@ -79,6 +80,8 @@ export default function AddWorkerScreen({ navigation }) {
   const gpsLoading = false; // GPS fetched globally at app start
   const [uploading,     setUploading]     = useState(false);
   const [submitting,    setSubmitting]    = useState(false);
+  // Success popup state: { name } when shown, null when hidden.
+  const [success,       setSuccess]       = useState(null);
 
   // ── Use global GPS from LocationContext ──────────────────────────────────
   const fetchGPS = () => {
@@ -156,6 +159,10 @@ export default function AddWorkerScreen({ navigation }) {
     if (!pricePerDay)     { Alert.alert(t('rent.required'), t('rent.enterPriceDay')); return; }
     if (!location.trim()) { Alert.alert(t('rent.required'), t('rent.enterLocation')); return; }
     if (!district.trim()) { Alert.alert(t('rent.required'), t('rent.enterDistrict')); return; }
+    if (availableFrom && availableTo && availableTo < availableFrom) {
+      Alert.alert(t('rent.required'), t('rent.invalidDateRange', 'The end date must be on or after the start date.'));
+      return;
+    }
 
     setUploading(true);
     let photoUrl   = null;
@@ -205,9 +212,7 @@ export default function AddWorkerScreen({ navigation }) {
         lng:          lng  ?? null,
       });
 
-      Alert.alert(t('rent.registeredTitle'), t('rent.registeredMsg'), [
-        { text: t('rent.done'), onPress: () => navigation.goBack() },
-      ]);
+      setSuccess({ name: name.trim() });
     } catch (err) {
       const msg = err.response?.data?.error?.message || t('rent.error');
       Alert.alert(t('rent.error'), msg);
@@ -323,15 +328,12 @@ export default function AddWorkerScreen({ navigation }) {
 
           {/* ── Availability ── */}
           <SectionLabel>{t('rent.availabilityDates')}</SectionLabel>
-          <View style={S.row}>
-            <View style={{ flex: 1 }}>
-              <FieldInput label={t('rent.fromDate')} value={availableFrom} onChangeText={setAvailableFrom} placeholder="YYYY-MM-DD" />
-            </View>
-            <View style={{ width: 12 }} />
-            <View style={{ flex: 1 }}>
-              <FieldInput label={t('rent.toDate')} value={availableTo} onChangeText={setAvailableTo} placeholder="YYYY-MM-DD" />
-            </View>
-          </View>
+          <RentAvailabilityPicker
+            from={availableFrom}
+            to={availableTo}
+            onChange={({ from, to }) => { setAvailableFrom(from); setAvailableTo(to); }}
+            t={t}
+          />
 
           {/* ── Location ── */}
           <SectionLabel>{t('rent.location')}</SectionLabel>
@@ -447,6 +449,44 @@ export default function AddWorkerScreen({ navigation }) {
           <View style={{ height: 40 }} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Success Popup — shown after a successful registration */}
+      <Modal
+        visible={!!success}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSuccess(null)}
+      >
+        <View style={S.successBackdrop}>
+          <View style={S.successCard}>
+            <View style={S.successIconCircle}>
+              <Ionicons name="checkmark" size={42} color={COLORS.white} />
+            </View>
+            <Text style={S.successTitle}>{t('rent.registeredTitle')}</Text>
+            <Text style={S.successBody}>{t('rent.registeredMsg')}</Text>
+            {success?.name ? (
+              <View style={S.successPill}>
+                <Ionicons name="person" size={14} color={COLORS.primary} />
+                <Text style={S.successPillTxt} numberOfLines={1}>{success.name}</Text>
+              </View>
+            ) : null}
+            <View style={S.successBtnRow}>
+              <TouchableOpacity
+                style={[S.successBtn, S.successBtnSecondary]}
+                onPress={() => { setSuccess(null); navigation.goBack(); }}
+              >
+                <Text style={S.successBtnTextSecondary}>{t('rent.done')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.successBtn, S.successBtnPrimary]}
+                onPress={() => { setSuccess(null); navigation.navigate('RentHome'); }}
+              >
+                <Text style={S.successBtnTextPrimary}>{t('rent.viewListings')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -502,4 +542,19 @@ const S = StyleSheet.create({
   gpsBtnRow:     { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1.5, borderColor: COLORS.primary, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 12, backgroundColor: COLORS.white },
   gpsBtnRowDone: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   gpsBtnTxt:     { fontSize: 13, fontWeight: '700', color: COLORS.primary, flex: 1 },
+
+  // Success popup
+  successBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  successCard:     { width: '100%', maxWidth: 380, backgroundColor: COLORS.surface, borderRadius: 20, padding: 24, alignItems: 'center', ...SHADOWS.small },
+  successIconCircle:{ width: 72, height: 72, borderRadius: 36, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
+  successTitle:    { fontSize: 20, fontWeight: '800', color: COLORS.textDark, textAlign: 'center', marginBottom: 8 },
+  successBody:     { fontSize: 14, color: COLORS.textMedium, textAlign: 'center', lineHeight: 20, marginBottom: 14 },
+  successPill:     { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: COLORS.greenBreeze, borderRadius: 999, marginBottom: 18, maxWidth: '100%' },
+  successPillTxt:  { fontSize: 13, fontWeight: '700', color: COLORS.primary, flexShrink: 1 },
+  successBtnRow:   { flexDirection: 'row', gap: 10, width: '100%' },
+  successBtn:      { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  successBtnSecondary: { backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.border },
+  successBtnPrimary:   { backgroundColor: COLORS.primary },
+  successBtnTextSecondary: { fontSize: 15, fontWeight: '700', color: COLORS.textDark },
+  successBtnTextPrimary:   { fontSize: 15, fontWeight: '800', color: COLORS.white },
 });

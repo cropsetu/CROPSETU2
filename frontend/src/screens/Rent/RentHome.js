@@ -101,10 +101,39 @@ function DistBadge({ km }) {
   );
 }
 
+// ── Booking status badge (shown on cards the current user has booked) ───────────
+function bookingStatusInfo(status) {
+  if (status === 'PENDING')   return { tKey: 'bookingPendingShort',   fallback: 'Request pending',   color: COLORS.cta,  bg: COLORS.orangeWarm,  icon: 'time-outline' };
+  if (status === 'CONFIRMED') return { tKey: 'bookingConfirmedShort', fallback: 'Booking confirmed', color: GREEN,       bg: COLORS.primaryPale, icon: 'checkmark-circle' };
+  if (status === 'ACTIVE')    return { tKey: 'statusActive',          fallback: 'Active',            color: COLORS.blue, bg: COLORS.blueBg,      icon: 'play-circle' };
+  return null;
+}
+
+function BookedTag({ status, t }) {
+  const bi = bookingStatusInfo(status);
+  if (!bi) return null;
+  return (
+    <View style={[S.bookedTag, { backgroundColor: bi.bg, borderColor: bi.color + '40' }]}>
+      <Ionicons name={bi.icon} size={13} color={bi.color} />
+      <Text style={[S.bookedTagTxt, { color: bi.color }]} numberOfLines={1}>{t('rent.' + bi.tKey, bi.fallback)}</Text>
+    </View>
+  );
+}
+
 // ── Machinery card ─────────────────────────────────────────────────────────────
-function MachineryCard({ item, onPress, index = 0 }) {
+function MachineryCard({ item, onPress, index = 0, isOwner = false, bookingStatus = null }) {
   const { t } = useLanguage();
   const catInfo = MACH_CATS.find(c => c.key === item.category) || MACH_CATS[MACH_CATS.length - 1];
+
+  // Availability badge reflects real bookings first, then the owner's manual flag.
+  const booked = item.bookedStatus; // 'BOOKED' | 'RESERVED' | null
+  const statusColor = booked === 'BOOKED' ? COLORS.error : booked === 'RESERVED' ? COLORS.cta : (item.available ? GREEN : COLORS.cta);
+  const statusBg    = booked === 'BOOKED' ? COLORS.redPale : booked === 'RESERVED' ? COLORS.orangeWarm : (item.available ? COLORS.primaryPale : COLORS.orangeWarm);
+  const statusLabel = booked === 'BOOKED'
+    ? t('rent.bookedNow', 'Booked')
+    : booked === 'RESERVED'
+      ? t('rent.reservedSoon', 'Reserved')
+      : (item.available ? t('rent.listAvailable') : t('rent.listAdvanceBooking'));
 
   return (
     <AnimatedCard
@@ -130,12 +159,10 @@ function MachineryCard({ item, onPress, index = 0 }) {
           style={S.mPhotoGradient}
           pointerEvents="none"
         />
-        {/* Availability badge */}
-        <View style={[S.availBadge, { backgroundColor: item.available ? COLORS.primaryPale : COLORS.orangeWarm, borderColor: item.available ? GREEN : COLORS.cta }]}>
-          <View style={[S.availDot, { backgroundColor: item.available ? GREEN : COLORS.cta }]} />
-          <Text style={[S.availTxt, { color: item.available ? GREEN : COLORS.cta }]}>
-            {item.available ? t('rent.listAvailable') : t('rent.listAdvanceBooking')}
-          </Text>
+        {/* Availability badge — Booked / Reserved / Available */}
+        <View style={[S.availBadge, { backgroundColor: statusBg, borderColor: statusColor }]}>
+          <View style={[S.availDot, { backgroundColor: statusColor }]} />
+          <Text style={[S.availTxt, { color: statusColor }]}>{statusLabel}</Text>
         </View>
         {/* Category label */}
         <View style={[S.catTag, { backgroundColor: catInfo.color }]}>
@@ -184,17 +211,26 @@ function MachineryCard({ item, onPress, index = 0 }) {
           <Text style={S.mLocTxt} numberOfLines={1}>{item.location}</Text>
         </View>
 
-        <TouchableOpacity style={S.bookBtn} onPress={() => onPress(item)}>
-          <Ionicons name="calendar" size={14} color={COLORS.white} />
-          <Text style={S.bookBtnTxt}>{t('bookNow')}</Text>
-        </TouchableOpacity>
+        {isOwner ? (
+          <View style={S.ownTag}>
+            <Ionicons name="person-circle-outline" size={15} color={GREEN} />
+            <Text style={S.ownTagTxt}>{t('rent.ownListingTitle', 'Your Listing')}</Text>
+          </View>
+        ) : bookingStatus ? (
+          <BookedTag status={bookingStatus} t={t} />
+        ) : (
+          <TouchableOpacity style={S.bookBtn} onPress={() => onPress(item)}>
+            <Ionicons name="calendar" size={14} color={COLORS.white} />
+            <Text style={S.bookBtnTxt}>{t('bookNow')}</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </AnimatedCard>
   );
 }
 
 // ── Worker card ────────────────────────────────────────────────────────────────
-function WorkerCard({ item, onPress, index = 0 }) {
+function WorkerCard({ item, onPress, index = 0, isOwner = false, bookingStatus = null }) {
   const { t } = useLanguage();
   const initials = (item.leader || item.name || 'W')
     .split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -219,7 +255,7 @@ function WorkerCard({ item, onPress, index = 0 }) {
             </View>
           )
         }
-        <View style={[S.wAvailDot, { backgroundColor: item.available ? GREEN : COLORS.cta }]} />
+        <View style={[S.wAvailDot, { backgroundColor: item.bookedStatus === 'BOOKED' ? COLORS.error : item.bookedStatus === 'RESERVED' ? COLORS.cta : (item.available ? GREEN : COLORS.cta) }]} />
       </View>
 
       <View style={S.wInfo}>
@@ -240,6 +276,14 @@ function WorkerCard({ item, onPress, index = 0 }) {
             <Text style={S.distTxt}>{item.distanceKm} {t('rent.kmAway')}</Text>
           </View>
         )}
+        {item.bookedStatus && (
+          <View style={[S.workerBooked, { backgroundColor: item.bookedStatus === 'BOOKED' ? COLORS.redPale : COLORS.orangeWarm }]}>
+            <Ionicons name="lock-closed" size={10} color={item.bookedStatus === 'BOOKED' ? COLORS.error : COLORS.cta} />
+            <Text style={[S.workerBookedTxt, { color: item.bookedStatus === 'BOOKED' ? COLORS.error : COLORS.cta }]}>
+              {item.bookedStatus === 'BOOKED' ? t('rent.bookedNow', 'Booked') : t('rent.reservedSoon', 'Reserved')}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={S.wRight}>
@@ -248,10 +292,19 @@ function WorkerCard({ item, onPress, index = 0 }) {
           <Text style={S.ratingTxt}>{item.rating?.toFixed(1)}</Text>
         </View>
         <Text style={S.wPrice}>₹{item.pricePerDay}/day</Text>
-        <TouchableOpacity style={S.callBtn} onPress={() => onPress(item)}>
-          <Ionicons name="call-outline" size={13} color={GREEN} />
-          <Text style={S.callBtnTxt}>{t('rent.call')}</Text>
-        </TouchableOpacity>
+        {isOwner ? (
+          <View style={S.ownTag}>
+            <Ionicons name="person-circle-outline" size={13} color={GREEN} />
+            <Text style={S.ownTagTxt}>{t('rent.ownListingTitle', 'Your Listing')}</Text>
+          </View>
+        ) : bookingStatus ? (
+          <BookedTag status={bookingStatus} t={t} />
+        ) : (
+          <TouchableOpacity style={S.callBtn} onPress={() => onPress(item)}>
+            <Ionicons name="call-outline" size={13} color={GREEN} />
+            <Text style={S.callBtnTxt}>{t('rent.call')}</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </Pressable>
     </Animated.View>
@@ -281,7 +334,8 @@ function RentDistChip({ opt, active, disabled, onPress }) {
 // ── Main screen ────────────────────────────────────────────────────────────────
 export default function RentHome({ navigation }) {
   const { t }        = useLanguage();
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user } = useAuth();
+  const myId = user?.id ?? null;
   const insets       = useSafeAreaInsets();
   const { onScroll: hideOnScroll, headerAnimatedStyle, showTopBtn } = useScrollHeader(55);
   const scrollRef = useRef(null);
@@ -302,6 +356,8 @@ export default function RentHome({ navigation }) {
 
   const [pendingCount, setPendingCount] = useState(0);
   const [hasListings,  setHasListings]  = useState(false);
+  // Map of listingId → my booking status (PENDING/CONFIRMED/ACTIVE) for badges on cards.
+  const [bookingMap,   setBookingMap]   = useState({});
 
   const [radiusKm, setRadiusKm] = useState(10); // default 10 km
 
@@ -337,6 +393,21 @@ export default function RentHome({ navigation }) {
                .catch(() => {});
           }
         });
+
+        // My bookings → status badge on the listing cards I've booked.
+        api.get('/rent/bookings').then(r => {
+          const map = {};
+          (r.data?.data ?? []).forEach(b => {
+            if (!['PENDING', 'CONFIRMED', 'ACTIVE'].includes(b.status)) return;
+            const lid = b.machineryListing?.id || b.labourListing?.id;
+            if (!lid) return;
+            // Prefer a CONFIRMED/ACTIVE status over a PENDING one if several exist.
+            if (!map[lid] || map[lid] === 'PENDING') map[lid] = b.status;
+          });
+          setBookingMap(map);
+        }).catch(() => {});
+      } else {
+        setBookingMap({});
       }
     } catch {
       // [FIX #23] Only use mock data in dev — show error state in production
@@ -526,6 +597,8 @@ export default function RentHome({ navigation }) {
               filteredMachinery.map((item, idx) => (
                 <MachineryCard
                   key={item.id} item={item} index={idx}
+                  isOwner={myId != null && (myId === item.owner?.id || myId === item.ownerId)}
+                  bookingStatus={bookingMap[item.id]}
                   onPress={i => navigation.navigate('MachineryDetail', { id: i.id, machinery: i })}
                 />
               ))
@@ -557,6 +630,8 @@ export default function RentHome({ navigation }) {
               filteredLabour.map((item, idx) => (
                 <WorkerCard
                   key={item.id} item={item} index={idx}
+                  isOwner={myId != null && (myId === item.provider?.id || myId === item.providerId)}
+                  bookingStatus={bookingMap[item.id]}
                   onPress={i => navigation.navigate('LabourDetail', { id: i.id, labour: i })}
                 />
               ))
@@ -685,6 +760,8 @@ const S = StyleSheet.create({
   catTagTxt:{ fontSize: 10, color: COLORS.white, fontWeight: '800' },
   distOverlay:    { position: 'absolute', bottom: 8, right: 10, flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
   distOverlayTxt: { fontSize: 11, color: COLORS.blue, fontWeight: '800' },
+  workerBooked:     { flexDirection: 'row', alignItems: 'center', gap: 3, alignSelf: 'flex-start', marginTop: 4, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
+  workerBookedTxt:  { fontSize: 10, fontWeight: '800' },
   mBody:    { padding: 14 },
   mTopRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, gap: 8 },
   mName:    { fontSize: 16, fontWeight: TYPE.weight.black, color: COLORS.textDark },
@@ -702,6 +779,10 @@ const S = StyleSheet.create({
   mLocTxt:  { fontSize: 12, color: COLORS.textLight, flex: 1 },
   bookBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: GREEN, borderRadius: 12, paddingVertical: 12 },
   bookBtnTxt:{ color: COLORS.white, fontSize: 14, fontWeight: '800' },
+  ownTag:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: COLORS.primaryPale, borderRadius: 12, borderWidth: 1.5, borderColor: GREEN + '40', paddingVertical: 10, paddingHorizontal: 10 },
+  ownTagTxt:{ color: GREEN, fontSize: 12, fontWeight: '800' },
+  bookedTag:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 12, borderWidth: 1.5, paddingVertical: 10, paddingHorizontal: 10 },
+  bookedTagTxt:{ fontSize: 12, fontWeight: '800', flexShrink: 1 },
 
   // Worker card
   wCard: {

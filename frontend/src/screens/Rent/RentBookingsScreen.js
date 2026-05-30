@@ -11,13 +11,14 @@ import { COLORS } from '../../constants/colors';
 import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Alert, ActivityIndicator, Image, StatusBar, RefreshControl,
+  ActivityIndicator, Image, StatusBar, RefreshControl, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
+import { SHADOWS } from '../../constants/colors';
 
 const ORANGE = COLORS.cta;
 const RED    = COLORS.error;
@@ -193,6 +194,8 @@ export default function RentBookingsScreen({ navigation }) {
   const [myBooks,  setMyBooks]  = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [acting,   setActing]   = useState(null); // id of booking being acted upon
+  const [confirm,  setConfirm]  = useState(null); // { item, action: 'approve' | 'reject' }
+  const [actErr,   setActErr]   = useState(null); // error message shown inside the popup
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -209,53 +212,45 @@ export default function RentBookingsScreen({ navigation }) {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const handleApprove = (item) => {
-    Alert.alert(
-      t('rent.confirmApprove'),
-      t('rent.confirmApproveMsg'),
-      [
-        { text: t('rent.cancel'), style: 'cancel' },
-        {
-          text: t('rent.approve'), style: 'default',
-          onPress: async () => {
-            setActing(item.id);
-            try {
-              await api.put(`/rent/bookings/${item.id}/approve`);
-              setReceived(prev => prev.map(b => b.id === item.id ? { ...b, status: 'CONFIRMED' } : b));
-            } catch (e) {
-              Alert.alert(t('rent.error'), e?.response?.data?.error?.message || t('rent.approveError'));
-            } finally { setActing(null); }
-          },
-        },
-      ]
-    );
-  };
+  // Open the in-app confirmation popup (Alert button callbacks don't fire on web).
+  const handleApprove = (item) => { setActErr(null); setConfirm({ item, action: 'approve' }); };
+  const handleReject  = (item) => { setActErr(null); setConfirm({ item, action: 'reject'  }); };
 
-  const handleReject = (item) => {
-    Alert.alert(
-      t('rent.confirmReject'),
-      t('rent.confirmRejectMsg'),
-      [
-        { text: t('rent.cancel'), style: 'cancel' },
-        {
-          text: t('rent.reject'), style: 'destructive',
-          onPress: async () => {
-            setActing(item.id);
-            try {
-              await api.put(`/rent/bookings/${item.id}/reject`);
-              setReceived(prev => prev.map(b => b.id === item.id ? { ...b, status: 'CANCELLED' } : b));
-            } catch (e) {
-              Alert.alert(t('rent.error'), e?.response?.data?.error?.message || t('rent.rejectError'));
-            } finally { setActing(null); }
-          },
-        },
-      ]
-    );
+  const runAction = async () => {
+    if (!confirm) return;
+    const { item, action } = confirm;
+
+    // Guard against acting on a booking that's no longer pending (stale UI).
+    if (item.status !== 'PENDING') {
+      setActErr(t('rent.notPendingAnymore', 'This request has already been handled.'));
+      load();
+      return;
+    }
+
+    const nextStatus = action === 'approve' ? 'CONFIRMED' : 'CANCELLED';
+    setActing(item.id);
+    setActErr(null);
+    try {
+      await api.put(`/rent/bookings/${item.id}/${action}`);
+      setReceived(prev => prev.map(b => (b.id === item.id ? { ...b, status: nextStatus } : b)));
+      setConfirm(null);
+    } catch (e) {
+      const msg = e?.response?.data?.error?.message
+        || t(action === 'approve' ? 'rent.approveError' : 'rent.rejectError');
+      setActErr(msg);
+      // If the server says it's no longer actionable, refresh to show the real state.
+      if (e?.response?.status === 400 || e?.response?.status === 404) load();
+    } finally {
+      setActing(null);
+    }
   };
 
   const pendingCount = received.filter(b => b.status === 'PENDING').length;
   const data         = tab === 'received' ? received : myBooks;
   const isEmpty      = !loading && data.length === 0;
+
+  const cApprove = confirm?.action === 'approve';
+  const cItem    = confirm?.item;
 
   return (
     <View style={[S.root, { paddingTop: insets.top }]}>
@@ -328,6 +323,51 @@ export default function RentBookingsScreen({ navigation }) {
           }
         />
       )}
+
+      {/* Approve / Reject confirmation popup */}
+      <Modal
+        visible={!!confirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { if (!acting) { setConfirm(null); setActErr(null); } }}
+      >
+        <View style={S.cBackdrop}>
+          <View style={S.cCard}>
+            <View style={[S.cIconCircle, { backgroundColor: cApprove ? COLORS.primaryPale : COLORS.redPale }]}>
+              <Ionicons name={cApprove ? 'checkmark' : 'close'} size={30} color={cApprove ? COLORS.primary : RED} />
+            </View>
+            <Text style={S.cTitle}>{cApprove ? t('rent.confirmApprove') : t('rent.confirmReject')}</Text>
+            <Text style={S.cBody}>{cApprove ? t('rent.confirmApproveMsg') : t('rent.confirmRejectMsg')}</Text>
+            {cItem ? (
+              <View style={S.cPill}>
+                <Ionicons name="person-outline" size={13} color={COLORS.primary} />
+                <Text style={S.cPillTxt} numberOfLines={1}>
+                  {cItem.user?.name || t('rent.someone', 'Customer')}  ·  {fmt(cItem.startDate)} → {fmt(cItem.endDate)}
+                </Text>
+              </View>
+            ) : null}
+            {actErr ? <Text style={S.cErr}>{actErr}</Text> : null}
+            <View style={S.cBtnRow}>
+              <TouchableOpacity
+                style={[S.cBtn, S.cBtnSecondary]}
+                onPress={() => { setConfirm(null); setActErr(null); }}
+                disabled={!!acting}
+              >
+                <Text style={S.cBtnTextSecondary}>{t('rent.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.cBtn, { backgroundColor: cApprove ? COLORS.primary : RED }, !!acting && { opacity: 0.7 }]}
+                onPress={runAction}
+                disabled={!!acting}
+              >
+                {acting
+                  ? <ActivityIndicator size="small" color={COLORS.white} />
+                  : <Text style={S.cBtnTextPrimary}>{cApprove ? t('rent.approve') : t('rent.reject')}</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -391,4 +431,19 @@ const S = StyleSheet.create({
   center:     { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: COLORS.grayLight2, marginTop: 8 },
   emptySub:   { fontSize: 13, color: COLORS.grayLightMid, textAlign: 'center', paddingHorizontal: 30 },
+
+  // Approve / Reject confirmation popup
+  cBackdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  cCard:       { width: '100%', maxWidth: 380, backgroundColor: COLORS.surface, borderRadius: 20, padding: 24, alignItems: 'center', ...SHADOWS.small },
+  cIconCircle: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
+  cTitle:      { fontSize: 19, fontWeight: '800', color: COLORS.textDark, textAlign: 'center', marginBottom: 8 },
+  cBody:       { fontSize: 14, color: COLORS.textMedium, textAlign: 'center', lineHeight: 20, marginBottom: 14 },
+  cPill:       { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: COLORS.primaryPale, borderRadius: 999, marginBottom: 18, maxWidth: '100%' },
+  cPillTxt:    { fontSize: 12, fontWeight: '700', color: COLORS.primary, flexShrink: 1 },
+  cErr:        { fontSize: 13, color: RED, textAlign: 'center', marginBottom: 14, fontWeight: '600' },
+  cBtnRow:     { flexDirection: 'row', gap: 10, width: '100%' },
+  cBtn:        { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  cBtnSecondary:    { backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.border },
+  cBtnTextSecondary:{ fontSize: 15, fontWeight: '700', color: COLORS.textDark },
+  cBtnTextPrimary:  { fontSize: 15, fontWeight: '800', color: COLORS.white },
 });

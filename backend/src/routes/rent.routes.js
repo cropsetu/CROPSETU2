@@ -45,6 +45,42 @@ function validateCoords(lat, lng) {
   return true;
 }
 
+// Availability window: when both ends are given, the end must not precede the start.
+// Either side may be blank (open-ended / ongoing availability).
+function validateDateWindow(from, to) {
+  if (!from || !to) return true;
+  const f = new Date(from);
+  const t = new Date(to);
+  if (Number.isNaN(f.getTime()) || Number.isNaN(t.getTime())) return false;
+  return t >= f;
+}
+
+// A booking must fall entirely inside the listing's availability window.
+// Compared at day granularity (YYYY-MM-DD) to avoid timezone drift.
+function withinAvailability(startDate, endDate, from, to) {
+  const s = String(startDate).slice(0, 10);
+  const e = String(endDate).slice(0, 10);
+  if (from && s < new Date(from).toISOString().slice(0, 10)) return false;
+  if (to   && e > new Date(to).toISOString().slice(0, 10))   return false;
+  return true;
+}
+
+// Derive a listing-level booked indicator from its confirmed/active bookings.
+//   'BOOKED'   → a confirmed booking covers today (in use right now)
+//   'RESERVED' → a confirmed booking is upcoming (reserved for future dates)
+//   null       → no confirmed/active bookings ahead
+function deriveBookedStatus(bookings, startOfToday) {
+  if (!bookings || bookings.length === 0) return null;
+  let upcoming = false;
+  for (const b of bookings) {
+    const s = new Date(b.startDate); s.setHours(0, 0, 0, 0);
+    const e = new Date(b.endDate);   e.setHours(23, 59, 59, 999);
+    if (startOfToday >= s && startOfToday <= e) return 'BOOKED';
+    if (s > startOfToday) upcoming = true;
+  }
+  return upcoming ? 'RESERVED' : null;
+}
+
 const router = Router();
 
 /**
@@ -71,6 +107,7 @@ router.get('/machinery', optionalAuth, async (req, res) => {
   const userLat  = req.query.lat    ? parseFloat(req.query.lat)    : null;
   const userLng  = req.query.lng    ? parseFloat(req.query.lng)    : null;
   const radiusKm = req.query.radius ? parseFloat(req.query.radius) : 50; // default 50 km
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
 
   const where = { status: 'ACTIVE' };
   if (category && category !== 'all') where.category = category;
@@ -114,6 +151,10 @@ router.get('/machinery', optionalAuth, async (req, res) => {
         rating: true, ratingCount: true, ageYears: true, mileageHours: true,
         features: true, ownerName: true, lat: true, lng: true,
         owner: { select: { id: true, name: true, avatar: true } },
+        bookings: {
+          where: { status: { in: ['CONFIRMED', 'ACTIVE'] }, endDate: { gte: startOfToday } },
+          select: { startDate: true, endDate: true },
+        },
       },
     });
     const sorted = attachDistance(all, userLat, userLng, radiusKm);
@@ -134,11 +175,21 @@ router.get('/machinery', optionalAuth, async (req, res) => {
           rating: true, ratingCount: true, ageYears: true, mileageHours: true,
           features: true, ownerName: true, lat: true, lng: true,
           owner: { select: { id: true, name: true, avatar: true } },
+          bookings: {
+            where: { status: { in: ['CONFIRMED', 'ACTIVE'] }, endDate: { gte: startOfToday } },
+            select: { startDate: true, endDate: true },
+          },
         },
       }),
       prisma.machineryListing.count({ where }),
     ]);
   }
+
+  // Attach a listing-level booked indicator and drop the raw bookings array.
+  items = items.map(({ bookings, ...rest }) => ({
+    ...rest,
+    bookedStatus: deriveBookedStatus(bookings, startOfToday),
+  }));
 
   return sendSuccess(res, items, 200, paginationMeta(total, page, limit));
 });
@@ -254,6 +305,10 @@ router.post(
       return sendError(res, 'Invalid GPS coordinates', 400);
     }
 
+    if (!validateDateWindow(availableFrom, availableTo)) {
+      return sendError(res, 'availableTo must be on or after availableFrom', 400);
+    }
+
     // [FIX] Sanitize all text fields to prevent stored XSS
     const listing = await prisma.machineryListing.create({
       data: {
@@ -320,6 +375,13 @@ router.put('/machinery/:id', authenticate, async (req, res) => {
     }
   }
 
+  // Validate the resulting availability window (merge incoming changes over existing).
+  const effFrom = data.availableFrom !== undefined ? data.availableFrom : listing.availableFrom;
+  const effTo   = data.availableTo   !== undefined ? data.availableTo   : listing.availableTo;
+  if (!validateDateWindow(effFrom, effTo)) {
+    return sendError(res, 'availableTo must be on or after availableFrom', 400);
+  }
+
   const updated = await prisma.machineryListing.update({ where: { id: req.params.id }, data });
   return sendSuccess(res, updated);
 });
@@ -351,6 +413,7 @@ router.get('/labour', optionalAuth, async (req, res) => {
   const userLat  = req.query.lat    ? parseFloat(req.query.lat)    : null;
   const userLng  = req.query.lng    ? parseFloat(req.query.lng)    : null;
   const radiusKm = req.query.radius ? parseFloat(req.query.radius) : 50;
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
 
   const where = { status: 'ACTIVE' };
   if (district) where.district = { contains: district, mode: 'insensitive' };
@@ -381,6 +444,10 @@ router.get('/labour', optionalAuth, async (req, res) => {
     rating: true, ratingCount: true, experience: true,
     lat: true, lng: true,
     provider: { select: { id: true, name: true, avatar: true } },
+    bookings: {
+      where: { status: { in: ['CONFIRMED', 'ACTIVE'] }, endDate: { gte: startOfToday } },
+      select: { startDate: true, endDate: true },
+    },
   };
 
   let items, total;
@@ -406,6 +473,12 @@ router.get('/labour', optionalAuth, async (req, res) => {
       prisma.labourListing.count({ where }),
     ]);
   }
+
+  // Attach a listing-level booked indicator and drop the raw bookings array.
+  items = items.map(({ bookings, ...rest }) => ({
+    ...rest,
+    bookedStatus: deriveBookedStatus(bookings, startOfToday),
+  }));
 
   return sendSuccess(res, items, 200, paginationMeta(total, page, limit));
 });
@@ -520,6 +593,10 @@ router.post(
       return sendError(res, 'Invalid GPS coordinates', 400);
     }
 
+    if (!validateDateWindow(availableFrom, availableTo)) {
+      return sendError(res, 'availableTo must be on or after availableFrom', 400);
+    }
+
     // [FIX] Sanitize all text fields to prevent stored XSS
     const listing = await prisma.labourListing.create({
       data: {
@@ -581,6 +658,13 @@ router.put('/labour/:id', authenticate, async (req, res) => {
         data[key] = req.body[key];
       }
     }
+  }
+
+  // Validate the resulting availability window (merge incoming changes over existing).
+  const effFrom = data.availableFrom !== undefined ? data.availableFrom : listing.availableFrom;
+  const effTo   = data.availableTo   !== undefined ? data.availableTo   : listing.availableTo;
+  if (!validateDateWindow(effFrom, effTo)) {
+    return sendError(res, 'availableTo must be on or after availableFrom', 400);
   }
 
   const updated = await prisma.labourListing.update({ where: { id: req.params.id }, data });
@@ -820,6 +904,16 @@ router.post(
             throw Object.assign(new Error('Machinery listing not available'), { statusCode: 400 });
           }
 
+          // Owners cannot book their own listing
+          if (listing.ownerId === req.user.id) {
+            throw Object.assign(new Error('You cannot book your own listing'), { statusCode: 403 });
+          }
+
+          // Booking must lie within the listing's availability window
+          if (!withinAvailability(startDate, endDate, listing.availableFrom, listing.availableTo)) {
+            throw Object.assign(new Error("Selected dates are outside this listing's availability window"), { statusCode: 400 });
+          }
+
           const conflict = await tx.booking.findFirst({ where: conflictWhere });
           if (conflict) {
             throw Object.assign(new Error('Machinery is already booked for these dates'), { statusCode: 409 });
@@ -834,6 +928,16 @@ router.post(
           const listing = await tx.labourListing.findUnique({ where: { id: labourListingId } });
           if (!listing || listing.status !== 'ACTIVE') {
             throw Object.assign(new Error('Labour listing not available'), { statusCode: 400 });
+          }
+
+          // Providers cannot book their own listing
+          if (listing.providerId === req.user.id) {
+            throw Object.assign(new Error('You cannot book your own listing'), { statusCode: 403 });
+          }
+
+          // Booking must lie within the listing's availability window
+          if (!withinAvailability(startDate, endDate, listing.availableFrom, listing.availableTo)) {
+            throw Object.assign(new Error("Selected dates are outside this listing's availability window"), { statusCode: 400 });
           }
 
           const conflict = await tx.booking.findFirst({ where: conflictWhere });

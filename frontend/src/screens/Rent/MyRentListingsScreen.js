@@ -6,14 +6,14 @@
 import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Alert, ActivityIndicator, Image, StatusBar, RefreshControl,
+  ActivityIndicator, Image, StatusBar, RefreshControl, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
-import { COLORS } from '../../constants/colors';
+import { COLORS, SHADOWS } from '../../constants/colors';
 
 const RED   = COLORS.error;
 
@@ -143,6 +143,8 @@ export default function MyRentListingsScreen({ navigation }) {
   const [labour,    setLabour]    = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [deleting,  setDeleting]  = useState(null); // id being deleted
+  const [confirm,   setConfirm]   = useState(null); // { item, type } pending delete
+  const [delError,  setDelError]  = useState(null); // delete error message
 
   const fetchMyListings = useCallback(async () => {
     setLoading(true);
@@ -163,36 +165,38 @@ export default function MyRentListingsScreen({ navigation }) {
   // Reload every time this screen is focused (e.g. after edit)
   useFocusEffect(useCallback(() => { fetchMyListings(); }, [fetchMyListings]));
 
+  // Open the in-app confirm popup (no OS Alert — consistent with our other modals).
   const handleDelete = (item, type) => {
-    Alert.alert(
-      t('rent.confirmDelete'),
-      t('rent.confirmDeleteMsg'),
-      [
-        { text: t('rent.cancel'), style: 'cancel' },
-        {
-          text: t('rent.delete'), style: 'destructive',
-          onPress: async () => {
-            setDeleting(item.id);
-            try {
-              await api.delete(`/rent/${type}/${item.id}`);
-              if (type === 'machinery') setMachinery(prev => prev.filter(m => m.id !== item.id));
-              else                      setLabour(prev => prev.filter(l => l.id !== item.id));
-            } catch (e) {
-              Alert.alert(t('rent.error'), e?.response?.data?.error?.message || t('rent.deleteError'));
-            } finally {
-              setDeleting(null);
-            }
-          },
-        },
-      ]
-    );
+    setDelError(null);
+    setConfirm({ item, type });
   };
+
+  const confirmDelete = async () => {
+    if (!confirm) return;
+    const { item, type } = confirm;
+    setDeleting(item.id);
+    setDelError(null);
+    try {
+      await api.delete(`/rent/${type}/${item.id}`);
+      if (type === 'machinery') setMachinery(prev => prev.filter(m => m.id !== item.id));
+      else                      setLabour(prev => prev.filter(l => l.id !== item.id));
+      setConfirm(null);
+    } catch (e) {
+      setDelError(e?.response?.data?.error?.message || t('rent.deleteError'));
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  // AddMachinery/AddWorker live in the Rent tab's stack, not this (Profile) stack —
+  // navigate into the nested Rent navigator so the screen resolves.
+  const openRentForm = (screen, params) => navigation.navigate('Rent', { screen, params });
 
   const handleEdit = (item, type) => {
     if (type === 'machinery' || !type) {
-      navigation.navigate('AddMachinery', { listing: item, editMode: true });
+      openRentForm('AddMachinery', { listing: item, editMode: true });
     } else {
-      navigation.navigate('AddWorker', { listing: item, editMode: true });
+      openRentForm('AddWorker', { listing: item, editMode: true });
     }
   };
 
@@ -214,7 +218,7 @@ export default function MyRentListingsScreen({ navigation }) {
         </View>
         <TouchableOpacity
           style={S.addBtn}
-          onPress={() => navigation.navigate(tab === 'machinery' ? 'AddMachinery' : 'AddWorker')}
+          onPress={() => openRentForm(tab === 'machinery' ? 'AddMachinery' : 'AddWorker')}
         >
           <Ionicons name="add-circle" size={28} color={COLORS.primary} />
         </TouchableOpacity>
@@ -248,7 +252,7 @@ export default function MyRentListingsScreen({ navigation }) {
           <Text style={S.emptySub}>{t('rent.tapToAdd')}</Text>
           <TouchableOpacity
             style={S.addFirstBtn}
-            onPress={() => navigation.navigate(tab === 'machinery' ? 'AddMachinery' : 'AddWorker')}
+            onPress={() => openRentForm(tab === 'machinery' ? 'AddMachinery' : 'AddWorker')}
           >
             <Ionicons name="add" size={16} color={COLORS.primary} />
             <Text style={S.addFirstTxt}>
@@ -289,6 +293,51 @@ export default function MyRentListingsScreen({ navigation }) {
           }
         />
       )}
+
+      {/* Delete confirmation popup */}
+      <Modal
+        visible={!!confirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { if (!deleting) setConfirm(null); }}
+      >
+        <View style={S.confirmBackdrop}>
+          <View style={S.confirmCard}>
+            <View style={S.confirmIconCircle}>
+              <Ionicons name="trash-outline" size={30} color={RED} />
+            </View>
+            <Text style={S.confirmTitle}>{t('rent.confirmDelete')}</Text>
+            <Text style={S.confirmBody}>{t('rent.confirmDeleteMsg')}</Text>
+            {confirm?.item ? (
+              <View style={S.confirmPill}>
+                <Ionicons name="cube-outline" size={14} color={COLORS.primary} />
+                <Text style={S.confirmPillTxt} numberOfLines={1}>
+                  {confirm.item.name || confirm.item.leader || confirm.item.groupName}
+                </Text>
+              </View>
+            ) : null}
+            {delError ? <Text style={S.confirmErr}>{delError}</Text> : null}
+            <View style={S.confirmBtnRow}>
+              <TouchableOpacity
+                style={[S.confirmBtn, S.confirmBtnSecondary]}
+                onPress={() => setConfirm(null)}
+                disabled={!!deleting}
+              >
+                <Text style={S.confirmBtnTextSecondary}>{t('rent.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.confirmBtn, S.confirmBtnDanger, !!deleting && { opacity: 0.7 }]}
+                onPress={confirmDelete}
+                disabled={!!deleting}
+              >
+                {deleting
+                  ? <ActivityIndicator size="small" color={COLORS.white} />
+                  : <Text style={S.confirmBtnTextDanger}>{t('rent.delete')}</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -343,4 +392,20 @@ const S = StyleSheet.create({
   emptySub:    { fontSize: 13, color: COLORS.grayLightMid },
   addFirstBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, borderWidth: 1.5, borderColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
   addFirstTxt: { color: COLORS.primary, fontSize: 13, fontWeight: '700' },
+
+  // Delete confirmation popup
+  confirmBackdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  confirmCard:       { width: '100%', maxWidth: 380, backgroundColor: COLORS.surface, borderRadius: 20, padding: 24, alignItems: 'center', ...SHADOWS.small },
+  confirmIconCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.redPale, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
+  confirmTitle:      { fontSize: 19, fontWeight: '800', color: COLORS.textDark, textAlign: 'center', marginBottom: 8 },
+  confirmBody:       { fontSize: 14, color: COLORS.textMedium, textAlign: 'center', lineHeight: 20, marginBottom: 14 },
+  confirmPill:       { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: COLORS.primaryPale, borderRadius: 999, marginBottom: 18, maxWidth: '100%' },
+  confirmPillTxt:    { fontSize: 13, fontWeight: '700', color: COLORS.primary, flexShrink: 1 },
+  confirmErr:        { fontSize: 13, color: RED, textAlign: 'center', marginBottom: 14, fontWeight: '600' },
+  confirmBtnRow:     { flexDirection: 'row', gap: 10, width: '100%' },
+  confirmBtn:        { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  confirmBtnSecondary:{ backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.border },
+  confirmBtnDanger:  { backgroundColor: RED },
+  confirmBtnTextSecondary: { fontSize: 15, fontWeight: '700', color: COLORS.textDark },
+  confirmBtnTextDanger:    { fontSize: 15, fontWeight: '800', color: COLORS.white },
 });
