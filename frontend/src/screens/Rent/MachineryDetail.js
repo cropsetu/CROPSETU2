@@ -19,6 +19,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 
 const { width: W } = Dimensions.get('window');
@@ -59,7 +60,7 @@ function isPast(year, month, day) {
 }
 
 // ── Mini calendar ─────────────────────────────────────────────────────────────
-function AvailCalendar({ year, month, bookedRanges, selStart, selEnd, onDayPress, t }) {
+function AvailCalendar({ year, month, bookedRanges, selStart, selEnd, onDayPress, availFrom, availTo, t }) {
   const cells = buildMonthCells(year, month);
   return (
     <View>
@@ -70,28 +71,30 @@ function AvailCalendar({ year, month, bookedRanges, selStart, selEnd, onDayPress
         {cells.map((day, i) => {
           if (!day) return <View key={`e${i}`} style={C.calCell} />;
 
-          const past    = isPast(year, month, day);
-          const booked  = !past && isBooked(year, month, day, bookedRanges);
-          const dk      = dateKey(year, month, day);
+          const dk          = dateKey(year, month, day);
+          const past        = isPast(year, month, day);
+          // Outside the owner's availability window (availFrom..availTo). Either bound may be null.
+          const outOfWindow = (availFrom && dk < availFrom) || (availTo && dk > availTo);
+          const booked      = !past && !outOfWindow && isBooked(year, month, day, bookedRanges);
+          const blocked     = past || outOfWindow || booked;
           const isStart = dk === selStart;
           const isEnd   = dk === selEnd;
           const inRange = selStart && selEnd && dk >= selStart && dk <= selEnd;
-          const today   = dk === dateKey(...[ new Date().getFullYear(), new Date().getMonth(), new Date().getDate() ]);
+          const today   = dk === dateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
 
           let bgColor = 'transparent';
-          let txtColor = past ? COLORS.divider : COLORS.charcoal;
-          if (booked)           { bgColor = COLORS.redPale200; txtColor = COLORS.error; }
-          if (inRange && !booked) bgColor = COLORS.primary + '25';
-          if (isStart || isEnd)  bgColor = COLORS.primary;
-          if (isStart || isEnd)  txtColor = COLORS.white;
+          let txtColor = (past || outOfWindow) ? COLORS.divider : COLORS.charcoal;
+          if (booked)              { bgColor = COLORS.redPale200; txtColor = COLORS.error; }
+          if (inRange && !blocked)   bgColor = COLORS.primary + '25';
+          if (isStart || isEnd)    { bgColor = COLORS.primary; txtColor = COLORS.white; }
 
           return (
             <TouchableOpacity
               key={dk}
               style={[C.calCell, { backgroundColor: bgColor, borderRadius: 8 },
                 today && !isStart && !isEnd && { borderWidth: 1.5, borderColor: COLORS.primary }]}
-              onPress={() => !past && !booked && onDayPress(dk)}
-              disabled={past || booked}
+              onPress={() => !blocked && onDayPress(dk)}
+              disabled={blocked}
             >
               <Text style={[C.calDayTxt, { color: txtColor }]}>{day}</Text>
               {booked && <Text style={C.calBookedDot}>●</Text>}
@@ -110,8 +113,8 @@ function AvailCalendar({ year, month, bookedRanges, selStart, selEnd, onDayPress
           <Text style={C.legendTxt}>{t('rent.yourSelection')}</Text>
         </View>
         <View style={C.legendItem}>
-          <View style={[C.legendDot, { backgroundColor: COLORS.white, borderWidth: 1.5, borderColor: COLORS.primary }]} />
-          <Text style={C.legendTxt}>{t('rent.todayLegend')}</Text>
+          <View style={[C.legendDot, { backgroundColor: COLORS.divider }]} />
+          <Text style={C.legendTxt}>{t('rent.unavailableLegend', 'Unavailable')}</Text>
         </View>
       </View>
     </View>
@@ -138,6 +141,7 @@ function SpecRow({ icon, label, value, color = COLORS.grayDark2 }) {
 export default function MachineryDetail({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const { t } = useLanguage();
+  const { user } = useAuth();
   const { id, machinery: passedData } = route.params;
 
   const [data,         setData]         = useState(passedData || null);
@@ -150,6 +154,10 @@ export default function MachineryDetail({ route, navigation }) {
   const [notes,        setNotes]        = useState('');
   const [booking,      setBooking]      = useState(false);
   const [loadingData,  setLoadingData]  = useState(!passedData);
+  // Success popup after a booking request is sent: { start, end, days, amount } | null
+  const [bookingDone,  setBookingDone]  = useState(null);
+  // The current user's existing active/pending booking on THIS listing (null if none).
+  const [myBooking,    setMyBooking]    = useState(null);
 
   // Fetch full detail if not passed
   useEffect(() => {
@@ -174,17 +182,88 @@ export default function MachineryDetail({ route, navigation }) {
     }).then(r => setBookedRanges(r.data.data || [])).catch(() => {});
   }, [calYear, calMonth, id]);
 
+  // Does the user already have an active/pending request on this listing?
+  useEffect(() => {
+    const fetchId = id || passedData?.id;
+    if (!fetchId) return;
+    api.get('/rent/bookings', { params: { type: 'machinery' } })
+      .then(r => {
+        const mine = (r.data?.data || []).find(b =>
+          (b.machineryListing?.id === fetchId || b.machineryListingId === fetchId) &&
+          ['PENDING', 'CONFIRMED', 'ACTIVE'].includes(b.status));
+        setMyBooking(mine || null);
+      })
+      .catch(() => {});
+  }, [id]);
+
   const m = data;
+  // Owners can't book their own listing — bookings are blocked client- and server-side.
+  const isOwner = !!user && (user.id === m?.owner?.id || user.id === m?.ownerId);
+
+  // ── Availability window (YYYY-MM-DD keys; either bound may be null = open-ended) ──
+  const availFrom = m?.availableFrom ? String(m.availableFrom).slice(0, 10) : null;
+  const availTo   = m?.availableTo   ? String(m.availableTo).slice(0, 10)   : null;
+  const todayKey  = dateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+  // Effective earliest bookable day = the later of today and the listing's start date.
+  const minBookKey = availFrom && availFrom > todayKey ? availFrom : todayKey;
+  // The window has fully passed → nothing is bookable.
+  const windowExpired = !!availTo && availTo < todayKey;
+
+  // Jump the calendar to the availability start month when that start is in the future.
+  useEffect(() => {
+    if (availFrom && availFrom > todayKey) {
+      const d = new Date(availFrom);
+      setCalYear(d.getFullYear());
+      setCalMonth(d.getMonth());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availFrom]);
+
+  // Is a single day un-bookable (past / before window / after window / already booked)?
+  const isDayBlocked = useCallback((dk) => {
+    if (!dk) return true;
+    if (dk < minBookKey) return true;
+    if (availTo && dk > availTo) return true;
+    const [y, mo, d] = dk.split('-').map(Number);
+    const date = new Date(y, mo - 1, d); date.setHours(12, 0, 0, 0);
+    return bookedRanges.some(r => {
+      const s = new Date(r.startDate); s.setHours(0, 0, 0, 0);
+      const e = new Date(r.endDate);   e.setHours(23, 59, 59, 999);
+      return date >= s && date <= e;
+    });
+  }, [bookedRanges, minBookKey, availTo]);
+
+  // Does the range start..end contain any blocked day in between?
+  const rangeHasBlocked = useCallback((startKey, endKey) => {
+    const cur = new Date(startKey); cur.setDate(cur.getDate() + 1);
+    const end = new Date(endKey);
+    while (cur <= end) {
+      const dk = dateKey(cur.getFullYear(), cur.getMonth(), cur.getDate());
+      if (isDayBlocked(dk)) return true;
+      cur.setDate(cur.getDate() + 1);
+    }
+    return false;
+  }, [isDayBlocked]);
 
   const handleDayPress = useCallback((dk) => {
-    if (!selStart || (selStart && selEnd)) {
+    // Start a fresh range, or restart if a full range already exists / tapped before the start.
+    if (!selStart || (selStart && selEnd) || dk < selStart) {
       setSelStart(dk);
       setSelEnd(null);
-    } else {
-      if (dk < selStart) { setSelStart(dk); setSelEnd(null); }
-      else setSelEnd(dk);
+      return;
     }
-  }, [selStart, selEnd]);
+    // Choosing the end date: reject a range that spans a booked / unavailable gap.
+    if (rangeHasBlocked(selStart, dk)) {
+      Alert.alert(
+        t('rent.unavailableRangeTitle', 'Dates not available'),
+        t('rent.unavailableRangeMsg', 'Your selected range includes dates that are booked or outside the availability window. Please pick a continuous available range.'),
+      );
+      setSelStart(dk);
+      setSelEnd(null);
+      return;
+    }
+    setSelEnd(dk);
+  }, [selStart, selEnd, rangeHasBlocked, t]);
 
   const selectedDays = useCallback(() => {
     if (!selStart || !selEnd) return 0;
@@ -199,6 +278,10 @@ export default function MachineryDetail({ route, navigation }) {
   };
 
   const handleBook = async () => {
+    if (isOwner) {
+      Alert.alert(t('rent.ownListingTitle', 'Your Listing'), t('rent.ownListingMsg', "This is your own listing — you can't book it."));
+      return;
+    }
     if (!selStart || !selEnd) {
       Alert.alert(t('rent.selectDatesAlert'), t('rent.selectDatesMsg'));
       return;
@@ -208,26 +291,33 @@ export default function MachineryDetail({ route, navigation }) {
       Alert.alert(t('rent.invalidRange'), t('rent.invalidRangeMsg'));
       return;
     }
+    // Final safety net — the calendar prevents this, but never trust the selection blindly.
+    if (isDayBlocked(selStart) || isDayBlocked(selEnd) || rangeHasBlocked(selStart, selEnd)) {
+      Alert.alert(
+        t('rent.unavailableRangeTitle', 'Dates not available'),
+        t('rent.unavailableRangeMsg', 'Your selected range includes dates that are booked or outside the availability window. Please pick a continuous available range.'),
+      );
+      return;
+    }
+    // Capture details for the confirmation popup before we clear the selection.
+    const bStart = selStart, bEnd = selEnd, bAmount = totalCost();
     setBooking(true);
     try {
       await api.post('/rent/bookings', {
         machineryListingId: m.id,
-        startDate:          selStart,
-        endDate:            selEnd,
+        startDate:          bStart,
+        endDate:            bEnd,
         days,
-        totalAmount:        totalCost(),
+        totalAmount:        bAmount,
         notes:              notes.trim() || null,
       });
-      Alert.alert(
-        t('rent.bookingConfirmed'),
-        `${m.name}: ${selStart} → ${selEnd} (${days} ${t('rent.ageLabel').toLowerCase()})\n\n₹${totalCost().toLocaleString()}`,
-        [{ text: t('ok'), onPress: () => navigation.goBack() }]
-      );
       setSelStart(null); setSelEnd(null);
-      // Refresh availability
+      // Refresh availability so the just-booked dates show as occupied.
       const fetchId = id || passedData?.id;
       const r = await api.get(`/rent/machinery/${fetchId}/availability`, { params: { year: calYear, month: calMonth + 1 } });
       setBookedRanges(r.data.data || []);
+      setMyBooking({ status: 'PENDING', startDate: bStart, endDate: bEnd });
+      setBookingDone({ start: bStart, end: bEnd, days, amount: bAmount });
     } catch (err) {
       const msg = err.response?.data?.error?.message || t('rent.bookingFailed');
       Alert.alert(t('rent.bookingFailed'), msg);
@@ -397,8 +487,65 @@ export default function MachineryDetail({ route, navigation }) {
             </>
           ) : null}
 
+          {/* ── Owner notice — you can't book your own listing ── */}
+          {isOwner && (
+            <View style={D.ownerNotice}>
+              <Ionicons name="information-circle" size={22} color={COLORS.primary} />
+              <Text style={D.ownerNoticeTxt}>
+                {t('rent.ownListingMsg', "This is your own listing — you can't book it.")}
+              </Text>
+            </View>
+          )}
+
+          {/* ── Your existing request on this listing ── */}
+          {!isOwner && myBooking && (
+            <View style={[D.myBookingBanner, myBooking.status === 'PENDING' ? D.myBookingPending : D.myBookingConfirmed]}>
+              <Ionicons
+                name={myBooking.status === 'PENDING' ? 'time' : 'checkmark-circle'}
+                size={22}
+                color={myBooking.status === 'PENDING' ? COLORS.cta : COLORS.primary}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={[D.myBookingTitle, { color: myBooking.status === 'PENDING' ? COLORS.cta : COLORS.primary }]}>
+                  {myBooking.status === 'PENDING'
+                    ? t('rent.myBookingPending', 'Booking request pending')
+                    : t('rent.myBookingConfirmed', 'Booking confirmed')}
+                </Text>
+                <Text style={D.myBookingSub}>
+                  {new Date(myBooking.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                  {' → '}
+                  {new Date(myBooking.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {myBooking.status === 'PENDING' ? `  ·  ${t('rent.awaitingApproval', 'awaiting owner approval')}` : ''}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* ── Availability window has passed ── */}
+          {!isOwner && windowExpired && (
+            <View style={D.windowExpiredCard}>
+              <Ionicons name="time-outline" size={20} color={COLORS.cta} />
+              <Text style={D.windowExpiredTxt}>
+                {t('rent.windowExpired', 'This listing is no longer available — its availability window has passed.')}
+              </Text>
+            </View>
+          )}
+
           {/* ── Availability Calendar ── */}
+          {!isOwner && !windowExpired && (
+          <>
           <Text style={D.sectionTitle}>{t('rent.availCalendar')}</Text>
+          {(availFrom || availTo) ? (
+            <View style={D.windowHint}>
+              <Ionicons name="information-circle-outline" size={15} color={COLORS.primary} />
+              <Text style={D.windowHintTxt}>
+                {t('rent.availableWindow', 'Available')}{' '}
+                {availFrom ? new Date(availFrom).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : t('rent.availableNow')}
+                {' – '}
+                {availTo ? new Date(availTo).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : t('rent.ongoing')}
+              </Text>
+            </View>
+          ) : null}
           <View style={D.calCard}>
             <View style={D.calHeader}>
               <TouchableOpacity onPress={prevMonth} style={D.calNavBtn}>
@@ -414,6 +561,8 @@ export default function MachineryDetail({ route, navigation }) {
               bookedRanges={bookedRanges}
               selStart={selStart} selEnd={selEnd}
               onDayPress={handleDayPress}
+              availFrom={availFrom}
+              availTo={availTo}
               t={t}
             />
           </View>
@@ -451,6 +600,8 @@ export default function MachineryDetail({ route, navigation }) {
               )}
             </View>
           )}
+          </>
+          )}
 
           {/* ── Owner card ── */}
           {(m.ownerName || m.owner) && (
@@ -481,29 +632,81 @@ export default function MachineryDetail({ route, navigation }) {
 
       {/* ── Bottom bar ── */}
       <View style={[D.bottomBar, { paddingBottom: insets.bottom + 10 }]}>
-        <TouchableOpacity
-          style={D.callBtn}
-          onPress={() => m.ownerPhone && Linking.openURL(`tel:${m.ownerPhone}`)}
-        >
-          <Ionicons name="call" size={20} color={COLORS.primary} />
-          <Text style={D.callBtnTxt}>{t('rent.callOwner')}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[D.bookBtn2, (!selStart || !selEnd || booking) && { opacity: 0.5 }]}
-          onPress={handleBook}
-          disabled={!selStart || !selEnd || booking}
-        >
-          {booking
-            ? <ActivityIndicator size="small" color={COLORS.white} />
-            : <>
-                <Ionicons name="calendar" size={20} color={COLORS.white} />
+        {isOwner ? (
+          <TouchableOpacity
+            style={[D.bookBtn2, { flex: 1 }]}
+            onPress={() => navigation.navigate('AddMachinery', { listing: m, editMode: true })}
+          >
+            <Ionicons name="create-outline" size={20} color={COLORS.white} />
+            <Text style={D.bookBtn2Txt}>{t('rent.editListing')}</Text>
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={D.callBtn}
+              onPress={() => m.ownerPhone && Linking.openURL(`tel:${m.ownerPhone}`)}
+            >
+              <Ionicons name="call" size={20} color={COLORS.primary} />
+              <Text style={D.callBtnTxt}>{t('rent.callOwner')}</Text>
+            </TouchableOpacity>
+            {(!selStart || !selEnd) && myBooking ? (
+              <View style={[D.bookBtn2, { backgroundColor: myBooking.status === 'PENDING' ? COLORS.cta : COLORS.primary }]}>
+                <Ionicons name={myBooking.status === 'PENDING' ? 'time-outline' : 'checkmark-circle'} size={18} color={COLORS.white} />
                 <Text style={D.bookBtn2Txt}>
-                  {selStart && selEnd ? `${t('rent.booking')} ${days}d — ₹${total.toLocaleString()}` : t('rent.selectDatesPlaceholder')}
+                  {myBooking.status === 'PENDING'
+                    ? t('rent.bookingPendingShort', 'Request pending')
+                    : t('rent.bookingConfirmedShort', 'Booking confirmed')}
                 </Text>
-              </>
-          }
-        </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[D.bookBtn2, (!selStart || !selEnd || booking) && { opacity: 0.5 }]}
+                onPress={handleBook}
+                disabled={!selStart || !selEnd || booking}
+              >
+                {booking
+                  ? <ActivityIndicator size="small" color={COLORS.white} />
+                  : <>
+                      <Ionicons name="calendar" size={20} color={COLORS.white} />
+                      <Text style={D.bookBtn2Txt}>
+                        {selStart && selEnd ? `${t('rent.booking')} ${days}d — ₹${total.toLocaleString()}` : t('rent.selectDatesPlaceholder')}
+                      </Text>
+                    </>
+                }
+              </TouchableOpacity>
+            )}
+          </>
+        )}
       </View>
+
+      {/* ── Booking request sent popup ── */}
+      <Modal visible={!!bookingDone} transparent animationType="fade" onRequestClose={() => setBookingDone(null)}>
+        <View style={D.bkBackdrop}>
+          <View style={D.bkCard}>
+            <View style={D.bkIconCircle}>
+              <Ionicons name="checkmark" size={40} color={COLORS.white} />
+            </View>
+            <Text style={D.bkTitle}>{t('rent.bookingSentTitle', 'Booking request sent!')}</Text>
+            <Text style={D.bkBody}>
+              {t('rent.bookingSentMsg', 'The owner will review your request and confirm it shortly. You’ll be notified once it’s approved.')}
+            </Text>
+            {bookingDone ? (
+              <View style={D.bkPill}>
+                <Ionicons name="calendar-outline" size={14} color={COLORS.primary} />
+                <Text style={D.bkPillTxt} numberOfLines={1}>
+                  {new Date(bookingDone.start).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                  {' → '}
+                  {new Date(bookingDone.end).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {`  ·  ₹${(bookingDone.amount || 0).toLocaleString()}`}
+                </Text>
+              </View>
+            ) : null}
+            <TouchableOpacity style={D.bkBtn} onPress={() => { setBookingDone(null); navigation.goBack(); }} activeOpacity={0.85}>
+              <Text style={D.bkBtnTxt}>{t('rent.done')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
     </AnimatedScreen>
   );
@@ -565,6 +768,20 @@ const D = StyleSheet.create({
   totalAmt: { fontSize: 18, fontWeight: '900', color: COLORS.primary },
   notesInput: { marginTop: 10, backgroundColor: COLORS.white, borderRadius: 10, borderWidth: 1.5, borderColor: COLORS.border, padding: 10, fontSize: 13, color: COLORS.textDark, minHeight: 50 },
 
+  ownerNotice:    { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.primaryPale, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1.5, borderColor: COLORS.primary + '40' },
+  ownerNoticeTxt: { flex: 1, fontSize: 13, color: COLORS.primary, fontWeight: '700', lineHeight: 18 },
+
+  windowExpiredCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.orangeWarm, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1.5, borderColor: COLORS.cta + '40' },
+  windowExpiredTxt:  { flex: 1, fontSize: 13, color: COLORS.cta, fontWeight: '700', lineHeight: 18 },
+  windowHint:    { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.primaryPale, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10 },
+  windowHintTxt: { flex: 1, fontSize: 12, color: COLORS.primary, fontWeight: '700' },
+
+  myBookingBanner:   { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1.5 },
+  myBookingPending:  { backgroundColor: COLORS.orangeWarm, borderColor: COLORS.cta + '40' },
+  myBookingConfirmed:{ backgroundColor: COLORS.primaryPale, borderColor: COLORS.primary + '40' },
+  myBookingTitle:    { fontSize: 14, fontWeight: '800' },
+  myBookingSub:      { fontSize: 12, color: COLORS.textMedium, fontWeight: '600', marginTop: 2 },
+
   ownerCard:    { backgroundColor: COLORS.white, borderRadius: 16, padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12, shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
   ownerAvatar:  { width: 46, height: 46, borderRadius: 23, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   ownerAvatarImg:{ width: 46, height: 46, borderRadius: 23 },
@@ -577,6 +794,17 @@ const D = StyleSheet.create({
   callBtnTxt:{ fontSize: 14, fontWeight: '700', color: COLORS.primary },
   bookBtn2:  { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 13 },
   bookBtn2Txt:{ fontSize: 13, fontWeight: '800', color: COLORS.white },
+
+  // Booking-sent popup
+  bkBackdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  bkCard:       { width: '100%', maxWidth: 380, backgroundColor: COLORS.white, borderRadius: 20, padding: 24, alignItems: 'center', shadowColor: COLORS.black, shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+  bkIconCircle: { width: 72, height: 72, borderRadius: 36, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
+  bkTitle:      { fontSize: 20, fontWeight: '800', color: COLORS.textDark, textAlign: 'center', marginBottom: 8 },
+  bkBody:       { fontSize: 14, color: COLORS.textMedium, textAlign: 'center', lineHeight: 20, marginBottom: 14 },
+  bkPill:       { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: COLORS.primaryPale, borderRadius: 999, marginBottom: 18, maxWidth: '100%' },
+  bkPillTxt:    { fontSize: 13, fontWeight: '700', color: COLORS.primary, flexShrink: 1 },
+  bkBtn:        { width: '100%', backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 13, alignItems: 'center', justifyContent: 'center' },
+  bkBtnTxt:     { fontSize: 15, fontWeight: '800', color: COLORS.white },
 });
 
 const C = StyleSheet.create({

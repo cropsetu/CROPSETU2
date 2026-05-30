@@ -101,6 +101,8 @@ router.get('/me', async (req, res) => {
           select: {
             orders: true, animalListings: true, posts: true,
             bookings: true, sellerProducts: true, cropDiseaseReports: true,
+            machineryListings: { where: { status: 'ACTIVE' } },
+            labourListings:    { where: { status: 'ACTIVE' } },
           },
         },
       },

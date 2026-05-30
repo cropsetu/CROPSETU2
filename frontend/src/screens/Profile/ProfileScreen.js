@@ -4,6 +4,7 @@ import {
   Switch, Alert, Modal, TextInput, Linking,
   Image, ActivityIndicator, Platform, Animated, ScrollView,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -184,12 +185,40 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
 const STAT_CONFIGS = [
   { key: 'animalListings', labelKey: 'profile.animals', icon: 'paw-outline',       color: D.amber },
   { key: 'orders',         labelKey: 'profile.orders',  icon: 'cart-outline',      color: D.green },
-  { key: 'bookings',       labelKey: 'profile.rentals', icon: 'construct-outline', color: D.cyan },
+  // Rentals = machinery + labour listings the user has created (value computed in render)
+  { key: 'rentListings',   labelKey: 'profile.rentals', icon: 'construct-outline', color: D.cyan },
 ];
 
 export default function ProfileScreen({ navigation }) {
-  const { user, updateUser, logout } = useAuth();
+  const { user, updateUser, logout, refreshUser } = useAuth();
   const { t, language, setLanguage, setLanguageByState, selectedState, LANGUAGES } = useLanguage();
+
+  // Live rental-listing count, fetched from the same endpoints My Rent Listings uses
+  // (authoritative — always matches what the user sees on that screen).
+  const [rentCount, setRentCount] = useState(null);
+
+  // Refresh profile (and the activity counts) every time this screen is focused,
+  // so newly added/removed rental & animal listings reflect immediately.
+  useFocusEffect(useCallback(() => {
+    refreshUser?.();
+    let cancelled = false;
+    (async () => {
+      const [mRes, lRes] = await Promise.allSettled([
+        api.get('/rent/machinery/my', { params: { limit: 1 } }),
+        api.get('/rent/labour/my',    { params: { limit: 1 } }),
+      ]);
+      if (cancelled) return;
+      const totalOf = (r) =>
+        r.status === 'fulfilled'
+          ? (r.value.data?.meta?.total ?? (r.value.data?.data?.length || 0))
+          : 0;
+      // Only update if at least one call succeeded; otherwise leave the _count fallback.
+      if (mRes.status === 'fulfilled' || lRes.status === 'fulfilled') {
+        setRentCount(totalOf(mRes) + totalOf(lRes));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [refreshUser]));
 
   const [notifications,   setNotifications]  = useState(true);
   const [showLangModal,   setShowLangModal]  = useState(false);
@@ -277,6 +306,8 @@ export default function ProfileScreen({ navigation }) {
   };
 
   const counts      = user?._count || {};
+  // Prefer the live fetched total; fall back to the backend _count if not loaded yet.
+  const rentListingCount = rentCount ?? ((counts.machineryListings || 0) + (counts.labourListings || 0));
   const currentLang = LANGUAGES.find((l) => l.code === language);
 
   return (
@@ -356,7 +387,7 @@ export default function ProfileScreen({ navigation }) {
                   >
                     <Ionicons name={stat.icon} size={20} color={stat.color} />
                   </LinearGradient>
-                  <Text style={S.statValue}>{counts[stat.key] ?? 0}</Text>
+                  <Text style={S.statValue}>{stat.key === 'rentListings' ? rentListingCount : (counts[stat.key] ?? 0)}</Text>
                   <Text style={S.statLabel}>{t(stat.labelKey)}</Text>
                 </View>
               ))}
@@ -413,7 +444,7 @@ export default function ProfileScreen({ navigation }) {
           <SectionCard delay={240}>
             <SectionHeader title={t('myActivity')} icon="trending-up-outline" iconColor={D.amber} />
             <RowItem icon="paw-outline"       iconColor={D.amber} label={t('myAnimalListings')}          subtitle={t('profile.listingsCount', { count: counts.animalListings || 0 })}   onPress={() => navigation.navigate('MyAnimalListings')} />
-            <RowItem icon="construct-outline" iconColor={D.cyan}  label={t('myRentListings')}            subtitle={t('profile.bookingsCount', { count: counts.bookings || 0 })}         onPress={() => navigation.navigate('MyRentListings')} isLast />
+            <RowItem icon="construct-outline" iconColor={D.cyan}  label={t('myRentListings')}            subtitle={t('profile.listingsCount', { count: rentListingCount })} onPress={() => navigation.navigate('MyRentListings')} isLast />
           </SectionCard>
 
           {user?.farmDetail && (
