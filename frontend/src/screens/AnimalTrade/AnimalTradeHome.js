@@ -21,7 +21,6 @@ import ScrollToTopButton from '../../components/ScrollToTopButton';
 import { useLocation } from '../../context/LocationContext';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
-import VerificationModal, { useIsVerified } from './VerificationModal';
 import { COLORS, TYPE, SHADOWS } from '../../constants/colors';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import TractorLoader from '../../components/ui/TractorLoader';
@@ -258,8 +257,6 @@ export default function AnimalTradeHome({ navigation, route }) {
   const [listings,     setListings]     = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
-  const [isVerified,   setIsVerified]   = useIsVerified();
-  const [verifyOpen,   setVerifyOpen]   = useState(false);
 
   // Fetch from API whenever filter/search/distance changes
   useEffect(() => {
@@ -474,26 +471,12 @@ export default function AnimalTradeHome({ navigation, route }) {
         )}
       />
 
-      {/* Verify Banner */}
-      {!isVerified && (
-        <TouchableOpacity style={S.verifyBanner} onPress={() => setVerifyOpen(true)} activeOpacity={0.85}>
-          <Ionicons name="shield-checkmark-outline" size={18} color={COLORS.white} />
-          <Text style={S.verifyBannerText}>{t('animal.verifyAadhaar')}</Text>
-          <Ionicons name="chevron-forward" size={16} color={COLORS.white} />
-        </TouchableOpacity>
-      )}
-
       {/* FAB */}
       <TouchableOpacity style={S.fab} onPress={() => navigation.navigate('AddAnimalListing')}>
         <Ionicons name="add" size={20} color={COLORS.white} />
         <Text style={S.fabTxt}>{t('animal.postAd')}</Text>
       </TouchableOpacity>
 
-      <VerificationModal
-        visible={verifyOpen}
-        onClose={() => setVerifyOpen(false)}
-        onVerified={() => setIsVerified(true)}
-      />
       <ScrollToTopButton visible={showTopBtn} onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })} />
     </View>
     </AnimatedScreen>
@@ -623,17 +606,4 @@ const S = StyleSheet.create({
     shadowOffset: { width: 0, height: 5 }, elevation: 8,
   },
   fabTxt: { color: COLORS.white, fontSize: 14, fontWeight: '800', fontFamily: 'Inter_800ExtraBold' },
-
-  verifyBanner: {
-    position: 'absolute', bottom: 84, left: 16, right: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: GREEN, borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 12,
-    shadowColor: COLORS.black, shadowOpacity: 0.15, shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 }, elevation: 6,
-  },
-  verifyBannerText: {
-    flex: 1, color: COLORS.white, fontSize: 13, fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-  },
 });

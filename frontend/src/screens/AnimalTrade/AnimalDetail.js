@@ -13,6 +13,24 @@ import AnimatedScreen from '../../components/ui/AnimatedScreen';
 const { width: W } = Dimensions.get('window');
 const HERO_H = 300;
 
+// Mock listings ship a ready-made relative string in `postedDate`; listings
+// fetched from the API instead carry an ISO `createdAt`. Prefer the former and
+// derive a friendly relative label from the latter so the Seller Info date
+// always renders (previously it showed nothing for real API listings).
+function formatPostedDate(listing) {
+  if (listing.postedDate) return listing.postedDate;
+  const iso = listing.createdAt || listing.updatedAt;
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days < 1)  return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7)  return `${days} days ago`;
+  if (days < 30) { const w = Math.floor(days / 7); return `${w} week${w > 1 ? 's' : ''} ago`; }
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 function InfoRow({ icon, label, value }) {
   return (
     <View style={styles.infoRow}>
@@ -35,6 +53,7 @@ export default function AnimalDetail({ route, navigation }) {
   const contentAnim = useRef(new Animated.Value(0)).current;
 
   const imageUrl = listing.images && listing.images[0] ? listing.images[0] : null;
+  const postedLabel = formatPostedDate(listing);
 
   // Owner check: the bottom action bar shows different buttons for the seller
   // (Edit / Inbox) vs a buyer (Call / Chat). `sellerId` is set on listings
@@ -184,7 +203,9 @@ export default function AnimalDetail({ route, navigation }) {
                   <Ionicons name="location" size={14} color={COLORS.textLight} />
                   <Text style={styles.locationText}>{listing.sellerLocation}</Text>
                 </View>
-                <Text style={styles.postedDate}>{t('animalDetail.postedDate', { date: listing.postedDate })}</Text>
+                {postedLabel ? (
+                  <Text style={styles.postedDate}>{t('animalDetail.postedDate', { date: postedLabel })}</Text>
+                ) : null}
               </View>
               {listing.verified && (
                 <View style={styles.verifiedSmall}>
