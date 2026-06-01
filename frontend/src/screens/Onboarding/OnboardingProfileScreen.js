@@ -28,21 +28,21 @@ import { s, vs, fs, ms } from '../../utils/responsive';
 import { webScreenContainer, useAbsoluteBarScrollStyle } from '../../utils/webScrollFix';
 
 const SOILS = [
-  { key: 'BLACK_COTTON', label: 'Black Cotton', sk: 'black', bg: ['#3E3631', '#1A1512'] },
-  { key: 'RED', label: 'Red', sk: 'red', bg: ['#C45A3C', '#8B3626'] },
-  { key: 'ALLUVIAL', label: 'Alluvial', sk: 'alluvial', bg: ['#D4A76A', '#B8935A'] },
-  { key: 'SANDY', label: 'Sandy', sk: 'sandy', bg: ['#E8D5A3', '#C9B07A'] },
-  { key: 'CLAY_LOAM', label: 'Clay Loam', sk: 'clay', bg: ['#8B7D6B', '#6B5D4B'] },
-  { key: 'LATERITE', label: 'Laterite', sk: 'laterite', bg: ['#CD7F32', '#A0522D'] },
-  { key: 'UNKNOWN', label: 'Not Sure', sk: null, bg: ['#9E9E9E', '#757575'] },
+  { key: 'BLACK_COTTON', label: 'Black Cotton', tKey: 'crops.soilBlack', sk: 'black', bg: ['#3E3631', '#1A1512'] },
+  { key: 'RED', label: 'Red', tKey: 'crops.soilRed', sk: 'red', bg: ['#C45A3C', '#8B3626'] },
+  { key: 'ALLUVIAL', label: 'Alluvial', tKey: 'crops.soilAlluvial', sk: 'alluvial', bg: ['#D4A76A', '#B8935A'] },
+  { key: 'SANDY', label: 'Sandy', tKey: 'crops.soilSandy', sk: 'sandy', bg: ['#E8D5A3', '#C9B07A'] },
+  { key: 'CLAY_LOAM', label: 'Clay Loam', tKey: 'crops.soilClay', sk: 'clay', bg: ['#8B7D6B', '#6B5D4B'] },
+  { key: 'LATERITE', label: 'Laterite', tKey: 'crops.soilLaterite', sk: 'laterite', bg: ['#CD7F32', '#A0522D'] },
+  { key: 'UNKNOWN', label: 'Not Sure', tKey: 'crops.soilNotSure', sk: null, bg: ['#9E9E9E', '#757575'] },
 ];
 
 const IRRS = [
-  { key: 'DRIP', label: 'Drip', ik: 'drip', color: '#2196F3', bg: '#E3F2FD' },
-  { key: 'SPRINKLER', label: 'Sprinkler', ik: 'sprinkler', color: '#00BCD4', bg: '#E0F7FA' },
-  { key: 'FLOOD', label: 'Flood', ik: 'flood', color: '#4CAF50', bg: '#E8F5E9' },
-  { key: 'RAINFED', label: 'Rainfed', ik: 'rainfed', color: '#FF9800', bg: '#FFF3E0' },
-  { key: 'MIXED', label: 'Mixed', ik: null, color: '#9C27B0', bg: '#F3E5F5' },
+  { key: 'DRIP', label: 'Drip', tKey: 'crops.irrDrip', ik: 'drip', color: '#2196F3', bg: '#E3F2FD' },
+  { key: 'SPRINKLER', label: 'Sprinkler', tKey: 'crops.irrSprinkler', ik: 'sprinkler', color: '#00BCD4', bg: '#E0F7FA' },
+  { key: 'FLOOD', label: 'Flood', tKey: 'crops.irrFlood', ik: 'flood', color: '#4CAF50', bg: '#E8F5E9' },
+  { key: 'RAINFED', label: 'Rainfed', tKey: 'crops.irrRainfed', ik: 'rainfed', color: '#FF9800', bg: '#FFF3E0' },
+  { key: 'MIXED', label: 'Mixed', tKey: 'crops.irrMixed', ik: null, color: '#9C27B0', bg: '#F3E5F5' },
 ];
 
 const CROPS = [
@@ -379,7 +379,7 @@ export default function OnboardingProfileScreen({ navigation }) {
                       {soil.sk ? <SoilIcon type={soil.sk} size={24} /> : <Ionicons name="help-circle-outline" size={22} color="#FFF" />}
                       {sel && <View style={sty.soilCheck}><Ionicons name="checkmark" size={10} color="#FFF" /></View>}
                     </LinearGradient>
-                    <Text style={[sty.soilLabel, sel && { color: COLORS.primary, fontWeight: '700' }]}>{soil.label}</Text>
+                    <Text style={[sty.soilLabel, sel && { color: COLORS.primary, fontWeight: '700' }]}>{t(soil.tKey, soil.label)}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -394,7 +394,7 @@ export default function OnboardingProfileScreen({ navigation }) {
                     <View style={[sty.irrIconSmall, { backgroundColor: irr.bg }]}>
                       {irr.ik ? <IrrigationIcon type={irr.ik} size={20} /> : <Ionicons name="options-outline" size={16} color={irr.color} />}
                     </View>
-                    <Text style={[sty.irrLabel, sel && { color: irr.color, fontWeight: '700' }]}>{irr.label}</Text>
+                    <Text style={[sty.irrLabel, sel && { color: irr.color, fontWeight: '700' }]}>{t(irr.tKey, irr.label)}</Text>
                     {sel && <Ionicons name="checkmark-circle" size={14} color={irr.color} />}
                   </TouchableOpacity>
                 );
@@ -419,7 +419,7 @@ export default function OnboardingProfileScreen({ navigation }) {
                 return (
                   <TouchableOpacity key={crop} style={[sty.cropCard, sel && sty.cropCardSel]} onPress={() => toggleCrop(crop)} activeOpacity={0.7}>
                     <CropIcon crop={crop} size={28} />
-                    <Text style={[sty.cropName, sel && { color: COLORS.primary, fontWeight: '700' }]} numberOfLines={1}>{crop}</Text>
+                    <Text style={[sty.cropName, sel && { color: COLORS.primary, fontWeight: '700' }]} numberOfLines={1}>{t('crops.' + crop.toLowerCase(), crop)}</Text>
                     {sel && <Ionicons name="checkmark-circle" size={12} color={COLORS.primary} style={{ position: 'absolute', top: 2, right: 2 }} />}
                   </TouchableOpacity>
                 );

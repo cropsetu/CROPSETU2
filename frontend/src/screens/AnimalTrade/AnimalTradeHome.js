@@ -239,6 +239,55 @@ function CardRow({ pair, onPress, t, rowIndex = 0 }) {
   );
 }
 
+// ── Enhanced empty state ────────────────────────────────────────────────────────
+function EmptyAnimals({ t, distanceKm, onShowAll, onPost }) {
+  return (
+    <View style={S.emptyWrap}>
+      {/* Layered illustration with floating animal icons */}
+      <View style={S.emptyArt}>
+        <View style={S.emptyArtRingLg} />
+        <View style={S.emptyArtRingSm} />
+        <View style={S.emptyIconBg}>
+          <Ionicons name="paw" size={40} color={GREEN} />
+        </View>
+        <View style={[S.emptyMini, S.emptyMiniTL]}><AnimalIcon type="Cow" size={26} /></View>
+        <View style={[S.emptyMini, S.emptyMiniTR]}><AnimalIcon type="Goat" size={24} /></View>
+        <View style={[S.emptyMini, S.emptyMiniBR]}><AnimalIcon type="Buffalo" size={24} /></View>
+      </View>
+
+      <Text style={S.emptyTitle}>{distanceKm ? t('animal.noAnimalsNearby') : t('animal.noAnimals')}</Text>
+      <Text style={S.emptyTxt}>{t('animal.beFirstToList')}</Text>
+
+      {/* Why list with us — quick reassurance chips */}
+      <View style={S.emptyChips}>
+        <View style={S.emptyChip}>
+          <Ionicons name="people-outline" size={13} color={GREEN} />
+          <Text style={S.emptyChipTxt}>{t('animal.reachBuyers')}</Text>
+        </View>
+        <View style={S.emptyChip}>
+          <Ionicons name="cash-outline" size={13} color={GREEN} />
+          <Text style={S.emptyChipTxt}>{t('animal.freeToPost')}</Text>
+        </View>
+        <View style={S.emptyChip}>
+          <Ionicons name="shield-checkmark-outline" size={13} color={GREEN} />
+          <Text style={S.emptyChipTxt}>{t('animal.verifiedBadge')}</Text>
+        </View>
+      </View>
+
+      <TouchableOpacity style={S.emptyCta} onPress={onPost} activeOpacity={0.85}>
+        <Ionicons name="add-circle" size={18} color={COLORS.white} />
+        <Text style={S.emptyCtaTxt}>{t('animal.postAd')}</Text>
+      </TouchableOpacity>
+
+      {distanceKm ? (
+        <TouchableOpacity style={S.expandBtn} onPress={onShowAll}>
+          <Text style={S.expandBtnTxt}>{t('animal.showAllAnimals')}</Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function AnimalTradeHome({ navigation, route }) {
   const { t } = useLanguage();
@@ -451,19 +500,12 @@ export default function AnimalTradeHome({ navigation, route }) {
               <TractorLoader message="Loading animals" size="medium" fullScreen={false} />
             </View>
           ) : (
-            <View style={S.emptyWrap}>
-              <View style={S.emptyIconBg}>
-                <Ionicons name="paw-outline" size={36} color={GREEN} />
-              </View>
-              <Text style={S.emptyTitle}>{t('ai.comingSoon')}</Text>
-              <Text style={S.emptyTxt}>{t('animal.noAnimals')}</Text>
-              <Text style={S.emptyHintTxt}>{t('animal.beFirstToList')}</Text>
-              {distanceKm ? (
-                <TouchableOpacity style={S.expandBtn} onPress={() => setDistanceKm(null)}>
-                  <Text style={S.expandBtnTxt}>{t('animal.showAllAnimals')}</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
+            <EmptyAnimals
+              t={t}
+              distanceKm={distanceKm}
+              onShowAll={() => setDistanceKm(null)}
+              onPost={() => navigation.navigate('AddAnimalListing')}
+            />
           )
         }
         renderItem={({ item: pair, index }) => (
@@ -589,11 +631,32 @@ const S = StyleSheet.create({
   },
   bookBtnTxt: { color: COLORS.white, fontSize: 12, fontWeight: '800', fontFamily: 'Inter_700Bold' },
 
-  emptyWrap:    { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 24 },
-  emptyIconBg:  { width: 80, height: 80, borderRadius: 40, backgroundColor: COLORS.primaryPale, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-  emptyTitle:   { fontSize: 20, fontWeight: '900', color: COLORS.textDark, marginBottom: 6 },
-  emptyTxt:     { fontSize: 14, color: COLORS.textMedium, fontWeight: '500', textAlign: 'center', marginBottom: 4 },
-  emptyHintTxt: { fontSize: 12, color: COLORS.textLight, textAlign: 'center', marginBottom: 16 },
+  emptyWrap:    { alignItems: 'center', paddingTop: 48, paddingBottom: 40, paddingHorizontal: 24 },
+
+  // Layered illustration
+  emptyArt:       { width: 160, height: 140, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  emptyArtRingLg: { position: 'absolute', width: 140, height: 140, borderRadius: 70, backgroundColor: GREEN + '0D' },
+  emptyArtRingSm: { position: 'absolute', width: 104, height: 104, borderRadius: 52, backgroundColor: GREEN + '14' },
+  emptyIconBg:    { width: 78, height: 78, borderRadius: 39, backgroundColor: COLORS.surface, justifyContent: 'center', alignItems: 'center',
+                    shadowColor: GREEN, shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  emptyMini:      { position: 'absolute', width: 42, height: 42, borderRadius: 21, backgroundColor: COLORS.surface,
+                    justifyContent: 'center', alignItems: 'center', overflow: 'hidden',
+                    shadowColor: COLORS.black, shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  emptyMiniTL:    { top: 6, left: 14 },
+  emptyMiniTR:    { top: 18, right: 10 },
+  emptyMiniBR:    { bottom: 8, right: 26 },
+
+  emptyTitle:   { fontSize: 21, fontWeight: '900', color: COLORS.textDark, marginBottom: 6, textAlign: 'center', fontFamily: 'Inter_800ExtraBold' },
+  emptyTxt:     { fontSize: 14, color: COLORS.textMedium, fontWeight: '500', textAlign: 'center', marginBottom: 16, lineHeight: 20 },
+
+  emptyChips:   { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginBottom: 22 },
+  emptyChip:    { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: GREEN + '12', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 },
+  emptyChipTxt: { fontSize: 12, fontWeight: '700', color: COLORS.primaryDark || GREEN, fontFamily: 'Inter_600SemiBold' },
+
+  emptyCta:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: GREEN, borderRadius: 26, paddingHorizontal: 28, paddingVertical: 14,
+                  shadowColor: GREEN, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 6 },
+  emptyCtaTxt:  { color: COLORS.white, fontSize: 15, fontWeight: '800', fontFamily: 'Inter_800ExtraBold' },
+
   expandBtn:    { marginTop: 14, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: GREEN + '15', borderRadius: 20 },
   expandBtnTxt: { color: GREEN, fontWeight: '700', fontSize: 13 },
 

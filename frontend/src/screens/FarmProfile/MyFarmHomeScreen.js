@@ -14,8 +14,9 @@
  * (15px body), cards white with soft shadow.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -80,7 +81,10 @@ export default function MyFarmHomeScreen({ navigation }) {
   const [celebrate, setCelebrate] = useState(null);
 
   const loadAll = useCallback(async () => {
-    if (!activeFarmId) { setCycles([]); setInsights([]); return; }
+    // Don't fire authenticated farm calls without a session or an active farm —
+    // a stale activeFarmId during a logout/login transition was causing
+    // /farms/:id/cycles to be requested with no token → 401.
+    if (!user?.id || !activeFarmId) { setCycles([]); setInsights([]); return; }
     setLoadingDetail(true);
     const [c, i] = await Promise.allSettled([
       farmApi.listCropCycles(activeFarmId, { status: 'ACTIVE' }),
@@ -89,9 +93,10 @@ export default function MyFarmHomeScreen({ navigation }) {
     if (c.status === 'fulfilled') setCycles(c.value || []);
     if (i.status === 'fulfilled') setInsights(i.value || []);
     setLoadingDetail(false);
-  }, [activeFarmId]);
+  }, [activeFarmId, user?.id]);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  // Reload on every focus so a newly created cycle appears without a manual pull-to-refresh.
+  useFocusEffect(useCallback(() => { loadAll(); }, [loadAll]));
 
   const onRefresh = useCallback(async () => {
     await refresh();

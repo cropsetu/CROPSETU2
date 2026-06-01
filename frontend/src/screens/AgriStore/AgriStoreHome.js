@@ -527,9 +527,6 @@ export default function AgriStoreHome({ navigation }) {
                 resizeMode="contain"
                 accessibilityLabel={t('appName')}
               />
-              <Text style={S.logoSub} numberOfLines={1}>
-                {t('store.shopSub')}
-              </Text>
             </View>
             <View style={S.headerRight}>
               <TouchableOpacity style={S.langBtn} onPress={openLangPicker} activeOpacity={0.8}>
@@ -698,7 +695,9 @@ const S = StyleSheet.create({
   // Wide horizontal CropSetu logo (plant + circuit board + wordmark + tagline).
   // Aspect ~1.91:1 → at 38 px tall the rendered width is ~73 px; with
   // resizeMode "contain" the wordmark stays readable inside the header bar.
-  logoBrand:   { width: 150, height: 38, alignSelf: 'flex-start' },
+  // Width hugs the actual rendered logo (~73px at 38px tall) so it sits flush
+  // left — a wide 150px box would center the image inside it via "contain".
+  logoBrand:   { width: 50, height: 38, alignSelf: 'flex-start' },
   // Kept for backward compat in case any other screen references these styles;
   // the new layout uses logoBrand instead of logoIcon + logoText.
   logoIcon:    { width: 38, height: 38, borderRadius: 14, backgroundColor: GREEN_L, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: GREEN + '22' },

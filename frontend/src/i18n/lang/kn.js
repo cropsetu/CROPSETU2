@@ -296,7 +296,7 @@ export default {
   },
 
   animalDetail: {
-    yes: 'ಹೌದು ✓', notMentioned: 'ಉಲ್ಲೇಖಿಸಿಲ್ಲ',
+    yes: 'ಹೌದು ✓', notMentioned: 'ಉಲ್ಲೇಖಿಸಿಲ್ಲ', noDescription: 'ಮಾರಾಟಗಾರರು ಇನ್ನೂ ವಿವರಣೆ ಸೇರಿಸಿಲ್ಲ.',
     phoneError: 'ಫೋನ್ ಅಪ್ಲಿಕೇಶನ್ ತೆರೆಯಲಾಗಲಿಲ್ಲ.',
     sellerVerified: 'ಮಾರಾಟಗಾರ ಪರಿಶೀಲಿಸಲಾಗಿದೆ',
     animalDetails: 'ಜಾನುವಾರು ವಿವರಗಳು', sellerInfo: 'ಮಾರಾಟಗಾರ ಮಾಹಿತಿ',
@@ -549,7 +549,7 @@ export default {
     animalsNearby: '{{count}} ಜಾನುವಾರುಗಳು ಸಮೀಪ', filters: 'ಫಿಲ್ಟರ್‌ಗಳು',
     noAnimals: 'ಜಾನುವಾರುಗಳು ಸಿಕ್ಕಿಲ್ಲ', postAd: 'ಜಾಹೀರಾತು ಹಾಕಿ',
     topRated: 'ಅಧಿಕ ರೇಟಿಂಗ್', contactSeller: 'ಮಾರಾಟಗಾರರನ್ನು ಸಂಪರ್ಕಿಸಿ',
-    beFirstToList: 'ಮೊದಲ ಜಾಹೀರಾತು ನೀವೇ ಹಾಕಿ!',
+    beFirstToList: 'ಮೊದಲ ಜಾಹೀರಾತು ನೀವೇ ಹಾಕಿ!', noAnimalsNearby: 'ಹತ್ತಿರ ಯಾವುದೇ ಪ್ರಾಣಿಗಳಿಲ್ಲ', reachBuyers: 'ಸ್ಥಳೀಯ ಖರೀದಿದಾರರನ್ನು ತಲುಪಿ', freeToPost: 'ಉಚಿತ ಪೋಸ್ಟ್', verifiedBadge: 'ಪರಿಶೀಲಿತ ಮಾರಾಟಗಾರರು',
     verifyAadhaar: 'ಆಧಾರ್ ಪರಿಶೀಲಿಸಿ',
     verifyAadhaarTitle: 'ಆಧಾರ್ ಪರಿಶೀಲನೆ',
     phonePlaceholder: 'ಮೊಬೈಲ್ ನಂಬರ್',
@@ -570,6 +570,7 @@ export default {
     profileTitle: 'ನಿಮ್ಮ ಪ್ರೊಫೈಲ್',
     tapAddPhoto: 'ಫೋಟೋ ಸೇರಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ',
     yourName: 'ನಿಮ್ಮ ಹೆಸರು',
+    cropsTitle: 'ನೀವು ಯಾವ ಬೆಳೆಗಳನ್ನು ಬೆಳೆಯುತ್ತೀರಿ?',
   },
 
   farmProfile: {
@@ -851,11 +852,11 @@ export default {
     cauliflower: 'ಹೂಕೋಸು', cabbage: 'ಎಲೆಕೋಸು',
     kharif: 'ಖರೀಫ್ (ಜೂನ್-ಅಕ್ಟೋ)', rabi: 'ರಬಿ (ನವೆಂ-ಮಾರ್ಚ್)', zaid: 'ಜೈದ್ (ಮಾರ್ಚ್-ಜೂನ್)',
     soilBlack: 'ಕಪ್ಪು', soilRed: 'ಕೆಂಪು', soilAlluvial: 'ಮೆಕ್ಕಲು',
-    soilSandy: 'ಮರಳು', soilClay: 'ಜೇಡಿಮಣ್ಣು', soilLaterite: 'ಲ್ಯಾಟರೈಟ್', soilNA: 'ಅನ್ವ/ಇಲ್ಲ',
+    soilSandy: 'ಮರಳು', soilClay: 'ಜೇಡಿಮಣ್ಣು', soilLaterite: 'ಲ್ಯಾಟರೈಟ್', soilNA: 'ಅನ್ವ/ಇಲ್ಲ', soilNotSure: 'ಗೊತ್ತಿಲ್ಲ',
     soilBlackFull: 'ಕಪ್ಪು ಹತ್ತಿ (ರೇಗೂರ್)', soilRedFull: 'ಕೆಂಪು ಲ್ಯಾಟರೈಟ್',
     soilAlluvialFull: 'ಮೆಕ್ಕಲು (ನದಿ)', soilSandyFull: 'ಮರಳು / ಗೋಡು',
     soilClayFull: 'ಜೇಡಿಮಣ್ಣು / ಭಾರ', soilLateriteFull: 'ಲ್ಯಾಟರೈಟ್ / ಬಂಡೆ',
-    irrDrip: 'ಹನಿ', irrSprinkler: 'ತುಂತುರು', irrFlood: 'ಮುಳುಗಡೆ', irrRainfed: 'ಮಳೆ ಆಶ್ರಿತ',
+    irrDrip: 'ಹನಿ', irrSprinkler: 'ತುಂತುರು', irrFlood: 'ಮುಳುಗಡೆ', irrRainfed: 'ಮಳೆ ಆಶ್ರಿತ', irrMixed: 'ಮಿಶ್ರ', ginger: 'ಶುಂಠಿ',
     irrDripFull: 'ಹನಿ ನೀರಾವರಿ', irrSprinklerFull: 'ಸ್ಪ್ರಿಂಕ್ಲರ್', irrFloodFull: 'ಮುಳುಗಡೆ / ಕಾಲುವೆ',
     irrRainfedFull: 'ಮಳೆ ಆಶ್ರಿತ (ನೀರಾವರಿ ಇಲ್ಲ)', irrCanalFull: 'ಕಾಲುವೆ / ನದಿ ಎತ್ತಣ',
   },

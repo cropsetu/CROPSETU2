@@ -31,9 +31,9 @@ function formatPostedDate(listing) {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function InfoRow({ icon, label, value }) {
+function InfoRow({ icon, label, value, last }) {
   return (
-    <View style={styles.infoRow}>
+    <View style={[styles.infoRow, last && { borderBottomWidth: 0 }]}>
       <View style={styles.infoIcon}>
         <Ionicons name={icon} size={18} color={COLORS.primary} />
       </View>
@@ -41,6 +41,19 @@ function InfoRow({ icon, label, value }) {
         <Text style={styles.infoLabel}>{label}</Text>
         <Text style={styles.infoValue}>{value}</Text>
       </View>
+    </View>
+  );
+}
+
+// Compact stat card for the key-highlights strip under the title.
+function HighlightCard({ icon, label, value }) {
+  return (
+    <View style={styles.hlCard}>
+      <View style={styles.hlIcon}>
+        <Ionicons name={icon} size={18} color={COLORS.primary} />
+      </View>
+      <Text style={styles.hlValue} numberOfLines={1}>{value}</Text>
+      <Text style={styles.hlLabel} numberOfLines={1}>{label}</Text>
     </View>
   );
 }
@@ -54,6 +67,16 @@ export default function AnimalDetail({ route, navigation }) {
 
   const imageUrl = listing.images && listing.images[0] ? listing.images[0] : null;
   const postedLabel = formatPostedDate(listing);
+  const hasMilk = listing.milkYield && listing.milkYield !== 'N/A';
+
+  // Key highlights strip (top 3 available facts) — keeps the screen feeling
+  // full even when a listing is missing some optional fields.
+  const highlights = [
+    listing.age    ? { icon: 'time-outline',        label: t('age'),       value: listing.age }       : null,
+    listing.weight ? { icon: 'barbell-outline',     label: t('weight'),    value: listing.weight }    : null,
+    hasMilk        ? { icon: 'water-outline',        label: t('milkYield'), value: listing.milkYield } : null,
+    listing.gender ? { icon: 'male-female-outline', label: t('gender'),    value: listing.gender }    : null,
+  ].filter(Boolean).slice(0, 3);
 
   // Owner check: the bottom action bar shows different buttons for the seller
   // (Edit / Inbox) vs a buyer (Call / Chat). `sellerId` is set on listings
@@ -124,11 +147,9 @@ export default function AnimalDetail({ route, navigation }) {
             pointerEvents="none"
           />
 
-          {/* Top nav */}
+          {/* Top nav — back button comes from the stack header; only the
+              like/share actions are overlaid on the image here. */}
           <SafeAreaView style={styles.heroNav}>
-            <TouchableOpacity style={styles.navBtn} onPress={() => navigation.goBack()}>
-              <Ionicons name="arrow-back" size={22} color={COLORS.white} />
-            </TouchableOpacity>
             <View style={styles.navRight}>
               <TouchableOpacity style={styles.navBtn}>
                 <Ionicons name="heart-outline" size={22} color={COLORS.white} />
@@ -153,41 +174,54 @@ export default function AnimalDetail({ route, navigation }) {
         <Animated.View style={[styles.content, { opacity: contentOpacity, transform: [{ translateY: contentY }] }]}>
           {/* Title & Price */}
           <View style={styles.titleRow}>
-            <View>
-              <Text style={styles.animalName}>{listing.animal} - {listing.breed}</Text>
-              <Text style={styles.animalNameHi}>{listing.animalHi}</Text>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={styles.animalName}>{listing.animal}{listing.breed ? ` - ${listing.breed}` : ''}</Text>
+              {listing.animalHi ? <Text style={styles.animalNameHi}>{listing.animalHi}</Text> : null}
             </View>
-            <Text style={styles.price}>₹{listing.price.toLocaleString()}</Text>
+            <Text style={styles.price}>₹{Number(listing.price || 0).toLocaleString()}</Text>
           </View>
 
+          {/* Key highlights */}
+          {highlights.length > 0 && (
+            <View style={styles.hlRow}>
+              {highlights.map((h, i) => (
+                <HighlightCard key={i} icon={h.icon} label={h.label} value={h.value} />
+              ))}
+            </View>
+          )}
+
           {/* Tags */}
-          <View style={styles.tagsRow}>
-            {listing.tags.map((tag, i) => (
-              <View key={i} style={styles.tag}>
-                <Ionicons name="checkmark-circle" size={12} color={COLORS.primary} />
-                <Text style={styles.tagText}>{tag}</Text>
-              </View>
-            ))}
-          </View>
+          {listing.tags && listing.tags.length > 0 ? (
+            <View style={styles.tagsRow}>
+              {listing.tags.map((tag, i) => (
+                <View key={i} style={styles.tag}>
+                  <Ionicons name="checkmark-circle" size={12} color={COLORS.primary} />
+                  <Text style={styles.tagText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
           {/* Animal Details */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t('animalDetail.animalDetails')}</Text>
             <View style={styles.detailsGrid}>
-              <InfoRow icon="male-female" label={t('gender')} value={listing.gender} />
-              <InfoRow icon="time" label={t('age')} value={listing.age} />
-              <InfoRow icon="barbell" label={t('weight')} value={listing.weight} />
-              {listing.milkYield !== 'N/A' && (
+              <InfoRow icon="male-female" label={t('gender')} value={listing.gender || t('animalDetail.notMentioned')} />
+              <InfoRow icon="time" label={t('age')} value={listing.age || t('animalDetail.notMentioned')} />
+              <InfoRow icon="barbell" label={t('weight')} value={listing.weight || t('animalDetail.notMentioned')} />
+              {hasMilk && (
                 <InfoRow icon="water" label={t('milkYield')} value={listing.milkYield} />
               )}
-              <InfoRow icon="medkit" label={t('vaccinated')} value={listing.vaccinated ? t('animalDetail.yes') : t('animalDetail.notMentioned')} />
+              <InfoRow icon="medkit" label={t('vaccinated')} value={listing.vaccinated ? t('animalDetail.yes') : t('animalDetail.notMentioned')} last />
             </View>
           </View>
 
           {/* Description */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t('product.productDescription')}</Text>
-            <Text style={styles.description}>{listing.description}</Text>
+            <Text style={[styles.description, !listing.description && { fontStyle: 'italic', color: COLORS.textLight }]}>
+              {listing.description || t('animalDetail.noDescription', 'The seller has not added a description yet.')}
+            </Text>
           </View>
 
           {/* Seller Info */}
@@ -275,7 +309,7 @@ const styles = StyleSheet.create({
 
   heroNav: {
     position: 'absolute', top: 0, left: 0, right: 0,
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center',
     paddingHorizontal: 16, paddingTop: 8,
   },
   navRight: { flexDirection: 'row', gap: 8 },
@@ -297,6 +331,13 @@ const styles = StyleSheet.create({
   animalName: { fontSize: 22, fontWeight: '800', color: COLORS.textDark },
   animalNameHi: { fontSize: 16, color: COLORS.textMedium, fontWeight: '600', marginTop: 4 },
   price: { fontSize: 24, fontWeight: '900', color: COLORS.primary },
+
+  // Key highlights strip
+  hlRow:   { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  hlCard:  { flex: 1, backgroundColor: COLORS.surface, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 8, alignItems: 'center', gap: 6, ...SHADOWS.small },
+  hlIcon:  { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.primaryPale, justifyContent: 'center', alignItems: 'center' },
+  hlValue: { fontSize: 14, fontWeight: '800', color: COLORS.textDark, textAlign: 'center' },
+  hlLabel: { fontSize: 11, color: COLORS.textLight, fontWeight: '600', textAlign: 'center' },
 
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 },
   tag: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.primaryPale, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6 },

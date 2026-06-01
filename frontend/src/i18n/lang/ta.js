@@ -333,7 +333,7 @@ export default {
 
   animalDetail: {
     yes: 'ஆம் ✓',
-    notMentioned: 'குறிப்பிடப்படவில்லை',
+    notMentioned: 'குறிப்பிடப்படவில்லை', noDescription: 'விற்பனையாளர் இன்னும் விளக்கம் சேர்க்கவில்லை.',
     phoneError: 'தொலைபேசி பயன்பாட்டை திறக்க முடியவில்லை.',
     sellerVerified: 'விற்பவர் சரிபார்க்கப்பட்டார்',
     animalDetails: 'கால்நடை விவரங்கள்',
@@ -682,7 +682,7 @@ export default {
     postAd: 'விளம்பரம் பதிவு',
     topRated: 'உயர் மதிப்பீடு',
     contactSeller: 'விற்பவரை தொடர்பு கொள்',
-    beFirstToList: 'முதல் விளம்பரம் கொடுப்பவர் நீங்கள்!',
+    beFirstToList: 'முதல் விளம்பரம் கொடுப்பவர் நீங்கள்!', noAnimalsNearby: 'அருகில் கால்நடைகள் இல்லை', reachBuyers: 'உள்ளூர் வாங்குபவர்களை அடையுங்கள்', freeToPost: 'இலவசமாக இடலாம்', verifiedBadge: 'சரிபார்க்கப்பட்ட விற்பனையாளர்கள்',
     verifyAadhaar: 'ஆதார் சரிபார்',
     verifyAadhaarTitle: 'ஆதார் சரிபார்ப்பு',
     phonePlaceholder: 'மொபைல் எண்',
@@ -703,6 +703,7 @@ export default {
     profileTitle: 'உங்கள் சுயவிவரம்',
     tapAddPhoto: 'புகைப்படம் சேர்க்க தட்டுங்கள்',
     yourName: 'உங்கள் பெயர்',
+    cropsTitle: 'நீங்கள் எந்த பயிர்களை பயிரிடுகிறீர்கள்?',
   },
 
   farmProfile: {
@@ -985,11 +986,11 @@ export default {
     cauliflower: 'காலிஃபிளவர்', cabbage: 'முட்டைகோஸ்',
     kharif: 'கரீப் (ஜூன்-அக்)', rabi: 'ரபி (நவ-மார்)', zaid: 'சயத் (மார்-ஜூன்)',
     soilBlack: 'கருப்பு', soilRed: 'சிவப்பு', soilAlluvial: 'வண்டல்',
-    soilSandy: 'மணல்', soilClay: 'களிமண்', soilLaterite: 'லேட்டரைட்', soilNA: 'பொ/இ',
+    soilSandy: 'மணல்', soilClay: 'களிமண்', soilLaterite: 'லேட்டரைட்', soilNA: 'பொ/இ', soilNotSure: 'தெரியாது',
     soilBlackFull: 'கருப்பு பருத்தி (ரேகூர்)', soilRedFull: 'சிவப்பு லேட்டரைட்',
     soilAlluvialFull: 'வண்டல் (ஆறு)', soilSandyFull: 'மணல் / களிமணல்',
     soilClayFull: 'களிமண் / கனரக', soilLateriteFull: 'லேட்டரைட் / பாறை',
-    irrDrip: 'சொட்டு', irrSprinkler: 'தெளிப்பான்', irrFlood: 'வெள்ளம்', irrRainfed: 'மழை நீர்',
+    irrDrip: 'சொட்டு', irrSprinkler: 'தெளிப்பான்', irrFlood: 'வெள்ளம்', irrRainfed: 'மழை நீர்', irrMixed: 'கலப்பு', ginger: 'இஞ்சி',
     irrDripFull: 'சொட்டு நீர்ப்பாசனம்', irrSprinklerFull: 'தெளிப்பான்', irrFloodFull: 'வெள்ள / வாய்க்கால்',
     irrRainfedFull: 'மழை நீர் (பாசனம் இல்லை)', irrCanalFull: 'கால்வாய் / ஆற்று நீர்',
   },

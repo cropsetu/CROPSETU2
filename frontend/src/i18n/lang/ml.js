@@ -297,7 +297,7 @@ export default {
   },
 
   animalDetail: {
-    yes: 'അതെ ✓', notMentioned: 'പരാമർശിച്ചിട്ടില്ല',
+    yes: 'അതെ ✓', notMentioned: 'പരാമർശിച്ചിട്ടില്ല', noDescription: 'വിൽപ്പനക്കാരൻ ഇതുവരെ വിവരണം ചേർത്തിട്ടില്ല.',
     phoneError: 'ഫോൺ ആപ്പ് തുറക്കാനായില്ല.',
     sellerVerified: 'വിൽക്കുന്നയാൾ പരിശോധിച്ചുറപ്പാക്കി',
     animalDetails: 'മൃഗ വിവരങ്ങൾ', sellerInfo: 'വിൽക്കുന്നയാളുടെ വിവരം',
@@ -546,7 +546,7 @@ export default {
     animalsNearby: '{{count}} മൃഗങ്ങൾ സമീപം', filters: 'ഫിൽട്ടറുകൾ',
     noAnimals: 'മൃഗങ്ങൾ കണ്ടെത്തിയില്ല', postAd: 'പരസ്യം ഇടുക',
     topRated: 'ഉയർന്ന റേറ്റിംഗ്', contactSeller: 'വിൽക്കുന്നയാളെ ബന്ധപ്പെടുക',
-    beFirstToList: 'ആദ്യ പരസ്യം നിങ്ങള്‍ നല്‍കൂ!',
+    beFirstToList: 'ആദ്യ പരസ്യം നിങ്ങള്‍ നല്‍കൂ!', noAnimalsNearby: 'സമീപത്ത് മൃഗങ്ങളില്ല', reachBuyers: 'പ്രാദേശിക വാങ്ങുന്നവരിലെത്തുക', freeToPost: 'സൗജന്യമായി പോസ്റ്റ് ചെയ്യാം', verifiedBadge: 'പരിശോധിച്ച വിൽപ്പനക്കാർ',
     verifyAadhaar: 'ആധാര്‍ പരിശോധിക്കുക',
     verifyAadhaarTitle: 'ആധാര്‍ പരിശോധന',
     phonePlaceholder: 'മൊബൈല്‍ നമ്പര്‍',
@@ -567,6 +567,7 @@ export default {
     profileTitle: 'നിങ്ങളുടെ പ്രൊഫൈല്‍',
     tapAddPhoto: 'ഫോട്ടോ ചേര്‍ക്കാന്‍ ടാപ്പ് ചെയ്യുക',
     yourName: 'നിങ്ങളുടെ പേര്',
+    cropsTitle: 'നിങ്ങൾ ഏതെല്ലാം വിളകൾ കൃഷി ചെയ്യുന്നു?',
   },
 
   farmProfile: {
@@ -848,11 +849,11 @@ export default {
     cauliflower: 'കോളിഫ്ളവർ', cabbage: 'കാബേജ്',
     kharif: 'ഖരീഫ് (ജൂൺ-ഒക്ടോ)', rabi: 'റബി (നവം-മാർച്ച്)', zaid: 'സൈദ് (മാർച്ച്-ജൂൺ)',
     soilBlack: 'കറുപ്പ്', soilRed: 'ചുവപ്പ്', soilAlluvial: 'എക്കൽ',
-    soilSandy: 'മണൽ', soilClay: 'കളിമണ്ണ്', soilLaterite: 'ലാറ്ററൈറ്റ്', soilNA: 'ബാ/ഇല്ല',
+    soilSandy: 'മണൽ', soilClay: 'കളിമണ്ണ്', soilLaterite: 'ലാറ്ററൈറ്റ്', soilNA: 'ബാ/ഇല്ല', soilNotSure: 'അറിയില്ല',
     soilBlackFull: 'കറുത്ത പരുത്തി (റീഗർ)', soilRedFull: 'ചുവന്ന ലാറ്ററൈറ്റ്',
     soilAlluvialFull: 'എക്കൽ (നദി)', soilSandyFull: 'മണൽ / ചെളി',
     soilClayFull: 'കളിമണ്ണ് / ഭാരം', soilLateriteFull: 'ലാറ്ററൈറ്റ് / പാറ',
-    irrDrip: 'തുള്ളി', irrSprinkler: 'സ്പ്രിങ്ക്ളർ', irrFlood: 'വെള്ളപ്പൊക്കം', irrRainfed: 'മഴ ആശ്രിത',
+    irrDrip: 'തുള്ളി', irrSprinkler: 'സ്പ്രിങ്ക്ളർ', irrFlood: 'വെള്ളപ്പൊക്കം', irrRainfed: 'മഴ ആശ്രിത', irrMixed: 'മിശ്രിതം', ginger: 'ഇഞ്ചി',
     irrDripFull: 'തുള്ളി ജലസേചനം', irrSprinklerFull: 'സ്പ്രിങ്ക്ലർ', irrFloodFull: 'വെള്ളപ്പൊക്ക / ചാല്',
     irrRainfedFull: 'മഴ ആശ്രിത (ജലസേചനം ഇല്ല)', irrCanalFull: 'കനാൽ / നദി ലിഫ്റ്റ്',
   },

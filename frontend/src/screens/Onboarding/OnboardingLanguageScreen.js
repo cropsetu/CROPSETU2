@@ -2,7 +2,7 @@
  * OnboardingLanguageScreen — Screen 1/2: Pick your language.
  * Colorful SVG decorations, flag emojis, region labels, animated cards.
  */
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -192,6 +192,13 @@ export default function OnboardingLanguageScreen({ navigation }) {
   // Navigation's stack containers is unreliable, so we set it explicitly.
   const { height: winHeight } = useWindowDimensions();
 
+  // Apply + persist the language the moment a card is tapped, so the choice
+  // reflects immediately on this screen and the next one (not just on Next).
+  const handleSelect = useCallback((code) => {
+    setSelected(code);
+    setLanguage(code);
+  }, [setLanguage]);
+
   const handleNext = async () => {
     await setLanguage(selected);
     navigation.navigate("OnboardingProfile");
@@ -257,7 +264,10 @@ export default function OnboardingLanguageScreen({ navigation }) {
               <Path d="M40,20 V60" stroke={COLORS.primary} strokeWidth="1" strokeOpacity="0.12" />
             </Svg>
             <View style={{ marginLeft: s(16) }}>
-              <Text style={sty.title}>Choose your{"\n"}language</Text>
+              <Text style={sty.title}>
+                Choose your{"\n"}
+                <Text style={sty.titleAccent}>language</Text>
+              </Text>
               <Text style={sty.subtitle}>अपनी भाषा चुनें · तुमची भाषा निवडा</Text>
             </View>
           </View>
@@ -270,7 +280,7 @@ export default function OnboardingLanguageScreen({ navigation }) {
               key={lang.code}
               lang={lang}
               active={selected === lang.code}
-              onSelect={setSelected}
+              onSelect={handleSelect}
               index={i}
             />
           ))}
@@ -348,8 +358,21 @@ const sty = StyleSheet.create({
 
   // Hero illustration
   heroIllustration: { flexDirection: "row", alignItems: "center", marginBottom: vs(24) },
-  title: { fontSize: fs(26), fontWeight: TYPE.weight.black || "900", color: COLORS.textDark, lineHeight: fs(34) },
-  subtitle: { fontSize: fs(12), color: COLORS.textMedium, marginTop: vs(6), lineHeight: fs(18) },
+  title: {
+    fontSize: fs(28),
+    fontFamily: "Inter_800ExtraBold",
+    color: COLORS.textDark,
+    lineHeight: fs(34),
+    letterSpacing: -0.8,
+  },
+  titleAccent: {
+    fontSize: fs(28),
+    fontFamily: "Inter_800ExtraBold",
+    color: COLORS.primary,
+    lineHeight: fs(34),
+    letterSpacing: -0.8,
+  },
+  subtitle: { fontSize: fs(12), color: COLORS.textMedium, marginTop: vs(6), lineHeight: fs(18), fontFamily: "Inter_500Medium" },
 
   // List
   listContainer: { paddingHorizontal: s(20), gap: vs(8) },
@@ -369,7 +392,8 @@ const sty = StyleSheet.create({
   checkCircle: {
     width: s(26), height: s(26), borderRadius: s(13),
     justifyContent: "center", alignItems: "center",
-    ...SHADOWS.xs,
+    // No elevation/shadow here: on Android, elevation on a small rounded view
+    // casts a square shadow that shows up as a grey box below the circle.
   },
   radioCircle: {
     width: s(24), height: s(24), borderRadius: s(12),

@@ -65,6 +65,13 @@ export async function updateCropCycle(cycleId, farmerId, data) {
   return prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data });
 }
 
+export async function deleteCropCycle(cycleId, farmerId) {
+  // deleteMany scopes by farmerId so a user can only delete their own cycle.
+  // FarmerPrediction.cropCycle is onDelete: SetNull, so there's no FK conflict.
+  const result = await prisma.farmCropCycle.deleteMany({ where: { id: cycleId, farmerId } });
+  return result.count > 0;
+}
+
 export async function advanceGrowthStage(cycleId, farmerId, stage) {
   return prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: { growthStage: stage, currentStageUpdatedAt: new Date() } });
 }

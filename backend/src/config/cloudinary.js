@@ -9,6 +9,30 @@ cloudinary.config({
   api_secret: ENV.CLOUDINARY_API_SECRET,
 });
 
+// ── Global media compression ────────────────────────────────────────────────
+// These are applied as Cloudinary *incoming* transformations, meaning the
+// COMPRESSED result is what gets stored — the heavy original is discarded.
+// That keeps storage + bandwidth low even when a user uploads a large file.
+//
+// Every image/video in the app is uploaded through the helpers in this file
+// (uploadBuffer / uploadFiles / uploadVideoBuffer), so changing the numbers
+// here changes compression app-wide. One place, global effect.
+export const MEDIA_COMPRESSION = {
+  image: {
+    maxWidth: 1080,        // cap longest edge — plenty for phone screens
+    quality: 'auto:eco',   // aggressive perceptual compression
+    format: 'jpg',         // also normalises HEIC/PNG → jpg
+  },
+  video: {
+    maxWidth: 1280,
+    maxHeight: 720,        // cap at 720p — big saving vs 1080p/4K phone video
+    quality: 'auto:eco',
+    videoCodec: 'h264',    // widely compatible + efficient
+    bitRate: '2m',         // ~2 Mbps ceiling bounds the stored size
+    format: 'mp4',
+  },
+};
+
 // Store files in memory, then stream to Cloudinary manually
 const memoryStorage = multer.memoryStorage();
 
@@ -55,12 +79,14 @@ export function uploadBuffer(buffer, folder) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Cloudinary upload timed out')), 55000);
 
+    const C = MEDIA_COMPRESSION.image;
     const stream = cloudinary.uploader.upload_stream(
       {
         folder: `farmeasy/${folder}`,
-        // convert HEIC/HEIF to JPEG automatically; no-op for other formats
-        format: 'jpg',
-        transformation: [{ width: 1080, crop: 'limit', quality: 'auto' }],
+        // Incoming transformation → the compressed JPEG is what gets stored.
+        // Also converts HEIC/HEIF/PNG → jpg automatically.
+        format: C.format,
+        transformation: [{ width: C.maxWidth, crop: 'limit', quality: C.quality }],
       },
       (err, result) => {
         clearTimeout(timer);
@@ -96,11 +122,18 @@ export function uploadVideoBuffer(buffer, folder) {
 
     const timer = setTimeout(() => reject(new Error('Cloudinary video upload timed out')), 110000);
 
+    const C = MEDIA_COMPRESSION.video;
     const stream = cloudinary.uploader.upload_stream(
       {
         folder:        `farmeasy/${folder}`,
         resource_type: 'video',
-        transformation: [{ quality: 'auto', fetch_format: 'mp4' }],
+        // Incoming transformation re-encodes BEFORE storing, so a 100 MB phone
+        // clip is stored as a compact 720p / h264 / ~2 Mbps mp4 instead.
+        format: C.format,
+        transformation: [{
+          width: C.maxWidth, height: C.maxHeight, crop: 'limit',
+          quality: C.quality, video_codec: C.videoCodec, bit_rate: C.bitRate,
+        }],
       },
       (err, result) => {
         clearTimeout(timer);

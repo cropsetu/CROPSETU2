@@ -297,7 +297,7 @@ export default {
   },
 
   animalDetail: {
-    yes: 'હા ✓', notMentioned: 'ઉલ્લેખ નથી',
+    yes: 'હા ✓', notMentioned: 'ઉલ્લેખ નથી', noDescription: 'વિક્રેતાએ હજુ સુધી વર્ણન ઉમેર્યું નથી.',
     phoneError: 'ફોન ઍપ ખોલી શકાયું નહીં.',
     sellerVerified: 'વિક્રેતા ચકાસાયેલ',
     animalDetails: 'પ્રાણીની વિગત', sellerInfo: 'વિક્રેતાની માહિતી',
@@ -542,7 +542,7 @@ export default {
     animalsNearby: '{{count}} પ્રાણી નજીક', filters: 'ફિલ્ટર',
     noAnimals: 'પ્રાણી મળ્યા નહીં', postAd: 'જાહેરાત મૂકો',
     topRated: 'ટૉપ રેટેડ', contactSeller: 'વિક્રેતાનો સંપર્ક',
-    beFirstToList: 'પહેલી જાહેરાત તમે જ મૂકો!',
+    beFirstToList: 'પહેલી જાહેરાત તમે જ મૂકો!', noAnimalsNearby: 'નજીકમાં કોઈ પશુ નથી', reachBuyers: 'સ્થાનિક ખરીદદારો સુધી પહોંચો', freeToPost: 'મફત જાહેરાત', verifiedBadge: 'ચકાસાયેલ વિક્રેતા',
     verifyAadhaar: 'આધાર ચકાસો',
     verifyAadhaarTitle: 'આધાર ચકાસણી',
     phonePlaceholder: 'મોબાઈલ નંબર',
@@ -563,6 +563,7 @@ export default {
     profileTitle: 'તમારી પ્રોફાઈલ',
     tapAddPhoto: 'ફોટો ઉમેરવા ટેપ કરો',
     yourName: 'તમારું નામ',
+    cropsTitle: 'તમે કયા પાક ઉગાડો છો?',
   },
 
   farmProfile: {
@@ -844,11 +845,11 @@ export default {
     cauliflower: 'ફૂલકોબી', cabbage: 'કોબીજ',
     kharif: 'ખરીફ (જૂન-ઑક્ટો)', rabi: 'રવી (નવે-માર્ચ)', zaid: 'ઝાયદ (માર્ચ-જૂન)',
     soilBlack: 'કાળી', soilRed: 'લાલ', soilAlluvial: 'કાંપવાળી',
-    soilSandy: 'રેતાળ', soilClay: 'ચીકણી', soilLaterite: 'લૅટરાઈટ', soilNA: 'લા/નથી',
+    soilSandy: 'રેતાળ', soilClay: 'ચીકણી', soilLaterite: 'લૅટરાઈટ', soilNA: 'લા/નથી', soilNotSure: 'ખબર નથી',
     soilBlackFull: 'કાળી કપાસ (રેગુર)', soilRedFull: 'લાલ લૅટરાઈટ',
     soilAlluvialFull: 'કાંપવાળી (નદી)', soilSandyFull: 'રેતાળ / દોમટ',
     soilClayFull: 'ચીકણી / ભારે', soilLateriteFull: 'લૅટરાઈટ / પથ્થરવાળી',
-    irrDrip: 'ટપક', irrSprinkler: 'ફુવારો', irrFlood: 'પૂર', irrRainfed: 'વરસાદ આધારિત',
+    irrDrip: 'ટપક', irrSprinkler: 'ફુવારો', irrFlood: 'પૂર', irrRainfed: 'વરસાદ આધારિત', irrMixed: 'મિશ્ર', ginger: 'આદુ',
     irrDripFull: 'ટપક સિંચાઈ', irrSprinklerFull: 'છંટકાવ', irrFloodFull: 'પૂર / ધોરિયો',
     irrRainfedFull: 'વરસાદ આધારિત (સિંચાઈ નથી)', irrCanalFull: 'નહેર / નદી લિફ્ટ',
   },

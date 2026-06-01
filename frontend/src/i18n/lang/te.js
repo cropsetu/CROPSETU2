@@ -297,7 +297,7 @@ export default {
   },
 
   animalDetail: {
-    yes: 'అవును ✓', notMentioned: 'పేర్కొనబడలేదు',
+    yes: 'అవును ✓', notMentioned: 'పేర్కొనబడలేదు', noDescription: 'విక్రేత ఇంకా వివరణ జోడించలేదు.',
     phoneError: 'ఫోన్ యాప్ తెరవలేకపోయాం.',
     sellerVerified: 'విక్రేత ధృవీకరించబడ్డారు',
     animalDetails: 'పశువు వివరాలు', sellerInfo: 'విక్రేత సమాచారం',
@@ -542,7 +542,7 @@ export default {
     animalsNearby: '{{count}} పశువులు సమీపంలో', filters: 'ఫిల్టర్‌లు',
     noAnimals: 'పశువులు దొరకలేదు', postAd: 'ప్రకటన పెట్టు',
     topRated: 'అత్యధిక రేటింగ్', contactSeller: 'విక్రేతను సంప్రదించండి',
-    beFirstToList: 'మొదటి ప్రకటన మీరే ఇవ్వండి!',
+    beFirstToList: 'మొదటి ప్రకటన మీరే ఇవ్వండి!', noAnimalsNearby: 'సమీపంలో జంతువులు లేవు', reachBuyers: 'స్థానిక కొనుగోలుదారులను చేరుకోండి', freeToPost: 'ఉచిత ప్రకటన', verifiedBadge: 'ధృవీకరించబడిన విక్రేతలు',
     verifyAadhaar: 'ఆధార్ ధృవీకరించు',
     verifyAadhaarTitle: 'ఆధార్ ధృవీకరణ',
     phonePlaceholder: 'మొబైల్ నంబర్',
@@ -563,6 +563,7 @@ export default {
     profileTitle: 'మీ ప్రొఫైల్',
     tapAddPhoto: 'ఫోటో చేర్చడానికి ట్యాప్ చేయండి',
     yourName: 'మీ పేరు',
+    cropsTitle: 'మీరు ఏ పంటలు పండిస్తారు?',
   },
 
   farmProfile: {
@@ -844,11 +845,11 @@ export default {
     cauliflower: 'కాలీఫ్లవర్', cabbage: 'క్యాబేజీ',
     kharif: 'ఖరీఫ్ (జూన్-అక్టో)', rabi: 'రబీ (నవం-మార్చి)', zaid: 'జైద్ (మార్చి-జూన్)',
     soilBlack: 'నల్ల', soilRed: 'ఎరుపు', soilAlluvial: 'ఒండ్రు',
-    soilSandy: 'ఇసుక', soilClay: 'బంకమట్టి', soilLaterite: 'లాటరైట్', soilNA: 'వ/లేదు',
+    soilSandy: 'ఇసుక', soilClay: 'బంకమట్టి', soilLaterite: 'లాటరైట్', soilNA: 'వ/లేదు', soilNotSure: 'తెలియదు',
     soilBlackFull: 'నల్ల పత్తి (రేగూర్)', soilRedFull: 'ఎరుపు లాటరైట్',
     soilAlluvialFull: 'ఒండ్రు (నది)', soilSandyFull: 'ఇసుక / లోమీ',
     soilClayFull: 'బంకమట్టి / భారీ', soilLateriteFull: 'లాటరైట్ / రాతి',
-    irrDrip: 'బిందు', irrSprinkler: 'తుంపర', irrFlood: 'వరద', irrRainfed: 'వర్షాధారం',
+    irrDrip: 'బిందు', irrSprinkler: 'తుంపర', irrFlood: 'వరద', irrRainfed: 'వర్షాధారం', irrMixed: 'మిశ్రమ', ginger: 'అల్లం',
     irrDripFull: 'బిందు సేద్యం', irrSprinklerFull: 'స్ప్రింక్లర్', irrFloodFull: 'వరద / కాలువ',
     irrRainfedFull: 'వర్షాధారం (నీటిపారుదల లేదు)', irrCanalFull: 'కాలువ / నది ఎత్తిపోత',
   },

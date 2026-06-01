@@ -297,7 +297,7 @@ export default {
   },
 
   animalDetail: {
-    yes: 'ਹਾਂ ✓', notMentioned: 'ਦੱਸਿਆ ਨਹੀਂ',
+    yes: 'ਹਾਂ ✓', notMentioned: 'ਦੱਸਿਆ ਨਹੀਂ', noDescription: 'ਵਿਕਰੇਤਾ ਨੇ ਅਜੇ ਤੱਕ ਵੇਰਵਾ ਨਹੀਂ ਜੋੜਿਆ।',
     phoneError: 'ਫ਼ੋਨ ਐਪ ਨਹੀਂ ਖੁੱਲ੍ਹ ਸਕਿਆ।',
     sellerVerified: 'ਵਿਕਰੇਤਾ ਤਸਦੀਕ ਕੀਤਾ',
     animalDetails: 'ਪਸ਼ੂ ਵੇਰਵਾ', sellerInfo: 'ਵਿਕਰੇਤਾ ਜਾਣਕਾਰੀ',
@@ -542,7 +542,7 @@ export default {
     animalsNearby: '{{count}} ਪਸ਼ੂ ਨੇੜੇ', filters: 'ਫਿਲਟਰ',
     noAnimals: 'ਪਸ਼ੂ ਨਹੀਂ ਮਿਲੇ', postAd: 'ਇਸ਼ਤਿਹਾਰ ਦਿਓ',
     topRated: 'ਚੋਟੀ ਦੇ ਰੇਟਿੰਗ', contactSeller: 'ਵੇਚਣ ਵਾਲੇ ਦਾ ਸੰਪਰਕ',
-    beFirstToList: 'ਪਹਿਲਾ ਇਸ਼ਤਿਹਾਰ ਤੁਸੀਂ ਦਿਓ!',
+    beFirstToList: 'ਪਹਿਲਾ ਇਸ਼ਤਿਹਾਰ ਤੁਸੀਂ ਦਿਓ!', noAnimalsNearby: 'ਨੇੜੇ ਕੋਈ ਪਸ਼ੂ ਨਹੀਂ', reachBuyers: 'ਸਥਾਨਕ ਖਰੀਦਦਾਰਾਂ ਤੱਕ ਪਹੁੰਚੋ', freeToPost: 'ਮੁਫ਼ਤ ਇਸ਼ਤਿਹਾਰ', verifiedBadge: 'ਪ੍ਰਮਾਣਿਤ ਵਿਕਰੇਤਾ',
     verifyAadhaar: 'ਆਧਾਰ ਤਸਦੀਕ',
     verifyAadhaarTitle: 'ਆਧਾਰ ਤਸਦੀਕੀ',
     phonePlaceholder: 'ਮੋਬਾਈਲ ਨੰਬਰ',
@@ -563,6 +563,7 @@ export default {
     profileTitle: 'ਤੁਹਾਡੀ ਪ੍ਰੋਫਾਈਲ',
     tapAddPhoto: 'ਫ਼ੋਟੋ ਪਾਉਣ ਲਈ ਟੈਪ ਕਰੋ',
     yourName: 'ਤੁਹਾਡਾ ਨਾਮ',
+    cropsTitle: 'ਤੁਸੀਂ ਕਿਹੜੀਆਂ ਫ਼ਸਲਾਂ ਉਗਾਉਂਦੇ ਹੋ?',
   },
 
   farmProfile: {
@@ -844,11 +845,11 @@ export default {
     cauliflower: 'ਫੁੱਲਗੋਭੀ', cabbage: 'ਬੰਦਗੋਭੀ',
     kharif: 'ਖਰੀਫ਼ (ਜੂਨ-ਅਕਤੂ)', rabi: 'ਰਬੀ (ਨਵੰ-ਮਾਰਚ)', zaid: 'ਜ਼ੈਦ (ਮਾਰਚ-ਜੂਨ)',
     soilBlack: 'ਕਾਲੀ', soilRed: 'ਲਾਲ', soilAlluvial: 'ਕੰਢੀ',
-    soilSandy: 'ਰੇਤਲੀ', soilClay: 'ਚੀਕਣੀ', soilLaterite: 'ਲੈਟਰਾਈਟ', soilNA: 'ਲਾ/ਨਹੀਂ',
+    soilSandy: 'ਰੇਤਲੀ', soilClay: 'ਚੀਕਣੀ', soilLaterite: 'ਲੈਟਰਾਈਟ', soilNA: 'ਲਾ/ਨਹੀਂ', soilNotSure: 'ਪਤਾ ਨਹੀਂ',
     soilBlackFull: 'ਕਾਲੀ ਕਪਾਹ (ਰੇਗੁਰ)', soilRedFull: 'ਲਾਲ ਲੈਟਰਾਈਟ',
     soilAlluvialFull: 'ਕੰਢੀ (ਦਰਿਆ)', soilSandyFull: 'ਰੇਤਲੀ / ਦੋਮਟ',
     soilClayFull: 'ਚੀਕਣੀ / ਭਾਰੀ', soilLateriteFull: 'ਲੈਟਰਾਈਟ / ਪੱਥਰੀ',
-    irrDrip: 'ਡ੍ਰਿਪ', irrSprinkler: 'ਸਪ੍ਰਿੰਕਲਰ', irrFlood: 'ਹੜ੍ਹ', irrRainfed: 'ਬਾਰਾਨੀ',
+    irrDrip: 'ਡ੍ਰਿਪ', irrSprinkler: 'ਸਪ੍ਰਿੰਕਲਰ', irrFlood: 'ਹੜ੍ਹ', irrRainfed: 'ਬਾਰਾਨੀ', irrMixed: 'ਮਿਸ਼ਰਤ', ginger: 'ਅਦਰਕ',
     irrDripFull: 'ਡ੍ਰਿਪ ਸਿੰਚਾਈ', irrSprinklerFull: 'ਸਪ੍ਰਿੰਕਲਰ', irrFloodFull: 'ਹੜ੍ਹ / ਨਾਲੀ',
     irrRainfedFull: 'ਬਾਰਾਨੀ (ਸਿੰਚਾਈ ਨਹੀਂ)', irrCanalFull: 'ਨਹਿਰ / ਦਰਿਆ ਲਿਫਟ',
   },
