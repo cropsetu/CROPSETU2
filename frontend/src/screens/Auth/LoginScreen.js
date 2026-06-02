@@ -11,6 +11,8 @@ import {
   Platform,
   Image,
   Animated,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
@@ -32,6 +34,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [resendIn, setResendIn] = useState(0);
+  const [legal,    setLegal]    = useState(null);   // 'terms' | 'privacy' | null
 
   const otpRef    = useRef(null);
   const fadeAnim  = useRef(new Animated.Value(0)).current;
@@ -233,10 +236,124 @@ export default function LoginScreen() {
             )}
           </Animated.View>
 
-          <Text style={sty.footer}>{t('login.termsNote')}</Text>
+          <View style={sty.footerWrap}>
+            <Text style={sty.footer}>{t('login.agreePrefix')}</Text>
+            <View style={sty.footerLinksRow}>
+              <TouchableOpacity
+                onPress={() => setLegal('terms')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="link"
+                accessibilityLabel={t('login.termsOfUse')}
+              >
+                <Text style={sty.footerLink}>{t('login.termsOfUse')}</Text>
+              </TouchableOpacity>
+              <Text style={sty.footer}> {t('login.andConnector')} </Text>
+              <TouchableOpacity
+                onPress={() => setLegal('privacy')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="link"
+                accessibilityLabel={t('login.privacyPolicy')}
+              >
+                <Text style={sty.footerLink}>{t('login.privacyPolicy')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </KeyboardAvoidingView>
       </View>
+
+      <LegalModal type={legal} onClose={() => setLegal(null)} t={t} />
     </SafeAreaView>
+  );
+}
+
+// ── Legal content modal (Terms of Use / Privacy Policy) ─────────────────────────
+// Placeholder copy — replace LEGAL_CONTENT with your reviewed legal text, or
+// swap the modal for a WebView/Linking call once the pages are hosted online.
+const LEGAL_CONTENT = {
+  terms: {
+    title: 'Terms of Use',
+    body: `Last updated: June 2026
+
+Welcome to CropSetu. By creating an account and using this app, you agree to these Terms of Use.
+
+1. Use of the service
+CropSetu provides farming tools, marketplace listings, and advisory features. You agree to use them lawfully and to provide accurate information.
+
+2. Your account
+You are responsible for activity under your account and for keeping your phone number and login secure.
+
+3. Listings and transactions
+Rentals, sales, and bookings made through CropSetu are agreements between users. CropSetu is not a party to those agreements and does not guarantee any listing, price, or outcome.
+
+4. Advisory content
+AI and informational content is provided for guidance only and is not a substitute for professional agronomic, financial, or legal advice.
+
+5. Changes
+We may update these terms from time to time. Continued use of the app means you accept the updated terms.
+
+Contact us at support@cropsetu.app for any questions about these terms.`,
+  },
+  privacy: {
+    title: 'Privacy Policy',
+    body: `Last updated: June 2026
+
+This Privacy Policy explains how CropSetu collects, uses, and protects your information.
+
+1. Information we collect
+We collect your phone number for login, profile details you provide, farm and crop data you enter, and approximate location when you enable it.
+
+2. How we use it
+We use your information to operate the app, show nearby listings, personalise advisory content, and improve the service.
+
+3. Sharing
+We do not sell your personal data. Limited information may be shared with other users only as needed to complete a listing, booking, or chat you initiate.
+
+4. Security
+We use industry-standard measures to protect your data. No method of transmission is fully secure, so we cannot guarantee absolute security.
+
+5. Your choices
+You may edit or delete your profile and farm data, and disable location sharing, at any time from the app settings.
+
+Contact us at support@cropsetu.app for any privacy questions or data requests.`,
+  },
+};
+
+function LegalModal({ type, onClose, t }) {
+  const content = type ? LEGAL_CONTENT[type] : null;
+  const title = type === 'terms' ? t('login.termsOfUse') : t('login.privacyPolicy');
+  return (
+    <Modal
+      visible={!!type}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <View style={sty.modalOverlay}>
+        <View style={sty.modalCard}>
+          <View style={sty.modalHeader}>
+            <Text style={sty.modalTitle} numberOfLines={1}>{title}</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel={t('login.legalClose')}
+            >
+              <Ionicons name="close" size={ms(24)} color={COLORS.textDark} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            style={sty.modalScroll}
+            contentContainerStyle={{ paddingBottom: vs(16) }}
+            showsVerticalScrollIndicator
+          >
+            <Text style={sty.modalBody}>{content?.body}</Text>
+          </ScrollView>
+          <TouchableOpacity style={sty.modalCloseBtn} onPress={onClose} activeOpacity={0.85}>
+            <Text style={sty.modalCloseTxt}>{t('login.legalClose')}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -461,11 +578,79 @@ const sty = StyleSheet.create({
   },
 
   // ── Footer ─────────────────────────────────────────────────────────────────
+  footerWrap: {
+    alignItems: 'center',
+    marginTop: vs(24),
+  },
   footer: {
     textAlign: 'center',
     color: COLORS.mintBorder,
     fontSize: fs(11),
-    marginTop: vs(24),
     lineHeight: fs(16),
+  },
+  footerLinksRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    marginTop: vs(2),
+  },
+  footerLink: {
+    color: COLORS.white,
+    fontSize: fs(11),
+    lineHeight: fs(16),
+    fontWeight: TYPE.weight.bold,
+    textDecorationLine: 'underline',
+  },
+
+  // ── Legal modal ──────────────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: s(24),
+    borderTopRightRadius: s(24),
+    paddingHorizontal: s(20),
+    paddingTop: vs(16),
+    paddingBottom: vs(20),
+    maxHeight: '82%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: vs(12),
+  },
+  modalTitle: {
+    flex: 1,
+    fontSize: fs(20),
+    fontWeight: TYPE.weight.black,
+    color: COLORS.textDark,
+    letterSpacing: -0.2,
+  },
+  modalScroll: {
+    flexGrow: 0,
+  },
+  modalBody: {
+    fontSize: fs(13),
+    lineHeight: fs(20),
+    color: COLORS.textMedium,
+  },
+  modalCloseBtn: {
+    marginTop: vs(14),
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.full,
+    paddingVertical: vs(14),
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: vs(48),
+  },
+  modalCloseTxt: {
+    color: COLORS.white,
+    fontSize: fs(TYPE.size.base),
+    fontWeight: TYPE.weight.bold,
   },
 });

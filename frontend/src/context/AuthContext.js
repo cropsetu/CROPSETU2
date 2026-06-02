@@ -1,7 +1,7 @@
 /**
  * AuthContext — handles OTP auth, token storage, and user state.
  */
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import api, { saveTokens, clearTokens, getAccessToken, getUserId } from '../services/api';
 import { resetSocket } from '../services/socket';
 
@@ -30,12 +30,17 @@ export function AuthProvider({ children }) {
     })();
   }, []);
 
-  const sendOtp = async (phone) => {
+  // All callbacks are memoised with stable identities. Without this, every
+  // AuthProvider render creates new function references; consumers that list
+  // these in effect deps (e.g. ProfileScreen's useFocusEffect → refreshUser)
+  // would re-run on every render, and refreshUser → setUser → render forms an
+  // infinite request loop. useCallback + useMemo break that cycle.
+  const sendOtp = useCallback(async (phone) => {
     const { data } = await api.post('/auth/send-otp', { phone });
     return data;
-  };
+  }, []);
 
-  const verifyOtp = async (phone, otp) => {
+  const verifyOtp = useCallback(async (phone, otp) => {
     const { data } = await api.post('/auth/verify-otp', { phone, otp });
     if (data.data?.accessToken) {
       await saveTokens({
@@ -47,9 +52,9 @@ export function AuthProvider({ children }) {
       setIsLoggedIn(true);
     }
     return data;
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await api.post('/auth/logout');
     } catch {
@@ -59,25 +64,28 @@ export function AuthProvider({ children }) {
     await clearTokens();
     setUser(null);
     setIsLoggedIn(false);
-  };
+  }, []);
 
-  const updateUser = (updates) => {
+  const updateUser = useCallback((updates) => {
     setUser((prev) => (prev ? { ...prev, ...updates } : prev));
-  };
+  }, []);
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     try {
       const { data } = await api.get('/users/me');
       setUser(data.data);
     } catch {
       // ignore
     }
-  };
+  }, []);
+
+  const value = useMemo(
+    () => ({ user, isLoggedIn, loading, sendOtp, verifyOtp, logout, updateUser, refreshUser }),
+    [user, isLoggedIn, loading, sendOtp, verifyOtp, logout, updateUser, refreshUser]
+  );
 
   return (
-    <AuthContext.Provider
-      value={{ user, isLoggedIn, loading, sendOtp, verifyOtp, logout, updateUser, refreshUser }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

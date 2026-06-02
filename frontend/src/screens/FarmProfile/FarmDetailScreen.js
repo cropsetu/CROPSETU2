@@ -12,10 +12,11 @@
  * tables ship in Prisma. For now the screen scrolls top-to-bottom.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator, Alert, RefreshControl,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
 import CosmicScreen from './ui/CosmicScreen';
@@ -56,7 +57,8 @@ export default function FarmDetailScreen({ navigation, route }) {
     }
   }, [farmId, t]);
 
-  useEffect(() => { load(); }, [load]);
+  // Reload on every focus so a newly created/edited cycle shows up without a manual refresh.
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = useCallback(() => { setRefreshing(true); load(); }, [load]);
   const onEdit    = useCallback(() => farm && navigation.navigate('FarmAddEdit', { farm }), [farm, navigation]);

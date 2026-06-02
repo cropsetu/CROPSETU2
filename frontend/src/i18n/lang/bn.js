@@ -297,7 +297,7 @@ export default {
   },
 
   animalDetail: {
-    yes: 'হ্যাঁ ✓', notMentioned: 'উল্লেখ নেই',
+    yes: 'হ্যাঁ ✓', notMentioned: 'উল্লেখ নেই', noDescription: 'বিক্রেতা এখনও কোনো বিবরণ যোগ করেননি।',
     phoneError: 'ফোন অ্যাপ খোলা যায়নি।',
     sellerVerified: 'বিক্রেতা যাচাইকৃত',
     animalDetails: 'পশুর বিবরণ', sellerInfo: 'বিক্রেতার তথ্য',
@@ -542,7 +542,7 @@ export default {
     animalsNearby: '{{count}} পশু কাছাকাছি', filters: 'ফিল্টার',
     noAnimals: 'পশু পাওয়া যায়নি', postAd: 'বিজ্ঞাপন দিন',
     topRated: 'শীর্ষ রেটিং', contactSeller: 'বিক্রেতার সাথে যোগাযোগ',
-    beFirstToList: 'প্রথম বিজ্ঞাপন আপনিই দিন!',
+    beFirstToList: 'প্রথম বিজ্ঞাপন আপনিই দিন!', noAnimalsNearby: 'কাছাকাছি কোনো পশু নেই', reachBuyers: 'স্থানীয় ক্রেতাদের কাছে পৌঁছান', freeToPost: 'বিনামূল্যে পোস্ট', verifiedBadge: 'যাচাইকৃত বিক্রেতা',
     verifyAadhaar: 'আধার যাচাই',
     verifyAadhaarTitle: 'আধার যাচাইকরণ',
     phonePlaceholder: 'মোবাইল নম্বর',
@@ -563,6 +563,7 @@ export default {
     profileTitle: 'আপনার প্রোফাইল',
     tapAddPhoto: 'ছবি যোগ করতে ট্যাপ করুন',
     yourName: 'আপনার নাম',
+    cropsTitle: 'আপনি কোন ফসল চাষ করেন?',
   },
 
   farmProfile: {
@@ -844,11 +845,11 @@ export default {
     cauliflower: 'ফুলকপি', cabbage: 'বাঁধাকপি',
     kharif: 'খরিফ (জুন-অক্টো)', rabi: 'রবি (নভে-মার্চ)', zaid: 'জায়েদ (মার্চ-জুন)',
     soilBlack: 'কালো', soilRed: 'লাল', soilAlluvial: 'পলল',
-    soilSandy: 'বালি', soilClay: 'এঁটেল', soilLaterite: 'ল্যাটেরাইট', soilNA: 'প্র/নেই',
+    soilSandy: 'বালি', soilClay: 'এঁটেল', soilLaterite: 'ল্যাটেরাইট', soilNA: 'প্র/নেই', soilNotSure: 'জানি না',
     soilBlackFull: 'কালো তুলা (রেগুর)', soilRedFull: 'লাল ল্যাটেরাইট',
     soilAlluvialFull: 'পলল (নদী)', soilSandyFull: 'বালি / দোআঁশ',
     soilClayFull: 'এঁটেল / ভারী', soilLateriteFull: 'ল্যাটেরাইট / পাথুরে',
-    irrDrip: 'ড্রিপ', irrSprinkler: 'স্প্রিংকলার', irrFlood: 'প্লাবন', irrRainfed: 'বৃষ্টি নির্ভর',
+    irrDrip: 'ড্রিপ', irrSprinkler: 'স্প্রিংকলার', irrFlood: 'প্লাবন', irrRainfed: 'বৃষ্টি নির্ভর', irrMixed: 'মিশ্র', ginger: 'আদা',
     irrDripFull: 'ড্রিপ সেচ', irrSprinklerFull: 'স্প্রিংকলার', irrFloodFull: 'প্লাবন / নালা',
     irrRainfedFull: 'বৃষ্টি নির্ভর (সেচ নেই)', irrCanalFull: 'খাল / নদী লিফট',
   },

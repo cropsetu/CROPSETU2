@@ -84,6 +84,11 @@ export async function getCropCycle(cycleId) {
   return res.data;
 }
 
+export async function deleteCropCycle(cycleId) {
+  const { data: res } = await api.delete(`/cycles/${cycleId}`);
+  return res.data;
+}
+
 export async function addFertilizer(cycleId, entry) {
   const { data: res } = await api.post(`/cycles/${cycleId}/fertilizer`, entry);
   return res.data;

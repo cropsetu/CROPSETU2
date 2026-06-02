@@ -119,7 +119,12 @@ export default function CropCycleCreateScreen({ navigation, route }) {
       navigation.goBack();
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || (t('farmProfile.saveFailed') || 'Save failed.'));
+      // Prefer the server's actual reason (e.g. "Area 2.5 exceeds farm size 2 acres"
+      // or a validation message) over axios's opaque "Request failed with status code 400".
+      const msg = e.response?.data?.error?.message
+        || e.userMessage
+        || (t('farmProfile.saveFailed') || 'Save failed.');
+      Alert.alert(t('login.error') || 'Error', msg);
     } finally {
       setSaving(false);
     }

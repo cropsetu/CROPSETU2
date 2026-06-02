@@ -1,8 +1,9 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   Switch, Alert, Modal, TextInput, Linking,
   Image, ActivityIndicator, Platform, Animated, ScrollView,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -68,25 +69,19 @@ function RowItem({ icon, iconColor, label, subtitle, onPress, showArrow = true, 
   const color = iconColor || COLORS.primary;
   return (
     <TouchableOpacity
-      style={[S.rowItem, isLast && { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 4 }]}
+      style={[S.rowItem, isLast && { borderBottomWidth: 0 }]}
       onPress={onPress}
-      activeOpacity={0.65}
+      activeOpacity={0.6}
     >
-      <LinearGradient
-        colors={[color + '14', color + '08']}
-        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-        style={S.rowIcon}
-      >
-        <Ionicons name={icon} size={19} color={color} />
-      </LinearGradient>
+      <View style={[S.rowIcon, { backgroundColor: color + '14' }]}>
+        <Ionicons name={icon} size={18} color={color} />
+      </View>
       <View style={{ flex: 1 }}>
         <Text style={S.rowLabel}>{label}</Text>
-        {subtitle ? <Text style={S.rowSubtitle}>{subtitle}</Text> : null}
+        {subtitle ? <Text style={S.rowSubtitle} numberOfLines={1}>{subtitle}</Text> : null}
       </View>
       {rightElement || (showArrow && (
-        <View style={S.rowArrow}>
-          <Ionicons name="chevron-forward" size={16} color={D.textFaint} />
-        </View>
+        <Ionicons name="chevron-forward" size={18} color={D.textFaint} />
       ))}
     </TouchableOpacity>
   );
@@ -96,13 +91,9 @@ function QuickTile({ icon, label, color, onPress, index = 0 }) {
   return (
     <EntrySlide delay={index * 80} fromY={20} style={{ flex: 1 }}>
       <TouchableOpacity style={S.quickTile} onPress={onPress} activeOpacity={0.7}>
-        <LinearGradient
-          colors={[color + '18', color + '0A']}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          style={S.quickIcon}
-        >
+        <View style={[S.quickIcon, { backgroundColor: color + '14' }]}>
           <Ionicons name={icon} size={24} color={color} />
-        </LinearGradient>
+        </View>
         <Text style={S.quickLabel} numberOfLines={2}>{label}</Text>
       </TouchableOpacity>
     </EntrySlide>
@@ -111,12 +102,24 @@ function QuickTile({ icon, label, color, onPress, index = 0 }) {
 
 function EditProfileModal({ visible, user, onClose, onSaved }) {
   const { t } = useLanguage();
-  const [name,        setName]        = useState(user?.name || '');
-  const [statusQuote, setStatusQuote] = useState(user?.statusQuote || '');
-  const [district,    setDistrict]    = useState(user?.district || '');
-  const [city,        setCity]        = useState(user?.city || '');
-  const [pincode,     setPincode]     = useState(user?.pincode || '');
+  const [name,        setName]        = useState('');
+  const [statusQuote, setStatusQuote] = useState('');
+  const [district,    setDistrict]    = useState('');
+  const [city,        setCity]        = useState('');
+  const [pincode,     setPincode]     = useState('');
   const [saving,      setSaving]      = useState(false);
+
+  // The modal stays mounted (only `visible` toggles), so seeding state via
+  // useState initialisers would freeze the fields at first-mount values and
+  // show stale data on reopen. Re-sync from the latest `user` each time it opens.
+  useEffect(() => {
+    if (!visible) return;
+    setName(user?.name || '');
+    setStatusQuote(user?.statusQuote || '');
+    setDistrict(user?.district || '');
+    setCity(user?.city || '');
+    setPincode(user?.pincode || '');
+  }, [visible, user]);
 
   const handleSave = async () => {
     if (!name.trim()) { Alert.alert(t('product.error'), t('profile.nameEmpty')); return; }
@@ -132,39 +135,61 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
   };
 
   const FIELDS = [
-    { icon: 'person-outline',             color: COLORS.primary,   value: name,        setter: setName,        placeholder: t('profile.fullNamePlaceholder'), maxLen: 80  },
-    { icon: 'chatbubble-ellipses-outline', color: D.cyan,  value: statusQuote, setter: setStatusQuote, placeholder: t('profile.statusPlaceholder'),   maxLen: 200 },
-    { icon: 'business-outline',           color: D.green,  value: district,    setter: setDistrict,    placeholder: t('profile.districtPlaceholder'), maxLen: 100 },
-    { icon: 'location-outline',           color: D.amber,  value: city,        setter: setCity,        placeholder: t('profile.cityPlaceholder'),     maxLen: 100 },
-    { icon: 'pin-outline',                color: D.gold,   value: pincode,     setter: setPincode,     placeholder: t('profile.pincodePlaceholder'),  maxLen: 6, keyboard: 'numeric' },
+    { key: 'name',     label: t('profile.fullName', 'Full name'),        icon: 'person-outline',              color: COLORS.primary, value: name,        setter: setName,        placeholder: t('profile.fullNamePlaceholder'), maxLen: 80  },
+    { key: 'quote',    label: t('profile.statusQuote', 'Status / bio'),  icon: 'chatbubble-ellipses-outline', color: D.cyan,         value: statusQuote, setter: setStatusQuote, placeholder: t('profile.statusPlaceholder'),   maxLen: 200 },
+    { key: 'district', label: t('profile.district'),                     icon: 'business-outline',            color: D.green,        value: district,    setter: setDistrict,    placeholder: t('profile.districtPlaceholder'), maxLen: 100 },
+    { key: 'city',     label: t('profile.cityTown'),                     icon: 'location-outline',            color: D.amber,        value: city,        setter: setCity,        placeholder: t('profile.cityPlaceholder'),     maxLen: 100 },
+    { key: 'pincode',  label: t('profile.pincode'),                      icon: 'pin-outline',                 color: D.gold,         value: pincode,     setter: setPincode,     placeholder: t('profile.pincodePlaceholder'),  maxLen: 6, keyboard: 'number-pad' },
   ];
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={S.modalOverlay} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity activeOpacity={1} style={S.editSheet}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={S.editKav}
+      >
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+        <View style={S.editSheet}>
           <View style={S.sheetHandle} />
-          <Text style={S.sheetTitle}>{t('editProfile')}</Text>
-          {FIELDS.map((f) => (
-            <View key={f.placeholder} style={S.fieldRow}>
-              <View style={[S.fieldIconWrap, { backgroundColor: f.color + '12' }]}>
-                <Ionicons name={f.icon} size={16} color={f.color} />
+          <View style={S.editHeader}>
+            <Text style={S.sheetTitle}>{t('editProfile')}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Ionicons name="close" size={22} color={D.textDim} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={S.editScroll}
+            contentContainerStyle={{ paddingBottom: 8 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {FIELDS.map((f) => (
+              <View key={f.key} style={S.fieldGroup}>
+                <Text style={S.fieldLabel}>{f.label}</Text>
+                <View style={S.fieldRow}>
+                  <View style={[S.fieldIconWrap, { backgroundColor: f.color + '12' }]}>
+                    <Ionicons name={f.icon} size={16} color={f.color} />
+                  </View>
+                  <TextInput
+                    style={S.fieldInput}
+                    value={f.value}
+                    onChangeText={f.setter}
+                    placeholder={f.placeholder}
+                    placeholderTextColor={D.textFaint}
+                    maxLength={f.maxLen}
+                    keyboardType={f.keyboard || 'default'}
+                  />
+                </View>
               </View>
-              <TextInput
-                style={S.fieldInput}
-                value={f.value}
-                onChangeText={f.setter}
-                placeholder={f.placeholder}
-                placeholderTextColor={D.textFaint}
-                maxLength={f.maxLen}
-                keyboardType={f.keyboard || 'default'}
-              />
-            </View>
-          ))}
+            ))}
+          </ScrollView>
+
           <TouchableOpacity
             style={[S.saveBtn, saving && { opacity: 0.7 }]}
             onPress={handleSave}
             disabled={saving}
+            activeOpacity={0.85}
           >
             <LinearGradient
               colors={[COLORS.primary, COLORS.primaryMedium]}
@@ -176,8 +201,8 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
                 : <Text style={S.saveBtnTxt}>{t('profile.saveChanges')}</Text>}
             </LinearGradient>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -224,7 +249,11 @@ export default function ProfileScreen({ navigation }) {
   const [showLangModal,   setShowLangModal]  = useState(false);
   const [showStateModal,  setShowStateModal] = useState(false);
   const [showEditModal,   setShowEditModal]  = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [uploadingPhoto, setUploadingPhoto]  = useState(false);
+  // Bumped after each avatar upload to cache-bust the <Image> — RN otherwise
+  // keeps showing the cached photo until the component is remounted.
+  const [avatarBust, setAvatarBust] = useState(0);
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const initials = user?.name
@@ -276,33 +305,44 @@ export default function ProfileScreen({ navigation }) {
       const { uri: compressedUri } = await compressImage(uri);
 
       const formData = new FormData();
-      formData.append('file', {
-        uri: Platform.OS === 'android' ? compressedUri : compressedUri.replace('file://', ''),
-        name: 'avatar.jpg',
-        type: 'image/jpeg',
-      });
+      if (Platform.OS === 'web') {
+        // On web, RN's { uri, name, type } object is NOT a real file — it
+        // serialises to a string and the backend receives no file (→ 400).
+        // Fetch the compressed image into a Blob and append that instead.
+        const blob = await (await fetch(compressedUri)).blob();
+        formData.append('file', blob, 'avatar.jpg');
+      } else {
+        formData.append('file', {
+          uri: Platform.OS === 'android' ? compressedUri : compressedUri.replace('file://', ''),
+          name: 'avatar.jpg',
+          type: 'image/jpeg',
+        });
+      }
 
       const { data } = await api.put('/users/me', formData);
 
       if (data.data?.avatar) {
         updateUser({ avatar: data.data.avatar });
+        setAvatarBust((n) => n + 1);   // force the <Image> to reload immediately
       } else {
-        Alert.alert(t('profile.uploadFailed'), 'Server did not return an avatar URL. Please try again.');
+        // Response lacked the URL — re-sync from the server so it still updates.
+        await refreshUser?.();
       }
     } catch (err) {
-      if (__DEV__) console.warn('[Profile] Upload error:', err.message, err.response?.status);
+      // Log the server's real reason (not just axios's "status code 400").
+      if (__DEV__) console.warn('[Profile] Upload error:', err.response?.data?.error?.message || err.message, err.response?.status);
       const msg = err.response?.data?.error?.message || t('profile.uploadFailedMsg') || 'Upload failed. Try again.';
       Alert.alert(t('profile.uploadFailed') || 'Upload Failed', msg);
     } finally {
       setUploadingPhoto(false);
     }
-  }, [updateUser]);
+  }, [updateUser, refreshUser]);
 
-  const handleLogout = () => {
-    Alert.alert(t('logout'), t('logoutConfirm'), [
-      { text: t('cancel'), style: 'cancel' },
-      { text: t('logout'), style: 'destructive', onPress: logout },
-    ]);
+  const handleLogout = () => setShowLogoutConfirm(true);
+
+  const confirmLogout = () => {
+    setShowLogoutConfirm(false);
+    logout();
   };
 
   const counts      = user?._count || {};
@@ -322,8 +362,8 @@ export default function ProfileScreen({ navigation }) {
       >
         <Animated.View style={{ transform: [{ perspective: 1200 }, { scale: heroScale }], opacity: heroOpacity }}>
           <LinearGradient
-            colors={['#0A3D26', COLORS.primary, '#2D9B63', '#3DAA74']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            colors={[COLORS.primary, COLORS.primaryMedium || '#21865A']}
+            start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
             style={S.hero}
           >
             <HeroBgDecoration />
@@ -332,7 +372,10 @@ export default function ProfileScreen({ navigation }) {
               <TouchableOpacity style={S.avatarWrap} onPress={handlePhotoPress} activeOpacity={0.8}>
                 <View style={S.avatarRing}>
                   {user?.avatar ? (
-                    <Image source={{ uri: user.avatar }} style={S.avatarImg} />
+                    <Image
+                      source={{ uri: avatarBust ? `${user.avatar}${user.avatar.includes('?') ? '&' : '?'}v=${avatarBust}` : user.avatar }}
+                      style={S.avatarImg}
+                    />
                   ) : (
                     <LinearGradient
                       colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.15)']}
@@ -381,12 +424,9 @@ export default function ProfileScreen({ navigation }) {
             <View style={S.statsCard}>
               {STAT_CONFIGS.map((stat, i) => (
                 <View key={stat.key} style={[S.statCell, i < STAT_CONFIGS.length - 1 && S.statCellBorder]}>
-                  <LinearGradient
-                    colors={[stat.color + '20', stat.color + '08']}
-                    style={S.statIcon}
-                  >
+                  <View style={[S.statIcon, { backgroundColor: stat.color + '16' }]}>
                     <Ionicons name={stat.icon} size={20} color={stat.color} />
-                  </LinearGradient>
+                  </View>
                   <Text style={S.statValue}>{stat.key === 'rentListings' ? rentListingCount : (counts[stat.key] ?? 0)}</Text>
                   <Text style={S.statLabel}>{t(stat.labelKey)}</Text>
                 </View>
@@ -406,7 +446,7 @@ export default function ProfileScreen({ navigation }) {
 
           <SectionCard delay={120}>
             <SectionHeader title={t('profile.accountSettings')} icon="settings-outline" iconColor={D.cyan} />
-            <RowItem icon="person-circle-outline" iconColor={COLORS.primary}   label={t('editProfile')}              subtitle={t('profile.nameQuoteAddress')}                                  onPress={() => setShowEditModal(true)} />
+            {/* "Edit Profile" lives in the hero header — no duplicate row here. */}
             <RowItem icon="location-outline"      iconColor={D.green}  label={t('profile.savedAddresses')}   subtitle={user?.city ? `${[user.city, user.district].filter(Boolean).join(', ')}` : t('profile.addAddress')} onPress={() => setShowEditModal(true)} />
             <RowItem
               icon="globe-outline" iconColor={D.cyan}
@@ -540,6 +580,27 @@ export default function ProfileScreen({ navigation }) {
         onSaved={(updated) => { updateUser(updated); setShowEditModal(false); }}
       />
 
+      {/* Logout confirmation — custom in-app popup (not a native Alert). */}
+      <Modal visible={showLogoutConfirm} transparent animationType="fade" onRequestClose={() => setShowLogoutConfirm(false)}>
+        <TouchableOpacity style={S.confirmBackdrop} activeOpacity={1} onPress={() => setShowLogoutConfirm(false)}>
+          <TouchableOpacity style={S.confirmCard} activeOpacity={1} onPress={() => {}}>
+            <View style={S.confirmIconWrap}>
+              <Ionicons name="log-out-outline" size={26} color={D.red} />
+            </View>
+            <Text style={S.confirmTitle}>{t('logout')}</Text>
+            <Text style={S.confirmMsg}>{t('logoutConfirm')}</Text>
+            <View style={S.confirmBtnRow}>
+              <TouchableOpacity style={[S.confirmBtn, S.confirmCancel]} onPress={() => setShowLogoutConfirm(false)} activeOpacity={0.8}>
+                <Text style={S.confirmCancelTxt}>{t('cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[S.confirmBtn, S.confirmDanger]} onPress={confirmLogout} activeOpacity={0.85}>
+                <Text style={S.confirmDangerTxt}>{t('logout')}</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <Modal visible={showStateModal} transparent animationType="slide" onRequestClose={() => setShowStateModal(false)}>
         <View style={S.modalOverlay}>
           <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowStateModal(false)} />
@@ -628,12 +689,12 @@ export default function ProfileScreen({ navigation }) {
 }
 
 const S = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F0F4ED' },
+  root: { flex: 1, backgroundColor: '#F1F3F6' },
 
   hero: {
     paddingTop: Platform.OS === 'android' ? 52 : 52,
-    paddingBottom: 32, paddingHorizontal: 24, overflow: 'hidden',
-    borderBottomLeftRadius: 28, borderBottomRightRadius: 28,
+    paddingBottom: 30, paddingHorizontal: 24, overflow: 'hidden',
+    borderBottomLeftRadius: 24, borderBottomRightRadius: 24,
   },
   heroContent: {
     alignItems: 'center', position: 'relative', zIndex: 1,
@@ -716,43 +777,38 @@ const S = StyleSheet.create({
   statLabel: { fontSize: 11, color: D.textDim, fontWeight: '600' },
 
   sectionCard: {
-    backgroundColor: COLORS.white, borderRadius: 20,
-    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12,
-    marginBottom: 14,
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 12,
+    backgroundColor: COLORS.white, borderRadius: 14,
+    paddingHorizontal: 14, paddingTop: 14, paddingBottom: 4,
+    marginBottom: 12,
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 }, elevation: 2,
   },
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    marginBottom: 12, paddingBottom: 10,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.04)',
+    marginBottom: 6, paddingBottom: 10,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   sectionIconWrap: {
-    width: 28, height: 28, borderRadius: 8,
+    width: 26, height: 26, borderRadius: 8,
     justifyContent: 'center', alignItems: 'center',
   },
   sectionTitle: {
-    fontSize: 13, fontWeight: '800', color: D.textDim,
-    letterSpacing: 0.5, textTransform: 'uppercase',
+    fontSize: 12.5, fontWeight: '800', color: D.textDim,
+    letterSpacing: 0.6, textTransform: 'uppercase',
   },
 
   rowItem: {
     flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.04)',
-    gap: 12, marginBottom: 2,
+    paddingVertical: 13,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)',
+    gap: 14,
   },
   rowIcon: {
-    width: 40, height: 40, borderRadius: 12,
+    width: 38, height: 38, borderRadius: 19,
     justifyContent: 'center', alignItems: 'center',
   },
-  rowLabel: { fontSize: 15, fontWeight: '600', color: D.text },
+  rowLabel: { fontSize: 14.5, fontWeight: '600', color: D.text },
   rowSubtitle: { fontSize: 12, color: D.textDim, marginTop: 2 },
-  rowArrow: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.03)',
-    justifyContent: 'center', alignItems: 'center',
-  },
 
   quickGrid: { flexDirection: 'row', paddingBottom: 4 },
   quickTile: {
@@ -819,29 +875,66 @@ const S = StyleSheet.create({
   version: { textAlign: 'center', fontSize: 12, color: D.textFaint, marginTop: 12, marginBottom: 8 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+
+  // Centered confirmation popup (logout, etc.)
+  confirmBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center', alignItems: 'center', padding: 32,
+  },
+  confirmCard: {
+    width: '100%', maxWidth: 360,
+    backgroundColor: COLORS.white, borderRadius: 24,
+    paddingHorizontal: 24, paddingTop: 24, paddingBottom: 20,
+    alignItems: 'center',
+    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 }, elevation: 12,
+  },
+  confirmIconWrap: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: D.red + '12',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 14,
+  },
+  confirmTitle: { fontSize: 19, fontWeight: '800', color: D.text, marginBottom: 6, textAlign: 'center' },
+  confirmMsg: { fontSize: 14, color: D.textDim, textAlign: 'center', lineHeight: 20, marginBottom: 22 },
+  confirmBtnRow: { flexDirection: 'row', gap: 12, width: '100%' },
+  confirmBtn: {
+    flex: 1, paddingVertical: 14, borderRadius: 14,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  confirmCancel: { backgroundColor: '#F1F3F0' },
+  confirmCancelTxt: { fontSize: 15, fontWeight: '700', color: D.text },
+  confirmDanger: { backgroundColor: D.red },
+  confirmDangerTxt: { fontSize: 15, fontWeight: '800', color: COLORS.white },
+  editKav: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   editSheet: {
     backgroundColor: COLORS.white,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    paddingHorizontal: 22, paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 22,
+    maxHeight: '88%',
   },
+  editHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  editScroll: { flexGrow: 0 },
   sheetHandle: {
     width: 40, height: 4, backgroundColor: COLORS.slateLight,
-    borderRadius: 2, alignSelf: 'center', marginBottom: 16,
+    borderRadius: 2, alignSelf: 'center', marginBottom: 14,
   },
-  sheetTitle: { fontSize: 18, fontWeight: '800', color: D.text, marginBottom: 20, textAlign: 'center' },
+  sheetTitle: { fontSize: 19, fontWeight: '800', color: D.text },
+  fieldGroup: { marginBottom: 14 },
+  fieldLabel: { fontSize: 12.5, fontWeight: '700', color: D.textDim, marginBottom: 6, marginLeft: 2 },
   fieldRow: {
     flexDirection: 'row', alignItems: 'center',
     borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.06)',
     borderRadius: 14, paddingHorizontal: 12, paddingVertical: 12,
-    marginBottom: 10, backgroundColor: '#F8FAF7',
+    backgroundColor: '#F8FAF7',
     gap: 10,
   },
   fieldIconWrap: {
     width: 32, height: 32, borderRadius: 10,
     justifyContent: 'center', alignItems: 'center',
   },
-  fieldInput: { flex: 1, fontSize: 15, color: D.text },
-  saveBtn: { borderRadius: 16, overflow: 'hidden', marginTop: 8 },
+  fieldInput: { flex: 1, fontSize: 15, color: D.text, padding: 0 },
+  saveBtn: { borderRadius: 16, overflow: 'hidden', marginTop: 12 },
   saveBtnGrad: { paddingVertical: 16, alignItems: 'center', borderRadius: 16 },
   saveBtnTxt: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
 

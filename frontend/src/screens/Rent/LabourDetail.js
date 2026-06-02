@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { COLORS } from '../../constants/colors';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 
@@ -22,6 +23,7 @@ const { width: W } = Dimensions.get('window');
 export default function LabourDetail({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const { t } = useLanguage();
+  const { user } = useAuth();
   const { id, labour: passedData } = route.params;
 
   const [data,        setData]        = useState(passedData || null);
@@ -50,6 +52,9 @@ export default function LabourDetail({ route, navigation }) {
   }
 
   const l = data;
+  // A provider viewing their own worker listing can't hire themselves — show
+  // owner controls (Edit) instead of the Call/Hire actions.
+  const isOwner = !!user && (user.id === l.provider?.id || user.id === l.providerId);
   const phone    = l.phone || l.provider?.phone || null;
   const allMedia = [
     ...(l.image  ? [l.image]    : []),
@@ -108,7 +113,7 @@ export default function LabourDetail({ route, navigation }) {
               <TouchableOpacity onPress={() => navigation.goBack()} style={D.navBtn}>
                 <Ionicons name="arrow-back" size={22} color={COLORS.white} />
               </TouchableOpacity>
-              {phone ? (
+              {phone && !isOwner ? (
                 <TouchableOpacity onPress={handleCall} style={D.navBtn}>
                   <Ionicons name="call-outline" size={22} color={COLORS.white} />
                 </TouchableOpacity>
@@ -127,7 +132,7 @@ export default function LabourDetail({ route, navigation }) {
               <TouchableOpacity onPress={() => navigation.goBack()} style={D.navBtn}>
                 <Ionicons name="arrow-back" size={22} color={COLORS.white} />
               </TouchableOpacity>
-              {phone ? (
+              {phone && !isOwner ? (
                 <TouchableOpacity onPress={handleCall} style={D.navBtn}>
                   <Ionicons name="call-outline" size={22} color={COLORS.white} />
                 </TouchableOpacity>
@@ -185,22 +190,31 @@ export default function LabourDetail({ route, navigation }) {
             )}
           </View>
 
-          {/* ── Call CTA Card ── */}
-          <TouchableOpacity
-            style={[D.callCard, !phone && { opacity: 0.4 }]}
-            onPress={handleCall}
-            disabled={!phone}
-            activeOpacity={0.85}
-          >
-            <View style={D.callCardIcon}>
-              <Ionicons name="call" size={26} color={COLORS.white} />
+          {/* ── Owner notice / Call CTA Card ── */}
+          {isOwner ? (
+            <View style={D.ownerNotice}>
+              <Ionicons name="information-circle" size={22} color={COLORS.primary} />
+              <Text style={D.ownerNoticeTxt}>
+                {t('rent.ownListingMsg', "This is your own listing — you can't hire it.")}
+              </Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={D.callCardTitle}>{t('rent.callToHire')}</Text>
-              <Text style={D.callCardSub}>{phone ? phone : t('rent.phoneNotListed')}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={COLORS.primary} />
-          </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[D.callCard, !phone && { opacity: 0.4 }]}
+              onPress={handleCall}
+              disabled={!phone}
+              activeOpacity={0.85}
+            >
+              <View style={D.callCardIcon}>
+                <Ionicons name="call" size={26} color={COLORS.white} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={D.callCardTitle}>{t('rent.callToHire')}</Text>
+                <Text style={D.callCardSub}>{phone ? phone : t('rent.phoneNotListed')}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={COLORS.primary} />
+            </TouchableOpacity>
+          )}
 
           {/* ── Skills ── */}
           <Text style={D.sectionTitle}>{t('rent.skillsExpertise')}</Text>
@@ -257,18 +271,25 @@ export default function LabourDetail({ route, navigation }) {
         </View>
       </ScrollView>
 
-      {/* ── Bottom Call Button ── */}
+      {/* ── Bottom action — owner edits; everyone else calls ── */}
       <View style={[D.bottomBar, { paddingBottom: insets.bottom + 10 }]}>
-        <TouchableOpacity
-          style={[D.bottomCallBtn, !phone && { opacity: 0.4 }]}
-          onPress={handleCall}
-          disabled={!phone}
-        >
-          <Ionicons name="call" size={22} color={COLORS.white} />
-          <Text style={D.bottomCallTxt}>
-            {phone ? `${t('rent.callNow')}  •  ${phone}` : t('rent.phoneNotListed')}
-          </Text>
-        </TouchableOpacity>
+        {isOwner ? (
+          <View style={[D.bottomCallBtn, D.bottomOwnerBtn]}>
+            <Ionicons name="person-circle-outline" size={22} color={COLORS.primary} />
+            <Text style={[D.bottomCallTxt, { color: COLORS.primary }]}>{t('rent.ownListingTitle', 'Your Listing')}</Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[D.bottomCallBtn, !phone && { opacity: 0.4 }]}
+            onPress={handleCall}
+            disabled={!phone}
+          >
+            <Ionicons name="call" size={22} color={COLORS.white} />
+            <Text style={D.bottomCallTxt}>
+              {phone ? `${t('rent.callNow')}  •  ${phone}` : t('rent.phoneNotListed')}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
     </AnimatedScreen>
@@ -309,6 +330,10 @@ const D = StyleSheet.create({
   ratingCard:{ backgroundColor: COLORS.yellowAmber, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
   ratingTxt: { fontSize: 11, color: COLORS.amber, fontWeight: '700', marginTop: 4 },
 
+  // Owner notice (shown instead of the call CTA on your own listing)
+  ownerNotice:    { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.primaryPale, borderRadius: 16, padding: 14, marginBottom: 20, borderWidth: 1.5, borderColor: COLORS.primary + '40' },
+  ownerNoticeTxt: { flex: 1, fontSize: 13, color: COLORS.primary, fontWeight: '700', lineHeight: 19 },
+
   // Call CTA card
   callCard:     { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: COLORS.primaryPale, borderRadius: 16, padding: 14, marginBottom: 20, borderWidth: 1.5, borderColor: COLORS.primary + '40' },
   callCardIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
@@ -334,5 +359,6 @@ const D = StyleSheet.create({
 
   bottomBar:     { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 12, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.lightGray2 },
   bottomCallBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: COLORS.primary, borderRadius: 16, paddingVertical: 15 },
+  bottomOwnerBtn:{ backgroundColor: COLORS.primaryPale, borderWidth: 1.5, borderColor: COLORS.primary + '40' },
   bottomCallTxt: { fontSize: 15, fontWeight: '800', color: COLORS.white },
 });

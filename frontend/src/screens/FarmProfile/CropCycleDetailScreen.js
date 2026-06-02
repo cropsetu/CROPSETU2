@@ -27,13 +27,12 @@ import CosmicHeader from './ui/CosmicHeader';
 import GlassCard from './ui/GlassCard';
 import GlowButton from './ui/GlowButton';
 import StageTimelineBar from './ui/StageTimelineBar';
-import ActivityFeedItem from './ui/ActivityFeedItem';
 import ActivityChip from './ui/ActivityChip';
 
 import CropIcon from '../../components/CropIcons';
 import * as farmApi from '../../services/farmApi';
 import { useLanguage } from '../../context/LanguageContext';
-import { COSMIC, CR, CS } from './theme/cosmicTheme';
+import { COSMIC, CR, CS, activityMeta } from './theme/cosmicTheme';
 import { Haptics } from '../../utils/haptics';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -165,6 +164,8 @@ export default function CropCycleDetailScreen({ navigation, route }) {
   const [refreshing, setRefreshing] = useState(false);
   const [modal, setModal] = useState(null);
   const [formData, setFormData] = useState({});
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -214,6 +215,22 @@ export default function CropCycleDetailScreen({ navigation, route }) {
     }
   }, [cycleId, load, t]);
 
+  const confirmDelete = useCallback(async () => {
+    setDeleting(true);
+    try {
+      await farmApi.deleteCropCycle(cycleId);
+      Haptics.success?.();
+      setShowDelete(false);
+      navigation.goBack();   // FarmDetail/MyFarmHome reload on focus
+    } catch (e) {
+      Haptics.error?.();
+      setShowDelete(false);
+      Alert.alert(t('login.error', 'Error'), e?.response?.data?.error?.message || t('farmProfile.deleteFailed', 'Could not delete cycle.'));
+    } finally {
+      setDeleting(false);
+    }
+  }, [cycleId, navigation, t]);
+
   const activityFeed = useMemo(() => buildActivityFeed(cycle), [cycle]);
 
   // ── Loading / error states ─────────────────────────────────────────────
@@ -257,6 +274,13 @@ export default function CropCycleDetailScreen({ navigation, route }) {
       <CosmicHeader
         title={cycle.cropName}
         subtitle={cycle.variety || `${cycle.season || ''} ${cycle.year || ''}`.trim() || undefined}
+        right={
+          <CosmicHeader.IconButton
+            icon="trash-outline"
+            accessibilityLabel={t('farmProfile.deleteCycle', 'Delete crop cycle')}
+            onPress={() => setShowDelete(true)}
+          />
+        }
       />
 
       <ScrollView
@@ -268,17 +292,15 @@ export default function CropCycleDetailScreen({ navigation, route }) {
       >
         {/* ── Hero ─────────────────────────────────────────── */}
         <View style={styles.heroOuter}>
-          <View style={styles.heroCard}>
-            <LinearGradient
-              colors={['rgba(23,107,67,0.10)', 'rgba(23,107,67,0.02)', 'rgba(255,255,255,0)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-
+          <LinearGradient
+            colors={['#0E5C3A', COSMIC.PRIMARY, '#2E9B63']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroCard}
+          >
             <View style={styles.heroHeadRow}>
               <View style={styles.heroIconWrap}>
-                <CropIcon crop={cycle.cropName} size={56} />
+                <CropIcon crop={cycle.cropName} size={52} />
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={styles.heroName} numberOfLines={1}>{cycle.cropName}</Text>
@@ -292,23 +314,27 @@ export default function CropCycleDetailScreen({ navigation, route }) {
               </View>
               {isCompleted && (
                 <View style={styles.completedBadge}>
-                  <Ionicons name="checkmark-circle" size={11} color={COSMIC.INVERSE} />
+                  <Ionicons name="checkmark-circle" size={11} color={COSMIC.PRIMARY} />
                   <Text style={styles.completedText}>Done</Text>
                 </View>
               )}
             </View>
 
             <View style={styles.statRow}>
-              <Stat value={das != null ? `${das}` : '—'} label="days" />
+              <Stat light value={das != null ? `${das}` : '—'} label="days" />
               <View style={styles.statDivider} />
-              <Stat value={area} label="acres" />
+              <Stat light value={area} label="acres" />
               <View style={styles.statDivider} />
-              <Stat value={`${cycle.season || '—'}`} label={cycle.year ? `${cycle.year}` : 'season'} />
+              <Stat light value={`${cycle.season || '—'}`} label={cycle.year ? `${cycle.year}` : 'season'} />
             </View>
-
-            <StageTimelineBar currentStage={stage} style={{ marginTop: 12 }} />
-          </View>
+          </LinearGradient>
         </View>
+
+        {/* ── Growth stage timeline (on a light card) ──────── */}
+        <SectionLabel title="Growth stage" />
+        <GlassCard style={styles.section}>
+          <StageTimelineBar currentStage={stage} das={das} />
+        </GlassCard>
 
         {/* ── Profit & loss (only when data exists) ───────── */}
         {showPL && (
@@ -363,17 +389,11 @@ export default function CropCycleDetailScreen({ navigation, route }) {
               </Text>
             </View>
           ) : (
-            activityFeed.map((a, i) => (
-              <View key={a.id}>
-                {i > 0 && <View style={styles.feedDivider} />}
-                <ActivityFeedItem
-                  type={a.type}
-                  title={a.title}
-                  subtitle={a.subtitle}
-                  timeAgo={timeAgo(a.occurredAt)}
-                />
-              </View>
-            ))
+            <View style={styles.timeline}>
+              {activityFeed.map((a, i) => (
+                <TimelineRow key={a.id} item={a} isLast={i === activityFeed.length - 1} />
+              ))}
+            </View>
           )}
         </GlassCard>
 
@@ -392,6 +412,15 @@ export default function CropCycleDetailScreen({ navigation, route }) {
             <Text style={styles.completeFooterText}>Mark cycle complete</Text>
           </Pressable>
         )}
+
+        {/* ── Footer: delete cycle ───────────────────────── */}
+        <Pressable
+          onPress={() => setShowDelete(true)}
+          style={({ pressed }) => [styles.deleteFooter, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="trash-outline" size={15} color={COSMIC.DANGER} />
+          <Text style={styles.deleteFooterText}>{t('farmProfile.deleteCycle', 'Delete crop cycle')}</Text>
+        </Pressable>
 
         <View style={{ height: 30 }} />
       </ScrollView>
@@ -471,6 +500,31 @@ export default function CropCycleDetailScreen({ navigation, route }) {
           { key: 'buyerName',      label: 'Buyer / mandi',      ph: 'Nashik APMC' },
         ]}
       />
+
+      {/* Delete confirmation — in-app popup */}
+      <Modal visible={showDelete} transparent animationType="fade" onRequestClose={() => !deleting && setShowDelete(false)}>
+        <Pressable style={styles.delBackdrop} onPress={() => !deleting && setShowDelete(false)}>
+          <Pressable style={styles.delCard} onPress={() => {}}>
+            <View style={styles.delIconWrap}>
+              <Ionicons name="trash-outline" size={26} color={COSMIC.DANGER} />
+            </View>
+            <Text style={styles.delTitle}>{t('farmProfile.deleteCycleTitle', 'Delete crop cycle?')}</Text>
+            <Text style={styles.delMsg}>
+              {t('farmProfile.deleteCycleMsg', `This permanently removes "${cycle.cropName}" and all its logs. This can't be undone.`)}
+            </Text>
+            <View style={styles.delBtnRow}>
+              <Pressable style={[styles.delBtn, styles.delCancel]} onPress={() => setShowDelete(false)} disabled={deleting}>
+                <Text style={styles.delCancelTxt}>{t('rent.cancel') || 'Cancel'}</Text>
+              </Pressable>
+              <Pressable style={[styles.delBtn, styles.delDanger, deleting && { opacity: 0.7 }]} onPress={confirmDelete} disabled={deleting}>
+                {deleting
+                  ? <ActivityIndicator size="small" color={COSMIC.INVERSE} />
+                  : <Text style={styles.delDangerTxt}>{t('rent.delete') || 'Delete'}</Text>}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </CosmicScreen>
   );
 }
@@ -487,11 +541,32 @@ function SectionLabel({ title }) {
   );
 }
 
-function Stat({ value, label }) {
+function Stat({ value, label, light }) {
   return (
     <View style={styles.statCol}>
-      <Text style={styles.statValue} numberOfLines={1}>{value}</Text>
-      <Text style={styles.statLabel} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.statValue, light && styles.statValueLight]} numberOfLines={1}>{value}</Text>
+      <Text style={[styles.statLabel, light && styles.statLabelLight]} numberOfLines={1}>{label}</Text>
+    </View>
+  );
+}
+
+function TimelineRow({ item, isLast }) {
+  const meta = activityMeta(item.type);
+  return (
+    <View style={styles.tlRow}>
+      <View style={styles.tlRail}>
+        <View style={[styles.tlDot, { backgroundColor: meta.color }]}>
+          <Ionicons name={meta.icon} size={13} color="#FFFFFF" />
+        </View>
+        {!isLast && <View style={styles.tlLine} />}
+      </View>
+      <View style={[styles.tlContent, isLast && { paddingBottom: 4 }]}>
+        <View style={styles.tlTitleRow}>
+          <Text style={styles.tlTitle} numberOfLines={1}>{item.title}</Text>
+          {!!item.occurredAt && <Text style={styles.tlTime} numberOfLines={1}>{timeAgo(item.occurredAt)}</Text>}
+        </View>
+        {!!item.subtitle && <Text style={styles.tlSub} numberOfLines={2}>{item.subtitle}</Text>}
+      </View>
     </View>
   );
 }
@@ -559,44 +634,62 @@ const styles = StyleSheet.create({
   scroll: { paddingBottom: 30 },
   centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
 
+  // Footer delete button
+  deleteFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
+    marginHorizontal: CS.base, marginTop: 10, paddingVertical: 13,
+    borderRadius: CR.md, borderWidth: 1.5, borderColor: COSMIC.DANGER + '40',
+    backgroundColor: COSMIC.DANGER_SOFT,
+  },
+  deleteFooterText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: COSMIC.DANGER },
+
+  // Delete confirmation popup
+  delBackdrop: { flex: 1, backgroundColor: COSMIC.OVERLAY, justifyContent: 'center', alignItems: 'center', padding: 28 },
+  delCard: { width: '100%', maxWidth: 360, backgroundColor: COSMIC.SURFACE, borderRadius: 22, paddingHorizontal: 22, paddingTop: 22, paddingBottom: 18, alignItems: 'center', borderWidth: 1, borderColor: COSMIC.BORDER },
+  delIconWrap: { width: 54, height: 54, borderRadius: 27, backgroundColor: COSMIC.DANGER_SOFT, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  delTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: COSMIC.TEXT, textAlign: 'center', marginBottom: 6 },
+  delMsg: { fontSize: 13.5, fontFamily: 'Inter_400Regular', color: COSMIC.TEXT_2, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  delBtnRow: { flexDirection: 'row', gap: 10, width: '100%' },
+  delBtn: { flex: 1, paddingVertical: 13, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  delCancel: { backgroundColor: COSMIC.SURFACE_LO },
+  delCancelTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.TEXT },
+  delDanger: { backgroundColor: COSMIC.DANGER },
+  delDangerTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.INVERSE },
+
   // Hero
   heroOuter: { marginHorizontal: CS.base, marginTop: CS.sm },
   heroCard: {
-    backgroundColor: COSMIC.SURFACE,
-    borderWidth: 1,
-    borderColor: COSMIC.BORDER,
     borderRadius: CR.lg,
-    padding: 14,
+    padding: 16,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    shadowColor: COSMIC.PRIMARY,
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
   heroHeadRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   heroIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    backgroundColor: COSMIC.PRIMARY_SOFT,
+    width: 60,
+    height: 60,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: COSMIC.PRIMARY + '33',
   },
   heroName: {
-    fontSize: 18,
-    color: COSMIC.TEXT,
+    fontSize: 19,
+    color: '#FFFFFF',
     fontFamily: 'Inter_800ExtraBold',
+    letterSpacing: -0.2,
   },
   heroVariety: {
-    fontSize: 12,
-    color: COSMIC.TEXT_2,
+    fontSize: 12.5,
+    color: 'rgba(255,255,255,0.85)',
     fontFamily: 'Inter_500Medium',
     marginTop: 1,
   },
@@ -604,24 +697,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    gap: 4,
-    marginTop: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    gap: 5,
+    marginTop: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: CR.pill,
-    backgroundColor: COSMIC.PRIMARY_SOFT,
-    borderWidth: 1,
-    borderColor: COSMIC.PRIMARY + '33',
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   stageDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: COSMIC.PRIMARY,
+    backgroundColor: '#FFFFFF',
   },
   stagePillText: {
-    fontSize: 10,
-    color: COSMIC.PRIMARY,
+    fontSize: 10.5,
+    color: '#FFFFFF',
     fontFamily: 'Inter_700Bold',
     letterSpacing: 0.4,
     textTransform: 'capitalize',
@@ -630,14 +721,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
     borderRadius: CR.pill,
-    backgroundColor: COSMIC.PRIMARY,
+    backgroundColor: '#FFFFFF',
   },
   completedText: {
     fontSize: 9,
-    color: COSMIC.INVERSE,
+    color: COSMIC.PRIMARY,
     fontFamily: 'Inter_700Bold',
     letterSpacing: 0.3,
     textTransform: 'uppercase',
@@ -647,12 +738,10 @@ const styles = StyleSheet.create({
   statRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    backgroundColor: COSMIC.SURFACE_HI,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     borderRadius: CR.md,
-    paddingVertical: 10,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: COSMIC.BORDER,
+    paddingVertical: 11,
+    marginTop: 14,
   },
   statCol: {
     flex: 1,
@@ -672,9 +761,11 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  statValueLight: { color: '#FFFFFF' },
+  statLabelLight: { color: 'rgba(255,255,255,0.8)' },
   statDivider: {
     width: StyleSheet.hairlineWidth,
-    backgroundColor: COSMIC.BORDER,
+    backgroundColor: 'rgba(255,255,255,0.3)',
     marginVertical: 4,
   },
 
@@ -741,6 +832,22 @@ const styles = StyleSheet.create({
     backgroundColor: COSMIC.BORDER,
     marginLeft: 14 + 36 + 12,    // align under the content column (row padding + icon + gap)
   },
+
+  // Activity timeline
+  timeline: { paddingTop: 14, paddingHorizontal: 14 },
+  tlRow: { flexDirection: 'row', gap: 12 },
+  tlRail: { width: 30, alignItems: 'center' },
+  tlDot: {
+    width: 30, height: 30, borderRadius: 15,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 2,
+  },
+  tlLine: { flex: 1, width: 2, backgroundColor: COSMIC.BORDER, marginTop: 4, marginBottom: 2, borderRadius: 1 },
+  tlContent: { flex: 1, paddingBottom: 18 },
+  tlTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  tlTitle: { flex: 1, fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold', textTransform: 'capitalize' },
+  tlTime: { fontSize: 11, color: COSMIC.TEXT_3, fontFamily: 'Inter_500Medium' },
+  tlSub: { fontSize: 12.5, color: COSMIC.TEXT_2, fontFamily: 'Inter_400Regular', marginTop: 3, lineHeight: 17 },
   emptyFeed: {
     paddingVertical: 28,
     paddingHorizontal: 24,

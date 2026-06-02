@@ -9,7 +9,7 @@ import { validate } from '../middleware/validate.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound } from '../utils/response.js';
 import logger from '../utils/logger.js';
 import {
-  createCropCycle, listCropCycles, getCropCycleDetail, updateCropCycle,
+  createCropCycle, listCropCycles, getCropCycleDetail, updateCropCycle, deleteCropCycle,
   advanceGrowthStage, addFertilizer, addPesticide, addIrrigationLog,
   addObservedEvent, recordHarvest, recordSale, completeCycle, getCycleFinancials,
 } from '../services/cropCycle.service.js';
@@ -52,6 +52,14 @@ router.get('/cycles/:cycleId', [param('cycleId').isUUID()], validate, async (req
 router.patch('/cycles/:cycleId', wl, [param('cycleId').isUUID()], validate, async (req, res) => {
   try { return sendSuccess(res, await updateCropCycle(req.params.cycleId, req.user.id, req.body)); }
   catch (e) { logger.error({ err: e }, '[CropCycle] update'); return sendError(res, 'Failed', 500); }
+});
+
+// Delete cycle (only the owning farmer can delete)
+router.delete('/cycles/:cycleId', wl, [param('cycleId').isUUID()], validate, async (req, res) => {
+  try {
+    const ok = await deleteCropCycle(req.params.cycleId, req.user.id);
+    return ok ? sendSuccess(res, { deleted: true }) : sendNotFound(res, 'Crop cycle');
+  } catch (e) { logger.error({ err: e }, '[CropCycle] delete'); return sendError(res, 'Failed', 500); }
 });
 
 // Advance growth stage
