@@ -70,7 +70,7 @@ export default function ActivityTypePickerScreen({ navigation, route }) {
   return (
     <CosmicScreen edges={{ top: false, bottom: false }}>
       <CosmicHeader
-        title={t('myFarm.v2.pickActivity') || 'What did you do?'}
+        title={t('myFarm.v2.pickActivity', 'What did you do?')}
         subtitle={contextSubtitle}
       />
 

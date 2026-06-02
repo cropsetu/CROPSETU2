@@ -166,6 +166,8 @@ export default function CropCycleDetailScreen({ navigation, route }) {
   const [formData, setFormData] = useState({});
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showComplete, setShowComplete] = useState(false);
+  const [completing, setCompleting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -205,13 +207,17 @@ export default function CropCycleDetailScreen({ navigation, route }) {
   }, [modal, formData, cycleId, load, t]);
 
   const completeCycle = useCallback(async () => {
+    setCompleting(true);
     try {
       await farmApi.completeCycle(cycleId);
       Haptics.success?.();
+      setShowComplete(false);
       load();
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || 'Could not complete cycle.');
+      Alert.alert(t('login.error') || 'Error', e?.response?.data?.error?.message || e.message || 'Could not complete cycle.');
+    } finally {
+      setCompleting(false);
     }
   }, [cycleId, load, t]);
 
@@ -400,15 +406,10 @@ export default function CropCycleDetailScreen({ navigation, route }) {
         {/* ── Footer: complete cycle ─────────────────────── */}
         {!isCompleted && (
           <Pressable
-            onPress={() => {
-              Alert.alert('Complete cycle?', 'Mark this cycle as completed?', [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Complete', style: 'destructive', onPress: completeCycle },
-              ]);
-            }}
+            onPress={() => setShowComplete(true)}
             style={({ pressed }) => [styles.completeFooter, pressed && { opacity: 0.7 }]}
           >
-            <Ionicons name="checkmark-done-outline" size={14} color={COSMIC.TEXT_3} />
+            <Ionicons name="checkmark-done" size={18} color={COSMIC.INVERSE} />
             <Text style={styles.completeFooterText}>Mark cycle complete</Text>
           </Pressable>
         )}
@@ -520,6 +521,31 @@ export default function CropCycleDetailScreen({ navigation, route }) {
                 {deleting
                   ? <ActivityIndicator size="small" color={COSMIC.INVERSE} />
                   : <Text style={styles.delDangerTxt}>{t('rent.delete') || 'Delete'}</Text>}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Complete confirmation — in-app popup (works on web + native, unlike Alert.alert) */}
+      <Modal visible={showComplete} transparent animationType="fade" onRequestClose={() => !completing && setShowComplete(false)}>
+        <Pressable style={styles.delBackdrop} onPress={() => !completing && setShowComplete(false)}>
+          <Pressable style={styles.delCard} onPress={() => {}}>
+            <View style={styles.completeIconWrap}>
+              <Ionicons name="checkmark-done" size={26} color={COSMIC.PRIMARY} />
+            </View>
+            <Text style={styles.delTitle}>{t('farmProfile.completeCycleTitle', 'Complete cycle?')}</Text>
+            <Text style={styles.delMsg}>
+              {t('farmProfile.completeCycleMsg', `Mark "${cycle.cropName}" as completed. You can still view its records afterwards.`)}
+            </Text>
+            <View style={styles.delBtnRow}>
+              <Pressable style={[styles.delBtn, styles.delCancel]} onPress={() => setShowComplete(false)} disabled={completing}>
+                <Text style={styles.delCancelTxt}>{t('rent.cancel') || 'Cancel'}</Text>
+              </Pressable>
+              <Pressable style={[styles.delBtn, styles.completeConfirm, completing && { opacity: 0.7 }]} onPress={completeCycle} disabled={completing}>
+                {completing
+                  ? <ActivityIndicator size="small" color={COSMIC.INVERSE} />
+                  : <Text style={styles.completeConfirmTxt}>{t('farmProfile.complete', 'Complete')}</Text>}
               </Pressable>
             </View>
           </Pressable>
@@ -655,6 +681,9 @@ const styles = StyleSheet.create({
   delCancelTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.TEXT },
   delDanger: { backgroundColor: COSMIC.DANGER },
   delDangerTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.INVERSE },
+  completeIconWrap: { width: 54, height: 54, borderRadius: 27, backgroundColor: COSMIC.PRIMARY_SOFT, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  completeConfirm: { backgroundColor: COSMIC.PRIMARY },
+  completeConfirmTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.INVERSE },
 
   // Hero
   heroOuter: { marginHorizontal: CS.base, marginTop: CS.sm },
@@ -887,20 +916,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Complete cycle footer
+  // Complete cycle footer — primary action button
   completeFooter: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'center',
-    gap: 4,
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: CS.base,
     marginTop: CS.lg,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 15,
+    borderRadius: CR.md,
+    backgroundColor: COSMIC.PRIMARY,
+    shadowColor: COSMIC.PRIMARY,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 4,
   },
   completeFooterText: {
-    fontSize: 12,
-    color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    color: COSMIC.INVERSE,
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.2,
   },
 
   // Modal
