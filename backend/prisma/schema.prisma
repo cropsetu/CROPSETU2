@@ -713,6 +713,10 @@ model CropDiseaseReport {
   fieldArea       String?
   symptoms        String[]
   imageCount      Int               @default(0)
+  // Cloudinary secure URLs for the photos that powered the diagnosis.
+  // Populated during /scan/submit; lets PastReportScreen render the
+  // actual scanned images instead of the disease name in text form only.
+  imageUrls       String[]          @default([])
   overallRisk     Int
   riskLevel       String
   primaryDisease  String

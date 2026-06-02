@@ -91,145 +91,57 @@ const MIME_NORMALIZE = {
   'image/JPEG':   'image/jpeg',
 };
 
-export async function scanCropImage(imageUri, farmContext = {}, pickerMimeType = null) {
-  const isWeb = typeof document !== 'undefined';
+/**
+ * Submit one OR more crop images for AI disease diagnosis.
+ *
+ * Accepts either a single URI string (legacy callers) or an array of up to
+ * 5 URIs (new multi-image callers). Each image is compressed + base64-
+ * encoded and posted as JSON to Express, which forwards the array straight
+ * through to FastAPI's /ai/scan endpoint (already accepts a list).
+ *
+ * @param {string|string[]} imageUris   Local file URI(s) from ImagePicker / Camera
+ * @param {object}          farmContext All farm context (crop, age, symptoms, soil, etc.)
+ * @param {string|string[]|null} mimeTypes  Optional MIME type(s) matching imageUris
+ * @returns {Object} diagnosis result (after polling the worker to completion)
+ */
+export async function scanCropImage(imageUris, farmContext = {}, mimeTypes = null) {
+  // ── Normalize to arrays (back-compat: a single string URI still works) ──
+  const uris  = Array.isArray(imageUris) ? imageUris : (imageUris ? [imageUris] : []);
+  const mimes = Array.isArray(mimeTypes) ? mimeTypes : (mimeTypes ? [mimeTypes] : []);
+  if (uris.length === 0) throw new Error('scanCropImage: at least one image is required');
+  if (uris.length > 5)   throw new Error('scanCropImage: max 5 images per scan');
 
-  // ── Web path ────────────────────────────────────────────────────────────────
-  if (isWeb) {
-    const fileName = imageUri.split('/').pop() || 'crop.jpg';
-    const ext = (fileName.match(/\.(\w+)$/)?.[1] || 'jpg').toLowerCase();
-    const rawType = pickerMimeType || `image/${ext}`;
-    const type = MIME_NORMALIZE[rawType] || rawType || 'image/jpeg';
-    const safeName = fileName.match(/\.(jpg|jpeg)$/i)
-      ? fileName : fileName.replace(/\.\w+$/, '') + '.jpg';
-
-    const resp = await fetch(imageUri);
-    const blob = await resp.blob();
-    const formData = new FormData();
-    formData.append('image', blob, safeName);
-    formData.append('farmContext', JSON.stringify(farmContext));
-
-    const { data } = await api.post('/ai/scan', formData, { timeout: 100000 });
-    return data.data;
-  }
-
-  // ── Native (iOS + Android) path ─────────────────────────────────────────────
-  // On Android New Architecture (newArchEnabled=true, RN 0.76+) both the
-  // { uri, name, type } FormData pattern AND fetch('file://...') silently fail
-  // because OkHttp/Turbo networking doesn't support file:// scheme in JS.
-  // FileSystem.uploadAsync is a dedicated native upload API that handles file://
-  // and content:// URIs correctly on both iOS and Android (all architectures).
-
-  let uploadUri = imageUri;
-  try {
-    const compressed = await compressImage(imageUri);
-    uploadUri = compressed?.uri || imageUri;
-  } catch (compressErr) {
-    if (__DEV__) console.warn('[scanCropImage] compression failed, using original:', compressErr?.message);
-  }
-
-  // ── Ensure fresh token before upload ──────────────────────────────────────
-  // FileSystem.uploadAsync bypasses axios interceptors, so auto-refresh
-  // doesn't work. We proactively refresh if the token looks expired.
-  let token = await getAccessToken();
-  if (token) {
+  // ── Compress + base64-encode each image. ImageManipulator handles HEIC,
+  //    content:// URIs, etc., and emits JPEG. Posting JSON (not multipart)
+  //    sidesteps the Android OkHttp file:// + multi-file limitation that
+  //    forced the FileSystem.uploadAsync workaround for single uploads.
+  //    Same quality preset for every image regardless of count — the user
+  //    explicitly wants full resolution preserved even on 5-image scans.
+  const images = [];
+  for (let i = 0; i < uris.length; i++) {
+    const uri = uris[i];
     try {
-      // Decode JWT payload to check expiry (no verification needed — just checking exp)
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const expiresAt = (payload.exp || 0) * 1000;
-      const buffer = 60_000; // refresh 1 min before expiry
-      if (Date.now() > expiresAt - buffer) {
-        if (__DEV__) console.log('[scanCropImage] Token expiring soon, refreshing...');
-        const { getRefreshToken, getUserId, saveTokens } = await import('./api');
-        const refreshToken = await getRefreshToken();
-        const userId = await getUserId();
-        if (refreshToken && userId) {
-          try {
-            const { default: axios } = await import('axios');
-            const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, { userId, refreshToken });
-            await saveTokens({
-              accessToken: data.data.accessToken,
-              refreshToken: data.data.refreshToken,
-              userId,
-            });
-            token = data.data.accessToken;
-            if (__DEV__) console.log('[scanCropImage] Token refreshed successfully');
-          } catch (refreshErr) {
-            if (__DEV__) console.warn('[scanCropImage] Token refresh failed:', refreshErr?.message);
-          }
-        }
-      }
-    } catch (decodeErr) {
-      // If decode fails, proceed with existing token
-      if (__DEV__) console.warn('[scanCropImage] Token decode check failed:', decodeErr?.message);
+      const compressed = await compressImage(uri, { needBase64: true });
+      const base64 = compressed?.base64
+        || await FileSystem.readAsStringAsync(compressed?.uri || uri, { encoding: FileSystem.EncodingType.Base64 });
+      const rawMime = mimes[i] || 'image/jpeg';
+      const mime    = MIME_NORMALIZE[rawMime] || 'image/jpeg';
+      images.push({ data: base64, mime_type: mime });
+    } catch (e) {
+      if (__DEV__) console.warn('[scanCropImage] failed to encode image', i, e?.message);
     }
   }
+  if (images.length === 0) throw new Error('Could not encode any images for upload');
 
-  // ── Upload — hits /scan/submit which returns a jobId in <500ms ────────────
-  // The whole point of switching from /scan to /scan/submit: the legacy
-  // endpoint held the HTTP connection open for the entire pipeline
-  // (often 60-120s when the ensemble fires), which blows the Android
-  // OkHttp 60s readTimeout that FileSystem.uploadAsync uses internally.
-  // /scan/submit returns immediately with { status: "queued", jobId };
-  // we then poll via axios (which sends short, individual requests)
-  // until the worker finishes.
-  const SUBMIT_TIMEOUT_MS = 30_000; // upload + enqueue should take <10s
-
-  const doUpload = async (authToken) => {
-    return FileSystem.uploadAsync(
-      `${API_BASE_URL}/ai/scan/submit`,
-      uploadUri,
-      {
-        httpMethod:  'POST',
-        uploadType:  FileSystem.FileSystemUploadType.MULTIPART,
-        fieldName:   'image',
-        mimeType:    'image/jpeg',
-        headers:     authToken ? { Authorization: `Bearer ${authToken}` } : {},
-        parameters:  { farmContext: JSON.stringify(farmContext) },
-      },
-    );
-  };
-
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Scan upload timed out. Please check your connection and try again.')), SUBMIT_TIMEOUT_MS)
+  // ── Submit — Express returns a jobId in <500ms via the new JSON branch.
+  //    axios handles auth header injection + refresh via interceptors, so
+  //    we don't need the manual JWT refresh dance the old multipart code did.
+  const SUBMIT_TIMEOUT_MS = 60_000;
+  const { data: submitJson } = await api.post(
+    '/ai/scan/submit',
+    { images, farmContext },
+    { timeout: SUBMIT_TIMEOUT_MS },
   );
-
-  let uploadResult = await Promise.race([doUpload(token), timeoutPromise]);
-
-  // ── If 401, try refreshing token and retry once ───────────────────────────
-  if (uploadResult.status === 401) {
-    if (__DEV__) console.log('[scanCropImage] Got 401, attempting token refresh + retry...');
-    try {
-      const { getRefreshToken, getUserId, saveTokens } = await import('./api');
-      const refreshToken = await getRefreshToken();
-      const userId = await getUserId();
-      if (refreshToken && userId) {
-        const { default: axios } = await import('axios');
-        const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, { userId, refreshToken });
-        await saveTokens({
-          accessToken: data.data.accessToken,
-          refreshToken: data.data.refreshToken,
-          userId,
-        });
-        token = data.data.accessToken;
-        uploadResult = await Promise.race([doUpload(token), timeoutPromise]);
-      }
-    } catch (retryErr) {
-      if (__DEV__) console.warn('[scanCropImage] Retry after refresh failed:', retryErr?.message);
-    }
-  }
-
-  if (uploadResult.status < 200 || uploadResult.status >= 300) {
-    let errBody;
-    try { errBody = JSON.parse(uploadResult.body); } catch { errBody = {}; }
-    const e = new Error(errBody?.error?.message || `HTTP ${uploadResult.status}`);
-    e.status = uploadResult.status;
-    e.response = { status: uploadResult.status, data: errBody };
-    throw e;
-  }
-
-  // ── Submit response: either inline-done (idempotent replay) or { jobId } ──
-  const submitJson = JSON.parse(uploadResult.body);
   const submitData = submitJson?.data || {};
 
   // Server may have served a cached result inline; if so, we're done.

@@ -168,6 +168,7 @@ export async function callFastAPIScan({
  */
 export async function submitFastAPIScan({
   filePath,
+  images,                       // optional pre-built array — overrides filePath
   mimeType = 'image/jpeg',
   viewType = 'close_up',
   params,
@@ -175,23 +176,47 @@ export async function submitFastAPIScan({
   requestId,
   idempotencyKey,
 }) {
-  if (!filePath || !fs.existsSync(filePath)) {
-    throw new Error('Scan image not found on disk');
-  }
-  const raw = fs.readFileSync(filePath);
-  if (raw.length > MAX_BYTES_PER_IMAGE) {
-    const sizeMb = (raw.length / 1_000_000).toFixed(1);
-    const err = new Error(`Scan image too large (${sizeMb} MB). Maximum 8 MB.`);
-    err.status = 413;
-    throw err;
-  }
-
-  const body = {
-    images: [{
+  // Two modes:
+  //   (a) `images` array supplied (multi-image JSON path from mobile)
+  //   (b) `filePath` supplied (legacy single-image multipart path)
+  // FastAPI's /ai/scan route already accepts a list — see fastapi/routes/scan.py.
+  let imagesPayload;
+  if (Array.isArray(images) && images.length > 0) {
+    for (const img of images) {
+      if (!img?.data) throw new Error('image entry missing base64 data');
+      // base64 length × 0.75 ≈ raw byte count.
+      if (img.data.length * 0.75 > MAX_BYTES_PER_IMAGE) {
+        const sizeMb = ((img.data.length * 0.75) / 1_000_000).toFixed(1);
+        const err = new Error(`One image is too large (${sizeMb} MB). Maximum 8 MB each.`);
+        err.status = 413;
+        throw err;
+      }
+    }
+    imagesPayload = images.map(img => ({
+      data:      img.data,
+      mime_type: img.mime_type || 'image/jpeg',
+      type:      img.type || viewType || 'close_up',
+    }));
+  } else {
+    if (!filePath || !fs.existsSync(filePath)) {
+      throw new Error('Scan image not found on disk');
+    }
+    const raw = fs.readFileSync(filePath);
+    if (raw.length > MAX_BYTES_PER_IMAGE) {
+      const sizeMb = (raw.length / 1_000_000).toFixed(1);
+      const err = new Error(`Scan image too large (${sizeMb} MB). Maximum 8 MB.`);
+      err.status = 413;
+      throw err;
+    }
+    imagesPayload = [{
       data:      raw.toString('base64'),
       mime_type: mimeType || 'image/jpeg',
       type:      viewType || 'close_up',
-    }],
+    }];
+  }
+
+  const body = {
+    images: imagesPayload,
     params: {
       ...params,
       tier: normaliseTier(params?.tier),

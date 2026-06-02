@@ -45,8 +45,35 @@ import { checkCredits, deductCredits, getCreditSummary } from '../services/aiCre
 import { buildFarmerChatContext } from '../services/chatContext.service.js';
 import { getWeatherData } from '../services/weather.service.js';
 import { aiChatLimit, aiScanLimit, aiVoiceLimit } from '../middleware/redisRateLimit.js';
+import { uploadBuffer } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
 import logger from '../utils/logger.js';
+
+/**
+ * Kick off Cloudinary uploads for the base64 image array sent with a scan.
+ * Returns a Promise that resolves to a list of secure URLs — empty array on
+ * failure or when Cloudinary isn't configured so the scan flow never blocks.
+ * Runs in parallel with the FastAPI pipeline; the URLs are written to the
+ * CropDiseaseReport row in _persistDoneScan once both finish.
+ */
+function uploadScanImagesToCloudinary(images, userId) {
+  if (!ENV.CLOUDINARY_CLOUD_NAME) return Promise.resolve([]);
+  if (!Array.isArray(images) || images.length === 0) return Promise.resolve([]);
+  return Promise.all(
+    images.map(img => {
+      try {
+        const buf = Buffer.from(img.data, 'base64');
+        return uploadBuffer(buf, `scans/${userId}`).catch(err => {
+          logger.warn('[Cloudinary/scan] one upload failed: %s', err?.message);
+          return null;
+        });
+      } catch (err) {
+        logger.warn('[Cloudinary/scan] base64 decode failed: %s', err?.message);
+        return Promise.resolve(null);
+      }
+    }),
+  ).then(urls => urls.filter(Boolean));
+}
 
 // ── FastAPI proxy helper ──────────────────────────────────────────────────────
 // All Express → FastAPI calls now route through utils/fastapi-signed.js which
@@ -766,34 +793,52 @@ setInterval(() => {
   for (const [k, v] of pendingScans) if ((v.t0 || 0) < cutoff) pendingScans.delete(k);
 }, 5 * 60_000).unref?.();
 
+// Branch on Content-Type so the same route accepts both shapes:
+//   • application/json     → mobile multi-image path: { images: [{data, mime_type}], farmContext }
+//                            (skip multer; the 50 MB JSON parser is mounted in app.js)
+//   • multipart/form-data  → legacy single-image path used by web + older clients
 router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
+  const ct = String(req.headers['content-type'] || '');
+  if (ct.startsWith('application/json')) return next();
   upload.single('image')(req, res, (err) => {
     if (err) return sendError(res, err.message || 'Image upload failed', 400);
     next();
   });
 }, async (req, res) => {
-  const file = req.file;
-  if (!file) return sendError(res, 'image file is required — please attach a crop photo', 400);
+  const isJson = String(req.headers['content-type'] || '').startsWith('application/json');
+  const file   = isJson ? null : req.file;
+  if (!isJson && !file) return sendError(res, 'image file is required — please attach a crop photo', 400);
+  if (isJson && (!Array.isArray(req.body.images) || req.body.images.length === 0)) {
+    return sendError(res, 'images array is required (1–5 base64-encoded images)', 400);
+  }
+  if (isJson && req.body.images.length > 5) {
+    return sendError(res, 'too many images (max 5 per scan)', 400);
+  }
   const t0 = Date.now();
+  const cleanupFile = () => { if (file?.path) { try { fs.unlinkSync(file.path); } catch { /* ignore */ } } };
 
   // Same gates as the legacy /scan: rate-limit + credit + free-tier daily cap.
   if (req.user.role === 'FARMER') {
     try {
       const limitErr = await checkScanLimits(req.user.id);
       if (limitErr) {
-        try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+        cleanupFile();
         return sendError(res, limitErr, 429);
       }
     } catch (e) { logger.warn('[AI Scan/submit] limit check failed (non-fatal): %s', e.message); }
   }
   const creditCheck = await checkCredits(req.user.id, 'ai_scan_gemini');
   if (!creditCheck.allowed) {
-    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+    cleanupFile();
     return sendError(res, creditCheck.message || 'Insufficient AI credits', 402);
   }
 
   let farmCtx = {};
-  try { farmCtx = JSON.parse(req.body.farmContext || '{}'); } catch { /* ignore */ }
+  try {
+    farmCtx = isJson
+      ? (req.body.farmContext || {})
+      : JSON.parse(req.body.farmContext || '{}');
+  } catch { /* ignore */ }
 
   // Weather fetch is fire-and-forget but synchronous here (1-3s, cheap) so the
   // poll handler has it ready when the pipeline finishes.
@@ -826,8 +871,10 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
 
   try {
     const result = await submitFastAPIScan({
-      filePath:       file.path,
-      mimeType:       file.mimetype,
+      // JSON path → pass images[] straight through; multipart path → filePath
+      images:         isJson ? req.body.images : undefined,
+      filePath:       isJson ? undefined : file.path,
+      mimeType:       file?.mimetype || 'image/jpeg',
       viewType:       farmCtx.imageView || 'close_up',
       params:         fastapiParams,
       userId:         req.user.id,
@@ -835,25 +882,34 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
       idempotencyKey: req.headers['idempotency-key'] || undefined,
     });
 
+    // Fire-and-forget Cloudinary uploads for the JSON multi-image path so
+    // we can show the actual photos in the past-report viewer later. Runs
+    // in parallel with the FastAPI pipeline; URLs are awaited (with a
+    // bounded timeout) inside _persistDoneScan before the DB row is written.
+    const imageUrlsPromise = isJson
+      ? uploadScanImagesToCloudinary(req.body.images, req.user.id)
+      : Promise.resolve([]);
+
     // Idempotent inline replay — pipeline was already done. Persist now,
     // return as if the client had polled once.
     if (result.status === 'done' && result.data) {
-      try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+      cleanupFile();
       const flat = flattenFastAPIDiagnosis(result.data, farmCtx);
       const finalised = await _persistDoneScan({
-        userId: req.user.id, farmCtx, weatherData, raw: result.data, flat,
+        userId: req.user.id, farmCtx, weatherData, raw: result.data, flat, imageUrlsPromise,
       });
       logger.info('[Express/Scan/submit] idempotent inline replay — user=%s elapsed=%dms', req.user.id, Date.now() - t0);
       return sendSuccess(res, { status: 'done', ...finalised });
     }
 
-    pendingScans.set(result.jobId, { userId: req.user.id, farmCtx, weatherData, t0 });
-    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
-    logger.info('[Express/Scan/submit] enqueued jobId=%s user=%s', result.jobId, req.user.id);
+    pendingScans.set(result.jobId, { userId: req.user.id, farmCtx, weatherData, t0, imageUrlsPromise });
+    cleanupFile();
+    logger.info('[Express/Scan/submit] enqueued jobId=%s user=%s images=%d',
+      result.jobId, req.user.id, isJson ? req.body.images.length : 1);
     return sendSuccess(res, { status: 'queued', jobId: result.jobId });
 
   } catch (err) {
-    try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+    cleanupFile();
     logger.error({ err }, '[Express/Scan/submit] enqueue failed');
     return sendError(res, `Scan submit failed: ${err.message || 'Unknown error'}`, err.status || 500);
   }
@@ -896,6 +952,7 @@ router.get('/scan/job/:jobId', authenticate, async (req, res) => {
   const flat = flattenFastAPIDiagnosis(snap.data, farmCtx);
   const finalised = await _persistDoneScan({
     userId: req.user.id, farmCtx, weatherData, raw: snap.data, flat,
+    imageUrlsPromise: ctx?.imageUrlsPromise,
     skipPersist: !ctx,
   });
   pendingScans.delete(jobId);
@@ -907,7 +964,7 @@ router.get('/scan/job/:jobId', authenticate, async (req, res) => {
 // /scan/job/:jobId). Records usage, deducts credits, persists the
 // CropDiseaseReport, strips _fullReport for the wire response, and returns
 // the client-facing diagnosis dict.
-async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, skipPersist = false }) {
+async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, imageUrlsPromise, skipPersist = false }) {
   const tokenUsage = (() => { const u = extractFastAPIUsage(raw); return { total_tokens: u.tokens, total_cost_usd: u.costUsd }; })();
   recordScanUsage(userId, tokenUsage).catch(() => {});
   deductCredits(userId, 'ai_scan_gemini', {
@@ -915,6 +972,21 @@ async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, skipP
     tokensUsed: tokenUsage.total_tokens,
     description: `Crop scan: ${flat?.disease || 'analysis'}`,
   }).catch(() => {});
+
+  // Wait briefly for the parallel Cloudinary uploads to finish so the
+  // report row carries the image URLs. Cap the wait so a slow CDN doesn't
+  // block the user from seeing the diagnosis — empty array is acceptable.
+  let imageUrls = [];
+  if (imageUrlsPromise) {
+    try {
+      imageUrls = await Promise.race([
+        imageUrlsPromise,
+        new Promise(resolve => setTimeout(() => resolve([]), 10_000)),
+      ]) || [];
+    } catch (e) {
+      logger.warn('[Cloudinary/scan] resolve failed: %s', e?.message);
+    }
+  }
 
   let savedReportId = null;
   if (!skipPersist) {
@@ -931,7 +1003,8 @@ async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, skipP
           variety:         farmCtx.variety || null,
           fieldArea:       farmCtx.landSize || null,
           symptoms:        Array.isArray(farmCtx.symptoms) ? farmCtx.symptoms : [],
-          imageCount:      1,
+          imageCount:      imageUrls.length || 1,
+          imageUrls,
           overallRisk:     riskScore,
           riskLevel,
           primaryDisease:  flat.disease || 'Unknown',

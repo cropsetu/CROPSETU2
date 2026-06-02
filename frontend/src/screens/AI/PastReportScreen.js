@@ -306,6 +306,21 @@ export default function PastReportScreen({ navigation, route }) {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+        {/* Scanned-image strip — the photos that powered this diagnosis.
+            Populated when the scan was uploaded via the JSON multi-image
+            path; older scans (pre-Cloudinary) skip this block silently. */}
+        {Array.isArray(row.imageUrls) && row.imageUrls.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={S.imageStrip}
+          >
+            {row.imageUrls.map((url, i) => (
+              <Image key={url + i} source={{ uri: url }} style={S.imageThumb} resizeMode="cover" />
+            ))}
+          </ScrollView>
+        )}
+
         {/* Hero */}
         <View style={S.hero}>
           <View style={S.heroTop}>
@@ -435,6 +450,10 @@ const S = StyleSheet.create({
   backBtn:     { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.18)' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: COLORS.white },
   headerSub:   { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 1 },
+
+  // Scanned-image strip (Cloudinary-hosted)
+  imageStrip: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
+  imageThumb:  { width: 140, height: 140, borderRadius: 12, backgroundColor: COLORS.surface },
 
   hero: {
     margin: 16, padding: 16,

@@ -12,7 +12,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Pressable, ScrollView,
   TextInput, Dimensions, Animated, Easing, StatusBar, Image,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -36,6 +36,26 @@ import IrrigationIcon from '../../components/IrrigationIcons';
 const { width: W } = Dimensions.get('window');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+// Visual metadata for soil tiles — gradient backgrounds match Farm-Setup look.
+// Keys mirror SOIL_TYPES in FarmContext (lowercase).
+const SOIL_TILE_BG = {
+  black:    ['#3E3631', '#1A1512'],
+  red:      ['#C45A3C', '#8B3626'],
+  alluvial: ['#D4A76A', '#B8935A'],
+  sandy:    ['#E8D5A3', '#C9B07A'],
+  clay:     ['#8B7D6B', '#6B5D4B'],
+  laterite: ['#CD7F32', '#A0522D'],
+};
+
+// Visual metadata for irrigation chips — colour + tinted bg.
+const IRR_TILE_THEME = {
+  drip:      { color: '#2196F3', bg: '#E3F2FD' },
+  sprinkler: { color: '#00BCD4', bg: '#E0F7FA' },
+  flood:     { color: '#4CAF50', bg: '#E8F5E9' },
+  rainfed:   { color: '#FF9800', bg: '#FFF3E0' },
+  canal:     { color: '#3F51B5', bg: '#E8EAF6' },
+};
 
 // Keys only — labels resolved via t() at render time
 const SYMPTOM_KEYS = [
@@ -71,6 +91,50 @@ const ANALYSIS_STEP_KEYS = [
   'analysisStep0', 'analysisStep1', 'analysisStep2',
   'analysisStep3', 'analysisStep4', 'analysisStep5',
 ];
+
+// ── Animation / timing constants ──────────────────────────────────────────────
+// Extracted from inline magic numbers so step pacing + animation feel can be
+// tuned in one place. Values are absolute delays from analysis start (ms).
+const ANALYSIS_STEP_DELAYS_MS = [800, 2000, 4000, 5500, 6700];
+const STEP_TRANSITION_OUT_MS  = 180;
+const STEP_TRANSITION_IN_MS   = 280;
+const CHIP_PRESS_DAMPING      = 15;
+const CHIP_PRESS_STIFFNESS    = 200;
+const CARD_FADE_IN_MS         = 380;
+
+// ── Crop key → icon label ────────────────────────────────────────────────────
+// COMMON_CROP_KEYS (lowercase) drives the UI; COMMON_CROPS (Capitalised) is
+// what CropIcon expects. Deriving the icon label from the key — instead of
+// indexing the second array by position — removes a silent-mismatch hazard
+// if the two arrays ever drift in length or order.
+function cropIconLabel(key) {
+  if (!key) return '';
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+// Dev-time sanity check: warn loudly if the two arrays drift apart so the
+// hazard isn't silent. (Stripped from prod by Metro's __DEV__ guard.)
+if (typeof __DEV__ !== 'undefined' && __DEV__) {
+  if (COMMON_CROPS.length !== COMMON_CROP_KEYS.length) {
+    console.warn('[CropScan] COMMON_CROPS and COMMON_CROP_KEYS length mismatch — UI labels may not align with icons');
+  }
+}
+
+// ── Permission-denied alert helper ────────────────────────────────────────────
+// Shared by camera + gallery flows. When a permission was permanently denied
+// (e.g. user tapped "Don't allow" twice on Android), re-requesting from
+// ImagePicker silently fails — the user must open OS Settings. Offer that
+// path directly so the flow isn't a dead-end.
+function showPermissionAlert({ title, message, onOpenSettings }) {
+  Alert.alert(
+    title,
+    message,
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Open Settings', onPress: onOpenSettings || (() => Linking.openSettings()) },
+    ],
+    { cancelable: true },
+  );
+}
 
 function getCurrentSeason() {
   const m = new Date().getMonth() + 1;
@@ -120,7 +184,7 @@ function SectionLabel({ children }) {
 /** Chip/button with spring press scale effect */
 function AnimChip({ chipStyle, onPress, children }) {
   const scale = useRef(new Animated.Value(1)).current;
-  const onIn  = () => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, damping: 15, stiffness: 200 }).start();
+  const onIn  = () => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, damping: CHIP_PRESS_DAMPING, stiffness: CHIP_PRESS_STIFFNESS }).start();
   const onOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, damping: 12, stiffness: 120 }).start();
   return (
     <Pressable onPress={onPress} onPressIn={onIn} onPressOut={onOut}>
@@ -134,7 +198,7 @@ function AnimChip({ chipStyle, onPress, children }) {
 /** Full-width gradient action button with spring press */
 function GradientBtn({ onPress, disabled, colors = [COLORS.greenBright, COLORS.greenLive], style, children }) {
   const scale = useRef(new Animated.Value(1)).current;
-  const onIn  = () => !disabled && Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, damping: 15, stiffness: 200 }).start();
+  const onIn  = () => !disabled && Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, damping: CHIP_PRESS_DAMPING, stiffness: CHIP_PRESS_STIFFNESS }).start();
   const onOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 12, stiffness: 120 }).start();
   return (
     <Pressable onPress={disabled ? null : onPress} onPressIn={onIn} onPressOut={onOut}>
@@ -156,7 +220,7 @@ function AnimCard({ delay = 0, children, style }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(anim, {
-      toValue: 1, duration: 380, delay,
+      toValue: 1, duration: CARD_FADE_IN_MS, delay,
       useNativeDriver: true,
       easing: Easing.out(Easing.cubic),
     }).start();
@@ -200,21 +264,43 @@ export default function CropScanScreen({ navigation }) {
   const [affectedArea,     setAffectedArea]     = useState('');
   const [additionalText,   setAdditionalText]   = useState('');
 
-  // ── Step 3: Photo
-  const [imageUri,      setImageUri]      = useState(null);
-  const [imageMimeType, setImageMimeType] = useState(null);
+  // ── Step 3: Photos (up to 5 — backend sends all to the FastAPI pipeline)
+  const MAX_IMAGES = 5;
+  const [imageUris,      setImageUris]      = useState([]);
+  const [imageMimeTypes, setImageMimeTypes] = useState([]);
+  // Legacy single-image aliases kept so the rest of the file (preview img,
+  // diagnosis-result nav param) keeps working without sprawling edits.
+  const imageUri      = imageUris[0] || null;
+  const imageMimeType = imageMimeTypes[0] || null;
 
   // ── Step 4: Analysis
   const [analysisStep, setAnalysisStep]   = useState(0);
   const [analysisError, setAnalysisError] = useState(null);
   const analysisAnim = useRef(new Animated.Value(0)).current;
 
-  // Animate step transitions
+  // Animate step transitions (durations driven by STEP_TRANSITION_* constants)
   const goToStep = useCallback((n) => {
-    Animated.timing(stepAnim, { toValue: 0, duration: 180, useNativeDriver: true }).start(() => {
+    Animated.timing(stepAnim, { toValue: 0, duration: STEP_TRANSITION_OUT_MS, useNativeDriver: true }).start(() => {
       setStep(n);
-      Animated.timing(stepAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+      Animated.timing(stepAnim, { toValue: 1, duration: STEP_TRANSITION_IN_MS, useNativeDriver: true }).start();
     });
+  }, []);
+
+  // ── Refs for cleanup + double-tap guards ────────────────────────────────
+  // analysisTimersRef: holds pending setTimeout IDs so we can cancel them
+  //   if the user backs out of step 4 mid-analysis. Also used to know
+  //   whether we're still mounted before calling navigation.replace().
+  // isPickingImageRef: prevents a second picker from launching while one
+  //   is already on-screen (rapid double-tap on camera/gallery buttons).
+  const analysisTimersRef = useRef([]);
+  const isMountedRef       = useRef(true);
+  const isPickingImageRef  = useRef(false);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      analysisTimersRef.current.forEach(id => clearTimeout(id));
+      analysisTimersRef.current = [];
+    };
   }, []);
 
   useEffect(() => {
@@ -230,27 +316,85 @@ export default function CropScanScreen({ navigation }) {
   const step2Valid = selectedSymptoms.size > 0 || additionalText.trim().length > 0;
 
   // ── Step 3: image picker
-  const pickFromGallery = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') { Alert.alert(t('cropScan.galleryPermission')); return; }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: 'images', quality: 0.85, allowsEditing: true, aspect: [4, 3],
+  // Both pickers share an in-flight guard (`isPickingImageRef`) so a rapid
+  // double-tap can't launch two pickers at once. Permission failures show a
+  // proper title + body alert with an "Open Settings" action — since on
+  // Android once a user permanently denies a permission, the in-app request
+  // is silently rejected and the only recovery path is OS Settings.
+  const requestPermissionOrPrompt = async (requestFn, settingsTitle, settingsMessage) => {
+    const { status, canAskAgain } = await requestFn();
+    if (status === 'granted') return true;
+    // If we can still ask again, just bail silently (user said "no this time")
+    // and only nag with the Settings path if it's permanently denied.
+    showPermissionAlert({
+      title: settingsTitle,
+      message: canAskAgain
+        ? settingsMessage
+        : `${settingsMessage}\n\nThis permission is currently blocked. Tap "Open Settings" to enable it.`,
     });
-    if (!res.canceled && res.assets?.[0]) {
-      setImageUri(res.assets[0].uri);
-      setImageMimeType(res.assets[0].mimeType || null);
+    return false;
+  };
+
+  // How many image slots are still free.
+  const remainingSlots = () => MAX_IMAGES - imageUris.length;
+
+  // Append assets to the image arrays, capped at MAX_IMAGES.
+  const appendImages = (assets) => {
+    const slots = remainingSlots();
+    if (slots <= 0) return;
+    const next = assets.slice(0, slots);
+    setImageUris(prev      => [...prev, ...next.map(a => a.uri)]);
+    setImageMimeTypes(prev => [...prev, ...next.map(a => a.mimeType || null)]);
+  };
+
+  const removeImageAt = (idx) => {
+    setImageUris(prev      => prev.filter((_, i) => i !== idx));
+    setImageMimeTypes(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const pickFromGallery = async () => {
+    if (isPickingImageRef.current) return;          // guard rapid double-tap
+    if (remainingSlots() <= 0) return;
+    isPickingImageRef.current = true;
+    try {
+      const ok = await requestPermissionOrPrompt(
+        ImagePicker.requestMediaLibraryPermissionsAsync,
+        t('cropScan.galleryPermissionTitle', 'Photos access needed'),
+        t('cropScan.galleryPermission', 'CropSetu needs access to your photos to scan a crop image.'),
+      );
+      if (!ok) return;
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: 'images', quality: 0.85,
+        allowsMultipleSelection: true,
+        selectionLimit: remainingSlots(),
+      });
+      if (!res.canceled && res.assets?.length) {
+        appendImages(res.assets);
+      }
+    } finally {
+      isPickingImageRef.current = false;
     }
   };
 
   const pickFromCamera = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert(t('cropScan.cameraPermission')); return; }
-    const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: 'images', quality: 0.85, allowsEditing: true, aspect: [4, 3],
-    });
-    if (!res.canceled && res.assets?.[0]) {
-      setImageUri(res.assets[0].uri);
-      setImageMimeType(res.assets[0].mimeType || null);
+    if (isPickingImageRef.current) return;          // guard rapid double-tap
+    if (remainingSlots() <= 0) return;
+    isPickingImageRef.current = true;
+    try {
+      const ok = await requestPermissionOrPrompt(
+        ImagePicker.requestCameraPermissionsAsync,
+        t('cropScan.cameraPermissionTitle', 'Camera access needed'),
+        t('cropScan.cameraPermission', 'CropSetu needs camera access to take a crop photo.'),
+      );
+      if (!ok) return;
+      const res = await ImagePicker.launchCameraAsync({
+        mediaTypes: 'images', quality: 0.85, allowsEditing: true, aspect: [4, 3],
+      });
+      if (!res.canceled && res.assets?.[0]) {
+        appendImages([res.assets[0]]);
+      }
+    } finally {
+      isPickingImageRef.current = false;
     }
   };
 
@@ -286,15 +430,20 @@ export default function CropScanScreen({ navigation }) {
       additionalSymptoms: additionalText.trim(),
     };
 
-    // Animate through steps
+    // Animate through steps. Delays are absolute (ms from start) — see
+    // ANALYSIS_STEP_DELAYS_MS at the top of the file. The previous code had
+    // a dead [800, 1200, 2000, 1500, 1200] array that was mapped over but
+    // never used; its values were misleading because the actual delay
+    // schedule lived in the inner [800, 2000, 4000, 5500, 6700] array.
     let stepIdx = 0;
     const advance = () => {
       stepIdx++;
-      if (stepIdx < ANALYSIS_STEP_KEYS.length) setAnalysisStep(stepIdx);
+      if (isMountedRef.current && stepIdx < ANALYSIS_STEP_KEYS.length) {
+        setAnalysisStep(stepIdx);
+      }
     };
-    const timers = [800, 1200, 2000, 1500, 1200].map((ms, i) =>
-      setTimeout(() => advance(), [800, 2000, 4000, 5500, 6700][i])
-    );
+    const timers = ANALYSIS_STEP_DELAYS_MS.map(ms => setTimeout(advance, ms));
+    analysisTimersRef.current = timers;
 
     // Build symptom labels for farm context (with translated labels)
     const symptomChipsForCtx = SYMPTOM_KEYS.map(s => ({ key: s.key, label: t(`cropScan.${s.tKey}`) }));
@@ -305,11 +454,21 @@ export default function CropScanScreen({ navigation }) {
     farmCtx.firstNoticed = WHEN_KEYS.find(o => o.key === firstNoticed) ? t(`cropScan.${WHEN_KEYS.find(o => o.key === firstNoticed).tKey}`) : '';
     farmCtx.affectedArea = AREA_KEYS.find(o => o.key === affectedArea) ? t(`cropScan.${AREA_KEYS.find(o => o.key === affectedArea).tLabel}`) : '';
 
+    // Helper to clear all step-advance timers (cancellation point used on
+    // success, error, and unmount). Centralised so we never leak timers.
+    const clearStepTimers = () => {
+      analysisTimersRef.current.forEach(id => clearTimeout(id));
+      analysisTimersRef.current = [];
+    };
+
     try {
       SoundEffects.scan();
       farmCtx.language = language;
-      const diagnosis = await scanCropImage(imageUri, farmCtx, imageMimeType);
-      timers.forEach(timer => clearTimeout(timer));
+      const diagnosis = await scanCropImage(imageUris, farmCtx, imageMimeTypes);
+      clearStepTimers();
+      // Bail out if the user has navigated away while we awaited the network
+      // call — prevents state-update-on-unmounted warnings + redundant nav.
+      if (!isMountedRef.current) return;
       setAnalysisStep(ANALYSIS_STEP_KEYS.length - 1);
 
       if (diagnosis.error) {
@@ -323,7 +482,8 @@ export default function CropScanScreen({ navigation }) {
       Haptics.success();
       SoundEffects.success();
 
-      setTimeout(() => {
+      const navTimer = setTimeout(() => {
+        if (!isMountedRef.current) return;        // user backed out — abort nav
         try {
           navigation.replace('DiagnosisResult', { diagnosis, farmContext: farmCtx, imageUri });
         } catch (navErr) {
@@ -331,8 +491,10 @@ export default function CropScanScreen({ navigation }) {
           setAnalysisError('Navigation failed: ' + navErr?.message);
         }
       }, 800);
+      analysisTimersRef.current.push(navTimer);
     } catch (err) {
-      timers.forEach(timer => clearTimeout(timer));
+      clearStepTimers();
+      if (!isMountedRef.current) return;
       // Show full error detail on-screen so it's visible without USB/adb
       const debugDetail = `${err?.message || 'unknown'} | status=${err?.response?.status ?? err?.status ?? 'none'}`;
       console.error('[Scan] error:', debugDetail);
@@ -364,6 +526,9 @@ export default function CropScanScreen({ navigation }) {
         <TouchableOpacity
           onPress={() => step > 1 && step < 4 ? goToStep(step - 1) : navigation.goBack()}
           style={SC.backBtn}
+          accessibilityRole="button"
+          accessibilityLabel={t('cropScan.back', 'Back')}
+          hitSlop={8}
         >
           <Ionicons name="chevron-back" size={22} color={COLORS.greenBright} />
         </TouchableOpacity>
@@ -376,6 +541,8 @@ export default function CropScanScreen({ navigation }) {
             onPress={() => navigation.navigate('ScanHistory')}
             style={SC.historyBtn}
             activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={t('scanHistory.cta', 'History')}
           >
             <Ionicons name="time-outline" size={14} color={COLORS.primary} />
             <Text style={SC.historyBtnText}>{t('scanHistory.cta', 'History')}</Text>
@@ -405,33 +572,47 @@ export default function CropScanScreen({ navigation }) {
                 onEdit={() => navigation.navigate('Account')}
               />
 
-              {/* Crop selection */}
+              {/* Crop selection — 4-column grid, all crops visible */}
               <AnimCard delay={0}>
               <SectionLabel>{t('cropScan.whichCrop')}</SectionLabel>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={SC.chipRow}>
+              <View style={SC.cropGrid}>
                 {COMMON_CROP_KEYS.map((k, i) => {
                   const active = !showCustomCrop && selectedCrop === k;
                   return (
-                    <AnimChip
+                    <TouchableOpacity
                       key={k}
-                      chipStyle={[SC.cropChip, active && SC.cropChipActive]}
+                      style={[SC.cropTile, active && SC.cropTileSel]}
                       onPress={() => { setSelectedCrop(k); setShowCustomCrop(false); }}
+                      activeOpacity={0.8}
                     >
-                      <View style={SC.cropChipIcon}>
-                        <CropIcon crop={COMMON_CROPS[i]} size={28} />
-                      </View>
-                      <Text style={[SC.cropChipText, active && SC.chipTextActive]}>{t('crops.' + k)}</Text>
-                    </AnimChip>
+                      {/* Use the lowercase key directly via cropIconLabel
+                          so we never depend on COMMON_CROPS[i] alignment. */}
+                      <CropIcon crop={cropIconLabel(k)} size={32} />
+                      <Text style={[SC.cropTileLabel, active && SC.cropTileLabelSel]} numberOfLines={1}>
+                        {t('crops.' + k)}
+                      </Text>
+                      {active && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={14}
+                          color={COLORS.primary}
+                          style={SC.cropTileCheck}
+                        />
+                      )}
+                    </TouchableOpacity>
                   );
                 })}
-                <AnimChip
-                  chipStyle={[SC.chip, showCustomCrop && SC.chipActive]}
+                <TouchableOpacity
+                  style={[SC.cropTile, showCustomCrop && SC.cropTileSel]}
                   onPress={() => { setShowCustomCrop(true); setSelectedCrop(''); }}
+                  activeOpacity={0.8}
                 >
-                  <Ionicons name="add" size={14} color={showCustomCrop ? COLORS.white : COLORS.gray550} />
-                  <Text style={[SC.chipText, showCustomCrop && SC.chipTextActive]}>{t('cropScan.other')}</Text>
-                </AnimChip>
-              </ScrollView>
+                  <Ionicons name="add-circle-outline" size={28} color={showCustomCrop ? COLORS.primary : COLORS.textMedium} />
+                  <Text style={[SC.cropTileLabel, showCustomCrop && SC.cropTileLabelSel]} numberOfLines={1}>
+                    {t('cropScan.other')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
               </AnimCard>
               {showCustomCrop && (
                 <TextInput
@@ -458,44 +639,73 @@ export default function CropScanScreen({ navigation }) {
                 <Text style={SC.inputUnit}>{t('cropScan.days')}</Text>
               </View>
 
-              {/* Soil type */}
+              {/* Soil type — gradient square grid (6 across) */}
               <AnimCard delay={80}>
               <SectionLabel>{t('cropScan.soilTypeLabel')}</SectionLabel>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={SC.chipRow}>
+              <View style={SC.soilGrid}>
                 {SOIL_TYPES.map(s => {
                   const active = soilType === s.key;
+                  const bg = SOIL_TILE_BG[s.key] || ['#9E9E9E', '#757575'];
                   return (
-                    <AnimChip
+                    <TouchableOpacity
                       key={s.key}
-                      chipStyle={[SC.cropChip, active && SC.cropChipActive]}
+                      style={SC.soilCard}
                       onPress={() => setSoilType(active ? '' : s.key)}
+                      activeOpacity={0.8}
                     >
-                      <View style={SC.chipThumb}><SoilIcon type={s.key} size={28} /></View>
-                      <Text style={[SC.cropChipText, active && SC.chipTextActive]} numberOfLines={1}>{t(s.tKey)}</Text>
-                    </AnimChip>
+                      <LinearGradient
+                        colors={bg}
+                        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                        style={[SC.soilSquare, active && SC.soilSquareSel]}
+                      >
+                        <SoilIcon type={s.key} size={28} />
+                        {active && (
+                          <View style={SC.soilCheck}>
+                            <Ionicons name="checkmark" size={10} color="#FFF" />
+                          </View>
+                        )}
+                      </LinearGradient>
+                      <Text style={[SC.soilLabel, active && SC.soilLabelSel]} numberOfLines={2}>
+                        {t(s.tKey)}
+                      </Text>
+                    </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </View>
               </AnimCard>
 
-              {/* Irrigation */}
+              {/* Irrigation — 3-per-row tile cards */}
               <AnimCard delay={140}>
               <SectionLabel>{t('cropScan.irrigationLabel')}</SectionLabel>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={SC.chipRow}>
+              <View style={SC.irrGrid}>
                 {IRRIGATION_TYPES.map(ir => {
                   const active = irrigation === ir.key;
+                  const theme = IRR_TILE_THEME[ir.key] || { color: COLORS.primary, bg: COLORS.greenTint };
                   return (
-                    <AnimChip
+                    <TouchableOpacity
                       key={ir.key}
-                      chipStyle={[SC.cropChip, active && SC.cropChipActive]}
+                      style={[
+                        SC.irrTile,
+                        active && { borderColor: theme.color, backgroundColor: theme.bg },
+                      ]}
                       onPress={() => setIrrigation(active ? '' : ir.key)}
+                      activeOpacity={0.8}
                     >
-                      <View style={SC.chipThumb}><IrrigationIcon type={ir.key} size={28} /></View>
-                      <Text style={[SC.cropChipText, active && SC.chipTextActive]} numberOfLines={1}>{t(ir.tKey)}</Text>
-                    </AnimChip>
+                      <View style={[SC.irrTileIcon, { backgroundColor: theme.bg }]}>
+                        <IrrigationIcon type={ir.key} size={38} />
+                      </View>
+                      <Text style={[SC.irrTileLabel, active && { color: theme.color, fontWeight: '800' }]} numberOfLines={2}>
+                        {t(ir.tKey)}
+                      </Text>
+                      {active && (
+                        <View style={[SC.irrTileCheck, { backgroundColor: theme.color }]}>
+                          <Ionicons name="checkmark" size={10} color="#FFF" />
+                        </View>
+                      )}
+                    </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </View>
               </AnimCard>
 
               {/* Previous crop */}
@@ -520,11 +730,11 @@ export default function CropScanScreen({ navigation }) {
                 </View>
               )}
 
-              <View style={{ height: 120 }} />
+              <View style={{ height: 16 }} />
             </ScrollView>
 
             {/* Next button */}
-            <View style={[SC.footer, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={[SC.footer, { paddingBottom: insets.bottom > 0 ? insets.bottom : 6 }]}>
               <GradientBtn
                 onPress={() => goToStep(2)}
                 disabled={!step1Valid}
@@ -575,15 +785,16 @@ export default function CropScanScreen({ navigation }) {
               <SectionLabel>{t('cropScan.whenNoticed')}</SectionLabel>
               <View style={SC.optionRow}>
                 {WHEN_KEYS.map(o => (
-                  <AnimChip
+                  <TouchableOpacity
                     key={o.key}
-                    chipStyle={[SC.optionBtn, firstNoticed === o.key && SC.optionBtnActive]}
+                    style={[SC.optionBtn, firstNoticed === o.key && SC.optionBtnActive]}
                     onPress={() => setFirstNoticed(firstNoticed === o.key ? '' : o.key)}
+                    activeOpacity={0.8}
                   >
-                    <Text style={[SC.optionBtnText, firstNoticed === o.key && SC.optionBtnTextActive]}>
+                    <Text style={[SC.optionBtnText, firstNoticed === o.key && SC.optionBtnTextActive]} numberOfLines={2}>
                       {t(`cropScan.${o.tKey}`)}
                     </Text>
-                  </AnimChip>
+                  </TouchableOpacity>
                 ))}
               </View>
               </AnimCard>
@@ -593,10 +804,11 @@ export default function CropScanScreen({ navigation }) {
               <SectionLabel>{t('cropScan.affectedAreaLabel')}</SectionLabel>
               <View style={SC.areaRow}>
                 {AREA_KEYS.map(o => (
-                  <AnimChip
+                  <TouchableOpacity
                     key={o.key}
-                    chipStyle={[SC.areaBtn, affectedArea === o.key && SC.areaBtnActive]}
+                    style={[SC.areaBtn, affectedArea === o.key && SC.areaBtnActive]}
                     onPress={() => setAffectedArea(affectedArea === o.key ? '' : o.key)}
+                    activeOpacity={0.8}
                   >
                     <Text style={[SC.areaBtnPct, affectedArea === o.key && SC.areaBtnPctActive]}>
                       {t(`cropScan.${o.tLabel}`)}
@@ -604,7 +816,7 @@ export default function CropScanScreen({ navigation }) {
                     <Text style={[SC.areaBtnDesc, affectedArea === o.key && { color: COLORS.greenBright }]}>
                       {t(`cropScan.${o.tDesc}`)}
                     </Text>
-                  </AnimChip>
+                  </TouchableOpacity>
                 ))}
               </View>
               </AnimCard>
@@ -620,10 +832,10 @@ export default function CropScanScreen({ navigation }) {
                 onChangeText={setAdditionalText}
               />
 
-              <View style={{ height: 120 }} />
+              <View style={{ height: 16 }} />
             </ScrollView>
 
-            <View style={[SC.footer, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={[SC.footer, { paddingBottom: insets.bottom > 0 ? insets.bottom : 6 }]}>
               <GradientBtn
                 onPress={() => goToStep(3)}
                 disabled={!step2Valid}
@@ -638,6 +850,7 @@ export default function CropScanScreen({ navigation }) {
 
         {/* ══════════ STEP 3: Photo ══════════ */}
         {step === 3 && (
+          <View style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={SC.scrollContent} showsVerticalScrollIndicator={false}>
 
             {/* Photo tip */}
@@ -652,20 +865,22 @@ export default function CropScanScreen({ navigation }) {
               </View>
             </View>
 
-            {/* Photo preview */}
-            {imageUri ? (
+            {/* Photo preview — show the first picked image at full width.
+                When no images yet, fall back to the camera + gallery picker
+                cards so the empty state remains as recognisable as before. */}
+            {imageUris.length > 0 ? (
               <View style={SC.previewWrap}>
-                <Image source={{ uri: imageUri }} style={SC.previewImg} resizeMode="cover" />
+                <Image source={{ uri: imageUris[0] }} style={SC.previewImg} resizeMode="cover" />
                 <View style={SC.previewOverlay}>
                   <View style={SC.previewBadge}>
                     <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} />
-                    <Text style={SC.previewBadgeText}>{t('cropScan.photoSelected')}</Text>
+                    <Text style={SC.previewBadgeText}>
+                      {imageUris.length === 1
+                        ? t('cropScan.photoSelected')
+                        : t('cropScan.photosSelected', { count: imageUris.length, defaultValue: '{{count}} photos selected' })}
+                    </Text>
                   </View>
                 </View>
-                <TouchableOpacity style={SC.changePhotoBtn} onPress={() => setImageUri(null)}>
-                  <Ionicons name="refresh" size={14} color={COLORS.amberDark} />
-                  <Text style={SC.changePhotoBtnText}>{t('cropScan.changePhoto')}</Text>
-                </TouchableOpacity>
               </View>
             ) : (
               <View style={SC.photoPickerWrap}>
@@ -685,6 +900,57 @@ export default function CropScanScreen({ navigation }) {
                   <Text style={SC.photoPickerSub}>{t('cropScan.chooseGallerySub')}</Text>
                 </TouchableOpacity>
               </View>
+            )}
+
+            {/* Thumbnail strip — shows all picked photos + Add tiles up to
+                MAX_IMAGES. Each thumb has an × to remove it. Adding more
+                images strengthens the diagnosis (multiple angles / lighting). */}
+            {imageUris.length > 0 && (
+              <>
+                <View style={SC.thumbGrid}>
+                  {imageUris.map((uri, i) => (
+                    <View key={uri + i} style={SC.thumbSlot}>
+                      <Image source={{ uri }} style={SC.thumbImg} resizeMode="cover" />
+                      <TouchableOpacity
+                        style={SC.thumbRemove}
+                        onPress={() => removeImageAt(i)}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('cropScan.removePhoto', 'Remove photo')}
+                      >
+                        <Ionicons name="close" size={12} color={COLORS.white} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  {imageUris.length < MAX_IMAGES && (
+                    <>
+                      <TouchableOpacity
+                        style={[SC.thumbSlot, SC.thumbSlotEmpty]}
+                        onPress={pickFromCamera}
+                        activeOpacity={0.85}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('cropScan.takePhoto')}
+                      >
+                        <Ionicons name="camera" size={22} color={COLORS.primary} />
+                        <Text style={SC.thumbSlotLabel} numberOfLines={1}>{t('cropScan.takePhoto')}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[SC.thumbSlot, SC.thumbSlotEmpty]}
+                        onPress={pickFromGallery}
+                        activeOpacity={0.85}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('cropScan.chooseGallery')}
+                      >
+                        <Ionicons name="images" size={22} color={COLORS.blue} />
+                        <Text style={SC.thumbSlotLabel} numberOfLines={1}>{t('cropScan.chooseGallery')}</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+                <Text style={SC.thumbHint}>
+                  {imageUris.length}/{MAX_IMAGES} · {t('cropScan.multiPhotoHint', 'More photos = better diagnosis')}
+                </Text>
+              </>
             )}
 
             {/* Crop summary */}
@@ -725,22 +991,25 @@ export default function CropScanScreen({ navigation }) {
               )}
             </View>
 
-            <View style={{ height: 120 }} />
-
-            {/* Analyse button */}
-            <View style={[SC.footer, { paddingBottom: insets.bottom + 16 }]}>
-              <GradientBtn
-                onPress={startAnalysis}
-                disabled={!imageUri}
-                colors={[COLORS.lushGreen, COLORS.greenBright, COLORS.greenLive]}
-              >
-                <Ionicons name="hardware-chip" size={18} color={COLORS.white} />
-                <Text style={SC.nextBtnText}>
-                  {imageUri ? t('cropScan.runDiagnosis') : t('cropScan.selectPhotoFirst')}
-                </Text>
-              </GradientBtn>
-            </View>
+            {/* Breathing room so SCAN SUMMARY doesn't sit flush against the
+                sticky footer border. */}
+            <View style={{ height: 20 }} />
           </ScrollView>
+
+          {/* Analyse button — sticky bottom (consistent with steps 1 + 2) */}
+          <View style={[SC.footer, { paddingBottom: insets.bottom > 0 ? insets.bottom : 6 }]}>
+            <GradientBtn
+              onPress={startAnalysis}
+              disabled={imageUris.length === 0}
+              colors={[COLORS.greenBright, COLORS.greenLive]}
+            >
+              <Ionicons name="hardware-chip" size={18} color={COLORS.white} />
+              <Text style={SC.nextBtnText}>
+                {imageUris.length > 0 ? t('cropScan.runDiagnosis') : t('cropScan.selectPhotoFirst')}
+              </Text>
+            </GradientBtn>
+          </View>
+          </View>
         )}
 
         {/* ══════════ STEP 4: Analysing ══════════ */}
@@ -816,7 +1085,17 @@ export default function CropScanScreen({ navigation }) {
                   })}
                 </View>
 
-                <Text style={SC.analysisNote}>{t('cropScan.analysisNote')}</Text>
+                {/* Honest timing hint — multi-image scans take longer
+                    because the vision model has more pixels to reason
+                    over. Set expectations so the wait feels reasonable. */}
+                <Text style={SC.analysisNote}>
+                  {imageUris.length > 1
+                    ? t('cropScan.analysisNoteMulti', {
+                        count: imageUris.length,
+                        defaultValue: 'Analysing {{count}} photos — usually 2–4 minutes for a multi-angle diagnosis',
+                      })
+                    : t('cropScan.analysisNote')}
+                </Text>
               </>
             ) : (
               <View style={SC.errorBox}>
@@ -848,7 +1127,8 @@ const SC = StyleSheet.create({
     paddingHorizontal: 16, paddingBottom: 12,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
-  backBtn:     { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  // A11y: 44dp tappable surface (chevron remains 22px but hitSlop + box hits the target).
+  backBtn:     { width: 44, height: 44, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginLeft: -8 },
   headerTitle: { fontSize: 16, fontWeight: '800', color: COLORS.slate800 },
   headerSub:   { fontSize: 11, color: COLORS.textMedium, marginTop: 2 },
   historyBtn:  { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: COLORS.primary + '12', marginRight: 8 },
@@ -886,6 +1166,68 @@ const SC = StyleSheet.create({
     fontSize: 13, fontWeight: '800', color: COLORS.gray700dark,
     letterSpacing: 0.6, textTransform: 'uppercase',
     marginBottom: 10, marginTop: 20,
+  },
+
+  // Crop tile grid — 4 columns, copies OnboardingProfileScreen pattern
+  cropGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  cropTile: {
+    width: '23%',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    paddingVertical: 12, paddingHorizontal: 6,
+    alignItems: 'center',
+    borderWidth: 1.5, borderColor: '#E8E8E8',
+    position: 'relative',
+    gap: 6,
+  },
+  cropTileSel: { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '0C' },
+  cropTileLabel: { fontSize: 11, color: '#444', textAlign: 'center', fontWeight: '600' },
+  cropTileLabelSel: { color: COLORS.primary, fontWeight: '800' },
+  cropTileCheck: { position: 'absolute', top: 4, right: 4 },
+
+  // Soil tile grid — gradient squares
+  soilGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  soilCard: { width: '14.5%', alignItems: 'center' },
+  soilSquare: {
+    width: '100%', aspectRatio: 1, borderRadius: 12,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: 'transparent',
+    overflow: 'hidden',
+  },
+  soilSquareSel: {
+    borderColor: '#FFF',
+    elevation: 4,
+    shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.35, shadowRadius: 4,
+  },
+  soilCheck: {
+    position: 'absolute', top: 3, right: 3,
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  soilLabel: { fontSize: 10, color: '#666', marginTop: 4, textAlign: 'center', fontWeight: '600' },
+  soilLabelSel: { color: COLORS.primary, fontWeight: '800' },
+
+  // Irrigation tile grid — 3 per row, card style with stacked icon + label
+  irrGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  irrTile: {
+    flexBasis: '31.5%', flexGrow: 1,
+    paddingVertical: 14, paddingHorizontal: 8,
+    borderRadius: 14,
+    borderWidth: 1.5, borderColor: '#E8E8E8',
+    backgroundColor: '#FAFAFA',
+    alignItems: 'center', gap: 8,
+    position: 'relative',
+  },
+  irrTileIcon: {
+    width: 56, height: 56, borderRadius: 14,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  irrTileLabel: { fontSize: 11, color: '#555', fontWeight: '700', textAlign: 'center', lineHeight: 14 },
+  irrTileCheck: {
+    position: 'absolute', top: 4, right: 4,
+    width: 18, height: 18, borderRadius: 9,
+    justifyContent: 'center', alignItems: 'center',
   },
 
   // Chip row
@@ -949,24 +1291,33 @@ const SC = StyleSheet.create({
   symptomChipTextActive: { color: COLORS.white },
 
   // Option buttons (when/area)
-  optionRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  // When-noticed chips — 4 across one row, equal share of width
+  optionRow: { flexDirection: 'row', gap: 6 },
   optionBtn: {
-    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10,
+    flex: 1,
+    // minHeight ensures a ~44dp touch target even on small text/zoom settings.
+    minHeight: 44,
+    paddingVertical: 10, paddingHorizontal: 4, borderRadius: 10,
     backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border,
+    alignItems: 'center', justifyContent: 'center',
   },
   optionBtnActive:    { backgroundColor: 'rgba(22,163,74,0.1)', borderColor: COLORS.greenBright },
-  optionBtnText:      { fontSize: 12, color: COLORS.gray700dark, fontWeight: '600' },
+  optionBtnText:      { fontSize: 11, color: COLORS.gray700dark, fontWeight: '600', textAlign: 'center' },
   optionBtnTextActive:{ color: COLORS.greenBright, fontWeight: '700' },
 
-  areaRow: { flexDirection: 'row', gap: 8 },
+  // Affected area — 2x2 grid, larger tap targets
+  areaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   areaBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 12,
-    backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border,
+    width: '48%',
+    alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 14, paddingHorizontal: 10, borderRadius: 12,
+    backgroundColor: COLORS.white, borderWidth: 1.5, borderColor: COLORS.border,
+    gap: 2,
   },
-  areaBtnActive:    { backgroundColor: 'rgba(22,163,74,0.1)', borderColor: COLORS.greenBright },
-  areaBtnPct:       { fontSize: 14, fontWeight: '800', color: COLORS.gray700dark },
+  areaBtnActive:    { backgroundColor: 'rgba(22,163,74,0.08)', borderColor: COLORS.greenBright },
+  areaBtnPct:       { fontSize: 15, fontWeight: '800', color: COLORS.gray700dark },
   areaBtnPctActive: { color: COLORS.greenBright },
-  areaBtnDesc:      { fontSize: 10, color: COLORS.textMedium, marginTop: 2 },
+  areaBtnDesc:      { fontSize: 11, color: COLORS.textMedium, textAlign: 'center' },
 
   // Photo picker
   photoTipCard: {
@@ -1012,6 +1363,28 @@ const SC = StyleSheet.create({
   },
   changePhotoBtnText: { fontSize: 12, color: COLORS.amberDark, fontWeight: '700' },
 
+  // Multi-image thumbnail grid (up to MAX_IMAGES per scan)
+  thumbGrid: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6,
+  },
+  thumbSlot: {
+    // (screen width − scroll padding − gaps) ÷ 3 ≈ 1/3 of usable row
+    width: (W - 36 - 16) / 3, aspectRatio: 1, borderRadius: 12, overflow: 'hidden',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1.5, borderColor: COLORS.border,
+    justifyContent: 'center', alignItems: 'center', gap: 4,
+  },
+  thumbSlotEmpty: { borderStyle: 'dashed', borderColor: COLORS.gray350 },
+  thumbSlotLabel: { fontSize: 10, color: COLORS.textMedium, fontWeight: '700', textAlign: 'center', paddingHorizontal: 4 },
+  thumbImg:    { width: '100%', height: '100%' },
+  thumbRemove: {
+    position: 'absolute', top: 4, right: 4,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  thumbHint:   { fontSize: 11, color: COLORS.textMedium, marginTop: 8, marginLeft: 2, fontWeight: '600' },
+
   summaryCard: {
     backgroundColor: COLORS.white, borderRadius: 14, padding: 14, gap: 8,
     borderWidth: 1, borderColor: COLORS.border, marginTop: 8,
@@ -1021,21 +1394,21 @@ const SC = StyleSheet.create({
   summaryRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   summaryText:  { fontSize: 12, color: COLORS.gray700dark, flex: 1 },
 
-  // Footer / buttons
+  // Footer / buttons — sticks tight under content, consistent across devices
   footer: {
-    paddingHorizontal: 18, paddingTop: 12,
+    paddingHorizontal: 18, paddingTop: 10,
     backgroundColor: COLORS.white,
     borderTopWidth: 1, borderTopColor: COLORS.grayBorder,
   },
   nextBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: COLORS.greenBright, borderRadius: 14, paddingVertical: 16,
+    backgroundColor: COLORS.greenBright, borderRadius: 12, paddingVertical: 14,
   },
   nextBtnGradient: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    borderRadius: 14, paddingVertical: 16,
-    shadowColor: COLORS.greenBright, shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+    borderRadius: 12, paddingVertical: 14,
+    shadowColor: COLORS.greenBright, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   nextBtnDisabled: { backgroundColor: COLORS.gray175 },
   analyseBtn:      { backgroundColor: COLORS.greenBright },

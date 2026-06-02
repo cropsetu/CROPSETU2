@@ -121,6 +121,8 @@ function skipMultipart(middleware) {
 
 const API = ENV.API_PREFIX;
 app.use(`${API}/upload`, skipMultipart(express.json({ limit: '10mb' })));
+// Multi-image crop scan JSON payload (up to 5 × ~8 MB base64-encoded images).
+app.use(`${API}/ai/scan/submit`, skipMultipart(express.json({ limit: '50mb' })));
 app.use(skipMultipart(express.json({ limit: '100kb' })));
 app.use(skipMultipart(express.urlencoded({ extended: true, limit: '100kb' })));
 
