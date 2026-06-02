@@ -10,8 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location'; // reverseGeocodeAsync only
 import { useLocation } from '../../context/LocationContext';
-import { getMandiPrices, getAgriHistoricalPrices, getAgriPrediction,
-  getAgriNearbyComparison, triggerAgriSync } from '../../services/aiApi';
+import { getMandiPrices } from '../../services/aiApi';
 import { INDIA_STATES_LIST, INDIA_DISTRICTS, STATE_GPS_MAP, getDistricts } from '../../constants/indiaLocations';
 import { useLanguage } from '../../context/LanguageContext';
 import CropIcon from '../../components/CropIcons';
@@ -397,63 +396,6 @@ function SparkLine({ data, color, days, width: cw = CHART_W, height: ch = 80 }) 
   );
 }
 
-// ── MonthlyBarChart ───────────────────────────────────────────────────────────
-function MonthlyBarChart({ data, bestMonth, color = PURPLE, width: cw = CHART_W }) {
-  if (!data?.length) return null;
-  const ch       = 140;
-  const barW     = Math.max(20, Math.floor((cw - 16) / data.length) - 4);
-  const maxPrice = Math.max(...data.map(d => d.maxPrice || d.avgPrice));
-  const minPrice = Math.min(...data.map(d => d.minPrice || d.avgPrice));
-  const range    = maxPrice - minPrice || 1;
-  const barMaxH  = ch - 44;
-
-  return (
-    <View style={{ width: cw }}>
-      {[0.25, 0.5, 0.75, 1].map((p, i) => (
-        <View key={i} style={{
-          position: 'absolute', left: 40, right: 0,
-          top: p * barMaxH, height: 1,
-          backgroundColor: 'rgba(0,0,0,0.05)',
-        }} />
-      ))}
-      {[0, 0.5, 1].map((p, i) => (
-        <Text key={i} style={{
-          position: 'absolute', left: 0, top: p * barMaxH - 8,
-          fontSize: 8, color: COLORS.textMedium, width: 36, textAlign: 'right',
-        }}>₹{((maxPrice - p * range) / 1000).toFixed(1)}k</Text>
-      ))}
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: ch, paddingLeft: 40, gap: 3 }}>
-        {data.map((d, i) => {
-          const avgPct  = (d.avgPrice - minPrice) / range;
-          const highPct = ((d.maxPrice || d.avgPrice) - minPrice) / range;
-          const lowPct  = ((d.minPrice || d.avgPrice) - minPrice) / range;
-          const isBest  = d.month === bestMonth;
-          const barH    = Math.max(12, Math.round(avgPct * barMaxH));
-          const rangeH  = Math.max(4, Math.round((highPct - lowPct) * barMaxH));
-          const rangeY  = barMaxH - Math.round(highPct * barMaxH);
-          return (
-            <View key={i} style={{ alignItems: 'center', width: barW }}>
-              <View style={{ position: 'absolute', top: rangeY, width: 2, height: rangeH, backgroundColor: isBest ? color : 'rgba(0,0,0,0.1)', borderRadius: 1 }} />
-              <View style={{ width: barW - 2, height: barH, backgroundColor: isBest ? color : `${color}35`, borderRadius: 4, alignSelf: 'center', marginBottom: 4 }} />
-              <Text style={{ fontSize: 8, color: isBest ? color : COLORS.textMedium, fontWeight: isBest ? '800' : '500', textAlign: 'center' }}>
-                {d.month?.split(' ')[0]}
-              </Text>
-              <Text style={{ fontSize: 7, color: isBest ? color : COLORS.textDisabled, textAlign: 'center' }}>
-                {(d.avgPrice / 1000).toFixed(1)}k
-              </Text>
-              {isBest && (
-                <View style={{ backgroundColor: color, borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1, marginTop: 2 }}>
-                  <Text style={{ fontSize: 6, color: COLORS.white, fontWeight: '800' }}>BEST</Text>
-                </View>
-              )}
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
 // ── StatPill ──────────────────────────────────────────────────────────────────
 function StatPill({ label, value, color }) {
   return (
@@ -492,15 +434,6 @@ export default function MarketScreen({ navigation }) {
   const [mandiStale, setMandiStale]     = useState(false);
   const [mandiUpdatedAt, setMandiUpdatedAt] = useState(null);
 
-  // ── Historical + Claude prediction ──
-  const [agriHistorical, setAgriHistorical]   = useState(null);
-  const [agriPrediction, setAgriPrediction]   = useState(null);
-  const [agriNearby, setAgriNearby]           = useState(null);
-  const [agriLoadingHist, setAgriLoadingHist] = useState(false);
-  const [agriLoadingPred, setAgriLoadingPred] = useState(false);
-  const [agriError, setAgriError]             = useState(null);
-  const [agriSyncMsg, setAgriSyncMsg]         = useState(null);
-
   const contentAnim = useRef(new Animated.Value(0)).current;
 
   // ── On mount: auto-detect location from global GPS context ──
@@ -518,10 +451,16 @@ export default function MarketScreen({ navigation }) {
             const rawDistrict = place.subregion || place.city || '';
             const mappedState = STATE_GPS_MAP[rawState.trim()] || rawState.trim() || 'Maharashtra';
             const supportedState = INDIA_STATES_LIST.includes(mappedState) ? mappedState : 'Maharashtra';
+            // Expo returns subregion as e.g. "Pune Division" / "Mumbai City District".
+            // data.gov.in and our static district list use the bare name ("Pune").
+            // Strip the administrative-tier suffix and only keep it if it matches a known district.
+            const stripped = rawDistrict.replace(/\s+(Division|District|Taluka|Tehsil|Mandal)\s*$/i, '').trim();
+            const supportedDistricts = getDistricts(supportedState);
+            const matchedDistrict = supportedDistricts.find(d => d.toLowerCase() === stripped.toLowerCase()) || '';
             setSelectedState(supportedState);
-            setSelectedDistrict(rawDistrict);
-            setDetectedCity(place.city || rawDistrict || null);
-            loadMandiPrices(DEFAULT_CROP, supportedState, rawDistrict);
+            setSelectedDistrict(matchedDistrict);
+            setDetectedCity(place.city || stripped || null);
+            loadMandiPrices(DEFAULT_CROP, supportedState, matchedDistrict);
             return;
           }
         }
@@ -551,8 +490,6 @@ export default function MarketScreen({ navigation }) {
       setMandiUpdatedAt(result?.fetchedAt || result?.cachedAt || null);
       contentAnim.setValue(0);
       Animated.timing(contentAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
-      // Auto-load prediction + history whenever prices refresh
-      loadAgriPredict(crop, state, district || '');
     } catch (err) {
       if (err?.response?.status === 404) {
         // No data for this combination — show the "no mandi data" empty state, not an error banner
@@ -565,53 +502,10 @@ export default function MarketScreen({ navigation }) {
     }
   };
 
-  // ── Load historical data + Claude prediction ──────────────────────────────
-  const loadAgriPredict = async (crop = selectedCrop, state = selectedState, district = selectedDistrict) => {
-    setAgriError(null);
-    setAgriSyncMsg(null);
-    setAgriHistorical(null);
-    setAgriPrediction(null);
-    setAgriNearby(null);
-
-    setAgriLoadingHist(true);
-    getAgriHistoricalPrices(crop, state, district || null)
-      .then(d => setAgriHistorical(d))
-      .catch((err) => {
-        if (err?.response?.status === 404) {
-          setAgriSyncMsg(`No historical data yet for ${crop} in ${state}. Syncing now — check back in a minute.`);
-          triggerAgriSync(crop, state, district || null).catch(() => {});
-        }
-        // Other errors: stay silent — prediction result and error msg handle display
-      })
-      .finally(() => setAgriLoadingHist(false));
-
-    setAgriLoadingPred(true);
-    getAgriPrediction(crop, state, district || '')
-      .then(d => {
-        setAgriPrediction(d);
-        getAgriNearbyComparison(crop, state, district || '')
-          .then(n => setAgriNearby(n))
-          .catch(() => {});
-      })
-      .catch((err) => {
-        const status = err?.response?.status;
-        if (status === 404) {
-          setAgriError(`No price data available for ${crop} in ${state}. Try a major agricultural state like Maharashtra, Punjab, or UP.`);
-        } else if (status !== undefined) {
-          setAgriError('Price prediction unavailable. Please try again.');
-        }
-        // Network errors (no status) — stay silent, mandi prices are still shown
-      })
-      .finally(() => setAgriLoadingPred(false));
-  };
-
-  // ── Crop change: reload everything ────────────────────────────────────────
+  // ── Crop change: reload mandi prices ──────────────────────────────────────
   const handleSelectCrop = (crop) => {
     setSelectedCrop(crop);
     loadMandiPrices(crop, selectedState, selectedDistrict);
-    setAgriHistorical(null);
-    setAgriPrediction(null);
-    setAgriNearby(null);
   };
 
   // Derived stats from real mandi data
@@ -882,298 +776,56 @@ export default function MarketScreen({ navigation }) {
                 </View>
               </View>
               <View style={M.mandiCard}>
-                {mandiPrices.slice(0, 8).map((item, i, arr) => (
-                  <View key={i}>
-                    <View style={[M.mandiRow, i === 0 && M.mandiRowTop]}>
-                      <View style={M.mandiLeft}>
-                        <View style={M.mandiNameRow}>
-                          <Text style={M.mandiName} numberOfLines={1}>{item.market || item.mandi}</Text>
-                          {i === 0 && (
-                            <View style={M.mandiNearestBadge}>
-                              <Text style={M.mandiNearestText}>Highest</Text>
-                            </View>
+                {mandiPrices.map((item, i, arr) => {
+                  const rawDate = item.arrivalDate || item.priceDate;
+                  const reportDate = rawDate ? new Date(rawDate) : null;
+                  const ageDays = reportDate
+                    ? Math.floor((Date.now() - reportDate.getTime()) / (24 * 60 * 60 * 1000))
+                    : null;
+                  const isStaleRow = ageDays != null && ageDays >= 1;
+                  let dateLabel = null;
+                  if (reportDate) {
+                    const dayMonth = reportDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+                    if (ageDays <= 0)      dateLabel = dayMonth;
+                    else if (ageDays === 1) dateLabel = `Yesterday · ${dayMonth}`;
+                    else                    dateLabel = `${ageDays} days ago · ${dayMonth}`;
+                  }
+                  return (
+                    <View key={i}>
+                      <View style={[M.mandiRow, i === 0 && M.mandiRowTop]}>
+                        <View style={M.mandiLeft}>
+                          <View style={M.mandiNameRow}>
+                            <Text style={M.mandiName} numberOfLines={1}>{item.market || item.mandi}</Text>
+                            {i === 0 && (
+                              <View style={M.mandiNearestBadge}>
+                                <Text style={M.mandiNearestText}>Highest</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={M.mandiDist}>{item.district}{item.state ? `, ${item.state}` : ''}</Text>
+                          {dateLabel ? (
+                            <Text style={[M.mandiDist, { marginTop: 1 }, isStaleRow && { color: COLORS.textMedium, fontStyle: 'italic' }]}>
+                              {dateLabel}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <View style={M.mandiRight}>
+                          <Text style={[M.mandiPrice, isStaleRow && { color: COLORS.textMedium }]}>
+                            ₹{(item.modalPrice || item.price)?.toLocaleString()}
+                          </Text>
+                          {item.minPrice != null && item.maxPrice != null && (
+                            <Text style={M.mandiRange}>
+                              ₹{item.minPrice?.toLocaleString()} – ₹{item.maxPrice?.toLocaleString()}
+                            </Text>
                           )}
                         </View>
-                        <Text style={M.mandiDist}>{item.district}{item.state ? `, ${item.state}` : ''}</Text>
-                        {item.arrivalDate ? (
-                          <Text style={[M.mandiDist, { marginTop: 1 }]}>
-                            {new Date(item.arrivalDate || item.priceDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                          </Text>
-                        ) : null}
                       </View>
-                      <View style={M.mandiRight}>
-                        <Text style={M.mandiPrice}>₹{(item.modalPrice || item.price)?.toLocaleString()}</Text>
-                        {item.minPrice != null && item.maxPrice != null && (
-                          <Text style={M.mandiRange}>
-                            ₹{item.minPrice?.toLocaleString()} – ₹{item.maxPrice?.toLocaleString()}
-                          </Text>
-                        )}
-                      </View>
+                      {i < arr.length - 1 && <View style={M.mandiDiv} />}
                     </View>
-                    {i < Math.min(arr.length, 8) - 1 && <View style={M.mandiDiv} />}
-                  </View>
-                ))}
+                  );
+                })}
               </View>
-              {mandiPrices.length > 8 && (
-                <Text style={M.updatedAt}>+ {mandiPrices.length - 8} more mandis</Text>
-              )}
-              {/* Reporting note — shows when district has few results */}
-              {mandiPrices.length > 0 && mandiPrices.length <= 4 && (
-                <View style={M.reportingNote}>
-                  <Ionicons name="information-circle-outline" size={13} color={COLORS.textMedium} />
-                  <Text style={M.reportingNoteTxt}>
-                    Only {mandiPrices.length} mandi{mandiPrices.length > 1 ? 's' : ''} reported prices for {selectedCrop} in this area today.
-                    Try selecting the full state (no district) for more results.
-                  </Text>
-                </View>
-              )}
             </AnimCard>
-
-            {/* ── AgriPredict: Historical + Claude prediction ── */}
-            <AnimCard delay={120} style={M.section}>
-              <View style={M.sectionHeader}>
-                <View style={[M.cardDot, { backgroundColor: PURPLE }]} />
-                <Text style={M.cardTitle}>Price Prediction</Text>
-                <View style={M.aiBadge}>
-                  <Ionicons name="hardware-chip-outline" size={9} color={PURPLE} />
-                  <Text style={M.aiBadgeText}>Claude AI</Text>
-                </View>
-              </View>
-
-              {/* Not yet loaded → prompt */}
-              {!agriHistorical && !agriPrediction && !agriLoadingHist && !agriLoadingPred && !agriError && !agriSyncMsg && (
-                <Pressable
-                  style={({ pressed }) => [M.predictPromptBtn, pressed && { opacity: 0.88 }]}
-                  onPress={() => loadAgriPredict()}
-                >
-                  <Ionicons name="analytics-outline" size={18} color={PURPLE} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={M.predictPromptTitle}>Get AI Price Prediction</Text>
-                    <Text style={M.predictPromptSub}>
-                      5-year historical analysis + Claude AI forecast{selectedDistrict ? ` for ${selectedDistrict}` : ''}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={PURPLE} />
-                </Pressable>
-              )}
-
-              {/* Sync message */}
-              {agriSyncMsg ? (
-                <View style={M.agriSyncMsg}>
-                  <Ionicons name="sync-outline" size={13} color={COLORS.skyBright} />
-                  <Text style={M.agriSyncMsgText}>{agriSyncMsg}</Text>
-                </View>
-              ) : null}
-
-              {/* Error */}
-              {agriError ? (
-                <View style={M.agriErrorBox}>
-                  <Ionicons name="warning-outline" size={13} color={COLORS.error} />
-                  <Text style={M.agriErrorText}>{agriError}</Text>
-                </View>
-              ) : null}
-
-              {/* Loading historical */}
-              {agriLoadingHist && (
-                <View style={M.agriLoadingRow}>
-                  <ActivityIndicator color={COLORS.skyBright} size="small" />
-                  <Text style={M.agriLoadingTxt}>Loading 5-year historical data…</Text>
-                </View>
-              )}
-
-              {/* Historical summary stats */}
-              {agriHistorical?.summary && (
-                <View style={M.agriSummaryRow}>
-                  <View style={M.agriSummaryItem}>
-                    <Text style={M.agriSummaryLabel}>Current Avg</Text>
-                    <Text style={M.agriSummaryVal}>
-                      {agriHistorical.summary.currentPrice ? `₹${agriHistorical.summary.currentPrice.toLocaleString()}` : '—'}
-                    </Text>
-                  </View>
-                  <View style={M.agriSummaryDiv} />
-                  <View style={M.agriSummaryItem}>
-                    <Text style={M.agriSummaryLabel}>30-day Avg</Text>
-                    <Text style={M.agriSummaryVal}>
-                      {agriHistorical.summary.avg30d ? `₹${agriHistorical.summary.avg30d.toLocaleString()}` : '—'}
-                    </Text>
-                  </View>
-                  <View style={M.agriSummaryDiv} />
-                  <View style={M.agriSummaryItem}>
-                    <Text style={M.agriSummaryLabel}>YoY</Text>
-                    <Text style={[M.agriSummaryVal, {
-                      color: (agriHistorical.summary.yoyChangePct || 0) > 0 ? COLORS.primary
-                        : (agriHistorical.summary.yoyChangePct || 0) < 0 ? RED : SLATE,
-                    }]}>
-                      {agriHistorical.summary.yoyChangePct != null
-                        ? `${agriHistorical.summary.yoyChangePct > 0 ? '+' : ''}${agriHistorical.summary.yoyChangePct}%`
-                        : '—'}
-                    </Text>
-                  </View>
-                  <View style={M.agriSummaryDiv} />
-                  <View style={M.agriSummaryItem}>
-                    <Text style={M.agriSummaryLabel}>Records</Text>
-                    <Text style={M.agriSummaryVal}>{(agriHistorical.summary.dataPoints || 0).toLocaleString()}</Text>
-                  </View>
-                </View>
-              )}
-
-              {/* 12-month historical bar chart */}
-              {agriHistorical?.monthlySummary?.length > 0 && (() => {
-                const last12 = agriHistorical.monthlySummary.slice(-12).map(r => ({
-                  month:    new Date(r.month + '-01').toLocaleString('en-IN', { month: 'short' }),
-                  avgPrice: r.avgModalPrice,
-                  minPrice: r.minPrice,
-                  maxPrice: r.maxPrice,
-                }));
-                const best = last12.reduce((b, r) => r.avgPrice > (b?.avgPrice || 0) ? r : b, null);
-                return (
-                  <View style={M.agriChartWrap}>
-                    <Text style={M.agriChartTitle}>12-Month Historical · ₹/quintal (real data)</Text>
-                    <MonthlyBarChart
-                      data={last12}
-                      bestMonth={best?.month}
-                      color={PURPLE}
-                      width={W - CARD_MARGIN * 2 - 32}
-                    />
-                  </View>
-                );
-              })()}
-
-              {/* Loading Claude prediction */}
-              {agriLoadingPred && (
-                <View style={M.agriLoadingRow}>
-                  <ActivityIndicator color={PURPLE} size="small" />
-                  <Text style={M.agriLoadingTxt}>Claude AI is generating next-month prediction…</Text>
-                </View>
-              )}
-
-              {/* Claude prediction result */}
-              {agriPrediction?.prediction && (() => {
-                const pred  = agriPrediction.prediction;
-                const range = pred.predicted_price_range;
-                const tUp   = pred.trend === 'up';
-                const tDown = pred.trend === 'down';
-                const tc    = tUp ? COLORS.primary : tDown ? RED : AMBER;
-                const confColor = pred.confidence === 'high' ? COLORS.primary
-                  : pred.confidence === 'medium' ? AMBER : COLORS.textMedium;
-                return (
-                  <View style={M.agriPredBox}>
-                    {/* Cache indicator */}
-                    <View style={M.agriCachePill}>
-                      <Ionicons
-                        name={agriPrediction.cached ? 'checkmark-circle' : 'hardware-chip-outline'}
-                        size={10}
-                        color={agriPrediction.cached ? COLORS.primary : PURPLE}
-                      />
-                      <Text style={[M.agriCacheText, { color: agriPrediction.cached ? COLORS.primary : PURPLE }]}>
-                        {agriPrediction.cached
-                          ? `Cached · expires ${new Date(agriPrediction.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-                          : 'Fresh Claude prediction · cached for this month'}
-                      </Text>
-                    </View>
-
-                    {/* Price range */}
-                    {range && (
-                      <View style={M.agriRangeRow}>
-                        <View style={M.agriRangeItem}>
-                          <Text style={M.agriRangeLabel}>Expected</Text>
-                          <Text style={[M.agriRangeVal, { color: tc }]}>₹{range.expected?.toLocaleString()}</Text>
-                        </View>
-                        <View style={M.agriSummaryDiv} />
-                        <View style={M.agriRangeItem}>
-                          <Text style={M.agriRangeLabel}>Min</Text>
-                          <Text style={M.agriRangeVal}>₹{range.min?.toLocaleString()}</Text>
-                        </View>
-                        <View style={M.agriSummaryDiv} />
-                        <View style={M.agriRangeItem}>
-                          <Text style={M.agriRangeLabel}>Max</Text>
-                          <Text style={M.agriRangeVal}>₹{range.max?.toLocaleString()}</Text>
-                        </View>
-                        <View style={M.agriSummaryDiv} />
-                        <View style={[M.agriConfBadge, {
-                          backgroundColor: `${confColor}15`, borderColor: `${confColor}40`,
-                        }]}>
-                          <Text style={[M.agriConfText, { color: confColor }]}>
-                            {(pred.confidence || 'med').toUpperCase()}
-                          </Text>
-                          <Text style={[M.agriConfSub, { color: confColor }]}>CONF</Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {/* Trend */}
-                    <View style={M.agriTrendRow}>
-                      <Ionicons
-                        name={tUp ? 'trending-up' : tDown ? 'trending-down' : 'remove'}
-                        size={16} color={tc}
-                      />
-                      <Text style={[M.agriTrendText, { color: tc }]}>
-                        {tUp ? 'Rising' : tDown ? 'Falling' : 'Stable'}
-                        {pred.trend_percentage ? `  ·  ${pred.trend_percentage > 0 ? '+' : ''}${pred.trend_percentage}%` : ''}
-                      </Text>
-                    </View>
-
-                    {/* Seasonal insight */}
-                    {pred.seasonal_insight ? (
-                      <View style={M.agriInsightBox}>
-                        <Ionicons name="sunny-outline" size={12} color={AMBER} />
-                        <Text style={M.agriInsightText}>{pred.seasonal_insight}</Text>
-                      </View>
-                    ) : null}
-
-                    {/* Market comparison */}
-                    {pred.market_comparison ? (
-                      <View style={[M.agriInsightBox, { backgroundColor: COLORS.skyBg, borderColor: COLORS.skyBorder }]}>
-                        <Ionicons name="swap-horizontal-outline" size={12} color={COLORS.skyBright} />
-                        <Text style={[M.agriInsightText, { color: COLORS.skyDeep }]}>{pred.market_comparison}</Text>
-                      </View>
-                    ) : null}
-
-                    {/* Key factors */}
-                    {Array.isArray(pred.key_factors) && pred.key_factors.length > 0 && (
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                        {pred.key_factors.map((f, i) => (
-                          <View key={i} style={M.agriFactorChip}>
-                            <Text style={M.agriFactorText}>{f}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-
-                    {/* Farmer recommendation */}
-                    {pred.recommendation ? (
-                      <View style={M.agriRecoBox}>
-                        <Ionicons name="bulb-outline" size={13} color={COLORS.primary} />
-                        <Text style={M.agriRecoText}>{pred.recommendation}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                );
-              })()}
-
-              {/* Nearby market comparison */}
-              {agriNearby?.nearbyMarkets?.length > 0 && (
-                <View style={M.agriNearbyWrap}>
-                  <Text style={M.agriNearbyTitle}>Nearby District Prices (30-day avg)</Text>
-                  {agriNearby.nearbyMarkets.map((m, i) => (
-                    <View key={i} style={[M.agriNearbyRow, i < agriNearby.nearbyMarkets.length - 1 && M.agriNearbyRowBorder]}>
-                      <Text style={M.agriNearbyDistrict} numberOfLines={1}>{m.district}</Text>
-                      <Text style={M.agriNearbyPrice}>₹{(m.currentAvg || 0).toLocaleString()}</Text>
-                      <View style={[M.agriNearbyTrend, {
-                        backgroundColor: m.trend === 'up' ? COLORS.greenMint : m.trend === 'down' ? COLORS.blushPink : COLORS.slate50,
-                      }]}>
-                        <Ionicons
-                          name={m.trend === 'up' ? 'trending-up' : m.trend === 'down' ? 'trending-down' : 'remove'}
-                          size={10}
-                          color={m.trend === 'up' ? COLORS.primary : m.trend === 'down' ? RED : COLORS.textMedium}
-                        />
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </AnimCard>
-
           </Animated.View>
         )}
 

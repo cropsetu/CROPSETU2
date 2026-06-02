@@ -37,15 +37,13 @@ const QUICK_SERVICES = [
 ];
 
 // ── AI Tools (2-col grid) ────────────────────────────────────────────────────
-// Order: 1. Crop scan  2. AI Chat  3. Voice chat  4. Price prediction  5. My Farms
 const AI_TOOLS = [
   { id: 'disease', labelKey: 'aiHome.tools.disease.label', descKey: 'aiHome.tools.disease.desc', icon: 'scan', color: GREEN, bg: COLORS.greenTint, screen: 'CropScan', badge: 'AI' },
   { id: 'chatSupport', labelKey: 'aiHome.tools.chatSupport.label', descKey: 'aiHome.tools.chatSupport.desc', icon: 'chatbubbles', color: COLORS.blue, bg: COLORS.blueMist, screen: 'AIChat', badge: 'LIVE' },
   { id: 'voiceChat', labelKey: 'aiHome.tools.voiceChat.label', descKey: 'aiHome.tools.voiceChat.desc', icon: 'mic', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'VoiceChat', badge: 'NEW' },
-  { id: 'price', labelKey: 'aiHome.tools.price.label', descKey: 'aiHome.tools.price.desc', icon: 'analytics', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market' },
   { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', icon: 'leaf', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmList' },
   { id: 'soil', labelKey: 'aiHome.tools.soil.label', descKey: 'aiHome.tools.soil.desc', icon: 'flask', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'SoilHealth' },
-  { id: 'pest', labelKey: 'aiHome.tools.pest.label', descKey: 'aiHome.tools.pest.desc', icon: 'bug', color: COLORS.crimsonAlt, bg: COLORS.errorLight, screen: 'PestAlerts' },
+  { id: 'mandi', labelKey: 'aiHome.tools.mandi.label', descKey: 'aiHome.tools.mandi.desc', icon: 'storefront', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market' },
 ];
 
 // ── ServiceBtn ────────────────────────────────────────────────────────────────
@@ -210,6 +208,34 @@ export default function AIAssistantHome({ navigation, embeddedInHub }) {
           {AI_TOOLS.map((tool, i) => (
             <AIToolCard key={tool.id} tool={tool} index={i} navigation={navigation} t={t} />
           ))}
+        </View>
+
+        {/* ── History row (per-service) ───────────────────────────────────── */}
+        <View style={S.historyRow}>
+          <TouchableOpacity
+            style={S.historyChip}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('AIChat', { showHistory: true })}
+          >
+            <Ionicons name="chatbubbles-outline" size={16} color={COLORS.blue} />
+            <Text style={S.historyChipTxt}>{t('aiHome.history.chat', 'Chat history')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={S.historyChip}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('VoiceHistory')}
+          >
+            <Ionicons name="mic-outline" size={16} color={COLORS.rustOrange} />
+            <Text style={S.historyChipTxt}>{t('aiHome.history.voice', 'Voice history')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={S.historyChip}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('ScanHistory')}
+          >
+            <Ionicons name="leaf-outline" size={16} color={COLORS.primary} />
+            <Text style={S.historyChipTxt}>{t('aiHome.history.scan', 'Scan history')}</Text>
+          </TouchableOpacity>
         </View>
 
         {/* ── AI Credits card ─────────────────────────────────────────────── */}
@@ -449,6 +475,21 @@ const S = StyleSheet.create({
   toolTitle:  { fontSize: 13.5, fontWeight: TYPE.weight.black, color: COLORS.textDark, marginBottom: 5, lineHeight: 18 },
   toolDesc:   { fontSize: 11.5, color: COLORS.textMedium, lineHeight: 16 },
   toolArrow:  { position: 'absolute', bottom: 12, right: 12 },
+
+  // History row — separate per-service entry points
+  historyRow: {
+    flexDirection: 'row', gap: 8,
+    marginHorizontal: 20, marginTop: 14, marginBottom: 4,
+  },
+  historyChip: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 5, paddingVertical: 9, paddingHorizontal: 8,
+    borderRadius: 12, backgroundColor: COLORS.surface,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  historyChipTxt: {
+    fontSize: 11, fontWeight: '700', color: COLORS.textDark,
+  },
 
   // AI Credits card
   creditCard: {

@@ -137,14 +137,6 @@ STAGE_TIER_CHAINS: dict[Stage, dict[Tier, list[str]]] = {
         "fast": ["llama-3.3-70b-versatile", "gemini-2.5-flash", "claude-haiku-4-5-20251001"],
         "best": ["gemini-2.5-pro", "claude-sonnet-4-6", "llama-3.3-70b-versatile"],
     },
-    # ── KisanRakshak pest prediction enhancement ──────────────────────────
-    # Used by services/pest_agent_service.py to enhance ICAR rule-based
-    # pest forecasts with AI-generated context. Level 1 uses fast tier,
-    # Level 2 deep analysis uses best tier.
-    "pest": {
-        "fast": ["llama-3.3-70b-versatile", "gemini-2.5-flash", "claude-haiku-4-5-20251001"],
-        "best": ["claude-sonnet-4-6", "llama-3.3-70b-versatile", "gemini-2.5-flash"],
-    },
 }
 
 # Stage → capability that any chain entry MUST satisfy, else it is skipped.

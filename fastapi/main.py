@@ -45,7 +45,6 @@ from routes.scan            import router as scan_router
 from routes.feedback        import router as feedback_router
 from routes.alerts          import router as alerts_router
 from routes.agripredict     import router as agripredict_router
-from routes.pest_prediction import router as pest_prediction_router
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +167,6 @@ app.include_router(scan_router)             # POST /ai/scan  +  GET /ai/scan/{jo
 app.include_router(feedback_router)         # POST /ai/scan/{report_id}/feedback
 app.include_router(alerts_router)           # POST /ai/alerts
 app.include_router(agripredict_router)      # /agripredict/*
-app.include_router(pest_prediction_router)  # /pest/predict  +  /pest/detect-image
 
 # ── Health ────────────────────────────────────────────────────────────────────
 

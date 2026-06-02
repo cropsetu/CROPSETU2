@@ -39,8 +39,8 @@ router.get('/prices', authenticate, async (req, res) => {
     return sendError(res, `No mandi data found for ${commodity} in ${district ? `${district}, ` : ''}${state}. Try a different commodity or state.`, 404);
   }
 
-  // Sort by highest modal price first (farmer wants best market)
-  data.sort((a, b) => b.modalPrice - a.modalPrice);
+  // Service already sorts: freshest priceDate first, then highest modal price.
+  // Don't re-sort here — that would bury small mandis whose reports are older.
 
   const sourceLabel = source === 'db-seeded'
     ? 'Cached (pre-seeded DB)'

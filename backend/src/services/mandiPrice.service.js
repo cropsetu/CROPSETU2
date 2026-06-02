@@ -73,6 +73,24 @@ async function logHealth(status, endpoint, responseTimeMs, errorMessage = null, 
   }).catch(e => console.warn('[MandiPrice] Health log write failed: %s', e.message));
 }
 
+// ── Parse data.gov.in's DD/MM/YYYY arrival_date ──────────────────────────────
+// data.gov.in returns dates in Indian format "01/06/2026" (1 June 2026).
+// JS's `new Date("01/06/2026")` interprets it as Jan 6 (American MM/DD/YYYY)
+// — wrong by months. Parse the parts explicitly.
+function parseArrivalDate(raw) {
+  if (!raw) return new Date();
+  // Common formats: "DD/MM/YYYY", "DD-MM-YYYY", or already-ISO "YYYY-MM-DD".
+  const ddmm = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/;
+  const m = String(raw).match(ddmm);
+  if (m) {
+    const [, dd, mm, yyyy] = m;
+    return new Date(Date.UTC(+yyyy, +mm - 1, +dd));
+  }
+  // Fallback: trust the input (ISO format or already-parsed Date).
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? new Date() : d;
+}
+
 // ── Fetch one page from data.gov.in ──────────────────────────────────────────
 async function _fetchPage(commodity, state, offset = 0) {
   if (!ENV.DATA_GOV_API_KEY) throw new Error('DATA_GOV_API_KEY not configured');
@@ -104,7 +122,7 @@ async function _fetchPage(commodity, state, offset = 0) {
     maxPrice:    parseFloat(r.max_price   || r.MaxPrice   || 0),
     modalPrice:  parseFloat(r.modal_price || r.ModalPrice || 0),
     arrivalQty:  parseFloat(r.arrival_qty || r.ArrivalQty || 0) || null,
-    priceDate:   r.arrival_date ? new Date(r.arrival_date) : new Date(),
+    priceDate:   parseArrivalDate(r.arrival_date),
     source:      'data.gov.in',
     fetchedAt:   new Date(),
     expiresAt:   new Date(Date.now() + CACHE_TTL_MS),
@@ -173,6 +191,30 @@ async function queryDB(commodity, state, district, withinDays = 90) {
   return rows;
 }
 
+// ── Merge today's live rows with last-7-day DB rows ──────────────────────────
+// Small mandis report weekly, not daily, so today's data.gov.in response
+// usually misses them. Surface them by merging with DB rows from the past
+// week. Dedupe by (market name + district) — same physical mandi may appear
+// in both sets — and keep the freshest priceDate per mandi. Sort newest
+// reports first, then by highest modal price.
+function mergeAndDedupe(todays, historical) {
+  const byMandi = new Map();
+  const keyOf = r => `${(r.market || '').toLowerCase().trim()}|${(r.district || '').toLowerCase().trim()}`;
+  for (const r of [...todays, ...historical]) {
+    if (!r?.market) continue;
+    const k = keyOf(r);
+    const existing = byMandi.get(k);
+    if (!existing || new Date(r.priceDate) > new Date(existing.priceDate)) {
+      byMandi.set(k, r);
+    }
+  }
+  return [...byMandi.values()].sort((a, b) => {
+    const dt = new Date(b.priceDate) - new Date(a.priceDate);
+    if (dt !== 0) return dt;
+    return (b.modalPrice || 0) - (a.modalPrice || 0);
+  });
+}
+
 // ── Main: get prices ───────────────────────────────────────────────────────────
 // Strategy:
 //   1. DB cache check — but only trust it if we have ENOUGH records (≥8 for
@@ -220,12 +262,21 @@ export async function getMandiPrices(commodity, state, district = null) {
           : allState;
 
         // If district filter gave nothing fall back to full state list
-        const data = (result.length > 0) ? result : allState;
+        const todaysRows = (result.length > 0) ? result : allState;
+
+        // ── Merge with last 7 days from DB to surface small mandis that
+        //    report weekly (not daily). Dedupe by market name, keeping the
+        //    freshest row per mandi. data.gov.in's "Current Daily Price"
+        //    only contains today's submissions; small mandis disappear from
+        //    it on the days they don't report. The DB has been silently
+        //    accumulating historical rows via persistToDB on every fetch.
+        const historicalRows = await queryDB(commodity, state, district, 7).catch(() => []);
+        const data = mergeAndDedupe(todaysRows, historicalRows);
 
         memSet(key, data);
-        return { data, stale: false, source: 'data.gov.in',
+        return { data, stale: false, source: 'data.gov.in+db-7d',
           fetchedAt: new Date().toISOString(),
-          total: allState.length,
+          total: data.length,
           districtFiltered: district ? result.length : null };
       }
     } catch (err) {

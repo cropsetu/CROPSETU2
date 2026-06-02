@@ -1,29 +1,21 @@
 /**
- * ScanHistoryScreen — paginated list of the farmer's past AI crop diagnoses.
+ * VoiceHistoryScreen — list of the farmer's past voice chats.
  *
- * Backend: GET /api/v1/crop-disease/reports
- * Tap a row → navigate back to DiagnosisResult populated from the saved row.
+ * Backend: GET /api/v1/ai/voice/conversations
+ * Tap a row → opens the existing VoiceChat screen pre-loaded with the transcript.
  */
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  RefreshControl, ActivityIndicator, SafeAreaView,
+  RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SHADOWS, RADIUS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
-import api, { safeErrorMessage } from '../../services/api';
-
-const RISK_COLOR = {
-  CRITICAL: COLORS.error,
-  HIGH:     COLORS.error,
-  MODERATE: COLORS.amberDark,
-  MEDIUM:   COLORS.amberDark,
-  LOW:      COLORS.primary,
-  UNKNOWN:  COLORS.textMedium,
-};
+import { getVoiceConversations, deleteVoiceConversation } from '../../services/aiApi';
+import { safeErrorMessage } from '../../services/api';
 
 function formatDate(iso) {
   if (!iso) return '';
@@ -31,7 +23,7 @@ function formatDate(iso) {
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export default function ScanHistoryScreen({ navigation }) {
+export default function VoiceHistoryScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { t } = useLanguage();
   const [items, setItems]       = useState([]);
@@ -42,10 +34,10 @@ export default function ScanHistoryScreen({ navigation }) {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await api.get('/crop-disease/reports?limit=50');
-      setItems(res.data.data || []);
+      const rows = await getVoiceConversations();
+      setItems(rows);
     } catch (e) {
-      setError(safeErrorMessage(e, t('scanHistory.loadFailed', 'Could not load past scans.')));
+      setError(safeErrorMessage(e, t('voiceHistory.loadFailed', 'Could not load voice chats.')));
     }
   }, [t]);
 
@@ -58,31 +50,37 @@ export default function ScanHistoryScreen({ navigation }) {
     setRefresh(false);
   };
 
-  const openReport = (item) => {
-    // PastReportScreen fetches the full report itself and handles both raw and
-    // flat fullReport shapes — no client-side mapping required at this layer.
-    navigation.navigate('PastReport', { reportId: item.id });
+  const openConversation = (item) => {
+    navigation.navigate('VoiceChat', { conversationId: item.id });
+  };
+
+  const onDelete = async (id) => {
+    try {
+      await deleteVoiceConversation(id);
+      setItems(items.filter(x => x.id !== id));
+    } catch (e) {
+      setError(safeErrorMessage(e, t('voiceHistory.deleteFailed', 'Could not delete.')));
+    }
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={S.center}>
+      <View style={S.center}>
         <ActivityIndicator size="large" color={COLORS.primary} />
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
     <View style={S.safe}>
-      {/* Header */}
       <View style={[S.header, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={S.backBtn}>
           <Ionicons name="chevron-back" size={22} color={COLORS.white} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={S.headerTitle}>{t('scanHistory.title', 'Past Crop Scans')}</Text>
+          <Text style={S.headerTitle}>{t('voiceHistory.title', 'Voice Chat History')}</Text>
           <Text style={S.headerSub}>
-            {t('scanHistory.subtitle', { count: items.length, defaultValue: '{{count}} reports' })}
+            {items.length} {items.length === 1 ? 'chat' : 'chats'}
           </Text>
         </View>
       </View>
@@ -97,9 +95,9 @@ export default function ScanHistoryScreen({ navigation }) {
         </View>
       ) : items.length === 0 ? (
         <View style={S.empty}>
-          <Ionicons name="leaf-outline" size={48} color={COLORS.gray175} />
-          <Text style={S.emptyTitle}>{t('scanHistory.emptyTitle', 'No past scans')}</Text>
-          <Text style={S.emptyText}>{t('scanHistory.emptyText', 'Your AI crop diagnoses will appear here.')}</Text>
+          <Ionicons name="mic-outline" size={48} color={COLORS.gray175} />
+          <Text style={S.emptyTitle}>{t('voiceHistory.emptyTitle', 'No voice chats yet')}</Text>
+          <Text style={S.emptyText}>{t('voiceHistory.emptyText', 'Your voice conversations will appear here.')}</Text>
         </View>
       ) : (
         <FlatList
@@ -107,35 +105,31 @@ export default function ScanHistoryScreen({ navigation }) {
           keyExtractor={(it) => it.id}
           contentContainerStyle={{ padding: 16 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
-          renderItem={({ item }) => {
-            const riskCol = RISK_COLOR[item.riskLevel] || RISK_COLOR.UNKNOWN;
-            return (
-              <TouchableOpacity
-                style={S.card}
-                onPress={() => openReport(item)}
-                activeOpacity={0.85}
-              >
-                <View style={[S.riskBar, { backgroundColor: riskCol }]} />
-                <View style={{ flex: 1, padding: 12 }}>
-                  <View style={S.rowTop}>
-                    <Text style={S.disease} numberOfLines={1}>{item.primaryDisease || t('scanHistory.unknown', 'Unknown')}</Text>
-                    <Ionicons name="chevron-forward" size={18} color={COLORS.textLight} />
-                  </View>
-                  <Text style={S.crop} numberOfLines={1}>
-                    {item.cropType}{item.growthStage ? ` · ${item.growthStage}` : ''}{item.variety ? ` · ${item.variety}` : ''}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={S.card}
+              onPress={() => openConversation(item)}
+              activeOpacity={0.85}
+            >
+              <View style={S.iconCircle}>
+                <Ionicons name="mic" size={20} color={COLORS.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={S.title} numberOfLines={1}>
+                  {item.title || t('voiceHistory.untitled', 'Voice chat')}
+                </Text>
+                <View style={S.rowFoot}>
+                  <Text style={S.time}>{formatDate(item.updatedAt || item.createdAt)}</Text>
+                  <Text style={S.msgCount}>
+                    {item._count?.messages ?? item.messageCount ?? 0} msgs
                   </Text>
-                  <View style={S.rowFoot}>
-                    <View style={[S.riskPill, { backgroundColor: riskCol + '15' }]}>
-                      <Text style={[S.riskTxt, { color: riskCol }]}>
-                        {item.riskLevel || 'UNKNOWN'} · {Math.round((item.confidenceScore || 0) * 100)}%
-                      </Text>
-                    </View>
-                    <Text style={S.time}>{formatDate(item.createdAt)}</Text>
-                  </View>
                 </View>
+              </View>
+              <TouchableOpacity onPress={() => onDelete(item.id)} hitSlop={12} style={S.delBtn}>
+                <Ionicons name="trash-outline" size={18} color={COLORS.textLight} />
               </TouchableOpacity>
-            );
-          }}
+            </TouchableOpacity>
+          )}
         />
       )}
     </View>
@@ -155,17 +149,20 @@ const S = StyleSheet.create({
   headerSub:   { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 1 },
 
   card: {
-    flexDirection: 'row', backgroundColor: COLORS.white, borderRadius: RADIUS.lg,
-    overflow: 'hidden', marginBottom: 10, ...SHADOWS.small,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: COLORS.white, borderRadius: RADIUS.lg,
+    padding: 12, marginBottom: 10, ...SHADOWS.small,
   },
-  riskBar:    { width: 4 },
-  rowTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
-  disease:    { flex: 1, fontSize: 15, fontWeight: '800', color: COLORS.textDark, marginRight: 8 },
-  crop:       { fontSize: 12, color: COLORS.textMedium, marginBottom: 8 },
-  rowFoot:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  riskPill:   { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  riskTxt:    { fontSize: 10, fontWeight: '800' },
-  time:       { fontSize: 11, color: COLORS.textLight },
+  iconCircle: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: COLORS.primary + '15',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  title:    { fontSize: 14, fontWeight: '700', color: COLORS.textDark, marginBottom: 4 },
+  rowFoot:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  time:     { fontSize: 11, color: COLORS.textLight },
+  msgCount: { fontSize: 11, color: COLORS.textMedium, fontWeight: '600' },
+  delBtn:   { padding: 6 },
 
   empty:      { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 10 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: COLORS.textDark, textAlign: 'center' },

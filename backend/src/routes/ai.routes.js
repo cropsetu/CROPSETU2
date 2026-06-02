@@ -482,27 +482,28 @@ router.post('/voice', authenticate, aiVoiceLimit, audioUpload.single('audio'), a
       });
     }
 
-    // ── Create/find conversation ──────────────────────────────────────────────
+    // ── Create/find voice conversation (separate from text chats) ────────────
     let farmProfile = {};
     try { farmProfile = JSON.parse(req.body.farmProfile || '{}'); } catch { /* ignore */ }
     const conversationId = req.body.conversationId || null;
 
     let convo;
     if (conversationId) {
-      convo = await prisma.aIConversation.findFirst({
+      convo = await prisma.voiceConversation.findFirst({
         where: { id: conversationId, userId: req.user.id },
       });
     }
     if (!convo) {
-      convo = await prisma.aIConversation.create({
+      convo = await prisma.voiceConversation.create({
         data: {
-          userId: req.user.id,
-          title:  `Voice: ${transcription.slice(0, 37)}${transcription.length > 37 ? '...' : ''}`,
+          userId:   req.user.id,
+          title:    transcription.slice(0, 60),
+          language: detectedLanguage || 'hi-IN',
         },
       });
     }
 
-    const history = await prisma.aIMessage.findMany({
+    const history = await prisma.voiceMessage.findMany({
       where:   { conversationId: convo.id },
       orderBy: { createdAt: 'asc' },
       take: 20,
@@ -538,16 +539,15 @@ router.post('/voice', authenticate, aiVoiceLimit, audioUpload.single('audio'), a
     const voiceTokens = voiceTokenInfo?.total_tokens || 0;
     const voiceModel  = voiceTokenInfo?.model || 'unknown';
 
-    await prisma.aIMessage.createMany({
+    await prisma.voiceMessage.createMany({
       data: [
-        { conversationId: convo.id, role: 'user',      content: transcription, messageType: 'voice',
+        { conversationId: convo.id, role: 'user',      content: transcription,
           language: detectedLanguage || 'hi-IN' },
-        { conversationId: convo.id, role: 'assistant',  content: reply,         messageType: type,
-          structuredData: structuredData ?? undefined, language: detectedLanguage || 'hi-IN',
-          tokensUsed: voiceTokens, modelUsed: voiceModel },
+        { conversationId: convo.id, role: 'assistant', content: reply,
+          language: detectedLanguage || 'hi-IN', modelUsed: voiceModel },
       ],
     });
-    await prisma.aIConversation.update({
+    await prisma.voiceConversation.update({
       where: { id: convo.id },
       data:  { updatedAt: new Date(), messageCount: { increment: 2 } },
     });
@@ -641,9 +641,17 @@ router.get('/conversations', authenticate, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '20', 10), 50);
   const page  = parseInt(req.query.page || '1', 10);
 
-  // Filter out soft-deleted (archived) conversations so the client sidebar
-  // list doesn't re-show items the user just trashed.
-  const baseWhere = { userId: req.user.id, isArchived: false };
+  // Text chats only. Filter out:
+  //  - archived (soft-deleted) rows
+  //  - scan sessions (those live in CropDiseaseReport, surfaced via ScanHistoryScreen)
+  //  - legacy conversations that ever held a voice message (those now belong to
+  //    VoiceConversation; the legacy rows stay in DB but are hidden here).
+  const baseWhere = {
+    userId: req.user.id,
+    isArchived: false,
+    isScanSession: false,
+    messages: { none: { messageType: 'voice' } },
+  };
 
   const [convos, total] = await Promise.all([
     prisma.aIConversation.findMany({
@@ -660,6 +668,65 @@ router.get('/conversations', authenticate, async (req, res) => {
   ]);
 
   return sendSuccess(res, convos, 200, { total, page, limit });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VOICE CONVERSATIONS — separate from text chat history
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/v1/ai/voice/conversations
+router.get('/voice/conversations', authenticate, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit || '20', 10), 50);
+  const page  = parseInt(req.query.page || '1', 10);
+  const where = { userId: req.user.id, isArchived: false };
+
+  const [convos, total] = await Promise.all([
+    prisma.voiceConversation.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      skip:    (page - 1) * limit,
+      take:    limit,
+      select: {
+        id: true, title: true, language: true, messageCount: true,
+        createdAt: true, updatedAt: true,
+        _count: { select: { messages: true } },
+      },
+    }),
+    prisma.voiceConversation.count({ where }),
+  ]);
+  return sendSuccess(res, convos, 200, { total, page, limit });
+});
+
+// GET /api/v1/ai/voice/conversations/:id
+router.get('/voice/conversations/:id', authenticate, async (req, res) => {
+  const convo = await prisma.voiceConversation.findFirst({
+    where:   { id: req.params.id, userId: req.user.id },
+    include: {
+      messages: {
+        orderBy: { createdAt: 'asc' },
+        select:  {
+          id: true, role: true, content: true,
+          audioInputUrl: true, audioOutputUrl: true,
+          language: true, createdAt: true,
+        },
+      },
+    },
+  });
+  if (!convo) return sendError(res, 'Voice conversation not found', 404);
+  return sendSuccess(res, convo);
+});
+
+// DELETE /api/v1/ai/voice/conversations/:id  — soft delete (archive)
+router.delete('/voice/conversations/:id', authenticate, async (req, res) => {
+  const convo = await prisma.voiceConversation.findFirst({
+    where: { id: req.params.id, userId: req.user.id },
+  });
+  if (!convo) return sendError(res, 'Voice conversation not found', 404);
+  await prisma.voiceConversation.update({
+    where: { id: convo.id },
+    data:  { isArchived: true },
+  });
+  return sendSuccess(res, { archived: true });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1472,6 +1539,19 @@ router.delete('/conversations/:id', authenticate, async (req, res) => {
     data:  { isArchived: true },
   });
   return sendSuccess(res, { archived: true });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/ai/credits — User's AI credit balance & history
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/credits', authenticate, async (req, res) => {
+  try {
+    const summary = await getCreditSummary(req.user.id);
+    return sendSuccess(res, summary);
+  } catch (err) {
+    logger.error('[Credits] %s', err.message);
+    return sendError(res, 'Failed to fetch credit info', 500);
+  }
 });
 
 export default router;

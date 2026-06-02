@@ -219,13 +219,14 @@ import AIChatScreen         from '../screens/AI/AIChatScreen';
 import CropScanScreen       from '../screens/AI/CropScanScreen';
 import DiagnosisResultScreen from '../screens/AI/DiagnosisResultScreen';
 import ScanHistoryScreen    from '../screens/AI/ScanHistoryScreen';
+import VoiceHistoryScreen   from '../screens/AI/VoiceHistoryScreen';
+import PastReportScreen     from '../screens/AI/PastReportScreen';
 import MarketScreen         from '../screens/AI/MarketScreen';
 import SchemeScreen         from '../screens/AI/SchemeScreen';
 import DailyPlannerScreen   from '../screens/AI/DailyPlannerScreen';
 // New AI services
 import MSPTrackerScreen      from '../screens/AI/MSPTrackerScreen';
 import SoilHealthScreen      from '../screens/AI/SoilHealthScreen';
-import PestAlertsScreen      from '../screens/AI/PestAlertsScreen';
 import FarmCalendarScreen    from '../screens/AI/FarmCalendarScreen';
 import IrrigationScreen      from '../screens/AI/IrrigationScreen';
 import InputCalculatorScreen from '../screens/AI/InputCalculatorScreen';
@@ -327,13 +328,14 @@ function AINavigator() {
       <AIStack.Screen name="CropScan"          component={CropScanScreen}         options={{ headerShown: false }} />
       <AIStack.Screen name="DiagnosisResult"   component={DiagnosisResultScreen}  options={{ headerShown: false }} />
       <AIStack.Screen name="ScanHistory"       component={ScanHistoryScreen}      options={{ headerShown: false }} />
+      <AIStack.Screen name="VoiceHistory"      component={VoiceHistoryScreen}     options={{ headerShown: false }} />
+      <AIStack.Screen name="PastReport"        component={PastReportScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="Market"            component={MarketScreen}           options={{ headerShown: false }} />
       <AIStack.Screen name="Scheme"            component={SchemeScreen}           options={{ headerShown: false }} />
       <AIStack.Screen name="DailyPlanner"      component={DailyPlannerScreen}     options={{ headerShown: false }} />
       {/* New AI services */}
       <AIStack.Screen name="MSPTracker"        component={MSPTrackerScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="SoilHealth"        component={SoilHealthScreen}       options={{ headerShown: false }} />
-      <AIStack.Screen name="PestAlerts"        component={PestAlertsScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="FarmCalendar"      component={FarmCalendarScreen}     options={{ headerShown: false }} />
       <AIStack.Screen name="Irrigation"        component={IrrigationScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="InputCalculator"   component={InputCalculatorScreen}  options={{ headerShown: false }} />

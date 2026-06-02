@@ -98,6 +98,7 @@ model User {
   soilHealthRecords        SoilHealthRecord[]
   activeFarm               Farm?                @relation("ActiveFarm", fields: [activeFarmId], references: [id], onDelete: SetNull)
   voiceSessions            VoiceSession[]
+  voiceConversations       VoiceConversation[]
 
   @@index([phone])
   @@index([district])
@@ -918,6 +919,43 @@ model VoiceSession {
   @@index([userId, createdAt])
   @@index([conversationId])
   @@map("voice_sessions")
+}
+
+model VoiceConversation {
+  id           String         @id @default(uuid())
+  userId       String
+  title        String?
+  summary      String?
+  messageCount Int            @default(0)
+  language     String         @default("en")
+  isArchived   Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     VoiceMessage[]
+
+  @@index([userId])
+  @@index([userId, updatedAt])
+  @@index([userId, isArchived])
+  @@map("voice_conversations")
+}
+
+model VoiceMessage {
+  id              String            @id @default(uuid())
+  conversationId  String
+  role            String
+  content         String
+  audioInputUrl   String?
+  audioOutputUrl  String?
+  language        String            @default("en")
+  durationSeconds Float?
+  modelUsed       String?
+  createdAt       DateTime          @default(now())
+  conversation    VoiceConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+  @@map("voice_messages")
 }
 
 model WeatherCache {

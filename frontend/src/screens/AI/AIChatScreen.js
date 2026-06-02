@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import {
   sendChatMessage, sendVoiceMessage, textToSpeech,
-  getConversationMessages, getConversations, getScanSessions,
+  getConversationMessages, getConversations,
   deleteConversation,
 } from '../../services/aiApi';
 import { useFarm } from '../../context/FarmContext';
@@ -798,21 +798,14 @@ export default function AIChatScreen({ navigation, route }) {
     };
   }, []);
 
-  // ── History lazy-load ─────────────────────────────────────────────────────
+  // ── History lazy-load (text chats only — voice/scan have their own screens) ──
   const loadHistory = useCallback(async () => {
     if (historyLoading) return;
     setHLoading(true);
     try {
-      const [convos, scans] = await Promise.allSettled([getConversations(), getScanSessions()]);
-      const convoList = convos.status === 'fulfilled' ? (convos.value || []).map(c => ({ ...c, isScanSession: false })) : [];
-      const scanList  = scans.status  === 'fulfilled' ? (scans.value  || []).map(s => ({ ...s, isScanSession: true  })) : [];
-      const merged = [...convoList, ...scanList];
-      const byId   = new Map();
-      for (const s of merged) {
-        const existing = byId.get(s.id);
-        if (!existing || s.isScanSession) byId.set(s.id, s);
-      }
-      setSessions([...byId.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)));
+      const convos = await getConversations();
+      const convoList = (convos || []).map(c => ({ ...c, isScanSession: false }));
+      setSessions(convoList.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)));
       setHLoaded(true);
     } finally { setHLoading(false); }
   }, [historyLoading]);

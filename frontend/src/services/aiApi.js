@@ -51,6 +51,25 @@ export async function deleteConversation(conversationId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// VOICE CONVERSATIONS — separate history from text chat
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function getVoiceConversations() {
+  const { data } = await api.get('/ai/voice/conversations');
+  return data.data || [];
+}
+
+export async function getVoiceConversationDetail(conversationId) {
+  const { data } = await api.get(`/ai/voice/conversations/${conversationId}`);
+  return data.data || { messages: [] };
+}
+
+export async function deleteVoiceConversation(conversationId) {
+  const { data } = await api.delete(`/ai/voice/conversations/${conversationId}`);
+  return data.data || { archived: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CROP SCAN
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -688,72 +707,14 @@ export async function getSoilRecommendation(reportId = null, targetCrop = null) 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PEST ALERTS
+// AI CREDITS
 // ─────────────────────────────────────────────────────────────────────────────
-
-export async function getPestAlerts(lat, lon, crops = [], state = null, district = null) {
-  const params = { lat, lon };
-  if (crops.length) params.crops = crops.join(',');
-  if (state)        params.state = state;
-  if (district)     params.district = district;
-  const { data } = await api.get('/pest/alerts', { params });
-  return data.data || [];
-}
-
-export async function getPestForecast(lat, lon, crops = []) {
-  const params = { lat, lon };
-  if (crops.length) params.crops = crops.join(',');
-  const { data } = await api.get('/pest/forecast', { params });
-  return data.data;
-}
-
-/**
- * AI-powered agentic pest prediction (KisanRakshak).
- * Uses Claude agent with tool-use loop for comprehensive risk analysis.
- * Reuses cached weather data from the app — no redundant weather API call.
- *
- * @param {number} lat
- * @param {number} lon
- * @param {string[]} crops
- * @param {string} state
- * @param {string} district
- * @param {number} dayOfSeason
- * @param {string} language
- * @param {object|null} weatherData — Pre-fetched weather from weatherApi.js cache
- * @returns {object} Structured prediction with risk scores, advisory, weather data
- */
-export async function getPestPrediction(lat, lon, crops = [], state = null, district = null, dayOfSeason = 45, language = 'en', weatherData = null) {
-  const { data } = await api.post('/pest/predict', {
-    lat, lon, crops, state, district, dayOfSeason, language, weatherData,
-  });
-  // Return both prediction data and credit/token metadata
-  return {
-    prediction: data.data,
-    credits: data.credits || null,       // { used, balance, level }
-    tokenUsage: data.tokenUsage || null, // { totalTokens, costUsd, model }
-  };
-}
-
-/**
- * Detect pest from an image using Claude Vision.
- * @param {string} imageBase64
- * @param {string} mediaType
- * @param {string} cropName
- * @param {string} state
- * @param {string} language
- */
-export async function detectPestFromImage(imageBase64, mediaType = 'image/jpeg', cropName = null, state = null, language = 'en') {
-  const { data } = await api.post('/pest/detect-image', {
-    imageBase64, mediaType, cropName, state, language,
-  });
-  return data.data;
-}
 
 /**
  * Get user's AI credit balance, history, and available packs.
  */
 export async function getAICredits() {
-  const { data } = await api.get('/pest/credits');
+  const { data } = await api.get('/ai/credits');
   return data.data;
 }
 
