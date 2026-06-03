@@ -9,6 +9,7 @@ import {
   createTestCategory, createTestProduct, createTestMachinery,
   cleanupTestData, signTestToken,
 } from '../../fixtures/setup.js';
+import { ENV } from '../../../src/config/env.js';
 
 let app, farmer, seller, admin;
 
@@ -189,21 +190,39 @@ describe('IDOR protection', () => {
 });
 
 // ── Rate Limiting ────────────────────────────────────────────────────────────
-describe('Rate limiting', () => {
-  test('OTP endpoint returns 429 after too many requests', async () => {
+describe('OTP send rate limiting', () => {
+  test('per-phone limit returns 429 with Retry-After after exceeding the threshold', async () => {
     const phone = '9999999999';
-    const results = [];
+    let limitedRes;
 
-    // Send more than the limit (default 5)
-    for (let i = 0; i < 7; i++) {
+    // Send past the per-phone limit (OTP_RATE_LIMIT_MAX, default 5).
+    for (let i = 0; i < ENV.OTP_RATE_LIMIT_MAX + 2; i++) {
       const res = await request(app)
         .post('/api/v1/auth/send-otp')
         .send({ phone });
-      results.push(res.status);
+      if (res.status === 429) { limitedRes = res; break; }
     }
 
-    expect(results).toContain(429);
+    expect(limitedRes).toBeDefined();
+    expect(limitedRes.status).toBe(429);
+    // Retry-After header (seconds) is present and positive.
+    const retryAfter = Number(limitedRes.headers['retry-after']);
+    expect(retryAfter).toBeGreaterThan(0);
+    // Error envelope carries the retry hint for clients.
+    expect(limitedRes.body.success).toBe(false);
+    expect(limitedRes.body.error.details.retryAfter).toBeGreaterThan(0);
   }, 30000);
+
+  test('requests within the limit are not blocked', async () => {
+    // A fresh number should sail through its first request.
+    const phone = `9${String(Date.now()).slice(-9)}`;
+    const res = await request(app)
+      .post('/api/v1/auth/send-otp')
+      .send({ phone });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['ratelimit-limit']).toBe(String(ENV.OTP_RATE_LIMIT_MAX));
+  });
 });
 
 // ── JWT Algorithm Verification ───────────────────────────────────────────────
@@ -224,5 +243,60 @@ describe('JWT algorithm security', () => {
       .set('Authorization', `Bearer ${noneToken}`);
 
     expect(res.status).toBe(401);
+  });
+});
+
+// ── Bearer token parsing (malformed input) ───────────────────────────────────
+describe('Bearer token parsing', () => {
+  const GARBAGE = [
+    'Bearer',                       // scheme only, no token
+    'Bearer ',                      // empty token
+    'Bearer    ',                   // whitespace-only token
+    'Bearer\ttoken',                // tab instead of space
+    'Bearer  double  spaces',       // extra internal spaces
+    'Bearer a b c',                 // multiple parts
+    'Bearer Bearer token',          // doubled scheme
+    'bearer lowercasescheme',       // wrong scheme case
+    'Basic dXNlcjpwYXNz',           // entirely different scheme
+    'Token abc123',                 // non-Bearer scheme
+    'garbage-no-scheme',            // no scheme at all
+    '',                             // empty header
+    '   ',                          // whitespace header
+    'Bearer null',                  // literal "null"
+    'Bearer undefined',             // literal "undefined"
+    'Bearer {}[]<>',                // punctuation soup
+    'Bearer not.a.jwt',             // 3 parts but not a real JWT
+    'Bearer a.b',                   // too few JWT segments
+    'Bearer a.b.c.d.e',             // too many segments
+    `Bearer ${'x'.repeat(8000)}`,   // oversized token
+    'Bearer @#$%^&*()=+',           // punctuation-only token
+  ];
+
+  test.each(GARBAGE)('garbage Authorization %j → 401, never 500', async (value) => {
+    const res = await request(app)
+      .get('/api/v1/users/me')
+      .set('Authorization', value);
+
+    expect(res.status).toBe(401);
+    expect(res.status).not.toBe(500);
+  });
+
+  test('missing Authorization header → 401', async () => {
+    const res = await request(app).get('/api/v1/users/me');
+    expect(res.status).toBe(401);
+  });
+
+  test('a valid token still authenticates (regression)', async () => {
+    const res = await request(app)
+      .get('/api/v1/users/me')
+      .set('Authorization', `Bearer ${farmer.token}`);
+    expect(res.status).toBe(200);
+  });
+
+  test('surrounding whitespace around a valid token is tolerated', async () => {
+    const res = await request(app)
+      .get('/api/v1/users/me')
+      .set('Authorization', `  Bearer ${farmer.token}  `);
+    expect(res.status).toBe(200);
   });
 });

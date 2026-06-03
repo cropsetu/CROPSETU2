@@ -11,10 +11,11 @@
  *   4. Cleans up after each suite
  */
 import { jest } from '@jest/globals';
-import jwt from 'jsonwebtoken';
 import prisma from '../../src/config/db.js';
-import { ENV } from '../../src/config/env.js';
 import { buildUser, buildSeller, randomPhone } from './factories.js';
+import { resetRateLimitStore } from '../../src/middleware/rateLimit.js';
+import { resetOtpLockoutStore } from '../../src/services/otpLockout.service.js';
+import { signAccessToken } from '../../src/utils/jwt.js';
 
 // ── App import ───────────────────────────────────────────────────────────────
 let _app;
@@ -27,15 +28,11 @@ export async function getApp() {
 }
 
 // ── Auth helpers ─────────────────────────────────────────────────────────────
+// Sign through the production helper so test tokens carry the issuer/audience
+// claims that verifyAccessToken() enforces — otherwise every authenticated
+// request 401s.
 export function signTestToken(userId, role = 'FARMER') {
-  // Must mirror utils/jwt.js#signAccessToken — verifyAccessToken enforces the
-  // issuer/audience claims, so tokens minted without them are rejected (401).
-  return jwt.sign({ sub: userId, role }, ENV.JWT_SECRET, {
-    expiresIn: '1h',
-    algorithm: 'HS256',
-    issuer: 'cropsetu-backend',
-    audience: 'cropsetu-mobile',
-  });
+  return signAccessToken({ sub: userId, role });
 }
 
 export function authHeader(token) {
@@ -125,7 +122,12 @@ export async function createTestMachinery(ownerId, overrides = {}) {
  * Order matters due to foreign key constraints.
  */
 export async function cleanupTestData() {
+  // Clear in-memory rate-limit and OTP-lockout counters so they don't carry
+  // into the next test file when jest reuses this worker process.
+  resetRateLimitStore();
+  resetOtpLockoutStore();
   await prisma.$transaction([
+    prisma.auditLog.deleteMany(),
     prisma.notification.deleteMany(),
     prisma.booking.deleteMany(),
     prisma.review.deleteMany(),

@@ -308,3 +308,37 @@ describe('POST /api/v1/users/me/push-token', () => {
     expect(res.status).toBe(422);
   });
 });
+
+// ── Profile write rate limiting (M1) ──────────────────────────────────────────
+describe('Profile write rate limiting', () => {
+  test('429 with Retry-After after exceeding the per-user write cap (20 / 15 min)', async () => {
+    // Fresh user so its quota is independent of the shared farmer/seller above.
+    const { headers } = await createTestUser();
+
+    let limitedRes;
+    for (let i = 0; i < 22; i++) {
+      const res = await request(app)
+        .put('/api/v1/users/me')
+        .set(headers)
+        .send({ name: `Rate Test ${i}` });
+      if (res.status === 429) { limitedRes = res; break; }
+    }
+
+    expect(limitedRes).toBeDefined();
+    expect(limitedRes.status).toBe(429);
+    expect(Number(limitedRes.headers['retry-after'])).toBeGreaterThan(0);
+    expect(limitedRes.body.success).toBe(false);
+    expect(limitedRes.body.error.details.retryAfter).toBeGreaterThan(0);
+  }, 30000);
+
+  test('a different user is not affected by another user hitting the cap', async () => {
+    // The previous test saturated its own user; a brand-new user still writes.
+    const { headers } = await createTestUser();
+    const res = await request(app)
+      .put('/api/v1/users/me')
+      .set(headers)
+      .send({ name: 'Independent User' });
+
+    expect(res.status).toBe(200);
+  });
+});

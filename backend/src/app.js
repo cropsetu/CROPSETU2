@@ -3,7 +3,6 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 
 import { ENV } from './config/env.js';
@@ -11,6 +10,8 @@ import { sendError } from './utils/response.js';
 import logger from './utils/logger.js';
 import prisma from './config/db.js';
 import redis from './config/redis.js';
+import { rateLimiter, clientIp } from './middleware/rateLimit.js';
+import { csrfProtection } from './middleware/csrf.js';
 
 // Routes
 import authRoutes          from './routes/auth.routes.js';
@@ -126,16 +127,6 @@ app.use(`${API}/ai/scan/submit`, skipMultipart(express.json({ limit: '50mb' })))
 app.use(skipMultipart(express.json({ limit: '100kb' })));
 app.use(skipMultipart(express.urlencoded({ extended: true, limit: '100kb' })));
 
-// ── Global rate limit ─────────────────────────────────────────────────────────
-// Disabled for now — re-enable before production by uncommenting below.
-// app.use(rateLimit({
-//   windowMs: ENV.RATE_LIMIT_WINDOW_MS,
-//   max:      ENV.RATE_LIMIT_MAX,
-//   standardHeaders: true,
-//   legacyHeaders: false,
-//   message: { success: false, error: { message: 'Too many requests' } },
-// }));
-
 // ── Health probes ─────────────────────────────────────────────────────────────
 // /healthz — liveness. Returns 200 as long as the process is alive.
 //            Does NOT touch any dependency. Configure as Kubernetes
@@ -180,6 +171,29 @@ app.get('/readyz', async (_req, res) => {
 
   res.status(ready ? 200 : 503).json({ ready, checks });
 });
+
+// ── Global per-IP rate limit ──────────────────────────────────────────────────
+// Baseline brute-force / DDoS protection for every API route. Mounted AFTER the
+// health probes (so LB liveness/readiness checks are never throttled) and BEFORE
+// the routers. Redis-backed sliding window, shared across instances, with an
+// in-memory fallback when Redis is down. Stricter per-route limiters (e.g. the
+// OTP send limits in auth.routes.js) stack on top of this baseline.
+if (ENV.RATE_LIMIT_ENABLED) {
+  app.use(rateLimiter({
+    windowMs: ENV.RATE_LIMIT_WINDOW_MS,
+    max:      ENV.RATE_LIMIT_MAX,
+    prefix:   'global:ip',
+    key:      clientIp,
+    message:  'Too many requests. Please slow down and try again shortly.',
+  }));
+  logger.info('[RateLimit] Global per-IP limiter enabled — %d req / %d s',
+    ENV.RATE_LIMIT_MAX, Math.round(ENV.RATE_LIMIT_WINDOW_MS / 1000));
+}
+
+// ── CSRF protection ───────────────────────────────────────────────────────────
+// Double-submit guard for cookie-authenticated mutations (web). No-op for
+// Bearer / mobile / pre-auth requests. See middleware/csrf.js.
+app.use(csrfProtection);
 
 // ── API Routes ────────────────────────────────────────────────────────────────
 app.use(`${API}/auth`,         authRoutes);

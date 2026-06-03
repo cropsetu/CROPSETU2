@@ -9,14 +9,32 @@ import { Platform } from 'react-native';
 import { setItem, getItem, deleteItem } from '../utils/storage';
 import { API_BASE_URL, STORAGE_KEYS } from '../constants/config';
 
+// On web, opt into cookie-based refresh transport: the server keeps the refresh
+// token in an httpOnly cookie and never returns it in the body.
+const IS_WEB = Platform.OS === 'web';
+
+const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+// CSRF double-submit token. The server sets a (JS-readable) `csrf` cookie; we
+// echo it in X-CSRF-Token on mutating requests. Reading it from the cookie (not
+// memory) means it survives a reload, so the silent cookie-refresh still passes.
+function getCsrfToken() {
+  if (!IS_WEB || typeof document === 'undefined') return null;
+  const m = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 // ── Token helpers ─────────────────────────────────────────────────────────────
 export async function saveTokens({ accessToken, refreshToken, userId }) {
-  await Promise.all([
+  const ops = [
     setItem(STORAGE_KEYS.ACCESS_TOKEN,  accessToken),
-    setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken),
-    setItem(STORAGE_KEYS.USER_ID,       userId),
     setItem(STORAGE_KEYS.TOKEN_SAVED_AT, String(Date.now())),
-  ]);
+  ];
+  // On web the refresh token is undefined here (it's in the httpOnly cookie),
+  // so there's nothing to persist. Only store what we actually received.
+  if (refreshToken != null) ops.push(setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken));
+  if (userId != null)       ops.push(setItem(STORAGE_KEYS.USER_ID, userId));
+  await Promise.all(ops);
 }
 
 export async function clearTokens() {
@@ -57,7 +75,13 @@ export function safeErrorMessage(error, fallback = 'Something went wrong. Please
 // ── Axios instances ───────────────────────────────────────────────────────────
 const baseConfig = {
   baseURL: API_BASE_URL,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    // Web: tell the API to use the httpOnly refresh cookie instead of body tokens.
+    ...(IS_WEB ? { 'X-Auth-Transport': 'cookie' } : {}),
+  },
+  // Web: send/receive the httpOnly refresh cookie (cross-origin requires this).
+  withCredentials: IS_WEB,
   // Accept 2xx + 3xx. Browsers can revalidate via If-None-Match and surface a
   // raw 304 to JS (depends on cache mode); the default 200-299-only policy
   // would reject that and break perfectly-good cached data.
@@ -102,10 +126,16 @@ function attachInterceptors(instance) {
     return config;
   });
 
-  // Attach access token to every request.
+  // Attach access token (+ CSRF token on web mutations) to every request.
   instance.interceptors.request.use(async (config) => {
     const token = await getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
+
+    // Web: echo the CSRF cookie on state-changing requests (double-submit).
+    if (IS_WEB && MUTATING.has((config.method || 'get').toUpperCase())) {
+      const csrf = getCsrfToken();
+      if (csrf) config.headers['X-CSRF-Token'] = csrf;
+    }
     return config;
   });
 
@@ -151,23 +181,37 @@ async function refreshAndRetry(instance, original) {
   isRefreshing    = true;
 
   try {
-    const [refreshToken, userId] = await Promise.all([
-      getRefreshToken(),
-      getUserId(),
-    ]);
+    let data;
 
-    if (!refreshToken || !userId) throw new Error('No refresh token');
-
-    // Plain axios (not the intercepted instance) to avoid loops.
-    const { data } = await axios.post(
-      `${API_BASE_URL}/auth/refresh`,
-      { userId, refreshToken },
-    );
+    if (IS_WEB) {
+      // Refresh token rides in the httpOnly cookie — send nothing readable.
+      // Plain axios (not the intercepted instance) to avoid loops, so set the
+      // CSRF header here too (read from the cookie → survives reload).
+      const csrf = getCsrfToken();
+      ({ data } = await axios.post(
+        `${API_BASE_URL}/auth/refresh`,
+        {},
+        {
+          withCredentials: true,
+          headers: { 'X-Auth-Transport': 'cookie', ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+        },
+      ));
+    } else {
+      const [refreshToken, userId] = await Promise.all([
+        getRefreshToken(),
+        getUserId(),
+      ]);
+      if (!refreshToken || !userId) throw new Error('No refresh token');
+      ({ data } = await axios.post(
+        `${API_BASE_URL}/auth/refresh`,
+        { userId, refreshToken },
+      ));
+    }
 
     await saveTokens({
       accessToken:  data.data.accessToken,
-      refreshToken: data.data.refreshToken,
-      userId,
+      refreshToken: data.data.refreshToken, // undefined on web (cookie) → not stored
+      userId:       IS_WEB ? undefined : await getUserId(),
     });
 
     processQueue(null, data.data.accessToken);

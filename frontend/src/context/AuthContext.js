@@ -2,6 +2,7 @@
  * AuthContext — handles OTP auth, token storage, and user state.
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { Platform } from 'react-native';
 import api, { saveTokens, clearTokens, getAccessToken, getUserId } from '../services/api';
 import { resetSocket } from '../services/socket';
 
@@ -12,12 +13,17 @@ export function AuthProvider({ children }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Check for existing session on mount
+  // Check for existing session on mount.
+  // On web the access token lives only in memory (gone after a reload), but the
+  // refresh token persists in an httpOnly cookie — so we still attempt
+  // /users/me: the request 401s with no token and the api interceptor silently
+  // refreshes from the cookie, restoring the session securely across reloads.
+  // On native we require a stored access token before hitting the API.
   useEffect(() => {
     (async () => {
       try {
         const token = await getAccessToken();
-        if (token) {
+        if (token || Platform.OS === 'web') {
           const { data } = await api.get('/users/me');
           setUser(data.data);
           setIsLoggedIn(true);

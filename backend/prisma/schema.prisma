@@ -16,6 +16,9 @@ model User {
   role                     Role                 @default(FARMER)
   language                 String               @default("en")
   isActive                 Boolean              @default(true)
+  // Bumped on security-sensitive changes (e.g. phone change). Access tokens
+  // embed the version at issue time; a stale version is rejected at auth.
+  tokenVersion             Int                  @default(0)
   pincode                  String?
   district                 String?
   city                     String?
@@ -162,14 +165,26 @@ model OtpSession {
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
+  id        String    @id @default(uuid())
+  token     String    @unique
   userId    String
+  // Rotation lineage: every token minted by rotating a predecessor shares its
+  // familyId. Detecting reuse of a rotated token lets us revoke the whole family.
+  familyId  String?
+  // Set when this token is rotated (used to mint a successor). A non-null value
+  // means the token is spent — presenting it again is reuse.
+  rotatedAt DateTime?
+  // When the SESSION (lineage) began — preserved across rotations so the server
+  // can enforce an absolute session timeout regardless of refresh activity.
+  sessionStartedAt DateTime?
+  // Idle timeout: a token is only valid until expiresAt; each rotation slides it
+  // forward, so a session that goes idle past the window can no longer refresh.
   expiresAt DateTime
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([familyId])
   @@index([expiresAt])
   @@map("refresh_tokens")
 }

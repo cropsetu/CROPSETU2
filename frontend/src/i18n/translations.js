@@ -272,6 +272,9 @@ export const translations = {
       otpError: 'Could not send OTP',
       verifyError: 'OTP verification failed',
       otpPlaceholder: '_ _ _ _ _ _',
+      secureNote: 'We never share your number',
+      changeNumber: 'Change number',
+      didntGetCode: "Didn't get the code?",
     },
 
     // Cart
@@ -2124,6 +2127,9 @@ export const translations = {
       otpError: 'OTP नहीं भेजा जा सका',
       verifyError: 'OTP सत्यापन विफल',
       otpPlaceholder: '_ _ _ _ _ _',
+      secureNote: 'हम आपका नंबर कभी साझा नहीं करते',
+      changeNumber: 'नंबर बदलें',
+      didntGetCode: 'कोड नहीं मिला?',
     },
 
     // Cart
@@ -3832,6 +3838,9 @@ export const translations = {
       otpError: 'OTP पाठवता आला नाही',
       verifyError: 'OTP तपासणी अयशस्वी',
       otpPlaceholder: '_ _ _ _ _ _',
+      secureNote: 'आम्ही तुमचा नंबर कधीही शेअर करत नाही',
+      changeNumber: 'नंबर बदला',
+      didntGetCode: 'कोड मिळाला नाही?',
     },
 
     // Cart

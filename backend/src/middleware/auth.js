@@ -7,28 +7,73 @@
  */
 import { verifyAccessToken } from '../utils/jwt.js';
 import { sendUnauthorized, sendForbidden } from '../utils/response.js';
+import prisma from '../config/db.js';
 
-export function authenticate(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) {
+// Exactly: scheme "Bearer", one space, then a single non-whitespace token.
+// Rejects missing/empty tokens, wrong schemes, extra spaces, and extra parts.
+const BEARER_RE = /^Bearer (\S+)$/;
+
+/**
+ * Strictly extract a Bearer token from an Authorization header value.
+ * Returns the token string, or null if the header is absent or malformed.
+ * Pure string work — never throws — so callers can't 500 on garbage input.
+ */
+export function parseBearerToken(headerValue) {
+  if (typeof headerValue !== 'string') return null;
+  const match = BEARER_RE.exec(headerValue.trim());
+  return match ? match[1] : null;
+}
+
+export async function authenticate(req, res, next) {
+  const token = parseBearerToken(req.headers.authorization);
+  if (!token) {
     return sendUnauthorized(res, 'Access token required');
   }
 
+  let payload;
   try {
-    const payload = verifyAccessToken(header.slice(7));
-    req.user = { id: payload.sub, role: payload.role };
-    next();
+    payload = verifyAccessToken(token);
   } catch {
     return sendUnauthorized(res, 'Invalid or expired token');
   }
+
+  // A well-formed token must carry a string subject; anything else is invalid
+  // (and would otherwise turn into a DB error below).
+  if (!payload || typeof payload.sub !== 'string' || !payload.sub) {
+    return sendUnauthorized(res, 'Invalid or expired token');
+  }
+
+  // Validate against the live account: reject tokens for missing/disabled users
+  // and tokens whose embedded version is behind the user's current
+  // tokenVersion (bumped on security-sensitive changes like a phone change).
+  try {
+    const user = await prisma.user.findUnique({
+      where:  { id: payload.sub },
+      select: { tokenVersion: true, isActive: true },
+    });
+    if (!user || user.isActive === false) {
+      return sendUnauthorized(res, 'Account not found or inactive');
+    }
+    if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) {
+      return sendUnauthorized(res, 'Session expired. Please sign in again.');
+    }
+  } catch {
+    // Fail closed — never admit a request we couldn't validate.
+    return sendUnauthorized(res, 'Authentication unavailable');
+  }
+
+  req.user = { id: payload.sub, role: payload.role };
+  next();
 }
 
 export function optionalAuth(req, _res, next) {
-  const header = req.headers.authorization;
-  if (header?.startsWith('Bearer ')) {
+  const token = parseBearerToken(req.headers.authorization);
+  if (token) {
     try {
-      const payload = verifyAccessToken(header.slice(7));
-      req.user = { id: payload.sub, role: payload.role };
+      const payload = verifyAccessToken(token);
+      if (payload && typeof payload.sub === 'string' && payload.sub) {
+        req.user = { id: payload.sub, role: payload.role };
+      }
     } catch {
       // token invalid — continue as anonymous
     }
