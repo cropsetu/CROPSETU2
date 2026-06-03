@@ -168,6 +168,12 @@ def _build_context(image_quality: dict, weather_risk: dict, params: dict, local_
     else:
         weather_block = "WEATHER DATA: Not available (weather_used=false)"
 
+    _fh = params.get("farm_history")
+    farm_history_block = (
+        f"FARM HISTORY (recent practices from the farmer's own crop-cycle logs — "
+        f"weigh these when judging the disease and ruling out look-alikes):\n{_fh}\n"
+        if _fh else ""
+    )
     return f"""CROP DISEASE ANALYSIS
 
 CROP & FIELD:
@@ -184,7 +190,7 @@ CROP & FIELD:
   Pesticides   : {params.get('recent_pesticide_used', 'None')}
   Fertilizer   : {params.get('fertilizer_history', 'Not provided')}
 
-{weather_block}
+{farm_history_block}{weather_block}
 
 WEATHER RISK ASSESSMENT:
   Overall Risk        : {w.get('overall_disease_risk', 'UNKNOWN')}

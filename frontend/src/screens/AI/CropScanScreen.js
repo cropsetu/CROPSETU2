@@ -13,7 +13,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Pressable, ScrollView,
   TextInput, Dimensions, Animated, Easing, StatusBar, Image,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Linking,
-  Modal,
+  Modal, Switch,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,6 +23,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location   from 'expo-location';
 import { scanCropImage } from '../../services/aiApi';
+import { useMultiFarm } from '../../context/MultiFarmContext';
+import { listCropCycles, getCropCycle } from '../../services/farmApi';
+import { summarizeFertilizers, summarizePesticides, buildFarmHistory } from '../../utils/farmHistory';
 
 import { useFarm, COMMON_CROPS, COMMON_CROP_KEYS, SOIL_TYPES, IRRIGATION_TYPES } from '../../context/FarmContext';
 import { useAuth } from '../../context/AuthContext';
@@ -312,6 +315,81 @@ export default function CropScanScreen({ navigation }) {
   const { t, language } = useLanguage();
   const { farmProfile, getAIContext } = useFarm();
   const { user } = useAuth();
+  const { farms, activeFarm, activeFarmId } = useMultiFarm();
+
+  // ── Farm reference (futuristic farm-context bar, mirrors AI Chat) ──
+  // ON → attach the selected farm + crop-cycle history to the scan AND pull
+  // the farmer's name/contact/address silently into the report (no input UI).
+  const [useFarmHistory, setUseFarmHistory] = useState(true);
+  const [farmPickerOpen,  setFarmPickerOpen]  = useState(false);
+  const [selectedFarmId,  setSelectedFarmId]  = useState(activeFarmId);
+  const [selectedCycleId, setSelectedCycleId] = useState(null);
+  const [cycleOptions,    setCycleOptions]    = useState([]);
+  const [loadingCycles,   setLoadingCycles]   = useState(false);
+
+  // Picking a crop cycle auto-fills the whole context — crop, age, soil and
+  // irrigation — from that cycle + its farm. Every field stays editable, so
+  // the user can change/override anything afterwards.
+  const applyCycle = (cycle) => {
+    if (!cycle) return;
+    setSelectedCycleId(cycle.id);
+
+    // Crop (e.g. a Wheat cycle selects "Wheat"; else fall back to custom).
+    const key = (cycle.cropName || '').toLowerCase().trim();
+    if (key && COMMON_CROP_KEYS.includes(key)) {
+      setSelectedCrop(key); setShowCustomCrop(false);
+    } else if (cycle.cropName) {
+      setShowCustomCrop(true); setCustomCrop(cycle.cropName); setSelectedCrop('');
+    }
+
+    // Crop age — days since sowing.
+    if (cycle.sowingDate) {
+      const days = Math.floor((Date.now() - new Date(cycle.sowingDate).getTime()) / 86400000);
+      if (Number.isFinite(days) && days >= 0) setCropAge(String(days));
+    }
+
+    // Soil + irrigation — map the owning farm's enums to the scan's option keys.
+    const farm = farms.find(x => x.id === selectedFarmId);
+    const SOIL = { BLACK_COTTON: 'black', RED: 'red', ALLUVIAL: 'alluvial', SANDY: 'sandy', SANDY_LOAM: 'sandy', CLAY_LOAM: 'clay', LATERITE: 'laterite' };
+    const IRR  = { DRIP: 'drip', SPRINKLER: 'sprinkler', FLOOD: 'flood', FURROW: 'flood', RAINFED: 'rainfed' };
+    const soilKey = SOIL[(farm?.soilType || '').toUpperCase()];
+    if (soilKey) setSoilType(soilKey);
+    const irrKey = IRR[(farm?.irrigationSystem || '').toUpperCase()];
+    if (irrKey) setIrrigation(irrKey);
+  };
+
+  // Default the farm selection to the active farm once it loads.
+  useEffect(() => {
+    if (!selectedFarmId && activeFarmId) setSelectedFarmId(activeFarmId);
+  }, [activeFarmId]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load the selected farm's ACTIVE crop cycles when farm context is on, and
+  // auto-apply one (keep current if still valid, else the most recent).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!useFarmHistory || !selectedFarmId) { setCycleOptions([]); return; }
+      setLoadingCycles(true);
+      try {
+        const cycles = await listCropCycles(selectedFarmId, { status: 'ACTIVE' });
+        if (cancelled) return;
+        const list = Array.isArray(cycles) ? cycles : [];
+        setCycleOptions(list);
+        const keep = selectedCycleId && list.find(c => c.id === selectedCycleId);
+        if (keep) applyCycle(keep);
+        else if (list.length >= 1) applyCycle(list[0]);
+        else setSelectedCycleId(null);
+      } catch {
+        if (!cancelled) setCycleOptions([]);
+      } finally {
+        if (!cancelled) setLoadingCycles(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [useFarmHistory, selectedFarmId]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selFarm  = farms.find(f => f.id === selectedFarmId) || null;
+  const selCycle = cycleOptions.find(c => c.id === selectedCycleId) || null;
 
   const [step, setStep]   = useState(1);
   const stepAnim = useRef(new Animated.Value(0)).current;
@@ -554,6 +632,43 @@ export default function CropScanScreen({ navigation }) {
     try {
       SoundEffects.scan();
       farmCtx.language = language;
+
+      // Attach MyFarm crop-cycle history (optional toggle) into the existing
+      // AI param slots (+ the new farm_history block). Best-effort: a fetch
+      // failure must not block the scan.
+      if (useFarmHistory && selectedFarmId && selectedCycleId) {
+        try {
+          const cycle = await getCropCycle(selectedCycleId);
+          const farm  = farms.find(f => f.id === selectedFarmId);
+          if (cycle) {
+            farmCtx.variety            = cycle.variety || farmCtx.variety;
+            farmCtx.plantingDate       = cycle.sowingDate || farmCtx.plantingDate;
+            farmCtx.growthStage        = cycle.growthStage || farmCtx.growthStage;
+            farmCtx.fertilizerHistory  = summarizeFertilizers(cycle.fertilizersUsed);
+            farmCtx.recentPesticideUsed = summarizePesticides(cycle.pesticidesUsed);
+            farmCtx.farmHistory        = buildFarmHistory(cycle, farm);
+            if (farm) {
+              // soil/irrigation now flow from the (auto-filled, user-editable)
+              // form fields — don't clobber the user's choice with the raw enum.
+              farmCtx.landSize = farm.landSizeAcres || farmCtx.landSize;
+              farmCtx.state    = farm.state || farmCtx.state;
+              farmCtx.district = farm.district || farmCtx.district;
+            }
+          }
+        } catch (e) {
+          console.warn('[Scan] farm history fetch failed:', e?.message);
+        }
+      }
+
+      // Report contact details — pulled SILENTLY from the profile + selected
+      // farm (no input shown to the user), printed on the final report only.
+      const refFarm = farms.find(f => f.id === selectedFarmId) || activeFarm;
+      farmCtx.farmerName    = user?.name || '';
+      farmCtx.farmerContact = user?.phone || '';
+      farmCtx.farmAddress   = refFarm
+        ? [refFarm.village, refFarm.taluka, refFarm.district, refFarm.state, refFarm.pincode].filter(Boolean).join(', ')
+        : [user?.village, user?.district, user?.state, user?.pincode].filter(Boolean).join(', ');
+
       const diagnosis = await scanCropImage(imageUris, farmCtx, imageMimeTypes);
       clearStepTimers();
       // Bail out if the user has navigated away while we awaited the network
@@ -660,12 +775,92 @@ export default function CropScanScreen({ navigation }) {
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
             <ScrollView contentContainerStyle={SC.scrollContent} showsVerticalScrollIndicator={false}>
 
-              {/* ── Farm Profile Banner ── */}
-              <FarmProfileBanner
-                compact
-                style={SC.farmBanner}
-                onEdit={() => navigation.navigate('Account')}
-              />
+              {/* ── Farm reference bar (futuristic; attaches farm + crop cycle to the AI) ── */}
+              {farms.length > 0 && (
+                <AnimCard delay={0} style={SC.farmBarWrap}>
+                  <LinearGradient
+                    colors={useFarmHistory ? ['#E9FBF0', '#F3FBF6'] : ['#F4F5F7', '#F8F9FA']}
+                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                    style={[SC.farmBar, !useFarmHistory && { borderColor: COLORS.border }]}
+                  >
+                    <TouchableOpacity
+                      style={SC.farmBarMain}
+                      activeOpacity={useFarmHistory ? 0.7 : 1}
+                      onPress={() => useFarmHistory && setFarmPickerOpen(o => !o)}
+                    >
+                      <View style={[SC.farmBarIcon, useFarmHistory && SC.farmBarIconOn]}>
+                        <Ionicons name="leaf" size={16} color={useFarmHistory ? COLORS.white : COLORS.gray350} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={SC.farmBarTitle} numberOfLines={1}>
+                          {useFarmHistory ? (selFarm?.farmName || selFarm?.farmAlias || t('cropScan.selectFarm', 'Select farm')) : t('cropScan.farmCtxOff', 'Farm context off')}
+                        </Text>
+                        <Text style={SC.farmBarMeta} numberOfLines={1}>
+                          {!useFarmHistory
+                            ? t('cropScan.farmCtxHint', 'Tap ON to personalise the AI with your farm records')
+                            : selCycle
+                              ? `${selCycle.cropName}${selCycle.variety ? ' · ' + selCycle.variety : ''} · ${selCycle.seasonLabel || [selCycle.season, selCycle.year].filter(Boolean).join(' ')}`
+                              : selFarm
+                                ? `${selFarm.landSizeAcres ?? '?'}ac · ${(selFarm.soilType || '').replace(/_/g, ' ')}`
+                                : t('cropScan.tapPickCycle', 'Tap to pick a crop cycle')}
+                        </Text>
+                      </View>
+                      {useFarmHistory && (
+                        <Ionicons name={farmPickerOpen ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textMedium} />
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[SC.farmBarToggle, useFarmHistory && SC.farmBarToggleOn]}
+                      onPress={() => { setUseFarmHistory(v => !v); setFarmPickerOpen(false); }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name={useFarmHistory ? 'flash' : 'flash-off'} size={13} color={useFarmHistory ? COLORS.greenBright : COLORS.gray350} />
+                      <Text style={[SC.farmBarToggleText, { color: useFarmHistory ? COLORS.greenBright : COLORS.gray350 }]}>
+                        {useFarmHistory ? 'ON' : 'OFF'}
+                      </Text>
+                    </TouchableOpacity>
+                  </LinearGradient>
+
+                  {useFarmHistory && farmPickerOpen && (
+                    <View style={SC.farmDrop}>
+                      {farms.length > 1 && (
+                        <>
+                          <Text style={SC.farmDropLabel}>{t('cropScan.farmLabel', 'FARM')}</Text>
+                          {farms.map(f => (
+                            <TouchableOpacity key={f.id} style={[SC.farmDropItem, selectedFarmId === f.id && SC.farmDropItemOn]}
+                              onPress={() => { setSelectedFarmId(f.id); setSelectedCycleId(null); }} activeOpacity={0.7}>
+                              <Ionicons name={selectedFarmId === f.id ? 'radio-button-on' : 'radio-button-off'} size={16}
+                                color={selectedFarmId === f.id ? COLORS.greenBright : COLORS.gray350} />
+                              <View style={{ flex: 1, marginLeft: 8 }}>
+                                <Text style={SC.farmDropName}>{f.farmName || f.farmAlias}</Text>
+                                <Text style={SC.farmDropMeta}>{[f.village, f.district].filter(Boolean).join(', ')}{f.landSizeAcres ? ` · ${f.landSizeAcres}ac` : ''}</Text>
+                              </View>
+                            </TouchableOpacity>
+                          ))}
+                        </>
+                      )}
+                      <Text style={SC.farmDropLabel}>{t('cropScan.cycleLabel', 'CROP CYCLE')}</Text>
+                      {loadingCycles ? (
+                        <ActivityIndicator color={COLORS.greenBright} style={{ marginVertical: 8 }} />
+                      ) : cycleOptions.length === 0 ? (
+                        <Text style={SC.farmDropEmpty}>{t('cropScan.noCycles', 'No active crop cycle on this farm')}</Text>
+                      ) : (
+                        cycleOptions.map(c => (
+                          <TouchableOpacity key={c.id} style={[SC.farmDropItem, selectedCycleId === c.id && SC.farmDropItemOn]}
+                            onPress={() => { applyCycle(c); setFarmPickerOpen(false); }} activeOpacity={0.7}>
+                            <Ionicons name={selectedCycleId === c.id ? 'radio-button-on' : 'radio-button-off'} size={16}
+                              color={selectedCycleId === c.id ? COLORS.greenBright : COLORS.gray350} />
+                            <View style={{ flex: 1, marginLeft: 8 }}>
+                              <Text style={SC.farmDropName}>{c.cropName}{c.variety ? ` · ${c.variety}` : ''}</Text>
+                              <Text style={SC.farmDropMeta}>{c.seasonLabel || [c.season, c.year].filter(Boolean).join(' ')}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))
+                      )}
+                    </View>
+                  )}
+                </AnimCard>
+              )}
 
               {/* Crop selection — 4-column grid, all crops visible */}
               <AnimCard delay={0}>
@@ -812,18 +1007,6 @@ export default function CropScanScreen({ navigation }) {
                 value={previousCrop}
                 onChangeText={setPreviousCrop}
               />
-
-              {/* Farm profile indicator */}
-              {(farmProfile.location?.state || farmProfile.landSize) && (
-                <View style={SC.profileHint}>
-                  <Ionicons name="information-circle-outline" size={13} color={COLORS.blue} />
-                  <Text style={SC.profileHintText}>
-                    {t('cropScan.farmProfileLoaded')}{' '}
-                    {[farmProfile.location?.state, farmProfile.landSize ? `${farmProfile.landSize} ${t('cropScan.acresUnit')}` : null]
-                      .filter(Boolean).join(' · ')}
-                  </Text>
-                </View>
-              )}
 
               <View style={{ height: 16 }} />
             </ScrollView>
@@ -1453,6 +1636,41 @@ const SC = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(52,152,219,0.15)',
   },
   profileHintText: { fontSize: 11, color: COLORS.blue, flex: 1 },
+
+  // Farm reference bar (futuristic) + dropdown
+  farmBarWrap: { marginBottom: 6 },
+  farmBar: {
+    flexDirection: 'row', alignItems: 'center', borderRadius: 16,
+    paddingVertical: 8, paddingLeft: 10, paddingRight: 8,
+    borderWidth: 1, borderColor: 'rgba(34,197,94,0.22)',
+  },
+  farmBarMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  farmBarIcon: {
+    width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.gray175,
+  },
+  farmBarIconOn: { backgroundColor: COLORS.greenBright },
+  farmBarTitle: { fontSize: 13.5, fontWeight: '800', color: COLORS.slate800 },
+  farmBarMeta: { fontSize: 11, color: COLORS.textMedium, marginTop: 1 },
+  farmBarToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 10, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border, marginLeft: 8,
+  },
+  farmBarToggleOn: { backgroundColor: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.35)' },
+  farmBarToggleText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4 },
+  farmDrop: {
+    marginTop: 6, backgroundColor: COLORS.white, borderRadius: 14, padding: 10,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  farmDropLabel: { fontSize: 10.5, fontWeight: '800', color: COLORS.gray700dark, letterSpacing: 0.6, marginTop: 6, marginBottom: 2 },
+  farmDropItem: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 8,
+    borderRadius: 10, marginTop: 4, borderWidth: 1, borderColor: 'transparent',
+  },
+  farmDropItemOn: { backgroundColor: 'rgba(34,197,94,0.08)', borderColor: 'rgba(34,197,94,0.20)' },
+  farmDropName: { fontSize: 13.5, fontWeight: '700', color: COLORS.slate800 },
+  farmDropMeta: { fontSize: 11, color: COLORS.textMedium, marginTop: 1 },
+  farmDropEmpty: { fontSize: 12, color: COLORS.textMedium, fontStyle: 'italic', marginVertical: 6, paddingHorizontal: 8 },
 
   // Symptom grid
   symptomGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

@@ -63,14 +63,15 @@ AI_FEATURES = (
 # in .env so a fresh checkout still works. Admin can override any of these
 # by setting the env var.
 #
-# Crop disease defaults to Claude Haiku because Gemini has been unreliable in
-# the user's environment. Text features default to Groq Llama 3.3 70B because
-# it's fast, free, and the user's preferred chat provider.
+# Crop disease/treatment default to Gemini 2.5 Flash — fast (~3-5s vs Haiku's
+# 30-60s) and cheap, now that Gemini billing is active. To fall back to Claude,
+# set AI_CROP_DIAGNOSE_MODEL=claude-haiku-4-5-20251001 (+ AI_CROP_DIAGNOSE_API_KEY).
+# Text features default to Groq Llama 3.3 70B — fast, free, preferred for chat.
 _DEFAULTS: dict[str, tuple[str, str]] = {
     # feature             (default model id,                default api key constant)
     "TEXT_CHAT":          ("llama-3.3-70b-versatile",       GROQ_API_KEY),
-    "CROP_DIAGNOSE":      ("claude-haiku-4-5-20251001",     ANTHROPIC_API_KEY),
-    "CROP_TREATMENT":     ("claude-haiku-4-5-20251001",     ANTHROPIC_API_KEY),
+    "CROP_DIAGNOSE":      ("gemini-2.5-flash",              GEMINI_API_KEY),
+    "CROP_TREATMENT":     ("gemini-2.5-flash",              GEMINI_API_KEY),
     "ALERT":              ("llama-3.3-70b-versatile",       GROQ_API_KEY),
     "PEST":               ("llama-3.3-70b-versatile",       GROQ_API_KEY),
     "VOICE_STT":          ("whisper-large-v3-turbo",        GROQ_API_KEY),

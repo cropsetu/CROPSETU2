@@ -318,6 +318,7 @@ CROP & FIELD:
   Previous Crop   : {params.get('previous_crop', 'Unknown')}
   Recent Pesticide: {params.get('recent_pesticide_used', 'None')}
   Fertilizer Used : {params.get('fertilizer_history', 'Not provided')}
+  Farm History    : {params.get('farm_history') or 'None'}
 
 WEATHER CONTEXT:
   Current Risk    : {weather_risk.get('overall_disease_risk', 'UNKNOWN')}

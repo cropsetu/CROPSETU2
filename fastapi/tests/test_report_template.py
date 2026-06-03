@@ -110,6 +110,27 @@ def _make_report(**overrides):
     return _generate_template_report(**kwargs)
 
 
+# ── farmer name / contact / address in the report (MyFarm feature) ───────────
+def test_farmer_details_includes_name_contact_address():
+    p = _params()
+    p.update({
+        "farmer_name": "Ramesh Patil",
+        "farmer_contact": "9876543210",
+        "farm_address": "Baramati, Pune, Maharashtra, 413102",
+    })
+    fd = _section1(params=p)["farmer_details"]
+    assert fd["farmer_name"] == "Ramesh Patil"
+    assert fd["farmer_contact"] == "9876543210"
+    assert fd["farm_address"] == "Baramati, Pune, Maharashtra, 413102"
+
+
+def test_farmer_details_blank_when_absent():
+    fd = _section1()["farmer_details"]
+    assert fd["farmer_name"] == ""
+    assert fd["farmer_contact"] == ""
+    assert fd["farm_address"] == ""
+
+
 # ── _build_section1_farmer_summary (replaces _build_farmer_summary) ──────────
 
 class TestBuildFarmerSummary:

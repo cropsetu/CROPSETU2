@@ -340,6 +340,9 @@ def _build_section1_farmer_summary(
             "gps": f"{params.get('field_latitude', '?')}°N, {params.get('field_longitude', '?')}°E",
             "district": params.get("district", ""),
             "state": params.get("state", ""),
+            "farmer_name": params.get("farmer_name", ""),
+            "farmer_contact": params.get("farmer_contact", ""),
+            "farm_address": params.get("farm_address", ""),
         },
         "disease_detected": {
             "name_common": disease_name,
@@ -764,6 +767,10 @@ def _build_section4_annex(
         "prior_treatments": params.get("recent_pesticide_used", "None reported"),
         "image_quality_score": f"{image_quality.get('quality_score', 0):.2f}",
         "image_usable": image_quality.get("usable", False),
+        "farmer_name": params.get("farmer_name", "Not provided"),
+        "farmer_contact": params.get("farmer_contact", "Not provided"),
+        "farm_address": params.get("farm_address", "Not provided"),
+        "farm_history": params.get("farm_history", "Not provided"),
     }
 
     # ── B. Environmental Data ──

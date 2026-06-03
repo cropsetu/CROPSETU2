@@ -64,6 +64,17 @@ def _make_token_info(model: str, input_tokens: int, output_tokens: int) -> dict:
     }
 
 
+def _gemini_disable_thinking(model: str) -> bool:
+    """Whether to send thinkingConfig.thinkingBudget=0 for this Gemini model.
+
+    Gemini 2.5 Flash lets us disable "thinking" tokens (cuts latency + avoids
+    JSON truncation). Gemini 2.5 Pro REQUIRES thinking mode and returns
+    HTTP 400 "Budget 0 is invalid" if we force it off — so only opt out on
+    models we know allow it.
+    """
+    return "flash" in (model or "").lower()
+
+
 # ── Gemini Vision ────────────────────────────────────────────────────────────
 
 async def call_gemini_vision(
@@ -103,13 +114,15 @@ async def call_gemini_vision(
     # truncation mid-JSON. Our system prompt already structures the
     # reasoning steps, so we don't need the model's internal scratchpad.
     # This roughly halves end-to-end latency too.
+    gen_config = {
+        "maxOutputTokens": max_tokens,
+        "temperature": temperature,
+    }
+    if _gemini_disable_thinking(model):
+        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
     payload = {
         "contents": [{"parts": parts}],
-        "generationConfig": {
-            "maxOutputTokens": max_tokens,
-            "temperature": temperature,
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": gen_config,
     }
 
     client = get_gemini()
@@ -202,17 +215,19 @@ async def call_gemini_text(
     url = f"{_GEMINI_BASE}/{model}:generateContent"
     headers = {"x-goog-api-key": gemini_api_key}
 
+    gen_config = {
+        "maxOutputTokens": max_tokens,
+        "temperature": temperature,
+    }
+    # See call_gemini_vision / _gemini_disable_thinking — only Flash allows
+    # turning thinking off; Pro requires it (else HTTP 400).
+    if _gemini_disable_thinking(model):
+        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
     payload = {
         "contents": [
             {"parts": [{"text": f"{system_prompt}\n\n{user_prompt}"}]}
         ],
-        "generationConfig": {
-            "maxOutputTokens": max_tokens,
-            "temperature": temperature,
-            # See call_gemini_vision for rationale — disable thinking tokens
-            # so the output budget produces visible JSON, not hidden reasoning.
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": gen_config,
     }
 
     client = get_gemini()

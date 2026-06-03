@@ -87,8 +87,12 @@ async def run_diagnosis(
       symptom_description str
       recent_pesticide_used str
       fertilizer_history  str
+      farm_history        str  (recent irrigation/seed/pest-event log summary, optional)
       farm_size_acres     float
       language            str  (default "en")
+      farmer_name         str  (report only, optional)
+      farmer_contact      str  (report only, optional)
+      farm_address        str  (report only, optional)
 
     images: list of {"path": <temp file path>, "type": <view type>}
     Raises RuntimeError on unrecoverable pipeline failure.

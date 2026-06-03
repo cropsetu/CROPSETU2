@@ -184,7 +184,7 @@ export default function AIAssistantHome({ navigation, embeddedInHub }) {
         {/* ── Farm Profile Banner ────────────────────────────────────────── */}
         <FarmProfileBanner
           style={S.farmBanner}
-          onEdit={() => navigation.navigate('Account')}
+          onEdit={() => navigation.navigate('MyFarm')}
         />
 
         {/* ── Quick Services ─────────────────────────────────────────────── */}

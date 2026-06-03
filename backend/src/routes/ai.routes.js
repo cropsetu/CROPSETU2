@@ -865,6 +865,12 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
     state:               farmCtx.state || '',
     district:            farmCtx.district || '',
     city:                farmCtx.city || '',
+    // MyFarm crop-cycle history + report contact details (from the
+    // "use my farm history" toggle on the scan screen). Free-form, optional.
+    farm_history:        farmCtx.farmHistory || '',
+    farmer_name:         farmCtx.farmerName || '',
+    farmer_contact:      farmCtx.farmerContact || farmCtx.phone || '',
+    farm_address:        farmCtx.farmAddress || '',
     language:            farmCtx.language || 'en',
     tier:                farmCtx.tier || 'fast',
   };
