@@ -95,6 +95,11 @@ export default function DiagnosisResultScreen({ navigation, route }) {
   const d = route?.params?.diagnosis || {};
   const farmCtx = route?.params?.farmContext || {};
   const scannedImageUri = route?.params?.imageUri || null;
+  // Multi-image submissions pass the full array; fall back to the single
+  // legacy `imageUri` param so older entry points still work.
+  const scannedImageUris = Array.isArray(route?.params?.imageUris) && route.params.imageUris.length > 0
+    ? route.params.imageUris
+    : (scannedImageUri ? [scannedImageUri] : []);
 
   // Normalise to always have data
   const disease      = d.disease      || 'Unknown';
@@ -1238,16 +1243,39 @@ ${(() => {
           {/* ═══════════════════════════════════════════════════════════════════
               SCANNED IMAGE — What you submitted vs what AI detected
               ═══════════════════════════════════════════════════════════════════ */}
-          {scannedImageUri && (
+          {scannedImageUris.length > 0 && (
             <View style={D.section}>
               <View style={D.imageCompareCard}>
-                {/* Submitted photo */}
+                {/* Submitted photo(s) — single image fills the box; multiple
+                    images stack the first as the hero with a small horizontal
+                    strip of the rest below, so every photo the user uploaded
+                    is visible on the report. */}
                 <View style={D.imageBox}>
                   <View style={D.imageBoxHeader}>
                     <Ionicons name="camera-outline" size={14} color={COLORS.textMedium} />
-                    <Text style={D.imageBoxLabel}>Submitted Photo</Text>
+                    <Text style={D.imageBoxLabel}>
+                      {scannedImageUris.length === 1
+                        ? 'Submitted Photo'
+                        : `${scannedImageUris.length} Photos Submitted`}
+                    </Text>
                   </View>
-                  <Image source={{ uri: scannedImageUri }} style={D.scannedImage} resizeMode="cover" />
+                  <Image source={{ uri: scannedImageUris[0] }} style={D.scannedImage} resizeMode="cover" />
+                  {scannedImageUris.length > 1 && (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={D.scannedThumbStrip}
+                    >
+                      {scannedImageUris.slice(1).map((uri, i) => (
+                        <Image
+                          key={uri + i}
+                          source={{ uri }}
+                          style={D.scannedThumb}
+                          resizeMode="cover"
+                        />
+                      ))}
+                    </ScrollView>
+                  )}
                 </View>
                 {/* AI Detection summary */}
                 <View style={D.detectionBox}>
@@ -1814,6 +1842,15 @@ const D = StyleSheet.create({
   },
   imageBoxLabel: { fontSize: 10, fontWeight: '700', color: COLORS.textMedium, letterSpacing: 0.5 },
   scannedImage: { width: '100%', height: 150, backgroundColor: COLORS.divider },
+  // Strip of additional photos shown below the hero image when the scan had
+  // more than one submission. Compact, horizontally-scrollable, so 4 extra
+  // photos don't blow out the compare card height.
+  scannedThumbStrip: {
+    flexDirection: 'row', gap: 6,
+    paddingHorizontal: 6, paddingVertical: 6,
+    backgroundColor: '#F8F9FA',
+  },
+  scannedThumb: { width: 52, height: 52, borderRadius: 6, backgroundColor: COLORS.divider },
   detectionBox: {
     flex: 1, borderRadius: 10, overflow: 'hidden',
     borderWidth: 1, borderColor: COLORS.primaryPale, backgroundColor: '#FAFCF8',

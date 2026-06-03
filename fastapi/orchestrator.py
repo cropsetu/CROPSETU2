@@ -109,7 +109,10 @@ async def run_diagnosis(
         )
     except Exception as exc:
         logger.exception("[Orchestrator] Unhandled pipeline error — crop=%s", params.get("crop_name"))
-        raise RuntimeError(f"Diagnosis pipeline failed: {type(exc).__name__}") from exc
+        # Surface the actual exception message (not just the class name) so the
+        # cause is visible client-side and in triage logs. Without `: {exc}` a
+        # bare "ValueError" with no detail is unactionable.
+        raise RuntimeError(f"Diagnosis pipeline failed: {type(exc).__name__}: {exc}") from exc
 
 
 async def _run_diagnosis_inner(

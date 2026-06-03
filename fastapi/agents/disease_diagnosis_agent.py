@@ -268,7 +268,12 @@ async def run_disease_diagnosis_agent(
     #   2. Critical-field missing (same fix)
     # Low confidence does NOT trigger a retry — cross_verify adjudicates.
     max_attempts = min(2, MAX_DIAGNOSIS_RETRIES)
-    temperatures = (0.3, 0.7)   # first call deterministic, retry samples broader
+    # Primary pass is fully deterministic (temp=0) so repeat scans of the same
+    # image return the same disease + confidence — classification, not creative
+    # writing. The retry samples at 0.5 only when JSON parsing fails, to give
+    # the model a chance to escape a bad token stream. Diversity for borderline
+    # cases lives in the ensemble agent, not here.
+    temperatures = (0.0, 0.5)
 
     for attempt in range(1, max_attempts + 1):
         temp = temperatures[min(attempt - 1, len(temperatures) - 1)]

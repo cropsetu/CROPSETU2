@@ -28,7 +28,14 @@ export async function getApp() {
 
 // ── Auth helpers ─────────────────────────────────────────────────────────────
 export function signTestToken(userId, role = 'FARMER') {
-  return jwt.sign({ sub: userId, role }, ENV.JWT_SECRET, { expiresIn: '1h' });
+  // Must mirror utils/jwt.js#signAccessToken — verifyAccessToken enforces the
+  // issuer/audience claims, so tokens minted without them are rejected (401).
+  return jwt.sign({ sub: userId, role }, ENV.JWT_SECRET, {
+    expiresIn: '1h',
+    algorithm: 'HS256',
+    issuer: 'cropsetu-backend',
+    audience: 'cropsetu-mobile',
+  });
 }
 
 export function authHeader(token) {

@@ -85,14 +85,40 @@ def _merged_causal_factors(results: list[dict]) -> list[str]:
     return ordered
 
 
-def _worst_spread(results: list[dict]) -> str:
-    order = ["UNKNOWN", "LOW", "MODERATE", "HIGH", "CRITICAL"]
-    best = "UNKNOWN"
-    for r in results:
-        s = (r.get("spread_risk") or "UNKNOWN").upper()
-        if order.index(s) > order.index(best):
-            best = s
+# spread_risk ranking — higher index = faster spread. Models drift from the
+# canonical set ("MEDIUM", "VERY_HIGH", "SEVERE", "NONE", ...), so we map the
+# common variants and treat anything still unrecognised as the UNKNOWN floor
+# instead of crashing order.index() with a ValueError — which previously
+# aborted the entire pipeline on the ensemble/reconciler path. Mirrors _sev_rank.
+_SPREAD_ORDER = ["UNKNOWN", "LOW", "MODERATE", "HIGH", "CRITICAL"]
+_SPREAD_SYNONYMS = {
+    "MED": "MODERATE", "MEDIUM": "MODERATE",
+    "ELEVATED": "HIGH",
+    "VERY_HIGH": "CRITICAL", "VERY HIGH": "CRITICAL", "SEVERE": "CRITICAL", "EXTREME": "CRITICAL",
+    "NONE": "LOW", "MINIMAL": "LOW", "NEGLIGIBLE": "LOW", "RARE": "LOW",
+}
+
+
+def _spread_rank(s: str | None) -> int:
+    label = (s or "UNKNOWN").strip().upper()
+    label = _SPREAD_SYNONYMS.get(label, label)
+    if label in _SPREAD_ORDER:
+        return _SPREAD_ORDER.index(label)
+    # Compound / freeform values like "MODERATE-HIGH" or "LOW TO MODERATE":
+    # take the HIGHEST recognised level among the parts so spread risk is
+    # never understated. Falls back to UNKNOWN (0) if nothing matches, so we
+    # never crash order.index() with a ValueError (mirrors _sev_rank).
+    best = 0
+    for part in label.replace("-", " ").replace("/", " ").replace("_", " ").split():
+        part = _SPREAD_SYNONYMS.get(part, part)
+        if part in _SPREAD_ORDER:
+            best = max(best, _SPREAD_ORDER.index(part))
     return best
+
+
+def _worst_spread(results: list[dict]) -> str:
+    best_rank = max((_spread_rank(r.get("spread_risk")) for r in results), default=0)
+    return _SPREAD_ORDER[best_rank]
 
 
 def _weather_correlation_consensus(results: list[dict]) -> str:

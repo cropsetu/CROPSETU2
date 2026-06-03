@@ -13,6 +13,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Pressable, ScrollView,
   TextInput, Dimensions, Animated, Easing, StatusBar, Image,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Linking,
+  Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -134,6 +135,75 @@ function showPermissionAlert({ title, message, onOpenSettings }) {
     ],
     { cancelable: true },
   );
+}
+
+// Map a raw scan/network error to a friendly { kind, title, message } the user
+// can actually act on. We never put HTTP status codes or stack snippets in the
+// title/message that the user sees — those go to the console for debugging.
+// Returns:
+//   kind: 'network' | 'auth' | 'busy' | 'warmup' | 'timeout' | 'image' | 'server' | 'unknown'
+function classifyScanError(err, t = (k, def) => def) {
+  const status   = err?.response?.status ?? err?.status;
+  const rawMsg   = err?.response?.data?.error?.message || err?.message || '';
+  const isOffline = (err?.message || '').toLowerCase().includes('network')
+                 || err?.code === 'ECONNABORTED'
+                 || err?.code === 'ERR_NETWORK';
+
+  if (err?.sessionExpired || status === 401) {
+    return {
+      kind: 'auth',
+      title: t('cropScan.err.authTitle', 'Session expired'),
+      message: t('cropScan.err.authMsg', 'Please log out and log back in to continue.'),
+    };
+  }
+  if (status === 429) {
+    return {
+      kind: 'busy',
+      title: t('cropScan.err.busyTitle', 'AI is busy right now'),
+      message: t('cropScan.err.busyMsg', 'Too many requests at the moment. Please wait a minute and try again.'),
+    };
+  }
+  if (status === 503) {
+    return {
+      kind: 'warmup',
+      title: t('cropScan.err.warmupTitle', 'AI is warming up'),
+      message: t('cropScan.err.warmupMsg', 'The diagnosis service is starting. Please wait about 30 seconds and try again.'),
+    };
+  }
+  if (status === 413 || /too large|payload/i.test(rawMsg)) {
+    return {
+      kind: 'image',
+      title: t('cropScan.err.imageTitle', 'Image too large'),
+      message: t('cropScan.err.imageMsg', 'One of your photos is too big. Please remove it and try again with a smaller image.'),
+    };
+  }
+  if (/timed out|timeout/i.test(rawMsg)) {
+    return {
+      kind: 'timeout',
+      title: t('cropScan.err.timeoutTitle', 'Diagnosis is taking too long'),
+      message: t('cropScan.err.timeoutMsg', 'The AI took longer than expected. Check your internet and try again — usually it works the second time.'),
+    };
+  }
+  if (isOffline) {
+    return {
+      kind: 'network',
+      title: t('cropScan.err.networkTitle', 'No internet connection'),
+      message: t('cropScan.err.networkMsg', 'CropSetu can\'t reach the diagnosis service. Check your Wi-Fi or mobile data, then try again.'),
+    };
+  }
+  if (status && status >= 500) {
+    return {
+      kind: 'server',
+      title: t('cropScan.err.serverTitle', 'Something went wrong on our side'),
+      message: t('cropScan.err.serverMsg', 'The diagnosis service ran into a problem. Please try again in a moment.'),
+    };
+  }
+  // Fall-through for everything else — keep the message clean, no debug junk.
+  return {
+    kind: 'unknown',
+    title: t('cropScan.err.unknownTitle', 'Diagnosis failed'),
+    message: t('cropScan.err.unknownMsg', 'We couldn\'t finish the diagnosis. Please try again with a clearer photo.'),
+  };
 }
 
 function getCurrentSeason() {
@@ -275,6 +345,9 @@ export default function CropScanScreen({ navigation }) {
 
   // ── Step 4: Analysis
   const [analysisStep, setAnalysisStep]   = useState(0);
+  // analysisError is now a STRUCTURED { kind, title, message } object instead
+  // of a bare string with debug junk. The Modal renders title + message; the
+  // raw error stays in the console for triage.
   const [analysisError, setAnalysisError] = useState(null);
   const analysisAnim = useRef(new Animated.Value(0)).current;
 
@@ -350,6 +423,23 @@ export default function CropScanScreen({ navigation }) {
   const removeImageAt = (idx) => {
     setImageUris(prev      => prev.filter((_, i) => i !== idx));
     setImageMimeTypes(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  // Action sheet for "Add photo" — lets the user pick camera or gallery
+  // without us having to render two separate buttons in the gallery grid.
+  // Uses the native Alert so the look matches the rest of the app's prompts.
+  const openAddPhotoSheet = () => {
+    if (remainingSlots() <= 0) return;
+    Alert.alert(
+      t('cropScan.addPhoto', 'Add photo'),
+      t('cropScan.addPhotoFrom', 'Choose a source'),
+      [
+        { text: t('cropScan.takePhoto', 'Take photo'),     onPress: pickFromCamera },
+        { text: t('cropScan.chooseGallery', 'From gallery'), onPress: pickFromGallery },
+        { text: t('common.cancel', 'Cancel'), style: 'cancel' },
+      ],
+      { cancelable: true },
+    );
   };
 
   const pickFromGallery = async () => {
@@ -473,7 +563,7 @@ export default function CropScanScreen({ navigation }) {
 
       if (diagnosis.error) {
         console.error('[Scan] diagnosis.error field set:', diagnosis.error);
-        setAnalysisError(diagnosis.error);
+        setAnalysisError(classifyScanError({ message: String(diagnosis.error) }, t));
         return;
       }
 
@@ -485,30 +575,35 @@ export default function CropScanScreen({ navigation }) {
       const navTimer = setTimeout(() => {
         if (!isMountedRef.current) return;        // user backed out — abort nav
         try {
-          navigation.replace('DiagnosisResult', { diagnosis, farmContext: farmCtx, imageUri });
+          // Pass the FULL image array so DiagnosisResultScreen can render
+          // every submitted photo, not just the first. `imageUri` is kept
+          // for back-compat with older screens that still read the legacy
+          // single-image param.
+          navigation.replace('DiagnosisResult', {
+            diagnosis,
+            farmContext: farmCtx,
+            imageUri,
+            imageUris,
+          });
         } catch (navErr) {
           console.error('[Scan] Navigation error:', navErr?.message, navErr?.stack);
-          setAnalysisError('Navigation failed: ' + navErr?.message);
+          setAnalysisError({
+            kind: 'unknown',
+            title: t('cropScan.err.navTitle', 'Could not open results'),
+            message: t('cropScan.err.navMsg', 'The diagnosis finished, but we couldn\'t open the report. Please try again.'),
+          });
         }
       }, 800);
       analysisTimersRef.current.push(navTimer);
     } catch (err) {
       clearStepTimers();
       if (!isMountedRef.current) return;
-      // Show full error detail on-screen so it's visible without USB/adb
-      const debugDetail = `${err?.message || 'unknown'} | status=${err?.response?.status ?? err?.status ?? 'none'}`;
-      console.error('[Scan] error:', debugDetail);
-      const status = err?.response?.status ?? err?.status;
-      const msg = err?.sessionExpired
-        ? 'Session expired. Please log out and log back in.'
-        : status === 429
-        ? t('cropScan.aiBusy')
-        : status === 503
-        ? 'AI service is warming up. Please wait 30 seconds and try again.'
-        : status === 401
-        ? 'Session expired. Please log out and log back in.'
-        : `${t('cropScan.scanFailed')}\n\n[${debugDetail}]`;
-      setAnalysisError(msg);
+      // Log full detail for triage; show a clean, friendly modal to the user.
+      console.error('[Scan] error:', err?.message,
+        'status=', err?.response?.status ?? err?.status,
+        'body=', err?.response?.data,
+      );
+      setAnalysisError(classifyScanError(err, t));
     }
   };
 
@@ -865,26 +960,20 @@ export default function CropScanScreen({ navigation }) {
               </View>
             </View>
 
-            {/* Photo preview — show the first picked image at full width.
-                When no images yet, fall back to the camera + gallery picker
-                cards so the empty state remains as recognisable as before. */}
-            {imageUris.length > 0 ? (
-              <View style={SC.previewWrap}>
-                <Image source={{ uri: imageUris[0] }} style={SC.previewImg} resizeMode="cover" />
-                <View style={SC.previewOverlay}>
-                  <View style={SC.previewBadge}>
-                    <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} />
-                    <Text style={SC.previewBadgeText}>
-                      {imageUris.length === 1
-                        ? t('cropScan.photoSelected')
-                        : t('cropScan.photosSelected', { count: imageUris.length, defaultValue: '{{count}} photos selected' })}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            ) : (
+            {/* Photo picker — empty state shows the two big camera + gallery
+                cards (familiar onboarding pattern). Once any photo is picked,
+                the entire view collapses into a single tidy gallery grid with
+                numbered tiles and a single "Add Photo" add-slot. No more
+                duplicate hero+thumb-strip pair. */}
+            {imageUris.length === 0 ? (
               <View style={SC.photoPickerWrap}>
-                <TouchableOpacity style={SC.photoPickerBtn} onPress={pickFromCamera} activeOpacity={0.85}>
+                <TouchableOpacity
+                  style={SC.photoPickerBtn}
+                  onPress={pickFromCamera}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('cropScan.takePhoto')}
+                >
                   <View style={SC.photoPickerIcon}>
                     <Ionicons name="camera" size={32} color={COLORS.primary} />
                   </View>
@@ -892,7 +981,13 @@ export default function CropScanScreen({ navigation }) {
                   <Text style={SC.photoPickerSub}>{t('cropScan.takePhotoSub')}</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={SC.photoPickerBtn} onPress={pickFromGallery} activeOpacity={0.85}>
+                <TouchableOpacity
+                  style={SC.photoPickerBtn}
+                  onPress={pickFromGallery}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('cropScan.chooseGallery')}
+                >
                   <View style={SC.photoPickerIcon}>
                     <Ionicons name="images" size={32} color={COLORS.blue} />
                   </View>
@@ -900,57 +995,82 @@ export default function CropScanScreen({ navigation }) {
                   <Text style={SC.photoPickerSub}>{t('cropScan.chooseGallerySub')}</Text>
                 </TouchableOpacity>
               </View>
-            )}
+            ) : (
+              <View style={SC.photoGallery}>
+                {/* Header — counter + small "Add more" button when slots remain. */}
+                <View style={SC.photoGalleryHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="images" size={14} color={COLORS.primary} />
+                    <Text style={SC.photoGalleryTitle}>
+                      {t('cropScan.photosCount', {
+                        count: imageUris.length,
+                        max: MAX_IMAGES,
+                        defaultValue: '{{count}}/{{max}} photos',
+                      })}
+                    </Text>
+                  </View>
+                  {imageUris.length < MAX_IMAGES && (
+                    <TouchableOpacity
+                      style={SC.addMoreBtn}
+                      onPress={openAddPhotoSheet}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('cropScan.addPhoto', 'Add photo')}
+                    >
+                      <Ionicons name="add" size={14} color={COLORS.primary} />
+                      <Text style={SC.addMoreBtnTxt}>{t('cropScan.addPhoto', 'Add photo')}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
 
-            {/* Thumbnail strip — shows all picked photos + Add tiles up to
-                MAX_IMAGES. Each thumb has an × to remove it. Adding more
-                images strengthens the diagnosis (multiple angles / lighting). */}
-            {imageUris.length > 0 && (
-              <>
-                <View style={SC.thumbGrid}>
+                {/* 3-column gallery grid — each tile shows image + index badge
+                    + close button. The very first photo is highlighted as
+                    "Primary" since it leads the vision-model prompt. */}
+                <View style={SC.photoGrid}>
                   {imageUris.map((uri, i) => (
-                    <View key={uri + i} style={SC.thumbSlot}>
-                      <Image source={{ uri }} style={SC.thumbImg} resizeMode="cover" />
+                    <View key={uri + i} style={SC.photoCell}>
+                      <Image source={{ uri }} style={SC.photoCellImg} resizeMode="cover" />
+                      <View style={[SC.photoCellBadge, i === 0 && SC.photoCellBadgePrimary]}>
+                        <Text style={SC.photoCellBadgeTxt}>
+                          {i === 0 ? '★' : i + 1}
+                        </Text>
+                      </View>
                       <TouchableOpacity
-                        style={SC.thumbRemove}
+                        style={SC.photoCellRemove}
                         onPress={() => removeImageAt(i)}
                         hitSlop={10}
                         accessibilityRole="button"
                         accessibilityLabel={t('cropScan.removePhoto', 'Remove photo')}
                       >
-                        <Ionicons name="close" size={12} color={COLORS.white} />
+                        <Ionicons name="close" size={14} color={COLORS.white} />
                       </TouchableOpacity>
                     </View>
                   ))}
                   {imageUris.length < MAX_IMAGES && (
-                    <>
-                      <TouchableOpacity
-                        style={[SC.thumbSlot, SC.thumbSlotEmpty]}
-                        onPress={pickFromCamera}
-                        activeOpacity={0.85}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('cropScan.takePhoto')}
-                      >
-                        <Ionicons name="camera" size={22} color={COLORS.primary} />
-                        <Text style={SC.thumbSlotLabel} numberOfLines={1}>{t('cropScan.takePhoto')}</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[SC.thumbSlot, SC.thumbSlotEmpty]}
-                        onPress={pickFromGallery}
-                        activeOpacity={0.85}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('cropScan.chooseGallery')}
-                      >
-                        <Ionicons name="images" size={22} color={COLORS.blue} />
-                        <Text style={SC.thumbSlotLabel} numberOfLines={1}>{t('cropScan.chooseGallery')}</Text>
-                      </TouchableOpacity>
-                    </>
+                    <TouchableOpacity
+                      style={[SC.photoCell, SC.photoCellAdd]}
+                      onPress={openAddPhotoSheet}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('cropScan.addPhoto', 'Add photo')}
+                    >
+                      <Ionicons name="add-circle" size={30} color={COLORS.primary} />
+                      <Text style={SC.photoCellAddTxt}>{t('cropScan.addPhoto', 'Add photo')}</Text>
+                    </TouchableOpacity>
                   )}
                 </View>
-                <Text style={SC.thumbHint}>
-                  {imageUris.length}/{MAX_IMAGES} · {t('cropScan.multiPhotoHint', 'More photos = better diagnosis')}
-                </Text>
-              </>
+
+                {/* One-line hint — clear, single source of truth. */}
+                <View style={SC.photoGalleryHint}>
+                  <Ionicons name="information-circle-outline" size={13} color={COLORS.blue} />
+                  <Text style={SC.photoGalleryHintTxt}>
+                    {t(
+                      'cropScan.multiPhotoHint',
+                      'Add multiple angles (top, side, close-up) for a more accurate diagnosis.',
+                    )}
+                  </Text>
+                </View>
+              </View>
             )}
 
             {/* Crop summary */}
@@ -1015,7 +1135,7 @@ export default function CropScanScreen({ navigation }) {
         {/* ══════════ STEP 4: Analysing ══════════ */}
         {step === 4 && (
           <View style={SC.analysisScreen}>
-            {!analysisError ? (
+            {!analysisError && (
               <>
                 {/* Animated brain icon */}
                 <View style={SC.analysisIconWrap}>
@@ -1097,21 +1217,78 @@ export default function CropScanScreen({ navigation }) {
                     : t('cropScan.analysisNote')}
                 </Text>
               </>
-            ) : (
-              <View style={SC.errorBox}>
-                <Ionicons name="alert-circle" size={48} color={COLORS.red} />
-                <Text style={SC.errorTitle}>{t('cropScan.diagnosisFailed')}</Text>
-                <Text style={SC.errorMsg}>{analysisError}</Text>
-                <TouchableOpacity style={SC.retryBtn} onPress={() => goToStep(3)}>
-                  <Ionicons name="refresh" size={16} color={COLORS.white} />
-                  <Text style={SC.retryBtnText}>{t('cropScan.tryAgain')}</Text>
-                </TouchableOpacity>
-              </View>
             )}
           </View>
         )}
 
       </Animated.View>
+
+      {/* ══════════ Friendly error modal — replaces the inline
+          "Diagnosis failed [status=undefined]" code-dump. Shows a categorised
+          title + readable message + actionable buttons. ══════════ */}
+      <Modal
+        visible={!!analysisError}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAnalysisError(null)}
+      >
+        <View style={SC.errModalBackdrop}>
+          <View style={SC.errModalCard}>
+            <View style={[SC.errModalIcon, {
+              backgroundColor: analysisError?.kind === 'auth'
+                ? COLORS.amberDark + '20'
+                : analysisError?.kind === 'network'
+                  ? COLORS.blue + '20'
+                  : COLORS.red + '18',
+            }]}>
+              <Ionicons
+                name={
+                  analysisError?.kind === 'network' ? 'cloud-offline-outline'
+                  : analysisError?.kind === 'auth' ? 'lock-closed-outline'
+                  : analysisError?.kind === 'busy' ? 'time-outline'
+                  : analysisError?.kind === 'warmup' ? 'flash-outline'
+                  : analysisError?.kind === 'image' ? 'image-outline'
+                  : analysisError?.kind === 'timeout' ? 'hourglass-outline'
+                  : 'alert-circle-outline'
+                }
+                size={30}
+                color={
+                  analysisError?.kind === 'auth' ? COLORS.amberDark
+                  : analysisError?.kind === 'network' ? COLORS.blue
+                  : COLORS.red
+                }
+              />
+            </View>
+            <Text style={SC.errModalTitle}>
+              {analysisError?.title || t('cropScan.diagnosisFailed', 'Diagnosis failed')}
+            </Text>
+            <Text style={SC.errModalMsg}>
+              {analysisError?.message || t('cropScan.err.unknownMsg', 'Please try again.')}
+            </Text>
+            <View style={SC.errModalRow}>
+              <TouchableOpacity
+                style={SC.errModalBtnSecondary}
+                onPress={() => { setAnalysisError(null); navigation.goBack(); }}
+                accessibilityRole="button"
+              >
+                <Text style={SC.errModalBtnSecondaryTxt}>
+                  {t('common.cancel', 'Cancel')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={SC.errModalBtnPrimary}
+                onPress={() => { setAnalysisError(null); goToStep(3); }}
+                accessibilityRole="button"
+              >
+                <Ionicons name="refresh" size={16} color={COLORS.white} />
+                <Text style={SC.errModalBtnPrimaryTxt}>
+                  {t('cropScan.tryAgain', 'Try again')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1363,27 +1540,94 @@ const SC = StyleSheet.create({
   },
   changePhotoBtnText: { fontSize: 12, color: COLORS.amberDark, fontWeight: '700' },
 
-  // Multi-image thumbnail grid (up to MAX_IMAGES per scan)
-  thumbGrid: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6,
+  // Multi-image gallery card — replaces the old hero-preview + thumb-strip
+  // duality with a single clean grid that scales 1-to-5 images cleanly.
+  photoGallery: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16, padding: 12,
+    borderWidth: 1, borderColor: COLORS.border,
+    shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
+    marginTop: 8, marginBottom: 8,
   },
-  thumbSlot: {
-    // (screen width − scroll padding − gaps) ÷ 3 ≈ 1/3 of usable row
-    width: (W - 36 - 16) / 3, aspectRatio: 1, borderRadius: 12, overflow: 'hidden',
+  photoGalleryHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 10, paddingHorizontal: 2,
+  },
+  photoGalleryTitle: { fontSize: 13, fontWeight: '800', color: COLORS.slate800 },
+  addMoreBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
+    backgroundColor: COLORS.primary + '14',
+  },
+  addMoreBtnTxt: { fontSize: 11, fontWeight: '800', color: COLORS.primary },
+
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  // (card padding 12 each side ≈ 24, gaps 8×2 ≈ 16, screen padding 18×2 ≈ 36)
+  // Available row width = W - 36 - 24, ÷3 = tile width.
+  photoCell: {
+    width: (W - 36 - 24 - 16) / 3, aspectRatio: 1,
+    borderRadius: 12, overflow: 'hidden',
     backgroundColor: COLORS.surface,
-    borderWidth: 1.5, borderColor: COLORS.border,
-    justifyContent: 'center', alignItems: 'center', gap: 4,
+    position: 'relative',
   },
-  thumbSlotEmpty: { borderStyle: 'dashed', borderColor: COLORS.gray350 },
-  thumbSlotLabel: { fontSize: 10, color: COLORS.textMedium, fontWeight: '700', textAlign: 'center', paddingHorizontal: 4 },
-  thumbImg:    { width: '100%', height: '100%' },
-  thumbRemove: {
-    position: 'absolute', top: 4, right: 4,
-    width: 22, height: 22, borderRadius: 11,
+  photoCellImg: { width: '100%', height: '100%' },
+  photoCellBadge: {
+    position: 'absolute', top: 6, left: 6,
+    minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center', alignItems: 'center',
   },
-  thumbHint:   { fontSize: 11, color: COLORS.textMedium, marginTop: 8, marginLeft: 2, fontWeight: '600' },
+  photoCellBadgePrimary: { backgroundColor: COLORS.primary },
+  photoCellBadgeTxt: { fontSize: 10, color: COLORS.white, fontWeight: '800' },
+  photoCellRemove: {
+    position: 'absolute', top: 6, right: 6,
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  photoCellAdd: {
+    backgroundColor: COLORS.primary + '08',
+    borderWidth: 1.5, borderStyle: 'dashed', borderColor: COLORS.primary + '55',
+    justifyContent: 'center', alignItems: 'center', gap: 4,
+    padding: 6,
+  },
+  photoCellAddTxt: { fontSize: 11, fontWeight: '800', color: COLORS.primary, textAlign: 'center' },
+
+  photoGalleryHint: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12,
+    paddingHorizontal: 2,
+  },
+  photoGalleryHintTxt: { fontSize: 11, color: COLORS.textMedium, flex: 1, lineHeight: 16 },
+
+  // Error modal (proper popup, replaces the inline "[status=undefined]" text)
+  errModalBackdrop: {
+    flex: 1, backgroundColor: 'rgba(15,23,42,0.55)',
+    justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28,
+  },
+  errModalCard: {
+    width: '100%', maxWidth: 380,
+    backgroundColor: COLORS.white, borderRadius: 18, padding: 22,
+    shadowColor: COLORS.black, shadowOpacity: 0.15, shadowRadius: 20, elevation: 8,
+  },
+  errModalIcon: {
+    alignSelf: 'center', width: 56, height: 56, borderRadius: 28,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 12,
+  },
+  errModalTitle: { fontSize: 17, fontWeight: '900', color: COLORS.slate800, textAlign: 'center', marginBottom: 6 },
+  errModalMsg:   { fontSize: 13, color: COLORS.textMedium, textAlign: 'center', lineHeight: 19, marginBottom: 18 },
+  errModalRow:   { flexDirection: 'row', gap: 8 },
+  errModalBtnSecondary: {
+    flex: 1, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  errModalBtnSecondaryTxt: { fontSize: 13, fontWeight: '800', color: COLORS.gray700dark },
+  errModalBtnPrimary: {
+    flex: 1, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: COLORS.greenBright,
+    alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6,
+  },
+  errModalBtnPrimaryTxt: { fontSize: 13, fontWeight: '800', color: COLORS.white },
 
   summaryCard: {
     backgroundColor: COLORS.white, borderRadius: 14, padding: 14, gap: 8,

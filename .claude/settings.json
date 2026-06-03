@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(adb exec-out screencap *)",
+      "Bash(adb shell uiautomator *)",
+      "Bash(adb devices*)",
+      "Bash(adb logcat*)",
+      "Bash(adb shell getprop *)"
+    ]
+  }
+}

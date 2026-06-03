@@ -11,6 +11,7 @@ Report Structure (mirrors KrishiRakshak PDF layout):
 from __future__ import annotations
 import logging
 import math
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -383,7 +384,10 @@ def _build_section2_detailed_guidance(
     pathogen     = disease_info.get("pathogen_type", diagnosis.get("pathogen_type", "unknown"))
     severity     = disease_info.get("severity", "Unknown")
     crop         = params.get("crop_name", "Unknown")
-    farm_acres   = params.get("farm_size_acres") or 1
+    # Coerce to a number — farm_size_acres can arrive as a string ("2") from the
+    # farm profile, and it is multiplied below (dosage/pricing), so a str would
+    # corrupt output (int * str → repetition) or crash arithmetic downstream.
+    farm_acres   = _to_inr(params.get("farm_size_acres")) or 1
 
     # ── What is happening (plain explanation) ──
     description = disease_info.get("description", "")
@@ -550,6 +554,26 @@ def _build_section2_detailed_guidance(
 # SECTION 3 — DISPENSING SHEET (For Input Dealer)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _to_inr(x) -> float:
+    """Coerce an LLM-supplied price to a number.
+
+    `mrp_approx` / cost fields come straight from the model and are often
+    strings ("120", "₹120", "120-150", "N/A") rather than numbers. Summing
+    those with an int start raises TypeError and aborts the whole pipeline,
+    so we extract the first numeric token and default to 0 — report pricing
+    is best-effort and must never crash report generation.
+    """
+    if isinstance(x, bool):
+        return 0.0
+    if isinstance(x, (int, float)):
+        return float(x)
+    if isinstance(x, str):
+        m = re.search(r"\d+(?:\.\d+)?", x)
+        if m:
+            return float(m.group())
+    return 0.0
+
+
 def _build_section3_dispensing_sheet(
     diagnosis: dict, treatment: dict, params: dict,
 ) -> dict:
@@ -562,7 +586,10 @@ def _build_section3_dispensing_sheet(
     pathogen     = disease_info.get("pathogen_type", diagnosis.get("pathogen_type", "unknown"))
     confidence   = diagnosis.get("confidence_score", 0.0)
     crop         = params.get("crop_name", "Unknown")
-    farm_acres   = params.get("farm_size_acres") or 1
+    # Coerce to a number — farm_size_acres can arrive as a string ("2") from the
+    # farm profile, and it is multiplied below (dosage/pricing), so a str would
+    # corrupt output (int * str → repetition) or crash arithmetic downstream.
+    farm_acres   = _to_inr(params.get("farm_size_acres")) or 1
 
     # ── Products table ──
     products = []
@@ -581,11 +608,11 @@ def _build_section3_dispensing_sheet(
             import re
             nums = re.findall(r'[\d]+', str(cost_str))
             if nums:
-                price_est = int(nums[0]) * farm_acres
+                price_est = int(int(nums[0]) * farm_acres)
 
         # If no cost from agent, try from brands
         if not price_est and brands:
-            price_est = sum(b.get("mrp_approx", 0) for b in brands[:1])
+            price_est = int(sum(_to_inr(b.get("mrp_approx", 0)) for b in brands[:1]))
 
         total_cost += price_est
 
@@ -607,7 +634,7 @@ def _build_section3_dispensing_sheet(
     for bio in bio_options[:1]:
         brands = bio.get("brands", [])
         brand_names = ", ".join(b.get("name", "") for b in brands[:2]) if brands else ""
-        bio_price = sum(b.get("mrp_approx", 0) for b in brands[:1])
+        bio_price = int(sum(_to_inr(b.get("mrp_approx", 0)) for b in brands[:1]))
         total_cost += bio_price
 
         products.append({
