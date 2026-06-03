@@ -22,14 +22,38 @@ export const ENV = {
     }
     return secret;
   })(),
+  // Short-lived access token — a stolen token is only usable briefly. Clients
+  // transparently mint a new one via refresh-token rotation (see utils/jwt.js).
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
   REFRESH_TOKEN_EXPIRES_DAYS: parseInt(process.env.REFRESH_TOKEN_EXPIRES_DAYS || '30', 10),
+  // Server-side session timeouts (enforced on refresh):
+  //  - idle: max time between refreshes; slides forward on each use, so a session
+  //    idle past this window can no longer refresh.
+  //  - absolute: hard cap on total session lifetime from first login, regardless
+  //    of activity. Beyond this the session must re-authenticate.
+  SESSION_IDLE_TIMEOUT_DAYS: parseInt(process.env.SESSION_IDLE_TIMEOUT_DAYS || '7', 10),
+  SESSION_ABSOLUTE_TIMEOUT_DAYS: parseInt(process.env.SESSION_ABSOLUTE_TIMEOUT_DAYS || '30', 10),
+  // Max concurrent sessions (refresh-token lineages) per user. Logging in beyond
+  // this evicts the oldest session. 0 = unlimited.
+  MAX_CONCURRENT_SESSIONS: parseInt(process.env.MAX_CONCURRENT_SESSIONS || '5', 10),
 
   MSG91_AUTH_KEY: process.env.MSG91_AUTH_KEY || '',
   MSG91_TEMPLATE_ID: process.env.MSG91_TEMPLATE_ID || '',
   MSG91_SENDER_ID: process.env.MSG91_SENDER_ID || 'FRMESY',
-  OTP_EXPIRE_MINUTES: parseInt(process.env.OTP_EXPIRE_MINUTES || '10', 10),
+  // Short code TTL — expire OTPs quickly to shrink the guessing window.
+  OTP_EXPIRE_MINUTES: parseInt(process.env.OTP_EXPIRE_MINUTES || '5', 10),
   OTP_MAX_ATTEMPTS: parseInt(process.env.OTP_MAX_ATTEMPTS || '5', 10),
+
+  // ── OTP brute-force lockout (tracked in Redis, keyed by phone) ──────────────
+  // After OTP_LOCK_THRESHOLD failed verifications the number is temporarily
+  // locked. Each successive lock within OTP_LOCK_CYCLE_WINDOW grows the lock
+  // exponentially (base × 2^(cycle-1)) up to OTP_LOCK_MAX. Failures age out of
+  // the counter after OTP_FAIL_WINDOW of inactivity.
+  OTP_LOCK_THRESHOLD: parseInt(process.env.OTP_LOCK_THRESHOLD || '5', 10),
+  OTP_LOCK_BASE_SECONDS: parseInt(process.env.OTP_LOCK_BASE_SECONDS || '60', 10),
+  OTP_LOCK_MAX_SECONDS: parseInt(process.env.OTP_LOCK_MAX_SECONDS || '3600', 10),
+  OTP_FAIL_WINDOW_SECONDS: parseInt(process.env.OTP_FAIL_WINDOW_SECONDS || '900', 10),
+  OTP_LOCK_CYCLE_WINDOW_SECONDS: parseInt(process.env.OTP_LOCK_CYCLE_WINDOW_SECONDS || '86400', 10),
 
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '',
@@ -103,7 +127,24 @@ export const ENV = {
   ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean),
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
   RATE_LIMIT_MAX: parseInt(process.env.RATE_LIMIT_MAX || '200', 10),
+  // Global per-IP limiter toggle. On by default in dev/prod; off under the
+  // automated test suites (which fire hundreds of requests from one loopback
+  // IP and would otherwise trip it). Force on with RATE_LIMIT_ENABLED=true.
+  RATE_LIMIT_ENABLED: process.env.RATE_LIMIT_ENABLED != null
+    ? process.env.RATE_LIMIT_ENABLED === 'true'
+    : process.env.NODE_ENV !== 'test',
+  // OTP send limits — sliding window per phone and per IP (see middleware/rateLimit.js).
+  // Per-phone caps SMS-bombing of a single number; per-IP caps total cost from
+  // one network/NAT across many numbers. Window defaults to 1 hour.
+  OTP_RATE_LIMIT_WINDOW_MS: parseInt(process.env.OTP_RATE_LIMIT_WINDOW_MS || '3600000', 10),
   OTP_RATE_LIMIT_MAX: parseInt(process.env.OTP_RATE_LIMIT_MAX || '5', 10),
+  OTP_IP_RATE_LIMIT_MAX: parseInt(process.env.OTP_IP_RATE_LIMIT_MAX || '50', 10),
+  // Verify-attempt rate limits — cap the RATE of OTP guessing in a short window
+  // (complements the AUTH-4 lockout, which caps total failures). Kept above the
+  // lockout threshold so a locked number surfaces 423 before this 429.
+  OTP_VERIFY_RATE_LIMIT_WINDOW_MS: parseInt(process.env.OTP_VERIFY_RATE_LIMIT_WINDOW_MS || '60000', 10),
+  OTP_VERIFY_RATE_LIMIT_MAX: parseInt(process.env.OTP_VERIFY_RATE_LIMIT_MAX || '10', 10),
+  OTP_VERIFY_IP_RATE_LIMIT_MAX: parseInt(process.env.OTP_VERIFY_IP_RATE_LIMIT_MAX || '30', 10),
 
   IS_DEV: process.env.NODE_ENV !== 'production',
 };

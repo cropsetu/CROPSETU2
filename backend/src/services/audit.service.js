@@ -93,12 +93,35 @@ export async function auditOrderStatusChange(req, orderId, oldStatus, newStatus)
   });
 }
 
+// Structured action names for authentication events (the "outcome" is encoded
+// in the name; an explicit `outcome` is also added to metadata for clarity).
+export const AUTH_ACTIONS = {
+  LOGIN:         'AUTH_LOGIN',
+  LOGOUT:        'AUTH_LOGOUT',
+  OTP_FAILURE:   'AUTH_OTP_FAILURE',
+  OTP_LOCKOUT:   'AUTH_OTP_LOCKOUT',
+  TOKEN_REFRESH: 'AUTH_TOKEN_REFRESH',
+  TOKEN_REUSE:   'AUTH_TOKEN_REUSE',
+};
+
+/** Mask a phone for audit metadata — keep the last 4 digits only. */
+export function maskPhone(phone) {
+  if (!phone || typeof phone !== 'string') return null;
+  return phone.length <= 4 ? phone : '*'.repeat(phone.length - 4) + phone.slice(-4);
+}
+
+/**
+ * Record an authentication event (login, logout, OTP failure, token rotation…).
+ * `userId` is the actor; for events without a known actor (e.g. a failed OTP on
+ * an unregistered number) it falls back to the 'anonymous' sentinel so the row
+ * still persists. Never throws — auditing must not break the auth flow.
+ */
 export async function auditAuthEvent(userId, action, ip, metadata = null) {
   await auditLog({
-    userId,
+    userId:   userId || 'anonymous',
     action,
-    entity: 'Auth',
-    entityId: userId || 'unknown',
+    entity:   'Auth',
+    entityId: userId || 'anonymous',
     ip,
     metadata,
   });

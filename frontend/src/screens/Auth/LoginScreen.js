@@ -15,6 +15,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -23,6 +25,9 @@ import { s, vs, fs, ms } from '../../utils/responsive';
 
 const STEPS = { PHONE: 'phone', OTP: 'otp' };
 const APP_LOGO = require('../../../assets/icon.png');
+
+// Deep crop-green field — dominant 60% backdrop the light card floats on.
+const FIELD_GRADIENT = [COLORS.primary, COLORS.primaryDark2, COLORS.greenDeep];
 
 export default function LoginScreen() {
   const { sendOtp, verifyOtp } = useAuth();
@@ -35,6 +40,7 @@ export default function LoginScreen() {
   const [errorMsg, setErrorMsg] = useState(null);
   const [resendIn, setResendIn] = useState(0);
   const [legal,    setLegal]    = useState(null);   // 'terms' | 'privacy' | null
+  const [focused,  setFocused]  = useState(null);    // 'phone' | 'otp' | null
 
   const otpRef    = useRef(null);
   const fadeAnim  = useRef(new Animated.Value(0)).current;
@@ -109,160 +115,205 @@ export default function LoginScreen() {
     setStep(STEPS.PHONE);
     setOtp('');
     setErrorMsg(null);
+    setFocused(null);
   }
 
+  const isPhoneStep = step === STEPS.PHONE;
+
   return (
-    <SafeAreaView style={sty.safe}>
-      <View style={sty.gradient}>
+    <View style={sty.root}>
+      <LinearGradient
+        colors={FIELD_GRADIENT}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView style={sty.safe}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={sty.inner}
         >
-          {/* Logo area */}
-          <View style={sty.logoArea}>
-            <View style={sty.logoBadge}>
-              <Image source={APP_LOGO} style={sty.logoImg} resizeMode="contain" />
-            </View>
-            <Text style={sty.appName}>{t('appName')}</Text>
-            <Text style={sty.tagline}>{t('login.tagline')}</Text>
-          </View>
-
-          {/* Card */}
-          <Animated.View
-            style={[
-              sty.card,
-              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-            ]}
+          <ScrollView
+            contentContainerStyle={sty.scrollBody}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            bounces={false}
           >
-            {step === STEPS.PHONE ? (
-              <>
-                <Text style={sty.cardTitle}>{t('login.enterPhone')}</Text>
-                <Text style={sty.cardSub}>{t('login.otpWillSend')}</Text>
-
-                {errorMsg ? (
-                  <View style={sty.errorBox} accessibilityLiveRegion="polite">
-                    <Ionicons name="alert-circle" size={ms(16)} color={COLORS.error || '#B91C1C'} />
-                    <Text style={sty.errorTxt}>{errorMsg}</Text>
-                  </View>
-                ) : null}
-
-                <View style={sty.phoneRow}>
-                  <View style={sty.countryCode}>
-                    <Text style={sty.flag}>🇮🇳</Text>
-                    <Text style={sty.countryTxt}>+91</Text>
-                  </View>
-                  <View style={sty.divider} />
-                  <TextInput
-                    style={sty.phoneInput}
-                    placeholder={t('login.phonePlaceholder')}
-                    placeholderTextColor={COLORS.textLight}
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                    value={phone}
-                    onChangeText={(v) => setPhone(v.replace(/\D/g, ''))}
-                    returnKeyType="done"
-                    onSubmitEditing={handleSendOtp}
-                    autoFocus
-                  />
-                </View>
-
-                <PrimaryButton
-                  label={t('login.sendOtp')}
-                  loading={loading}
-                  disabled={loading || phone.length !== 10}
-                  onPress={handleSendOtp}
-                  trailingIcon="arrow-forward"
-                />
-              </>
-            ) : (
-              <>
-                <TouchableOpacity
-                  onPress={goBackToPhone}
-                  style={sty.backBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Back"
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="chevron-back" size={ms(22)} color={COLORS.primary} />
-                  <Text style={sty.backTxt}>+91 {phone}</Text>
-                </TouchableOpacity>
-
-                <Text style={sty.cardTitle}>{t('login.enterOtp')}</Text>
-                <Text style={sty.cardSub}>{t('login.otpSentTo', { phone })}</Text>
-
-                {errorMsg ? (
-                  <View style={sty.errorBox} accessibilityLiveRegion="polite">
-                    <Ionicons name="alert-circle" size={ms(16)} color={COLORS.error || '#B91C1C'} />
-                    <Text style={sty.errorTxt}>{errorMsg}</Text>
-                  </View>
-                ) : null}
-
-                <TextInput
-                  ref={otpRef}
-                  style={sty.otpInput}
-                  placeholder="• • • • • •"
-                  placeholderTextColor={COLORS.textLight}
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  value={otp}
-                  onChangeText={(v) => setOtp(v.replace(/\D/g, ''))}
-                  textContentType="oneTimeCode"
-                  autoComplete="sms-otp"
-                  importantForAutofill="yes"
-                  selectionColor={COLORS.primary}
-                  returnKeyType="done"
-                  onSubmitEditing={handleVerifyOtp}
-                />
-
-                <PrimaryButton
-                  label={t('login.verifyLogin')}
-                  loading={loading}
-                  disabled={loading || otp.length !== 6}
-                  onPress={handleVerifyOtp}
-                  trailingIcon="checkmark"
-                />
-
-                <TouchableOpacity
-                  onPress={() => handleSendOtp({ isResend: true })}
-                  style={sty.resendBtn}
-                  disabled={loading || resendIn > 0}
-                  accessibilityRole="button"
-                >
-                  <Text style={[sty.resendTxt, (resendIn > 0 || loading) && sty.resendTxtDisabled]}>
-                    {resendIn > 0 ? `${t('login.resendOtp')} (${resendIn}s)` : t('login.resendOtp')}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </Animated.View>
-
-          <View style={sty.footerWrap}>
-            <Text style={sty.footer}>{t('login.agreePrefix')}</Text>
-            <View style={sty.footerLinksRow}>
-              <TouchableOpacity
-                onPress={() => setLegal('terms')}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="link"
-                accessibilityLabel={t('login.termsOfUse')}
-              >
-                <Text style={sty.footerLink}>{t('login.termsOfUse')}</Text>
-              </TouchableOpacity>
-              <Text style={sty.footer}> {t('login.andConnector')} </Text>
-              <TouchableOpacity
-                onPress={() => setLegal('privacy')}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="link"
-                accessibilityLabel={t('login.privacyPolicy')}
-              >
-                <Text style={sty.footerLink}>{t('login.privacyPolicy')}</Text>
-              </TouchableOpacity>
+            {/* ── Brand: frosted logo badge → app name → tagline ── */}
+            <View style={sty.logoArea}>
+              <View style={sty.logoShadow}>
+                <BlurView intensity={40} tint="light" style={sty.logoBadge}>
+                  <Image source={APP_LOGO} style={sty.logoImg} resizeMode="contain" />
+                </BlurView>
+              </View>
+              <Text style={sty.appName}>{t('appName')}</Text>
+              <Text style={sty.tagline}>{t('login.tagline')}</Text>
             </View>
-          </View>
+
+            {/* ── One elevated card per step ── */}
+            <Animated.View
+              style={[
+                sty.card,
+                { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+              ]}
+            >
+              {/* Two-step progress dots */}
+              <View style={sty.steps} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                <View style={[sty.stepDot, sty.stepDotActive]} />
+                <View style={[sty.stepBar, !isPhoneStep && sty.stepBarActive]} />
+                <View style={[sty.stepDot, !isPhoneStep && sty.stepDotActive]} />
+              </View>
+
+              {isPhoneStep ? (
+                <>
+                  <View style={sty.headerIcon}>
+                    <Ionicons name="call" size={ms(22)} color={COLORS.primary} />
+                  </View>
+                  <Text style={sty.cardTitle}>{t('login.enterPhone')}</Text>
+                  <Text style={sty.cardSub}>{t('login.otpWillSend')}</Text>
+
+                  {errorMsg ? (
+                    <View style={sty.errorBox} accessibilityLiveRegion="polite">
+                      <Ionicons name="alert-circle" size={ms(16)} color={COLORS.error} />
+                      <Text style={sty.errorTxt}>{errorMsg}</Text>
+                    </View>
+                  ) : null}
+
+                  <View style={[sty.phoneRow, focused === 'phone' && sty.fieldFocused]}>
+                    <View style={sty.countryCode}>
+                      <Text style={sty.flag}>🇮🇳</Text>
+                      <Text style={sty.countryTxt}>+91</Text>
+                    </View>
+                    <View style={sty.divider} />
+                    <TextInput
+                      style={sty.phoneInput}
+                      placeholder={t('login.phonePlaceholder')}
+                      placeholderTextColor={COLORS.textLight}
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                      value={phone}
+                      onChangeText={(v) => setPhone(v.replace(/\D/g, ''))}
+                      onFocus={() => setFocused('phone')}
+                      onBlur={() => setFocused(null)}
+                      returnKeyType="done"
+                      onSubmitEditing={handleSendOtp}
+                      autoFocus
+                    />
+                  </View>
+
+                  <PrimaryButton
+                    label={t('login.sendOtp')}
+                    loading={loading}
+                    disabled={loading || phone.length !== 10}
+                    onPress={handleSendOtp}
+                    trailingIcon="arrow-forward"
+                  />
+
+                  <View style={sty.trustRow}>
+                    <Ionicons name="shield-checkmark" size={ms(14)} color={COLORS.primaryMedium} />
+                    <Text style={sty.trustTxt}>{t('login.secureNote')}</Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    onPress={goBackToPhone}
+                    style={sty.backBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('login.changeNumber')}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="chevron-back" size={ms(20)} color={COLORS.primary} />
+                    <Text style={sty.backTxt}>+91 {phone}</Text>
+                  </TouchableOpacity>
+
+                  <View style={sty.headerIcon}>
+                    <Ionicons name="chatbubble-ellipses" size={ms(22)} color={COLORS.primary} />
+                  </View>
+                  <Text style={sty.cardTitle}>{t('login.enterOtp')}</Text>
+                  <Text style={sty.cardSub}>{t('login.otpSentTo', { phone })}</Text>
+
+                  {errorMsg ? (
+                    <View style={sty.errorBox} accessibilityLiveRegion="polite">
+                      <Ionicons name="alert-circle" size={ms(16)} color={COLORS.error} />
+                      <Text style={sty.errorTxt}>{errorMsg}</Text>
+                    </View>
+                  ) : null}
+
+                  <TextInput
+                    ref={otpRef}
+                    style={[sty.otpInput, focused === 'otp' && sty.otpInputFocused]}
+                    placeholder={t('login.otpPlaceholder')}
+                    placeholderTextColor={COLORS.textLight}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    value={otp}
+                    onChangeText={(v) => setOtp(v.replace(/\D/g, ''))}
+                    onFocus={() => setFocused('otp')}
+                    onBlur={() => setFocused(null)}
+                    textContentType="oneTimeCode"
+                    autoComplete="sms-otp"
+                    importantForAutofill="yes"
+                    selectionColor={COLORS.primary}
+                    returnKeyType="done"
+                    onSubmitEditing={handleVerifyOtp}
+                  />
+
+                  <PrimaryButton
+                    label={t('login.verifyLogin')}
+                    loading={loading}
+                    disabled={loading || otp.length !== 6}
+                    onPress={handleVerifyOtp}
+                    trailingIcon="checkmark"
+                  />
+
+                  <View style={sty.resendRow}>
+                    <Text style={sty.resendPrompt}>{t('login.didntGetCode')}</Text>
+                    <TouchableOpacity
+                      onPress={() => handleSendOtp({ isResend: true })}
+                      style={sty.resendBtn}
+                      disabled={loading || resendIn > 0}
+                      accessibilityRole="button"
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={[sty.resendTxt, (resendIn > 0 || loading) && sty.resendTxtDisabled]}>
+                        {resendIn > 0 ? `${t('login.resendOtp')} (${resendIn}s)` : t('login.resendOtp')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </Animated.View>
+
+            {/* ── Legal footer ── */}
+            <View style={sty.footerWrap}>
+              <Text style={sty.footer}>{t('login.agreePrefix')}</Text>
+              <View style={sty.footerLinksRow}>
+                <TouchableOpacity
+                  onPress={() => setLegal('terms')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="link"
+                  accessibilityLabel={t('login.termsOfUse')}
+                >
+                  <Text style={sty.footerLink}>{t('login.termsOfUse')}</Text>
+                </TouchableOpacity>
+                <Text style={sty.footer}> {t('login.andConnector')} </Text>
+                <TouchableOpacity
+                  onPress={() => setLegal('privacy')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="link"
+                  accessibilityLabel={t('login.privacyPolicy')}
+                >
+                  <Text style={sty.footerLink}>{t('login.privacyPolicy')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
         </KeyboardAvoidingView>
-      </View>
+      </SafeAreaView>
 
       <LegalModal type={legal} onClose={() => setLegal(null)} t={t} />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -330,6 +381,7 @@ function LegalModal({ type, onClose, t }) {
     >
       <View style={sty.modalOverlay}>
         <View style={sty.modalCard}>
+          <View style={sty.modalGrabber} />
           <View style={sty.modalHeader}>
             <Text style={sty.modalTitle} numberOfLines={1}>{title}</Text>
             <TouchableOpacity
@@ -357,7 +409,7 @@ function LegalModal({ type, onClose, t }) {
   );
 }
 
-// ── Reusable primary button ───────────────────────────────────────────────────
+// ── Reusable primary button — the single harvest-orange focal action ────────────
 function PrimaryButton({ label, onPress, loading, disabled, trailingIcon }) {
   return (
     <TouchableOpacity
@@ -367,6 +419,7 @@ function PrimaryButton({ label, onPress, loading, disabled, trailingIcon }) {
       activeOpacity={0.85}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled, busy: !!loading }}
     >
       {loading ? (
         <ActivityIndicator color={COLORS.white} />
@@ -383,26 +436,33 @@ function PrimaryButton({ label, onPress, loading, disabled, trailingIcon }) {
 }
 
 const sty = StyleSheet.create({
-  safe:     { flex: 1, backgroundColor: COLORS.primary },
-  gradient: { flex: 1, backgroundColor: COLORS.primary },
-  inner:    {
-    flex: 1,
+  root:  { flex: 1, backgroundColor: COLORS.primary },
+  safe:  { flex: 1 },
+  inner: { flex: 1 },
+  scrollBody: {
+    flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: s(24),
-    paddingVertical:   vs(24),
+    paddingVertical:   vs(32),
   },
 
-  // ── Logo area ──────────────────────────────────────────────────────────────
+  // ── Brand / logo area ────────────────────────────────────────────────────────
   logoArea: { alignItems: 'center', marginBottom: vs(32) },
+  logoShadow: {
+    borderRadius: ms(28),
+    marginBottom: vs(16),
+    ...SHADOWS.large,
+  },
   logoBadge: {
     width: ms(96),
     height: ms(96),
     borderRadius: ms(28),
-    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: vs(16),
-    ...SHADOWS.large,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.55)',
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   logoImg: {
     width: ms(80),
@@ -424,14 +484,48 @@ const sty = StyleSheet.create({
     maxWidth: s(290),
   },
 
-  // ── Card ───────────────────────────────────────────────────────────────────
+  // ── Card ─────────────────────────────────────────────────────────────────────
   card: {
     backgroundColor: COLORS.surface,
-    borderRadius: s(28),
+    borderRadius: s(24),
     padding: s(24),
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.65)',
     ...SHADOWS.large,
+  },
+
+  // ── Two-step progress indicator ──────────────────────────────────────────────
+  steps: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginBottom: vs(18),
+  },
+  stepDot: {
+    width: s(8),
+    height: s(8),
+    borderRadius: s(4),
+    backgroundColor: COLORS.borderGreen,
+  },
+  stepDotActive: { backgroundColor: COLORS.primary },
+  stepBar: {
+    width: s(28),
+    height: 2,
+    marginHorizontal: s(6),
+    borderRadius: 1,
+    backgroundColor: COLORS.borderGreen,
+  },
+  stepBarActive: { backgroundColor: COLORS.primary },
+
+  // ── Icon-led header ──────────────────────────────────────────────────────────
+  headerIcon: {
+    width: ms(44),
+    height: ms(44),
+    borderRadius: ms(22),
+    backgroundColor: COLORS.primaryPale,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: vs(12),
   },
   cardTitle: {
     fontSize: fs(22),
@@ -447,13 +541,13 @@ const sty = StyleSheet.create({
     lineHeight: fs(20),
   },
 
-  // ── Inline error banner ────────────────────────────────────────────────────
+  // ── Inline error banner ──────────────────────────────────────────────────────
   errorBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: s(8),
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+    backgroundColor: COLORS.errorLight,
+    borderColor: COLORS.redPale200,
     borderWidth: 1,
     borderRadius: s(12),
     paddingHorizontal: s(12),
@@ -462,125 +556,166 @@ const sty = StyleSheet.create({
   },
   errorTxt: {
     flex: 1,
-    color: '#991B1B',
+    color: COLORS.errorDark,
     fontSize: fs(13),
     lineHeight: fs(18),
   },
 
-  // ── Phone input ────────────────────────────────────────────────────────────
+  // ── Phone input ──────────────────────────────────────────────────────────────
   phoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: COLORS.border,
+    borderColor: COLORS.borderGreen,
     borderRadius: s(16),
-    backgroundColor: COLORS.inputBg,
-    marginBottom: vs(16),
+    backgroundColor: COLORS.primarySoft,
+    marginBottom: vs(18),
     paddingLeft: s(12),
+  },
+  // Shared focus ring for both fields.
+  fieldFocused: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.white,
+    ...SHADOWS.greenGlow,
   },
   countryCode: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: vs(12),
+    paddingVertical: vs(14),
     gap: s(6),
   },
   flag: { fontSize: fs(18) },
   countryTxt: {
-    fontSize: fs(TYPE.size.base),
+    fontSize: fs(TYPE.size.md),
     fontWeight: TYPE.weight.bold,
     color: COLORS.textDark,
   },
   divider: {
     width: 1,
-    height: vs(24),
-    backgroundColor: COLORS.border,
+    height: vs(26),
+    backgroundColor: COLORS.borderGreen,
     marginHorizontal: s(10),
   },
   phoneInput: {
     flex: 1,
-    paddingVertical: vs(14),
+    paddingVertical: vs(15),
     paddingRight: s(14),
-    fontSize: fs(TYPE.size.base),
+    fontSize: fs(TYPE.size.md),
+    fontWeight: TYPE.weight.semibold,
     color: COLORS.textDark,
     letterSpacing: 0.5,
   },
 
-  // ── OTP input ──────────────────────────────────────────────────────────────
+  // ── OTP input — large & legible for outdoor / low-literacy use ───────────────
   otpInput: {
     width: '100%',
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-    borderRadius: RADIUS.md,
+    borderWidth: 1.5,
+    borderColor: COLORS.borderGreen,
+    borderRadius: RADIUS.lg,
     paddingHorizontal: s(14),
-    paddingVertical: vs(16),
-    fontSize: fs(26),
-    fontWeight: '700',
+    paddingVertical: vs(18),
+    fontSize: fs(28),
+    fontWeight: TYPE.weight.bold,
     color: COLORS.nearBlack,
-    backgroundColor: COLORS.white,
-    marginBottom: vs(16),
+    backgroundColor: COLORS.primarySoft,
+    marginBottom: vs(18),
     textAlign: 'center',
-    letterSpacing: s(8),
+    letterSpacing: s(10),
   },
-
-  // ── Buttons ────────────────────────────────────────────────────────────────
-  btn: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.full,
-    paddingVertical: vs(16),
-    minHeight: vs(52),
-    justifyContent: 'center',
-    alignItems: 'center',
+  otpInputFocused: {
+    borderColor: COLORS.primary,
+    borderWidth: 2,
+    backgroundColor: COLORS.white,
     ...SHADOWS.greenGlow,
   },
+
+  // ── Primary CTA (10% accent — harvest orange) ────────────────────────────────
+  btn: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.cta,
+    borderRadius: RADIUS.full,
+    paddingVertical: vs(16),
+    minHeight: vs(54),
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...SHADOWS.orangeGlow,
+  },
   btnDisabled: {
-    opacity: 0.55,
+    backgroundColor: COLORS.ctaLight,
+    opacity: 0.6,
     shadowOpacity: 0,
     elevation: 0,
   },
   btnTxt: {
     color: COLORS.white,
-    fontSize: fs(TYPE.size.base),
+    fontSize: fs(TYPE.size.md),
     fontWeight: TYPE.weight.bold,
-    letterSpacing: 0.1,
+    letterSpacing: 0.2,
   },
   btnIcon: { marginLeft: s(8) },
 
-  // ── Back / resend ──────────────────────────────────────────────────────────
+  // ── Trust microcopy (phone step) ─────────────────────────────────────────────
+  trustRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: s(6),
+    marginTop: vs(16),
+  },
+  trustTxt: {
+    color: COLORS.textMedium,
+    fontSize: fs(TYPE.size.xs),
+    fontWeight: TYPE.weight.medium,
+  },
+
+  // ── Back / resend ────────────────────────────────────────────────────────────
   backBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     marginBottom: vs(14),
-    paddingVertical: vs(4),
-    paddingRight: s(8),
+    paddingVertical: vs(6),
+    paddingHorizontal: s(10),
+    marginLeft: -s(4),
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.primaryPale,
     minHeight: 36,
   },
   backTxt: {
     color: COLORS.primary,
     fontSize: fs(TYPE.size.sm),
-    fontWeight: TYPE.weight.semibold,
+    fontWeight: TYPE.weight.bold,
     marginLeft: s(2),
   },
-  resendBtn: {
+  resendRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: vs(14),
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    marginTop: vs(16),
+  },
+  resendPrompt: {
+    color: COLORS.textMedium,
+    fontSize: fs(TYPE.size.sm),
+  },
+  resendBtn: {
     minHeight: 44,
     justifyContent: 'center',
+    paddingHorizontal: s(6),
   },
   resendTxt: {
     color: COLORS.primary,
     fontSize: fs(TYPE.size.sm),
-    fontWeight: TYPE.weight.semibold,
+    fontWeight: TYPE.weight.bold,
   },
   resendTxtDisabled: {
     color: COLORS.textLight,
   },
 
-  // ── Footer ─────────────────────────────────────────────────────────────────
+  // ── Footer ───────────────────────────────────────────────────────────────────
   footerWrap: {
     alignItems: 'center',
-    marginTop: vs(24),
+    marginTop: vs(28),
   },
   footer: {
     textAlign: 'center',
@@ -603,10 +738,10 @@ const sty = StyleSheet.create({
     textDecorationLine: 'underline',
   },
 
-  // ── Legal modal ──────────────────────────────────────────────────────────────
+  // ── Legal modal ────────────────────────────────────────────────────────────────
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: COLORS.overlay,
     justifyContent: 'flex-end',
   },
   modalCard: {
@@ -614,9 +749,17 @@ const sty = StyleSheet.create({
     borderTopLeftRadius: s(24),
     borderTopRightRadius: s(24),
     paddingHorizontal: s(20),
-    paddingTop: vs(16),
+    paddingTop: vs(12),
     paddingBottom: vs(20),
     maxHeight: '82%',
+  },
+  modalGrabber: {
+    alignSelf: 'center',
+    width: s(40),
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.border,
+    marginBottom: vs(12),
   },
   modalHeader: {
     flexDirection: 'row',

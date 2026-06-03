@@ -23,7 +23,7 @@
  */
 import { Router } from 'express';
 import { body } from 'express-validator';
-import rateLimit from 'express-rate-limit';
+import { rateLimiter, clientIp } from '../middleware/rateLimit.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { createUploader, createAvatarUploader, uploadFiles } from '../config/cloudinary.js';
@@ -36,16 +36,26 @@ import {
 import { maskSensitiveFields } from '../utils/mask.js';
 import logger from '../utils/logger.js';
 import { auditPiiUpdate } from '../services/audit.service.js';
-import { signAccessToken, createRefreshToken } from '../utils/jwt.js';
+import { signAccessToken, createRefreshToken, enforceSessionLimit } from '../utils/jwt.js';
 
 const router = Router();
 router.use(authenticate); // all user routes require auth
 
 const avatarUpload = createAvatarUploader();
 
-// ── [M1] Per-endpoint rate limiter for expensive write operations ─────────────
-// Profile write rate limit — disabled for now; re-enable before production.
-const profileWriteLimit = (_req, _res, next) => next();
+// ── [M1] Per-user rate limiter for expensive write operations ─────────────────
+// Caps profile / seller-profile / farm writes at 20 per 15 min per user. These
+// routes encrypt PII and run audit writes, so they're costly and a prime target
+// for abuse. Keyed on the authenticated user id (these routes sit behind
+// `authenticate`); falls back to client IP only if user is somehow absent.
+// Sliding window backed by Redis with an in-memory fallback (see middleware).
+const profileWriteLimit = rateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max:      20,             // 20 writes / 15 min / user
+  prefix:   'user:write',
+  key:      (req) => req.user?.id || clientIp(req),
+  message:  'Too many profile updates. Please wait a few minutes and try again.',
+});
 
 // ── Helper: recalculate profile completion (0-100) ────────────────────────────
 function calcProfileCompletion(user, sellerProfile) {
@@ -288,8 +298,9 @@ router.put(
       // is reflected in the JWT immediately (no logout/login round-trip).
       let tokens = null;
       if (roleFlipped && updatedUser.role === 'SELLER') {
-        const accessToken  = signAccessToken({ sub: updatedUser.id, role: updatedUser.role });
+        const accessToken  = signAccessToken({ sub: updatedUser.id, role: updatedUser.role, tokenVersion: updatedUser.tokenVersion });
         const refreshToken = await createRefreshToken(updatedUser.id);
+        await enforceSessionLimit(updatedUser.id); // cap concurrent sessions
         tokens = { accessToken, refreshToken };
       }
 
