@@ -53,7 +53,7 @@ def _parse_json(raw: str) -> Optional[dict]:
     return extract_json(raw)
 
 
-def _normalise(result: dict) -> dict:
+def _normalise(result: dict, crop_name: Optional[str] = None) -> dict:
     score = result.get("confidence_score", 0)
     if isinstance(score, (int, float)) and score > 1.0:
         score = score / 100
@@ -72,7 +72,85 @@ def _normalise(result: dict) -> dict:
     result.setdefault("confidence_penalties", [])
     result.setdefault("look_alikes_ruled_out", [])
     result.setdefault("visual_evidence", {})
+    result.setdefault("is_healthy", False)
     pd = result.get("primary_diagnosis", {})
+
+    # ── Per-crop canonical-snap (soft enforcement) ────────────────────────────
+    # If the model's disease name canonically matches one of the crop's candidate
+    # diseases, snap `disease` to that candidate's COMMON name. This deterministically
+    # fixes the pathogen-binomial-vs-common-name mismatch (e.g. "Alternaria solani"
+    # → "Early Blight") even when the prompt is ignored. On a covered crop where
+    # nothing matches we do NOT hard-force out-of-distribution (guards against an
+    # incomplete list) — keep the model's name and record a soft penalty note.
+    raw_disease = pd.get("disease", "")
+    did_snap = False   # True iff the model's pick matched an on-ballot candidate
+    # Non-disease causes (nutrient / abiotic / pest) and Healthy go OFF-BALLOT
+    # by design (the prompt's NON-DISEASE PATH). Do NOT snap them to a disease
+    # candidate or penalize them as "off-list" — that would force-fit a pathogen
+    # label and defeat the treatment-stage safety strip that keys on pathogen_type.
+    _ptype = (pd.get("pathogen_type") or result.get("pathogen_type") or "").lower()
+    _non_disease = _ptype in ("nutrient", "abiotic", "pest", "none")
+    if crop_name and raw_disease and raw_disease not in ("Unknown", "UNCERTAIN", "") and not _non_disease:
+        try:
+            from data.crop_disease_whitelist import candidates_for, snap_to_candidate
+            cands = candidates_for(crop_name)
+        except Exception:
+            cands = None
+        if cands is not None:
+            snapped = snap_to_candidate(crop_name, raw_disease)
+            if snapped:
+                if snapped != raw_disease:
+                    logger.info("[Snap] '%s' → '%s' (crop=%s)", raw_disease, snapped, crop_name)
+                pd["disease"] = snapped
+                did_snap = True
+                if not pd.get("scientific_name"):
+                    from data.disease_synonyms import canonicalize as _canon
+                    canon = _canon(snapped, crop_name)
+                    if canon and canon.lower() != snapped.lower():
+                        pd["scientific_name"] = canon
+            else:
+                note = f"predicted '{raw_disease}' not in candidate list for {crop_name}"
+                if note not in result["confidence_penalties"]:
+                    result["confidence_penalties"].append(note)
+
+    # ── Healthy path ──────────────────────────────────────────────────────────
+    from data.disease_synonyms import same_disease as _same_disease
+    if _same_disease(pd.get("disease", ""), "Healthy"):
+        pd["disease"] = "Healthy"
+        pd["pathogen_type"] = "none"
+        result["is_healthy"] = True
+        result["pathogen_type"] = "none"
+        result["differentials"] = []
+
+    # ── Binomial leak guard ─────────────────────────────────────────────────────
+    # If the model put a raw binomial in `disease` (e.g. "Puccinia triticina") and
+    # it did NOT snap onto the ballot, the farmer would see a Latin name. Reverse-map
+    # to a common name for this crop if possible; else mark "(name unconfirmed)" and
+    # keep the binomial in scientific_name.
+    import re as _re
+    _fn = (pd.get("disease", "") or "").strip()
+    _is_binom = bool(_re.match(r"^[A-Z][a-z]+ [a-z]+$", _fn)) or " spp." in _fn or "f. sp." in _fn or _fn.startswith("Candidatus")
+    if _fn and not did_snap and _is_binom and _fn not in ("Unknown", "UNCERTAIN", "Healthy"):
+        common = None
+        if crop_name:
+            try:
+                from data.crop_disease_whitelist import candidates_for
+                from data.disease_synonyms import same_disease as _sd
+                for cand in (candidates_for(crop_name) or []):
+                    if _sd(_fn, cand, crop=crop_name):
+                        common = cand
+                        break
+            except Exception:
+                common = None
+        if not pd.get("scientific_name"):
+            pd["scientific_name"] = _fn
+        if common:
+            pd["disease"] = common
+            logger.info("[LeakGuard] binomial '%s' → common '%s' (crop=%s)", _fn, common, crop_name)
+        else:
+            pd["disease"] = f"{_fn} (name unconfirmed)"
+            logger.info("[LeakGuard] off-ballot binomial '%s' → unconfirmed (crop=%s)", _fn, crop_name)
+
     result["primary_diagnosis"] = {
         "disease":         pd.get("disease", "Unknown"),
         "scientific_name": pd.get("scientific_name", ""),
@@ -135,6 +213,52 @@ def _uncertain_fallback(reason: str) -> dict:
     }
 
 
+def _service_unavailable(model: str, reason: str) -> dict:
+    """Distinct from _uncertain_fallback: the model PROVIDER is down (503 /
+    timeout / no key), not 'we looked and couldn't tell'. We deliberately do
+    NOT fall back to a weaker model (that degrades quality undetectably) — the
+    orchestrator surfaces this as a clear 'service temporarily unavailable,
+    please try again' message instead of a lower-quality guess."""
+    return {
+        "_reasoning": f"Diagnosis provider unavailable ({model}): {reason}",
+        "service_unavailable": True,
+        "primary_diagnosis": {
+            "disease": "SERVICE_UNAVAILABLE", "scientific_name": "", "confidence": 0.0,
+            "severity": "Unknown",
+            "description": "The AI diagnosis service is temporarily unavailable. "
+                           "Please try again in a little while.",
+            "evidence": [],
+        },
+        "differentials": [], "severity": "Unknown", "spread_risk": "UNKNOWN",
+        "is_certain": False, "needs_advisor": True, "confidence_score": 0.0, "causal_factors": [],
+    }
+
+
+def _candidate_block(crop_name: Optional[str]) -> str:
+    """Render the per-crop candidate-disease ballot for the diagnose prompt.
+
+    Covered crop  → a closed list of common names (+ "Healthy") the model must
+    choose from. Uncovered crop → an "open vocabulary" note so the naming
+    discipline still applies without false narrowing. Never raises.
+    """
+    try:
+        from data.crop_disease_whitelist import candidates_for
+        cands = candidates_for(crop_name)
+    except Exception:
+        cands = None
+    if cands:
+        listed = "\n".join(f"  - {c}" for c in cands)
+        return (
+            "CANDIDATE DISEASES FOR THIS CROP "
+            "(pick `disease` as a COMMON name from THIS list; binomial goes in scientific_name):\n"
+            f"{listed}\n\n"
+        )
+    return (
+        "CANDIDATE DISEASES: open vocabulary (crop not in curated list) — use a canonical "
+        "common plant-pathology name; put the binomial in scientific_name.\n\n"
+    )
+
+
 def _build_context(image_quality: dict, weather_risk: dict, params: dict, local_prior: list[dict] | None = None) -> str:
     w = weather_risk
     iq = image_quality
@@ -174,9 +298,10 @@ def _build_context(image_quality: dict, weather_risk: dict, params: dict, local_
         f"weigh these when judging the disease and ruling out look-alikes):\n{_fh}\n"
         if _fh else ""
     )
+    candidate_block = _candidate_block(params.get("crop_name"))
     return f"""CROP DISEASE ANALYSIS
 
-CROP & FIELD:
+{candidate_block}CROP & FIELD:
   Crop         : {params.get('crop_name', 'Unknown')}
   Variety      : {params.get('crop_variety', 'Not specified')}
   Growth Stage : {params.get('crop_growth_stage', 'Unknown')}
@@ -205,7 +330,7 @@ IMAGE QUALITY:
   Score   : {iq.get('quality_score', 0):.2f} | Usable: {iq.get('usable', False)}
   {('Notes: ' + iq.get('enhancement_notes', '')) if iq.get('enhancement_notes') else ''}
 {local_block}
-Follow the 5-step diagnostic process exactly. Apply the confidence scoring formula.
+Follow the 7-step diagnostic process exactly. Apply the confidence scoring formula.
 Set weather_correlation to SUPPORTS / PARTIAL / CONTRADICTS.
 Return JSON only. No markdown."""
 
@@ -219,19 +344,24 @@ async def run_disease_diagnosis_agent(
     """
     Returns (diagnosis_dict, token_info).
 
-    Uses the single AI_CROP_DIAGNOSE_MODEL configured in .env (default:
-    claude-haiku-4-5-20251001 via Anthropic). No fallback chain — if the
-    model fails, the call surfaces the error.
+    SINGLE-model diagnosis (AI_CROP_DIAGNOSE_MODEL, e.g. gemini-2.5-pro). There
+    is intentionally NO cross-model fallback: silently answering with a weaker
+    model when the primary is down degrades accuracy in a way that's hard to
+    detect and maintain. If the provider is unavailable (503 "high demand",
+    timeout, missing key) we return a clear `service_unavailable` result and the
+    orchestrator tells the user the service is temporarily down — far better than
+    a lower-quality guess. Transient blips are absorbed by ONE same-model retry
+    inside the provider call (llm_utils), not by switching models.
     """
     cfg = get_feature_config("CROP_DIAGNOSE")
     if not cfg.api_key:
-        return _uncertain_fallback(
-            f"No API key for {cfg.model} (set AI_CROP_DIAGNOSE_API_KEY)"
+        return _service_unavailable(
+            cfg.model, "no API key configured (set AI_CROP_DIAGNOSE_API_KEY)"
         ), empty_token_info("none")
 
     # Load images as base64
     images_b64 = []
-    for img in images[:5]:
+    for img in images[:1]:   # single-image pipeline (multi-image feature removed)
         try:
             b64, mime = _read_image_b64(img["path"])
             images_b64.append({"data": b64, "mime_type": mime})
@@ -267,12 +397,13 @@ async def run_disease_diagnosis_agent(
     last_result: Optional[dict] = None
     accumulated_tokens: dict = empty_token_info(cfg.model)
 
-    # Retry strategy — single model (cfg.model), two attempts, parse-failure
-    # retry only. No cross-model fallback (the previous chain walker is gone;
-    # admin controls reliability via .env model swap). The two retries cover:
+    # Retry strategy — single model (cfg.model), two attempts, PARSE-failure
+    # retry only. NO cross-model fallback (a weaker fallback model degrades
+    # quality undetectably). A provider/transport error (503, timeout, ...) is
+    # NOT retried across models — it returns a clear service_unavailable result.
+    # The two retries cover:
     #   1. JSON parse failure (bump temperature, resample)
     #   2. Critical-field missing (same fix)
-    # Low confidence does NOT trigger a retry — cross_verify adjudicates.
     max_attempts = min(2, MAX_DIAGNOSIS_RETRIES)
     # Primary pass is fully deterministic (temp=0) so repeat scans of the same
     # image return the same disease + confidence — classification, not creative
@@ -284,9 +415,8 @@ async def run_disease_diagnosis_agent(
     for attempt in range(1, max_attempts + 1):
         temp = temperatures[min(attempt - 1, len(temperatures) - 1)]
         try:
-            # max_tokens=8192 — diagnose prompt asks for full JSON with
-            # primary + 3 differentials + reasoning blocks. The default
-            # 4096 truncates Claude mid-response on richer crops.
+            # max_tokens=8192 — diagnose prompt asks for full JSON with primary
+            # + 3 differentials + reasoning blocks; 4096 truncates mid-response.
             raw, tok = await call_llm_vision(
                 cfg,
                 system_prompt=system_prompt_text,
@@ -295,7 +425,7 @@ async def run_disease_diagnosis_agent(
                 temperature=temp,
                 max_tokens=8192,
             )
-            # Accumulate tokens across retries
+            # Accumulate tokens across retries.
             accumulated_tokens["input_tokens"]  += tok["input_tokens"]
             accumulated_tokens["output_tokens"] += tok["output_tokens"]
             accumulated_tokens["total_tokens"]  += tok["total_tokens"]
@@ -312,7 +442,7 @@ async def run_disease_diagnosis_agent(
                                attempt, cfg.model, temperatures[min(attempt, len(temperatures)-1)])
                 continue
 
-            result = _normalise(result)
+            result = _normalise(result, crop_name=params.get("crop_name"))
             last_result = result
 
             # Missing-critical-field check — retry-worthy.
@@ -338,9 +468,12 @@ async def run_disease_diagnosis_agent(
             return result, accumulated_tokens
 
         except Exception as exc:
-            logger.exception("Diagnose attempt %d failed (model=%s)", attempt, cfg.model)
-            if attempt == max_attempts:
-                return (last_result or _uncertain_fallback(f"{cfg.model} failed: {exc}")), accumulated_tokens
-            await asyncio.sleep(min(3 * attempt, 6))
+            # Provider/transport failure (503 "high demand", timeout, connection
+            # reset, ...). We do NOT fall back to another model — that silently
+            # degrades quality. Surface a clear service_unavailable result so the
+            # user is told to retry. (Parse-level retries are handled above; the
+            # provider already did one same-model quick retry internally.)
+            logger.exception("Diagnose call failed (model=%s) — reporting service unavailable", cfg.model)
+            return _service_unavailable(cfg.model, f"{type(exc).__name__}: {exc}"), accumulated_tokens
 
     return (last_result or _uncertain_fallback("Max retries reached")), accumulated_tokens

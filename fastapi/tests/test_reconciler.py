@@ -137,3 +137,33 @@ def test_empty_input_returns_uncertain_shell():
     assert out["primary_diagnosis"]["disease"] == "Unknown"
     assert out["needs_advisor"] is True
     assert out["needs_lab_confirmation"] is True
+
+
+# ── Tie-break / dead-vote handling (503-fallback robustness) ─────────────────
+
+def test_failed_primary_does_not_sink_a_real_ensemble_vote():
+    """A 503'd primary (Unknown@0.0) must NOT win the vote against a real
+    ensemble diagnosis — the old insertion-order tie-break did exactly that,
+    turning a recoverable scan into a terminal 'Unknown'."""
+    primary  = _result("Unknown",      confidence=0.0, model="gemini-2.5-pro")
+    ensemble = _result("Late Blight",  confidence=0.80, model="gemini-2.5-flash")
+    out = fuse([primary, ensemble])     # primary spliced first, as the orchestrator does
+    assert out["primary_diagnosis"]["disease"] == "Phytophthora infestans"
+    assert out["primary_diagnosis"]["disease"] != "Unknown"
+
+
+def test_two_real_tie_resolves_to_higher_confidence():
+    """A 1-1 tie between two real diseases resolves to the more-confident
+    voter (deterministic), not whoever was inserted first."""
+    a = _result("Late Blight",  confidence=0.60, model="a")   # → Phytophthora infestans
+    b = _result("Early Blight", confidence=0.90, model="b")   # → Alternaria solani
+    out = fuse([a, b])
+    assert out["primary_diagnosis"]["disease"] == "Alternaria solani"
+
+
+def test_all_members_unknown_returns_shell():
+    """If every live vote is Unknown/Uncertain, keep the honest Unknown shell."""
+    out = fuse([_result("Unknown", confidence=0.0),
+                _result("UNCERTAIN", confidence=0.0)])
+    assert out["primary_diagnosis"]["disease"] == "Unknown"
+    assert out["needs_advisor"] is True

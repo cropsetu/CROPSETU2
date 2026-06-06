@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-REGISTRY_VERSION = "2026.05.28-r1"
+REGISTRY_VERSION = "2026.06.06-r2"
 REGISTRY_SOURCES = (
     "CIB&RC Annexure-VI (2024)",
     "Insecticides Act 1968 (Central + state amendments)",
@@ -30,23 +30,70 @@ REGISTRY_SOURCES = (
 # Lowercased active-ingredient names. State scope is annotated where the ban
 # is regional rather than central. Order is the registry's history of bans;
 # do not reorder casually — the audit log references positions for clarity.
+# Sourced from the CIB&RC / PPQS "List of pesticides banned, refused
+# registration and restricted in use" + the Insecticides (Prohibition) Order,
+# 2023. VERIFY against the latest PPQS gazette before relying on it in prod —
+# this is a living list (see ppqs.gov.in). Bumping REGISTRY_VERSION above
+# auto-invalidates the treatment cache so a new ban takes effect immediately.
 BANNED_ACTIVES: dict[str, dict] = {
-    "monocrotophos":   {"scope": "central", "since": "2020", "reason": "Acute toxicity (Class I), persistent residues"},
-    "endosulfan":      {"scope": "central", "since": "2011", "reason": "Persistent organic pollutant, neurotoxic"},
-    "methyl parathion":{"scope": "central", "since": "2018", "reason": "Highly toxic OP, banned across crops"},
-    "phorate":         {"scope": "central", "since": "2020", "reason": "Class I extreme hazard, banned on most crops"},
-    "triazophos":      {"scope": "central", "since": "2020", "reason": "Acute toxicity, bee-toxic"},
-    "phosphamidon":    {"scope": "central", "since": "2020", "reason": "Class I, banned for use"},
-    "carbofuran":      {"scope": "central", "since": "2020", "reason": "Acute toxicity, bird/bee kills"},
-    "dichlorvos":      {"scope": "restricted", "since": "2020", "reason": "Banned on many crops; restricted elsewhere"},
-    "lindane":         {"scope": "central", "since": "2011", "reason": "Organochlorine, POP"},
-    "aldrin":          {"scope": "central", "since": "2003", "reason": "Organochlorine, banned globally"},
-    "chlordane":       {"scope": "central", "since": "2003", "reason": "Organochlorine, banned globally"},
-    "heptachlor":      {"scope": "central", "since": "2003", "reason": "Organochlorine, banned globally"},
+    # ── Organochlorines / POPs (banned 1989–2011) ──
     "ddt":             {"scope": "agricultural-banned", "since": "1989", "reason": "Banned for agriculture (limited public-health use only)"},
-    "ethion":          {"scope": "central", "since": "2018", "reason": "OP, banned"},
-    "methomyl":        {"scope": "central", "since": "2018", "reason": "Class I extreme hazard"},
-    "trichlorfon":     {"scope": "central", "since": "2018", "reason": "OP, banned on food crops"},
+    "toxaphene":       {"scope": "central", "since": "1989", "reason": "Organochlorine POP (camphechlor)"},
+    "dibromochloropropane": {"scope": "central", "since": "1989", "reason": "DBCP — banned"},
+    "pentachloronitrobenzene": {"scope": "central", "since": "1989", "reason": "PCNB — banned"},
+    "endrin":          {"scope": "central", "since": "1990", "reason": "Organochlorine POP"},
+    "aldrin":          {"scope": "central", "since": "2003", "reason": "Organochlorine POP, banned globally"},
+    "chlordane":       {"scope": "central", "since": "2003", "reason": "Organochlorine POP"},
+    "heptachlor":      {"scope": "central", "since": "2003", "reason": "Organochlorine POP"},
+    "dieldrin":        {"scope": "central", "since": "2001", "reason": "Organochlorine POP"},
+    "benzene hexachloride": {"scope": "central", "since": "1997", "reason": "BHC/HCH — banned"},
+    "lindane":         {"scope": "central", "since": "2011", "reason": "Organochlorine (gamma-HCH), POP"},
+    "endosulfan":      {"scope": "central", "since": "2011", "reason": "Persistent, neurotoxic; SC-ordered ban"},
+    # ── 2001 order ──
+    "aldicarb":        {"scope": "central", "since": "2001", "reason": "Class Ia carbamate — banned"},
+    "chlorobenzilate": {"scope": "central", "since": "2001", "reason": "Banned"},
+    "ethylene dibromide": {"scope": "central", "since": "2001", "reason": "EDB — banned"},
+    "maleic hydrazide":{"scope": "central", "since": "2001", "reason": "Banned"},
+    "paraquat dimethyl sulfate": {"scope": "central", "since": "2001", "reason": "Banned formulation"},
+    "trichloroacetic acid": {"scope": "central", "since": "2001", "reason": "TCA — banned"},
+    "menazon":         {"scope": "central", "since": "1996", "reason": "Banned"},
+    "metoxuron":       {"scope": "central", "since": "1996", "reason": "Banned"},
+    "nitrofen":        {"scope": "central", "since": "1996", "reason": "Banned"},
+    "tetradifon":      {"scope": "central", "since": "1996", "reason": "Banned"},
+    # ── 2018 prohibition order (S.O. 3951(E); some effective 2020) ──
+    "alachlor":        {"scope": "central", "since": "2018", "reason": "2018 prohibition order"},
+    "benomyl":         {"scope": "central", "since": "2018", "reason": "2018 prohibition order"},
+    "carbaryl":        {"scope": "central", "since": "2018", "reason": "2018 prohibition order"},
+    "diazinon":        {"scope": "central", "since": "2018", "reason": "2018 prohibition order"},
+    "dichlorvos":      {"scope": "central", "since": "2018", "reason": "DDVP — 2018 prohibition order"},
+    "fenarimol":       {"scope": "central", "since": "2018", "reason": "2018 prohibition order"},
+    "fenthion":        {"scope": "central", "since": "2018", "reason": "2018 prohibition order"},
+    "linuron":         {"scope": "central", "since": "2018", "reason": "2018 prohibition order"},
+    "methoxy ethyl mercury chloride": {"scope": "central", "since": "2018", "reason": "Organomercury — 2018 order"},
+    "methyl parathion":{"scope": "central", "since": "2018", "reason": "Highly toxic OP — 2018 order"},
+    "sodium cyanide":  {"scope": "central", "since": "2018", "reason": "2018 order (insecticidal use)"},
+    "thiometon":       {"scope": "central", "since": "2018", "reason": "2018 prohibition order"},
+    "tridemorph":      {"scope": "central", "since": "2018", "reason": "2018 prohibition order"},
+    "trichlorfon":     {"scope": "central", "since": "2018", "reason": "OP — 2018 prohibition order"},
+    "ethion":          {"scope": "central", "since": "2018", "reason": "OP — banned"},
+    "phorate":         {"scope": "central", "since": "2020", "reason": "Class I — 2018 order, effective 2020"},
+    "phosphamidon":    {"scope": "central", "since": "2020", "reason": "Class I — 2018 order, effective 2020"},
+    "triazophos":      {"scope": "central", "since": "2020", "reason": "Bee-toxic — 2018 order, effective 2020"},
+    # ── Insecticides (Prohibition) Order, 2023 ──
+    "dicofol":         {"scope": "central", "since": "2023", "reason": "2023 Prohibition Order"},
+    "dinocap":         {"scope": "central", "since": "2023", "reason": "2023 Prohibition Order"},
+    "methomyl":        {"scope": "central", "since": "2023", "reason": "Class I — 2023 Prohibition Order"},
+    "monocrotophos":   {"scope": "central", "since": "2023", "reason": "2023 Prohibition Order (1-yr phase-out)"},
+    # ── Other historically-banned arsenicals / organomercurials / OPs ──
+    "ethyl parathion": {"scope": "central", "since": "1990", "reason": "Parathion — banned"},
+    "phenylmercury acetate": {"scope": "central", "since": "1990", "reason": "Organomercury — banned"},
+    "calcium cyanide": {"scope": "central", "since": "1990", "reason": "Banned"},
+    "copper acetoarsenite": {"scope": "central", "since": "1990", "reason": "Paris green — banned"},
+    "sodium methanearsonate": {"scope": "central", "since": "1990", "reason": "Arsenical — banned"},
+    "chlorfenvinphos": {"scope": "central", "since": "1990", "reason": "Banned"},
+    "pentachlorophenol": {"scope": "central", "since": "1991", "reason": "Banned"},
+    # ── Restricted-use (blocked here conservatively; verify crop-specific allowances) ──
+    "carbofuran":      {"scope": "restricted", "since": "2020", "reason": "Restricted — only 3% CG formulation permitted"},
 }
 
 

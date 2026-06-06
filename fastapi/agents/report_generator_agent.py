@@ -36,14 +36,17 @@ def _generated_at() -> str:
 
 def _urgency_label(severity: str, spread_risk: str, confidence: float) -> dict:
     """Determine urgency badge based on severity + spread risk."""
-    sev = (severity or "").lower()
+    from data.severity import normalize_severity
+    raw = (severity or "").strip()
+    # Canonicalize (High→Severe, Medium→Moderate, …); empty stays low-urgency.
+    sev = normalize_severity(raw) if raw else "None"
     spread = (spread_risk or "").upper()
 
-    if sev == "severe" or spread == "CRITICAL":
+    if sev == "Severe" or spread == "CRITICAL":
         return {"label": "ACT IMMEDIATELY", "hours": 24, "level": "critical"}
-    elif sev == "moderate" or spread == "HIGH":
+    elif sev == "Moderate" or spread == "HIGH":
         return {"label": "ACT WITHIN 48 HOURS", "hours": 48, "level": "high"}
-    elif sev == "mild" or spread == "MODERATE":
+    elif sev == "Mild" or spread == "MODERATE":
         return {"label": "ACT WITHIN 5 DAYS", "hours": 120, "level": "moderate"}
     else:
         return {"label": "MONITOR CLOSELY", "hours": 168, "level": "low"}
@@ -186,12 +189,29 @@ async def _attach_local_blocks(report: dict, params: dict) -> None:
         return
 
     source_blocks = _build_english_local_blocks(report, params)
-    translated = await translate_blocks(source_blocks, target)
+    # Protect the disease NAME from machine translation — an MT'd pathogen name
+    # can be wrong or unrecognizable to the local dealer who fills the
+    # prescription (same discipline we already apply to chemical/brand names).
+    # Swap it for a non-translatable token, translate the prose, restore English.
+    dx = ((report.get("disease") or {}).get("name_common") or "").strip()
+    _DX = "⟦DX⟧"
+    protect = bool(dx) and len(dx) >= 3
+    to_translate = ({k: v.replace(dx, _DX) for k, v in source_blocks.items()}
+                    if protect else source_blocks)
+    raw_translated = await translate_blocks(to_translate, target)
+    # Detect a Sarvam no-op (down / key missing) by comparing the translator's
+    # output to its INPUT — independent of the lexicon restore below (which
+    # legitimately changes the text even when translation succeeded).
+    untranslated = all(raw_translated.get(k) == to_translate[k] for k in to_translate)
+    if protect:
+        # Restore the disease term from the VETTED lexicon for this language,
+        # falling back to the English name — never a machine translation.
+        from data.disease_lexicon import local_disease_name
+        local_dx = local_disease_name(dx, target) or dx
+        translated = {k: v.replace(_DX, local_dx) for k, v in raw_translated.items()}
+    else:
+        translated = raw_translated
 
-    # If the translator returned originals for everything (Sarvam down,
-    # key missing, etc.), we still want the frontend to know what language
-    # was *targeted* so it can render an English-only fallback strip.
-    untranslated = all(translated[k] == source_blocks[k] for k in source_blocks)
     report["local_blocks"] = {
         "language": target,
         "language_name": lang_display_name(target),

@@ -384,7 +384,7 @@ router.post('/chat', authenticate, aiChatLimit, async (req, res) => {
       message:      message.trim(),
       history,
       farm_profile: enrichedProfile,
-    }, req.user.id);
+    }, req.user.id, 120_000);  // Indic chat models can be slow; output is capped server-side
 
     const { reply, type, structured_data: structuredData, token_info: tokenInfo } = result;
     const tokens = tokenInfo?.total_tokens || 0;

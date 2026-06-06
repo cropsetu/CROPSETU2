@@ -94,6 +94,17 @@ async def lifespan(app: FastAPI):
             logger.error("[Config] PostgreSQL UNREACHABLE — %s", exc)
             logger.error("[Config] AgriPredict features will return errors until DB is fixed")
 
+    # Boot-time integrity invariants — surface config/data problems LOUDLY at
+    # startup instead of silently at runtime (silent kill-switch, $0 pricing,
+    # dead 0/3 cap, alias drift). Fail-closed in prod; WARN-only in dev.
+    try:
+        from safety.invariants import assert_boot_invariants
+        assert_boot_invariants(fail_closed=IS_PROD)
+    except RuntimeError:
+        raise  # prod: refuse to start with critical integrity violations
+    except Exception as exc:  # noqa: BLE001
+        logger.error("[Invariant] boot check errored (non-fatal): %s", exc)
+
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
@@ -189,8 +200,19 @@ async def health():
     from agents.router import describe_chains as _chains
     from models.local_classifier import status as _local_status
     from safety.chemicals import REGISTRY_VERSION as _chem_version
+    from safety.invariants import check_invariants, CRITICAL
+    _issues = check_invariants()
+    _crit = [i for i in _issues if i["severity"] == CRITICAL]
+    try:
+        from data.state_bans import REGISTRY_VERSION as _sb_version
+    except Exception:
+        _sb_version = "unknown"
+    try:
+        from data.crop_disease_whitelist import WHITELIST_VERSION as _wl_version
+    except Exception:
+        _wl_version = "unknown"
     return {
-        "status":   "ok" if db_ok else "degraded",
+        "status":   "ok" if (db_ok and not _crit) else "degraded",
         "service":  "CropGuard AI",
         "database": "connected" if db_ok else "unreachable",
         "prompts":           _prompts(),
@@ -198,6 +220,17 @@ async def health():
         "chains_best":       _chains("best"),
         "local_classifier":  _local_status(),
         "chemical_registry": _chem_version,
+        "versions": {
+            "chemical_registry": _chem_version,
+            "state_bans":        _sb_version,
+            "whitelist":         _wl_version,
+        },
+        "invariants": {
+            "ok":       not _crit,
+            "critical": len(_crit),
+            "warnings": len(_issues) - len(_crit),
+            "issues":   _issues,
+        },
     }
 
 

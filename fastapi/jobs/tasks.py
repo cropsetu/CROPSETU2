@@ -54,17 +54,16 @@ _MAX_INLINE_BYTES_PER_IMAGE = 8 * 1024 * 1024
 
 
 def _materialise(images: list[dict]) -> tuple[list[dict], list[Path]]:
-    """Same shape as routes/scan._materialise_inline_images. Duplicated here
-    rather than imported to keep this worker module independent of FastAPI
-    route imports (which pull in slowapi + httpx clients we don't need)."""
-    materialised: list[dict] = []
+    """Materialise the FIRST valid image to a tempfile (single-image pipeline —
+    the multi-image feature was removed). Returns ([{path,type}], [tempfile]) or
+    ([], []) if none are usable. Independent of FastAPI route imports."""
     temp_paths: list[Path] = []
     for img in images or []:
         if not isinstance(img, dict):
             continue
+        # Path-passthrough (legacy / tests) — first valid wins.
         if img.get("path") and not img.get("data"):
-            materialised.append(img)
-            continue
+            return [img], temp_paths
         data_b64 = img.get("data")
         if not isinstance(data_b64, str) or not data_b64:
             continue
@@ -88,8 +87,8 @@ def _materialise(images: list[dict]) -> tuple[list[dict], list[Path]]:
             raise
         p = Path(path)
         temp_paths.append(p)
-        materialised.append({"path": str(p), "type": img.get("type") or "leaf"})
-    return materialised, temp_paths
+        return [{"path": str(p), "type": img.get("type") or "leaf"}], temp_paths
+    return [], temp_paths
 
 
 def _cleanup(paths: list[Path]) -> None:
@@ -140,6 +139,16 @@ def run_diagnosis_task(self, *, payload: dict) -> dict:
         # private event loop per task; safe since workers are
         # process-per-task (prefork pool).
         result = asyncio.run(run_diagnosis(params, images))
+        # Record spend — the daily cap is CHECKED at enqueue, but this is the
+        # only place that INCREMENTS it. Without this call the cap is a no-op.
+        try:
+            from security.spend import record_spend
+            cost = float(((result.get("meta") or {}).get("pipeline_token_usage") or {}).get("total_cost_usd") or 0)
+            uid = payload.get("user_id")
+            if cost > 0 and uid:
+                record_spend(str(uid), cost)
+        except Exception:
+            logger.warning("[Worker] record_spend failed (non-fatal)", exc_info=False)
         logger.info("[Worker] done job_id=%s confidence=%.2f", job_id, ((result.get("meta") or {}).get("confidence_score") or 0))
         return result
     except SoftTimeLimitExceeded:

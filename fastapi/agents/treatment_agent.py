@@ -21,6 +21,11 @@ from agents.llm_dispatch import call_llm_text, get_feature_config
 from data.agro_zones import zone_for
 from rag import retrieve as rag_retrieve
 from safety.validator import validate_treatment
+from safety.chemicals import REGISTRY_VERSION
+try:
+    from data.state_bans import REGISTRY_VERSION as STATE_BANS_VERSION
+except Exception:  # pragma: no cover - defensive
+    STATE_BANS_VERSION = "0"
 
 # ── Redis cache (optional — falls back to in-memory if Redis unavailable) ─────
 try:
@@ -81,6 +86,11 @@ def _get_cache_key(diagnosis: dict, params: dict, tier: str, grounding: dict | N
         "severity":      _bucket_severity(pd.get("severity")),
         "growth_stage":  (params.get("crop_growth_stage") or "").lower().strip(),
         "tier":          tier,
+        # Safety: a chemical ban / label-claim change bumps these versions,
+        # which auto-invalidates stale cached advice — otherwise a just-banned
+        # pesticide keeps being served from cache for the 7-day TTL.
+        "registry_version":   REGISTRY_VERSION,
+        "state_bans_version": STATE_BANS_VERSION,
     }
     if grounding:
         # Stable signature: actives' names + zone (the two grounding
@@ -449,6 +459,27 @@ Return JSON only."""
         # output, or every cache hit poisons the next request.
         validation = validate_treatment(result, diagnosis=diagnosis, params=params)
         sanitized = validation.sanitized_treatment
+
+        # Severity↔ETL gate: when an Economic Threshold Level is defined for this
+        # crop/pest AND the infestation is None/Mild, IPM says prefer monitoring
+        # over spraying. Defer chemicals to a monitor-first plan — over-spraying
+        # is itself a cost, resistance, and residue harm, not just a missed call.
+        etl = grounding.get("etl")
+        raw_sev = ((diagnosis.get("primary_diagnosis") or {}).get("severity") or "").lower().strip()
+        low_sev = raw_sev in {"none", "mild", "low", "slight", "minor", "early"}
+        chems = sanitized.get("chemical_controls") or []
+        if etl is not None and low_sev and chems:
+            sanitized["monitor_only"] = True
+            sanitized["deferred_chemical_controls"] = chems
+            sanitized["chemical_controls"] = []
+            note = (f"Severity is {raw_sev or 'low'} and below the economic threshold "
+                    f"(ETL={etl}) — monitor first; spray only if it crosses the ETL.")
+            mp = sanitized.setdefault("monitoring_plan", {})
+            watch = mp.setdefault("what_to_watch_for", [])
+            if note not in watch:
+                watch.append(note)
+            logger.info("[Treatment] ETL monitor gate: deferred %d chemical(s) (sev=%s, etl=%s)",
+                        len(chems), raw_sev, etl)
 
         _cache_set(cache_key, sanitized)
         logger.info(

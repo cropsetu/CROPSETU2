@@ -52,6 +52,10 @@ def _install_v2_prompts():
 
 def test_load_prompt_single_version(_install_v2_prompts):
     pr = _install_v2_prompts
+    # Production default is now "v2"; pin v1 to exercise the single-version path.
+    # (The autouse fixture restores ACTIVE_VERSIONS after the test.)
+    pr.ACTIVE_VERSIONS["diagnose"] = "v1"
+    pr._cache.clear()
     p = pr.load_prompt("diagnose")
     assert p.name == "diagnose"
     assert p.version == "v1"

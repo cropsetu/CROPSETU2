@@ -44,7 +44,7 @@ def _validate_images(images: list[dict]) -> tuple[list[dict], list[str]]:
     """
     cleaned: list[dict] = []
     errors:  list[str] = []
-    for i, img in enumerate(images or []):
+    for i, img in enumerate((images or [])[:1]):   # single-image: validate first only, ignore extras
         if not isinstance(img, dict):
             errors.append(f"images[{i}] not an object")
             continue

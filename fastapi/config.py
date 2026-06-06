@@ -51,6 +51,11 @@ MODEL_GEMINI_CHAT = os.environ.get("GEMINI_CHAT_MODEL",  "gemini-2.5-flash")
 # ── Quality / confidence thresholds ──────────────────────────────────────────
 IMAGE_QUALITY_THRESHOLD   = 0.6
 IMAGE_UNUSABLE_THRESHOLD  = 0.4
+# When true, the quality gate hard-rejects below IMAGE_UNUSABLE_THRESHOLD, treats
+# IMAGE_UNUSABLE..IMAGE_QUALITY as "marginal" (proceed + flag), and drops the
+# circular enhancement_notes pass-through. Off by default — flip on after
+# validating the rescan-rate on the golden set.
+STRICT_IMAGE_GATE = os.environ.get("STRICT_IMAGE_GATE", "false").lower() == "true"
 DIAGNOSIS_CONF_THRESHOLD  = 0.7
 DIAGNOSIS_ESCALATE_BELOW  = 0.5     # "advise farmer to consult expert" threshold
 TREATMENT_REL_THRESHOLD   = 0.8

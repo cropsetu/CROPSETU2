@@ -22,6 +22,33 @@ from safety.chemicals import (
 )
 
 
+# Coarse days-from-sowing to maturity, used only to estimate the harvest
+# window for the PHI check below. Conservative; absent crops → no estimate.
+_CROP_MATURITY_DAYS: dict[str, int] = {
+    "Rice": 130, "Wheat": 120, "Maize": 110, "Cotton": 170, "Sugarcane": 360,
+    "Tomato": 120, "Potato": 110, "Onion": 140, "Chilli": 150, "Soybean": 100,
+    "Groundnut": 120, "Mustard": 130, "Cabbage": 100, "Cauliflower": 100,
+}
+
+
+def _days_to_harvest(params: dict) -> int | None:
+    """Best-effort days until harvest. Returns None when it can't be estimated.
+    Near-harvest growth stages short-circuit to a small window."""
+    stage = (params.get("crop_growth_stage") or "").lower()
+    if any(k in stage for k in ("maturity", "ripening", "harvest")):
+        return 7
+    planting = params.get("planting_date")
+    maturity = _CROP_MATURITY_DAYS.get((params.get("crop_name") or "").strip())
+    if planting and maturity:
+        try:
+            from datetime import datetime, date
+            pd = datetime.fromisoformat(str(planting)[:10]).date()
+            return max(0, maturity - (date.today() - pd).days)
+        except Exception:
+            return None
+    return None
+
+
 def build_compliance_audit(
     *,
     diagnosis: dict,
@@ -133,6 +160,18 @@ def build_compliance_audit(
                 "status": "PASSED",
                 "detail": f"PHI present on all products; max {max_phi} days — observe before harvest",
             })
+            # PHI vs harvest window — a PHI that can't clear before harvest is a
+            # residue / MRL-rejection risk (especially for export produce).
+            dth = _days_to_harvest(params)
+            if dth is not None and max_phi > dth:
+                checks.append({
+                    "check": "PHI vs harvest window",
+                    "status": "FAILED",
+                    "detail": (
+                        f"Max PHI {max_phi} days exceeds ~{dth} days to estimated harvest — "
+                        "residue/MRL risk; choose a shorter-PHI product or delay harvest."
+                    ),
+                })
 
     # 5. FRAC / IRAC rotation.
     # Distinct groups must compare the CODE portion ("M03", "3", "11"), not

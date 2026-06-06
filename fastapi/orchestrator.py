@@ -40,6 +40,8 @@ from config import (
     ENSEMBLE_AMBIGUOUS_DELTA,
     ENSEMBLE_ESCALATE_BELOW,
     IMAGE_QUALITY_THRESHOLD,
+    IMAGE_UNUSABLE_THRESHOLD,
+    STRICT_IMAGE_GATE,
     PIPELINE_DEFAULT_TIER,
 )
 from agents import ensemble_agent, reconciler
@@ -64,6 +66,16 @@ from services.district_coords import get_weather_coords
 # default scan timeout is 175s, so callers should bump that to 250s in
 # parallel for this to be visible end-to-end.
 _PIPELINE_TIMEOUT_SECONDS = 240
+
+# Static per-model reconciler vote weights (until the field-feedback loop yields
+# empirical per-model top-1). Frontier vision models vote heavier than the
+# cheap/fast tier; the primary (no `_model`) and any unlisted model default to 1.0.
+_MODEL_ACCURACY_WEIGHTS = {
+    "gemini-2.5-pro":            1.25,
+    "claude-sonnet-4-6":         1.25,
+    "gemini-2.5-flash":          0.90,
+    "claude-haiku-4-5-20251001": 0.90,
+}
 
 
 async def run_diagnosis(
@@ -209,11 +221,24 @@ async def _run_diagnosis_inner(
     image_usable  = image_quality.get("usable", False)
 
     enh_notes = image_quality.get("enhancement_notes", "")
-    if not image_usable and quality_score < 0.4 and not enh_notes:
-        logger.error(f"[Orchestrator] ✗ Quality gate FAILED — short-circuiting (score={quality_score:.2f})")
-        return _needs_rescan_response(image_quality, weather_risk, params)
-
-    logger.info(f"[Orchestrator]   Quality gate    : PASSED (score={quality_score:.2f})")
+    if STRICT_IMAGE_GATE:
+        # Strict: hard-reject below the unusable floor; treat the
+        # unusable..quality band (0.4–0.6) as MARGINAL (proceed but flag so
+        # cross_verify penalizes). No circular enh_notes escape — those notes
+        # are set FOR marginal images, so bypassing the gate on them defeats it.
+        if quality_score < IMAGE_UNUSABLE_THRESHOLD:
+            logger.error(f"[Orchestrator] ✗ Quality gate FAILED (strict, score={quality_score:.2f})")
+            return _needs_rescan_response(image_quality, weather_risk, params)
+        if quality_score < IMAGE_QUALITY_THRESHOLD:
+            image_quality["marginal"] = True
+            logger.info(f"[Orchestrator]   Quality gate    : MARGINAL ({quality_score:.2f}) — proceeding with penalty")
+        else:
+            logger.info(f"[Orchestrator]   Quality gate    : PASSED (strict, score={quality_score:.2f})")
+    else:
+        if not image_usable and quality_score < IMAGE_UNUSABLE_THRESHOLD and not enh_notes:
+            logger.error(f"[Orchestrator] ✗ Quality gate FAILED — short-circuiting (score={quality_score:.2f})")
+            return _needs_rescan_response(image_quality, weather_risk, params)
+        logger.info(f"[Orchestrator]   Quality gate    : PASSED (score={quality_score:.2f})")
 
     # ── STAGE 3: Disease Diagnosis (vision + all context) ────────────────────
     logger.info(f"[Orchestrator] STAGE 3 — DiseaseDiagnosis (vision)...")
@@ -261,6 +286,14 @@ async def _run_diagnosis_inner(
     logger.info(f"[Orchestrator]   Needs advisor   : {diagnosis.get('needs_advisor')}")
     logger.info(f"[Orchestrator]   Differentials   : {[d.get('disease') for d in diagnosis.get('differentials', [])]}")
 
+    # Hard stop: if the diagnosis PROVIDER was unavailable (no cross-model
+    # fallback by design — silently using a weaker model degrades quality
+    # undetectably), tell the user the service is temporarily down instead of
+    # running treatment/report on a non-diagnosis.
+    if diagnosis.get("service_unavailable"):
+        logger.error("[Orchestrator] ✗ Diagnosis provider unavailable — returning service-down response")
+        return _service_unavailable_response(weather_risk, params)
+
     # ── STAGE 3.25: Cascade gate — escalate to ensemble if uncertain ─────────
     # The cheap pass (Gemini Flash / Haiku) handles the easy majority of
     # scans on its own. For the hard ones — low confidence OR a tight
@@ -302,7 +335,9 @@ async def _run_diagnosis_inner(
             )
             ensemble_results = []
         if ensemble_results:
-            fused = reconciler.fuse([diagnosis, *ensemble_results])
+            fused = reconciler.fuse([diagnosis, *ensemble_results],
+                                    crop=params.get("crop_name"),
+                                    accuracy_weights=_MODEL_ACCURACY_WEIGHTS)
             diagnosis = fused
             pd = diagnosis.get("primary_diagnosis", {}) or {}
             confidence = diagnosis.get("confidence_score", 0.0)
@@ -457,6 +492,28 @@ async def _run_diagnosis_inner(
     report["meta"]["ensemble_agreement"] = diagnosis.get("ensemble_agreement")
     report["meta"]["ensemble_models"]    = diagnosis.get("ensemble_models") or []
     report["meta"]["budget"] = budget.snapshot()
+    # Reproducibility + weather-provenance: stamp the coordinate source (so a
+    # state-capital fallback is visible, not hidden) and the data/registry
+    # versions that shaped this diagnosis/treatment, so any report is replayable.
+    report["meta"]["coord_source"] = coord_source
+    try:
+        from safety.chemicals import REGISTRY_VERSION as _REGV
+    except Exception:
+        _REGV = "unknown"
+    try:
+        from data.state_bans import REGISTRY_VERSION as _SBV
+    except Exception:
+        _SBV = "unknown"
+    try:
+        from data.crop_disease_whitelist import WHITELIST_VERSION as _WLV
+    except Exception:
+        _WLV = "unknown"
+    report["meta"]["versions"] = {
+        "chemical_registry": _REGV,
+        "state_bans":        _SBV,
+        "whitelist":         _WLV,
+        "calibration":       "none",   # set once the calibration map is live (Tier 3)
+    }
     # Stamp the request_id from the FastAPI middleware so the report and
     # the persisted row both share a key the mobile app can correlate.
     report["meta"]["request_id"] = request_id_var.get() or None
@@ -574,4 +631,37 @@ def _needs_rescan_response(
             "suggestions": image_quality.get("suggestions", []),
         },
         "meta": {"pipeline_seconds": 0, "escalated": True, "reason": "unusable_images"},
+    }
+
+
+def _service_unavailable_response(weather_risk: dict, params: dict) -> dict:
+    """Returned when the diagnosis model PROVIDER is down (e.g. Gemini 503).
+
+    We deliberately do NOT fall back to a weaker model — that silently degrades
+    accuracy and is hard to maintain. Instead we tell the farmer the service is
+    temporarily unavailable so they can retry and get a full-quality diagnosis.
+    """
+    return {
+        "report_id": "service_unavailable",
+        "generated_at": "",
+        "language": params.get("language", "en"),
+        "farm": {"crop": params.get("crop_name", "Unknown")},
+        "disease": {"name_common": "SERVICE UNAVAILABLE", "confidence_pct": 0, "severity": "Unknown"},
+        "causes": [],
+        "treatment": {"immediate": ["Please run the scan again in a few minutes."]},
+        "next_steps": ["The AI diagnosis service is temporarily busy — please retry shortly."],
+        "advisor_needed": True,
+        "service_unavailable": True,
+        "weather_outlook": {
+            "risk": weather_risk.get("overall_disease_risk", "UNKNOWN"),
+            "advisory": weather_risk.get("advisory", ""),
+        },
+        "farmer_summary": (
+            "The AI diagnosis service is temporarily unavailable due to high demand. "
+            "Your photos were NOT analysed — please try again in a few minutes."
+        ),
+        "confidence_score": 0.0,
+        "risk_level": weather_risk.get("overall_disease_risk", "UNKNOWN"),
+        "meta": {"pipeline_seconds": 0, "escalated": True,
+                 "reason": "service_unavailable", "service_unavailable": True},
     }

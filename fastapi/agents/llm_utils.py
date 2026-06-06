@@ -132,14 +132,20 @@ async def call_gemini_vision(
     # is pure waste — by the time we get to Claude, the pipeline budget is
     # gone. One quick retry handles transient bursts; persistent quota
     # exhaustion punts to the next model in the chain immediately.
+    # Retry ONCE on transient statuses — 429 (rate limit) AND 5xx including 503
+    # "high demand" (capacity). A single quick backoff absorbs a transient burst;
+    # if it persists we raise so the router fails over to the next model in the
+    # chain immediately rather than burning the pipeline budget here.
+    _retryable = {429, 500, 502, 503, 504}
     for attempt in range(2):
         resp = await client.post(url, json=payload, headers=headers, timeout=120)
-        if resp.status_code == 429:
+        if resp.status_code in _retryable:
             if attempt == 0:
-                logger.warning("Gemini 429 (attempt 1) — quick 2s retry")
+                logger.warning("Gemini %s (attempt 1, model=%s) — quick 2s retry",
+                               resp.status_code, model)
                 await asyncio.sleep(2.0)
                 continue
-            # Second 429 → bail to the router so it can pick the next provider
+            # Still failing → raise so the router advances to the next provider.
             _raise_gemini_error(resp, model)
         # Surface the actual error body before httpx eats it. An expired API
         # key returns 400 with reason=API_KEY_INVALID — the bare HTTPStatusError
@@ -148,7 +154,7 @@ async def call_gemini_vision(
             _raise_gemini_error(resp, model)
         break
     else:
-        raise RuntimeError("Gemini rate-limited after 2 retries")
+        raise RuntimeError(f"Gemini {model} unavailable after 2 retries")
 
     data = resp.json()
     text = ""

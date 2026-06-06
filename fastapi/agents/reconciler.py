@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # Severity ranking — higher index = more severe. Reconciler always picks the
 # most conservative (highest) reported severity so treatment doesn't
 # under-react when one model said "Severe" and another said "Mild".
-_SEVERITY_ORDER = ["unknown", "mild", "moderate", "severe", "critical"]
+_SEVERITY_ORDER = ["none", "unknown", "mild", "moderate", "severe", "critical"]
 
 
 def _sev_rank(s: str | None) -> int:
@@ -47,19 +47,19 @@ def _sev_rank(s: str | None) -> int:
         return 0  # treat unfamiliar labels as the floor
 
 
-def _primary_canonical(result: dict) -> str:
+def _primary_canonical(result: dict, crop: str | None = None) -> str:
     pd = result.get("primary_diagnosis") or {}
-    return canonicalize(pd.get("disease") or pd.get("scientific_name") or "")
+    return canonicalize(pd.get("disease") or pd.get("scientific_name") or "", crop)
 
 
-def _canon_differentials(result: dict) -> list[dict]:
+def _canon_differentials(result: dict, crop: str | None = None) -> list[dict]:
     """Return differentials with each name canonicalized in-place (copy)."""
     out: list[dict] = []
     for d in result.get("differentials") or []:
         if not isinstance(d, dict):
             continue
         nd = dict(d)
-        nd["disease"] = canonicalize(d.get("disease") or d.get("name") or "")
+        nd["disease"] = canonicalize(d.get("disease") or d.get("name") or "", crop)
         out.append(nd)
     return out
 
@@ -134,6 +134,7 @@ def _weather_correlation_consensus(results: list[dict]) -> str:
 def fuse(
     results: Iterable[dict],
     *,
+    crop: Optional[str] = None,
     accuracy_weights: Optional[dict[str, float]] = None,
 ) -> dict:
     """
@@ -165,7 +166,7 @@ def fuse(
         # so cross_verify doesn't accidentally apply the agreement floor.
         single = dict(results[0])
         single["ensemble_agreement"] = "1/1"
-        single["ensemble_voters"] = [_primary_canonical(results[0])]
+        single["ensemble_voters"] = [_primary_canonical(results[0], crop)]
         single["ensemble_models"] = [_model_id(results[0])]
         single["ensemble_used"] = False
         return single
@@ -173,19 +174,35 @@ def fuse(
     accuracy_weights = accuracy_weights or {}
 
     # ── Step 1: canonicalize ──────────────────────────────────────────────
-    canon_primaries = [_primary_canonical(r) for r in results]
+    canon_primaries = [_primary_canonical(r, crop) for r in results]
 
-    # ── Step 2: vote ──────────────────────────────────────────────────────
-    votes = Counter(name for name in canon_primaries if name)
-    if not votes:
+    # ── Step 2: vote (confidence-aware; dead "Unknown" votes dropped) ─────
+    # A failed/uncertain member canonicalizes to "Unknown". Drop those from the
+    # tally whenever ≥1 real diagnosis exists, so a 503'd / failed primary cannot
+    # win the vote and sink a recoverable scan to "Unknown" (the old insertion-
+    # order tie-break did exactly that). If EVERY member failed, return the shell.
+    live = [(r, name) for r, name in zip(results, canon_primaries)
+            if name and name != "Unknown"]
+    if not live:
         return _empty_fallback()
-    top_name, top_count = votes.most_common(1)[0]
-    n = len(results)
+    votes = Counter(name for _, name in live)
+    top_count = max(votes.values())
+    # Tie-break among the most-voted names: prefer the highest mean voter
+    # confidence (ascending name as a final deterministic key) — NOT insertion
+    # order, which used to hand ties to whichever result was spliced in first.
+    tied = [name for name, c in votes.items() if c == top_count]
+
+    def _name_conf(nm: str) -> float:
+        cs = [_safe_float(r.get("confidence_score"), 0.0) for r, n2 in live if n2 == nm]
+        return mean(cs) if cs else 0.0
+
+    top_name = sorted(tied, key=lambda nm: (-_name_conf(nm), nm))[0]
+    n = len(live)
     agreement_str = f"{top_count}/{n}"
 
     # Models that voted for the winner — used for confidence fusion.
-    winners = [r for r, name in zip(results, canon_primaries) if name == top_name]
-    losers  = [r for r, name in zip(results, canon_primaries) if name != top_name]
+    winners = [r for r, name in live if name == top_name]
+    losers  = [r for r, name in live if name != top_name]
 
     # ── Step 3: fuse confidence ──────────────────────────────────────────
     weights = []
@@ -242,7 +259,7 @@ def fuse(
     diff_pool: dict[str, dict] = {}
     for r in losers:
         pd = r.get("primary_diagnosis") or {}
-        name = canonicalize(pd.get("disease") or "")
+        name = canonicalize(pd.get("disease") or "", crop)
         if not name or name == top_name:
             continue
         diff_pool[name.lower()] = {

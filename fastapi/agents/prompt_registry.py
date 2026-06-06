@@ -43,7 +43,11 @@ _PROMPTS_DIR = Path(__file__).parent / "prompts"
 # The full prompt history stays on disk; older versions are loadable by
 # explicit (name, version) for eval replay.
 ACTIVE_VERSIONS: dict[str, str | dict[str, float]] = {
-    "diagnose":  "v1",
+    # v2 is THE production diagnose prompt (strict naming + per-crop candidate
+    # narrowing + Healthy path). v1.md stays on disk only for historical eval
+    # replay (eval/replay.py, eval/load_eval.py via AI_DIAGNOSE_VERSION) — it is
+    # never served to live traffic.
+    "diagnose":  "v2",
     "treatment": "v1",
 }
 

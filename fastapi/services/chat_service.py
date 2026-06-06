@@ -283,6 +283,11 @@ async def chat_with_farmmind(
     user_prompt = f"{history_block}Farmer: {message}\nFarmMind:"
 
     try:
+        # NOTE: sarvam-30b is a REASONING model — capping max_tokens starves the
+        # content budget (reasoning eats it) and yields an EMPTY reply. So we do
+        # NOT cap here; reliability comes from the raised Express→FastAPI chat
+        # timeout (120s) instead. (Switch AI_TEXT_CHAT_MODEL to a fast model like
+        # llama-3.3-70b-versatile if sub-5s chat latency is preferred.)
         reply, token_info = await call_llm_text(
             cfg,
             system_prompt=system,

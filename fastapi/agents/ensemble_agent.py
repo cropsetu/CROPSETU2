@@ -143,7 +143,7 @@ async def run_parallel(
     # context, only the model differs. Mirrors how disease_diagnosis_agent
     # prepares its single call.
     images_b64: list[dict] = []
-    for img in images[:5]:
+    for img in images[:1]:   # single-image pipeline (multi-image feature removed)
         try:
             b64, mime = _read_image_b64(img["path"])
             images_b64.append({"data": b64, "mime_type": mime})

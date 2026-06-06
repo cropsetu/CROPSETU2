@@ -79,13 +79,12 @@ MODEL_CATALOG: dict[str, dict] = {
 # 429 / 5xx / timeout / parse-fail. Env vars override any chain (see below).
 STAGE_TIER_CHAINS: dict[Stage, dict[Tier, list[str]]] = {
     "diagnose": {
-        # Gemini Flash first — 3-5s response time keeps the total scan under
-        # Android OkHttp's 60s readTimeout (used internally by
-        # FileSystem.uploadAsync). Claude Haiku is the fallback for when
-        # Flash hits its tight free-tier quota; Haiku is slower (30-60s)
-        # but reliable.
-        # Once the operator enables Gemini billing, switch Best to
-        # ["gemini-2.5-pro", ...] for higher accuracy.
+        # NOTE: the production diagnose stage uses FLAT single-model dispatch
+        # (AI_CROP_DIAGNOSE_MODEL) with NO cross-model fallback by design — a
+        # provider outage returns a clear "service unavailable" rather than a
+        # weaker model's guess (silent fallback makes quality impossible to
+        # maintain). This chain is retained ONLY as a seed for ensemble member
+        # selection (ensemble_agent.select) when the ensemble chain is empty.
         "fast": ["gemini-2.5-flash", "claude-haiku-4-5-20251001"],
         "best": ["gemini-2.5-flash", "claude-haiku-4-5-20251001"],
     },

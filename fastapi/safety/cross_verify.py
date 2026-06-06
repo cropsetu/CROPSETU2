@@ -35,6 +35,21 @@ MAX_CROSS_VERIFY_PENALTY = 0.20
 MAX_PENALTY_WITH_AGREEMENT = 0.10
 
 
+def _parse_agreement(s) -> Optional[tuple[int, int]]:
+    """Parse an "N/D" agreement string (e.g. "2/3") → (N, D), else None.
+    Used for BOTH the ensemble path (`ensemble_agreement`) and the single-model
+    path (`perspective_agreement`)."""
+    if isinstance(s, str) and "/" in s:
+        try:
+            n, d = s.split("/", 1)
+            n, d = int(n), int(d)
+            if d > 0:
+                return n, d
+        except ValueError:
+            pass
+    return None
+
+
 def apply(
     diagnosis: dict,
     weather_risk: dict,
@@ -69,10 +84,15 @@ def apply(
         confidence = min(confidence, 0.45)
         penalties.append("Out-of-distribution image — confidence capped at 0.45")
 
-    agreement = diagnosis.get("perspective_agreement", "")
-    if agreement == "0/3" and confidence > 0.55:
+    # All-disagree cap. Read the ENSEMBLE's agreement first (reconciler writes
+    # `ensemble_agreement`), then fall back to the single-model
+    # `perspective_agreement`. Previously this read ONLY perspective_agreement,
+    # which the ensemble path never sets → the cap was dead code on ensembles.
+    agr = (_parse_agreement(diagnosis.get("ensemble_agreement"))
+           or _parse_agreement(diagnosis.get("perspective_agreement")))
+    if agr and agr[1] >= 2 and (agr[0] / agr[1]) < 0.5 and confidence > 0.55:
         confidence = 0.55
-        penalties.append("All 3 diagnostic perspectives disagree — confidence capped at 0.55")
+        penalties.append(f"Models disagree ({agr[0]}/{agr[1]}) — confidence capped at 0.55")
 
     if diagnosis.get("crop_mismatch") and "crop_mismatch" not in str(penalties):
         confidence = min(confidence, 0.30)
@@ -153,15 +173,8 @@ def apply(
     # When the ensemble's reconciler set `ensemble_agreement` to >=2/3, the
     # primary call has independent corroboration that already outweighs any
     # single soft signal in this stack. Tighten the cap further.
-    ensemble_agreement = diagnosis.get("ensemble_agreement")  # e.g. "3/3", "2/3", "1/3"
-    has_ensemble_majority = False
-    if isinstance(ensemble_agreement, str) and "/" in ensemble_agreement:
-        try:
-            num, denom = ensemble_agreement.split("/", 1)
-            if int(denom) > 0 and (int(num) / int(denom)) >= (2 / 3):
-                has_ensemble_majority = True
-        except ValueError:
-            pass
+    _agr = _parse_agreement(diagnosis.get("ensemble_agreement"))  # e.g. "3/3","2/3"
+    has_ensemble_majority = bool(_agr and (_agr[0] / _agr[1]) >= (2 / 3))
     cap = MAX_PENALTY_WITH_AGREEMENT if has_ensemble_majority else MAX_CROSS_VERIFY_PENALTY
 
     applied_penalty = min(raw_penalty, cap)

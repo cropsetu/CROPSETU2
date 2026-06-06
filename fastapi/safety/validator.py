@@ -91,6 +91,19 @@ def validate_treatment(
     # is silent (we already warned in the RAG grounding prompt that no
     # chemicals are registered, so the LLM should have produced none).
     allowed_for_label: set[str] | None = _LABEL_CLAIMS.get((crop, disease_name))
+    # Close the silent kill-switch: a (crop, disease) pair with NO registry
+    # entry but whose crop IS covered by our candidate whitelist must FAIL SAFE
+    # — treat the allowed set as EMPTY so the off-label check below blocks ALL
+    # chemicals (cultural-only) instead of skipping. A typo'd/missing pair would
+    # otherwise downgrade a leaked chemical to a mere warning. Uncovered
+    # (open-vocab) crops keep the skip — we genuinely don't know their registry.
+    if allowed_for_label is None:
+        try:
+            from data.crop_disease_whitelist import is_covered
+            if is_covered(crop):
+                allowed_for_label = set()
+        except Exception:
+            pass
 
     blockers: list[dict] = []
     warnings: list[dict] = []

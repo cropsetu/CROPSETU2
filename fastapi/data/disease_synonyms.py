@@ -82,6 +82,9 @@ _SYNONYMS: dict[str, str] = {
     "stem rot":             "Stem rot (unspecified)",
     "red rot":              "Colletotrichum falcatum",
     "sugarcane red rot":    "Colletotrichum falcatum",
+    # Exact binomial — needed so a bare "Colletotrichum falcatum" canonicalizes
+    # to itself instead of the genus key "colletotrichum" → "Colletotrichum spp."
+    "colletotrichum falcatum": "Colletotrichum falcatum",
 
     # ── Spots ──────────────────────────────────────────────────────────
     "cercospora leaf spot": "Cercospora spp.",
@@ -97,12 +100,46 @@ _SYNONYMS: dict[str, str] = {
     "botrytis":             "Botrytis cinerea",
     "botrytis cinerea":     "Botrytis cinerea",
 
+    # ── Maize / corn ───────────────────────────────────────────────────
+    "common rust":               "Puccinia sorghi",
+    "corn common rust":          "Puccinia sorghi",
+    "maize common rust":         "Puccinia sorghi",
+    "puccinia sorghi":           "Puccinia sorghi",
+    "northern leaf blight":      "Exserohilum turcicum",
+    "northern corn leaf blight": "Exserohilum turcicum",
+    "turcicum leaf blight":      "Exserohilum turcicum",
+    "exserohilum turcicum":      "Exserohilum turcicum",
+    "gray leaf spot":            "Cercospora zeae-maydis",
+    "grey leaf spot":            "Cercospora zeae-maydis",
+    "cercospora zeae-maydis":    "Cercospora zeae-maydis",
+
     # ── Rice ───────────────────────────────────────────────────────────
     "rice blast":           "Magnaporthe oryzae",
     "blast":                "Magnaporthe oryzae",
     "magnaporthe":          "Magnaporthe oryzae",
     "sheath blight":        "Rhizoctonia solani",
     "rhizoctonia":          "Rhizoctonia solani",
+
+    # ── Newly-covered crops (BOUNDED) — only diseases where a model commonly
+    #    emits a binomial; the candidate list's exact common name covers the
+    #    rest. Use full/qualified keys to avoid substring hijacking. ──
+    "apple scab":                   "Venturia inaequalis",
+    "venturia inaequalis":          "Venturia inaequalis",
+    "cedar apple rust":             "Gymnosporangium juniperi-virginianae",
+    "citrus canker":                "Xanthomonas citri",
+    "xanthomonas citri":            "Xanthomonas citri",
+    "citrus greening":              "Candidatus Liberibacter",
+    "greening":                     "Candidatus Liberibacter",
+    "huanglongbing":                "Candidatus Liberibacter",
+    "candidatus liberibacter":      "Candidatus Liberibacter",
+    "panama wilt":                  "Fusarium oxysporum f. sp. cubense",
+    "blister blight":               "Exobasidium vexans",
+    "exobasidium vexans":           "Exobasidium vexans",
+    "quick wilt":                   "Phytophthora capsici",
+    "phytophthora capsici":         "Phytophthora capsici",
+    "coconut bud rot":              "Phytophthora palmivora",
+    "mungbean yellow mosaic virus": "Mungbean Yellow Mosaic Virus",
+    "papaya ring spot virus":       "Papaya ringspot virus",
 
     # ── Insect / pest categories surfaced as "diseases" by some models ─
     "thrips":               "Thrips (insect pest)",
@@ -118,6 +155,51 @@ _SYNONYMS: dict[str, str] = {
 }
 
 
+# ── Crop-scoped scientific names ──────────────────────────────────────────────
+# Disease COMMON names are crop-specific: "Leaf Rust" is Puccinia triticina on
+# wheat, Puccinia hordei on barley, Hemileia vastatrix on coffee. A flat map can
+# only encode one, so this crop-scoped table WINS when a crop is supplied.
+# Keyed by (canonical-crop, _norm(common_name)) → binomial. Seeded with the pairs
+# a flat map provably gets wrong; everything else falls back to the flat map / the
+# common name. NEEDS agronomist review before treating as complete.
+_CROP_SCI: dict[tuple[str, str], str] = {
+    # Leaf Rust — crop-specific pathogens (the headline bug)
+    ("Wheat",    "leaf rust"):           "Puccinia triticina",
+    ("Wheat",    "brown rust"):          "Puccinia triticina",
+    ("Barley",   "leaf rust"):           "Puccinia hordei",
+    ("Coffee",   "leaf rust"):           "Hemileia vastatrix",
+    # White Rust — Albugo (an oomycete, NOT a true rust)
+    ("Mustard",  "white rust"):          "Albugo candida",
+    ("Radish",   "white rust"):          "Albugo candida",
+    ("Spinach",  "white rust"):          "Albugo occidentalis",
+    # Tea / Mango "Red Rust" — an alga (Cephaleuros), not a rust
+    ("Tea",      "red rust"):            "Cephaleuros parasiticus",
+    ("Tea",      "blister blight"):      "Exobasidium vexans",
+    ("Mango",    "red rust"):            "Cephaleuros virescens",
+    ("Mango",    "bacterial canker"):    "Xanthomonas citri pv. mangiferaeindicae",
+    # Citrus Canker variants
+    ("Orange",   "citrus canker"):       "Xanthomonas citri",
+    ("Lemon",    "citrus canker"):       "Xanthomonas citri",
+    # Bacterial leaf spots — must stay distinct from generic/fungal "Leaf Spot"
+    ("Chilli",   "bacterial leaf spot"): "Xanthomonas euvesicatoria",
+    ("Capsicum", "bacterial leaf spot"): "Xanthomonas euvesicatoria",
+    ("Moong",    "bacterial leaf spot"): "Xanthomonas/Pseudomonas (bacterial leaf spot)",
+    ("Sesame",   "bacterial leaf spot"): "Xanthomonas/Pseudomonas (bacterial leaf spot)",
+    ("Grapes",   "bacterial leaf spot"): "Xanthomonas (bacterial leaf spot)",
+}
+
+# Coarse single-token / "(unspecified)" keys that must NEVER substring-match a
+# longer input — they erase the distinctions the safety layer keys on
+# (White Rust→rust, Bacterial Leaf Spot→leaf spot). EXACT matches to these keys
+# are still allowed. Only `rust`, `leaf spot`, `anthracnose` are in _SYNONYMS
+# today; the rest future-proof the rule.
+STRICT_GENERIC = True
+_GENERIC = {
+    "rust", "leaf spot", "canker", "blight", "wilt",
+    "anthracnose", "mildew", "rot", "mosaic",
+}
+
+
 _PUNCT_RE = re.compile(r"[^\w\s]")
 
 
@@ -129,35 +211,59 @@ def _norm(name: str) -> str:
     return s
 
 
-def canonicalize(name: str | None) -> str:
+def _canon_crop_local(crop: str | None) -> str:
+    """Canonical crop spelling for _CROP_SCI lookups. Lazy import avoids a
+    circular dependency (crop_disease_whitelist imports this module)."""
+    if not crop:
+        return ""
+    try:
+        from services.input_normalizer import normalize_crop_name
+        return normalize_crop_name(str(crop))
+    except Exception:
+        return str(crop).strip().title()
+
+
+def canonicalize(name: str | None, crop: str | None = None) -> str:
     """
     Return the canonical name for a disease label.
 
-    Lookup order:
-      1. exact normalised match
-      2. substring match (e.g. "wheat brown rust (Puccinia)" → "brown rust")
-      3. fall back to the input string (title-cased) so unmapped names
-         still flow through the pipeline; eval reports will show which
-         names need adding.
+    Precedence:
+      1. crop-scoped scientific table (_CROP_SCI) when `crop` is supplied
+         ("Leaf Rust" + Coffee → Hemileia vastatrix, not wheat's Puccinia)
+      2. exact normalised match in the flat _SYNONYMS map
+      3. substring match (e.g. "wheat brown rust (Puccinia)" → "brown rust"),
+         but with STRICT_GENERIC, generic keys ("rust", "leaf spot", …) are
+         NOT allowed to substring-hijack a longer input (White Rust→rust)
+      4. fall back to the input string so unmapped names flow through; eval
+         reports will show which names need adding.
     """
     if not name:
         return ""
     key = _norm(name)
+    if crop:
+        ccrop = _canon_crop_local(crop)
+        if (ccrop, key) in _CROP_SCI:
+            return _CROP_SCI[(ccrop, key)]
     if key in _SYNONYMS:
         return _SYNONYMS[key]
-    # Substring: prefer the LONGEST matching key so "wheat brown rust"
-    # picks up "wheat brown rust" before "brown rust".
+    # Substring: prefer the LONGEST matching key so "wheat brown rust" picks up
+    # "wheat brown rust" before "brown rust".
     matches = [k for k in _SYNONYMS if k in key]
+    if STRICT_GENERIC:
+        # A generic key may only match EXACTLY (handled above), never as a
+        # substring of a longer, more specific name.
+        matches = [k for k in matches if k not in _GENERIC]
     if matches:
         best = max(matches, key=len)
         return _SYNONYMS[best]
     return name.strip()
 
 
-def same_disease(a: str | None, b: str | None) -> bool:
-    """True iff two labels canonicalize to the same disease."""
-    ca = canonicalize(a)
-    cb = canonicalize(b)
+def same_disease(a: str | None, b: str | None, crop: str | None = None) -> bool:
+    """True iff two labels canonicalize to the same disease (crop-scoped when
+    `crop` is supplied)."""
+    ca = canonicalize(a, crop)
+    cb = canonicalize(b, crop)
     if not ca or not cb:
         return False
     return ca.lower() == cb.lower()

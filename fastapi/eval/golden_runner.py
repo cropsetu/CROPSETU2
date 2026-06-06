@@ -52,6 +52,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from orchestrator import run_diagnosis  # noqa: E402
+from data.disease_synonyms import same_disease, _norm  # noqa: E402
 
 logger = logging.getLogger("eval.golden_runner")
 
@@ -98,23 +99,25 @@ def _resolve_images(image_paths: list[str], manifest_dir: Path) -> list[dict]:
 
 # ── Per-row scoring ──────────────────────────────────────────────────────────
 
-def _norm(s: Optional[str]) -> str:
-    return (s or "").strip().lower()
-
-
-def _top1_match(predicted_primary: str, truth_disease: str) -> bool:
-    p = _norm(predicted_primary)
-    t = _norm(truth_disease)
-    if not p or not t:
+def _top1_match(predicted_primary: str, truth_disease: str, crop: Optional[str] = None) -> bool:
+    """STRICT, production-matching: crop-scoped canonical equality — the SAME
+    matcher snap/reconciler use, so eval reflects production (gates regressions)."""
+    if not _norm(predicted_primary) or not _norm(truth_disease):
         return False
-    return p == t or p in t or t in p
+    return same_disease(predicted_primary, truth_disease, crop=crop)
 
 
-def _top3_match(report: dict, truth_disease: str) -> bool:
-    """Truth appears in primary OR any of the LLM's top differentials."""
-    # report meta exposes the diagnosis dict shape via report["disease"]
-    # and (when present) report["differentials"] or report["meta"]["differentials"].
-    # We accept either flat or nested.
+def _top1_match_lenient(predicted_primary: str, truth_disease: str, crop: Optional[str] = None) -> bool:
+    """LENIENT (diagnostic only): strict OR raw substring — surfaces close /
+    not-yet-mapped names. NEVER used to gate regressions."""
+    if _top1_match(predicted_primary, truth_disease, crop):
+        return True
+    p, t = _norm(predicted_primary), _norm(truth_disease)
+    return bool(p and t and (p == t or p in t or t in p))
+
+
+def _top3_match(report: dict, truth_disease: str, crop: Optional[str] = None) -> bool:
+    """Truth appears in primary OR any of the LLM's top differentials (strict)."""
     candidates: list[str] = []
     primary = (report.get("disease") or {}).get("name_common")
     if primary:
@@ -127,7 +130,7 @@ def _top3_match(report: dict, truth_disease: str) -> bool:
             name = d.get("disease") or d.get("name") or d.get("name_common")
             if name:
                 candidates.append(name)
-    return any(_top1_match(c, truth_disease) for c in candidates)
+    return any(_top1_match(c, truth_disease, crop) for c in candidates)
 
 
 def _brier_term(predicted_confidence: float, correct: bool) -> float:
@@ -155,17 +158,30 @@ async def _run_one(row: dict, manifest_dir: Path) -> dict:
     truth = row["ground_truth"]
     truth_disease = truth.get("disease", "")
     predicted_primary = pd.get("name_common", "")
+    crop = (row.get("params") or {}).get("crop_name")
     confidence = float(meta.get("confidence_score") or pd.get("confidence_pct", 0) / 100.0 or 0)
-    top1 = _top1_match(predicted_primary, truth_disease)
-    top3 = _top3_match(report, truth_disease)
+    top1 = _top1_match(predicted_primary, truth_disease, crop)
+    top1_lenient = _top1_match_lenient(predicted_primary, truth_disease, crop)
+    top3 = _top3_match(report, truth_disease, crop)
     cost = float(((meta.get("pipeline_token_usage") or {}).get("total_cost_usd")) or 0)
+    # Severity accuracy (canonical {None,Mild,Moderate,Severe}) — only scored
+    # when the manifest carries a ground-truth severity.
+    truth_sev = truth.get("severity")
+    if truth_sev:
+        from data.severity import normalize_severity as _nsev
+        pred_sev = pd.get("severity") or pd.get("severity_label") or ""
+        severity_match = _nsev(pred_sev) == _nsev(truth_sev)
+    else:
+        severity_match = None
     return {
         "id":                 rid,
         "truth_disease":      truth_disease,
         "predicted_disease":  predicted_primary,
         "confidence":         confidence,
         "top1":               top1,
+        "top1_lenient":       top1_lenient,
         "top3":               top3,
+        "severity_match":     severity_match,
         "escalated":          bool(meta.get("escalated", False)),
         "brier_term":         _brier_term(confidence, top1),
         "cost_usd":           cost,
@@ -182,6 +198,7 @@ def _aggregate(per_row: list[dict]) -> dict:
     if not ok:
         return {"rows": len(per_row), "ok": 0, "errors": len(errs), "metrics": {}}
     top1_rate = mean(int(r["top1"]) for r in ok)
+    top1_lenient_rate = mean(int(r.get("top1_lenient", r["top1"])) for r in ok)
     top3_rate = mean(int(r["top3"]) for r in ok)
     escalation_rate = mean(int(r["escalated"]) for r in ok)
     ensemble_rate = mean(int(r["ensemble_used"]) for r in ok)
@@ -193,12 +210,15 @@ def _aggregate(per_row: list[dict]) -> dict:
     top1_escalated = mean(int(r["top1"]) for r in escalated) if escalated else None
     not_escalated = [r for r in ok if not r["escalated"]]
     top1_not_escalated = mean(int(r["top1"]) for r in not_escalated) if not_escalated else None
+    sev_rows = [r for r in ok if r.get("severity_match") is not None]
+    severity_accuracy = mean(int(r["severity_match"]) for r in sev_rows) if sev_rows else None
     return {
         "rows": len(per_row),
         "ok": len(ok),
         "errors": len(errs),
         "metrics": {
             "top1":               round(top1_rate, 4),
+            "top1_lenient":       round(top1_lenient_rate, 4),
             "top3":               round(top3_rate, 4),
             "brier":              round(brier, 4),
             "mean_confidence":    round(mean_conf, 4),
@@ -208,6 +228,7 @@ def _aggregate(per_row: list[dict]) -> dict:
             "mean_latency_s":     round(mean_latency, 2),
             "top1_escalated":     round(top1_escalated, 4) if top1_escalated is not None else None,
             "top1_not_escalated": round(top1_not_escalated, 4) if top1_not_escalated is not None else None,
+            "severity_accuracy":  round(severity_accuracy, 4) if severity_accuracy is not None else None,
         },
     }
 
