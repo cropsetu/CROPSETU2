@@ -28,10 +28,13 @@ Provider auto-detection rules (in priority order):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Awaitable, Callable, Optional
+
+import httpx
 
 from agents.llm_utils import (
     call_claude_text,
@@ -50,7 +53,11 @@ logger = logging.getLogger(__name__)
 # These are the only feature names the dispatcher recognizes. The matching
 # env vars follow the pattern AI_<FEATURE>_MODEL / _API_KEY / _BASE_URL.
 AI_FEATURES = (
-    "TEXT_CHAT",        # FarmMind chat / Q&A
+    "TEXT_CHAT",        # FarmMind chat / Q&A (legacy single-pass)
+    "CHAT_WRITER",      # FarmMind agentic chat — draft + follow-up suggester
+    "CHAT_ENHANCER",    # FarmMind agentic chat — fact-check + rewrite to final
+    "CHAT_VISION",      # FarmMind chat — general image understanding (NOT crop-disease)
+    "SOIL_OCR",         # Soil Health Card photo → structured 12-parameter JSON
     "CROP_DIAGNOSE",    # Crop disease vision diagnose
     "CROP_TREATMENT",   # RAG-grounded treatment plan
     "ALERT",            # Smart farm alerts
@@ -70,6 +77,14 @@ AI_FEATURES = (
 _DEFAULTS: dict[str, tuple[str, str]] = {
     # feature             (default model id,                default api key constant)
     "TEXT_CHAT":          ("llama-3.3-70b-versatile",       GROQ_API_KEY),
+    # Agentic chat stages default to Gemini 2.5 Flash — fast AND with far higher
+    # free-tier limits than Groq (which 429s under the pipeline's 3 calls/message).
+    # Each is independently swappable via AI_CHAT_<STAGE>_MODEL.
+    "CHAT_WRITER":        ("gemini-2.5-flash",              GEMINI_API_KEY),
+    "CHAT_ENHANCER":      ("gemini-2.5-flash",              GEMINI_API_KEY),
+    "CHAT_VISION":        ("gemini-2.5-flash",              GEMINI_API_KEY),
+    # Soil Health Card OCR — Gemini 2.5 Flash reads printed/tabular cards well.
+    "SOIL_OCR":           ("gemini-2.5-flash",              GEMINI_API_KEY),
     "CROP_DIAGNOSE":      ("gemini-2.5-flash",              GEMINI_API_KEY),
     "CROP_TREATMENT":     ("gemini-2.5-flash",              GEMINI_API_KEY),
     "ALERT":              ("llama-3.3-70b-versatile",       GROQ_API_KEY),
@@ -169,6 +184,53 @@ def get_feature_config(feature: str) -> FeatureConfig:
     return FeatureConfig(feature=feature, model=model, api_key=api_key, base_url=base_url)
 
 
+# ── Transient-failure retry ──────────────────────────────────────────────────
+# Free-tier providers (esp. Groq) return 429 under bursty load. A few short
+# retries — honouring Retry-After when present — turn a hard "Chat unavailable"
+# into a small wait. Caps keep total wait inside the Express→FastAPI 120s budget
+# even across the chat pipeline's multiple calls. Only transient statuses retry;
+# config errors (400/401/403) fail fast.
+_RETRY_STATUSES = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 2          # total attempts = 1 + 2
+_BACKOFF_BASE_S = 1.5
+_BACKOFF_CAP_S = 8.0
+
+
+def _retry_after_seconds(resp: Optional[httpx.Response]) -> Optional[float]:
+    if resp is None:
+        return None
+    try:
+        ra = resp.headers.get("retry-after")
+        return float(ra) if ra else None
+    except (TypeError, ValueError):
+        return None
+
+
+async def _with_retry(make_call: Callable[[], Awaitable[tuple]], *, label: str) -> tuple:
+    """Run an LLM call, retrying transient 429/5xx + timeouts with backoff."""
+    attempt = 0
+    while True:
+        try:
+            return await make_call()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status not in _RETRY_STATUSES or attempt >= _MAX_RETRIES:
+                raise
+            delay = min(_retry_after_seconds(exc.response) or _BACKOFF_BASE_S * (2 ** attempt), _BACKOFF_CAP_S)
+            logger.warning("[LLMDispatch] %s HTTP %s — retry %d/%d in %.1fs",
+                           label, status, attempt + 1, _MAX_RETRIES, delay)
+            await asyncio.sleep(delay)
+            attempt += 1
+        except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            if attempt >= _MAX_RETRIES:
+                raise
+            delay = min(_BACKOFF_BASE_S * (2 ** attempt), _BACKOFF_CAP_S)
+            logger.warning("[LLMDispatch] %s %s — retry %d/%d in %.1fs",
+                           label, type(exc).__name__, attempt + 1, _MAX_RETRIES, delay)
+            await asyncio.sleep(delay)
+            attempt += 1
+
+
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 
 async def call_llm_text(
@@ -190,23 +252,24 @@ async def call_llm_text(
         cfg.feature, provider, cfg.model,
     )
 
+    label = f"{cfg.feature}/{provider}"
     if provider == "anthropic":
-        return await call_claude_text(
+        return await _with_retry(lambda: call_claude_text(
             system_prompt, user_prompt, cfg.api_key,
             model=cfg.model, max_tokens=max_tokens, temperature=temperature,
-        )
+        ), label=label)
     if provider == "gemini":
-        return await call_gemini_text(
+        return await _with_retry(lambda: call_gemini_text(
             system_prompt, user_prompt, cfg.api_key,
             model=cfg.model, max_tokens=max_tokens, temperature=temperature,
-        )
+        ), label=label)
     if provider == "openai_compatible":
-        return await call_openai_compatible_text(
+        return await _with_retry(lambda: call_openai_compatible_text(
             system_prompt, user_prompt,
             base_url=_resolve_base_url(cfg.model, cfg.base_url),
             api_key=cfg.api_key, model=cfg.model,
             max_tokens=max_tokens, temperature=temperature,
-        )
+        ), label=label)
     raise ConfigError(f"Unrouted provider {provider!r} for feature {cfg.feature}")
 
 
@@ -226,21 +289,22 @@ async def call_llm_vision(
         cfg.feature, provider, cfg.model,
     )
 
+    label = f"{cfg.feature}/{provider}/vision"
     if provider == "anthropic":
-        return await call_claude_vision(
+        return await _with_retry(lambda: call_claude_vision(
             system_prompt, user_prompt, images_b64, cfg.api_key,
             model=cfg.model, max_tokens=max_tokens, temperature=temperature,
-        )
+        ), label=label)
     if provider == "gemini":
-        return await call_gemini_vision(
+        return await _with_retry(lambda: call_gemini_vision(
             system_prompt, user_prompt, images_b64, cfg.api_key,
             model=cfg.model, max_tokens=max_tokens, temperature=temperature,
-        )
+        ), label=label)
     if provider == "openai_compatible":
-        return await call_openai_compatible_vision(
+        return await _with_retry(lambda: call_openai_compatible_vision(
             system_prompt, user_prompt, images_b64,
             base_url=_resolve_base_url(cfg.model, cfg.base_url),
             api_key=cfg.api_key, model=cfg.model,
             max_tokens=max_tokens, temperature=temperature,
-        )
+        ), label=label)
     raise ConfigError(f"Unrouted provider {provider!r} for feature {cfg.feature} (vision)")

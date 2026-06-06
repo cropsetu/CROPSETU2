@@ -1,27 +1,32 @@
 """
-FarmMind Chat Service — CropGuard AI Backend
+FarmMind Chat Service — CropGuard AI Backend (agentic Writer → Enhancer)
 
-Model selection
-  Reads ONE model + ONE API key from .env via `agents/llm_dispatch`:
-    AI_TEXT_CHAT_MODEL=llama-3.3-70b-versatile    (default: Groq Llama)
-    AI_TEXT_CHAT_API_KEY=gsk_...                  (default: GROQ_API_KEY)
-    AI_TEXT_CHAT_BASE_URL=...                     (optional override)
+Pipeline
+  Text   : Writer (CHAT_WRITER) drafts → Enhancer (CHAT_ENHANCER) fact-checks &
+           rewrites → final answer. Follow-ups come from a SEPARATE small JSON-array
+           call (no in-text markers — so they can never leak into the reply).
+  Voice  : single Writer call in spoken style (concise, TTS-friendly).
+  Image  : single CHAT_VISION call — GENERAL image understanding (any image as
+           context). NOT crop-disease diagnosis (that lives in the /ai/scan pipeline).
 
-  No fallback — if the configured model fails, the request fails. Admin
-  swaps the model in .env when one provider breaks.
+  Each stage's model + key is independent in .env:
+    AI_CHAT_WRITER_MODEL / _API_KEY / _BASE_URL
+    AI_CHAT_ENHANCER_MODEL / _API_KEY / _BASE_URL    (skip with AI_CHAT_ENHANCER_ENABLED=false)
+    AI_CHAT_VISION_MODEL / _API_KEY / _BASE_URL
+  Defaults are fast (Groq Llama / Gemini Flash) so replies never time out.
 
-Input : message, history (role/content pairs), farm_profile dict
-Output: { reply, type, structured_data }
-  type: "text" | "diagnosis" | "market"
+Input : message, history, farm_profile, response_length, mode ("text"|"voice"), image
+Output: { reply, type: "text", structured_data: None, token_info, followUps }
 """
 from __future__ import annotations
 import logging
-import json
+import os
 import re
 from datetime import datetime
 from typing import Any, Optional
 
-from agents.llm_dispatch import call_llm_text, get_feature_config
+from agents.llm_dispatch import call_llm_text, call_llm_vision, get_feature_config
+from utils.json_extractor import extract_json
 
 logger = logging.getLogger(__name__)
 
@@ -37,33 +42,75 @@ def current_season() -> str:
     return "Zaid (Summer)"
 
 
-# ── System prompt ─────────────────────────────────────────────────────────────
+# ── Response-length directives ────────────────────────────────────────────────
+# The farmer picks length in the app; it OVERRIDES auto-by-complexity. Every tier
+# stays authentic/specific — "short" is concise, not vague.
+_LENGTH_DIRECTIVES = {
+    "short":      "Answer in 60–120 words. Lead with the direct answer + the single most important action. Stay specific (real product + exact dose) but use NO section headers.",
+    "medium":     "Answer in 150–280 words. Use 2–3 **bold headers**. Be specific with doses, timing, and variety names.",
+    "long":       "Answer in 350–550 words. Use full **bold-header** structure. Differentiate rainfed vs irrigated, name ICAR-recommended varieties, and add sources/caveats.",
+    "extra_long": "Answer in 600–900 words. Be comprehensive: clear sections, dosing details in prose, district-level nuance, simple economics, and sources/caveats.",
+}
 
-def _build_system_prompt(farm_profile: dict) -> str:
-    lang    = farm_profile.get("language", "en")
-    crops   = farm_profile.get("crops", [])
-    state   = farm_profile.get("state", "India")
+# Voice replies are read aloud by TTS — HARD-overrides any length setting.
+_VOICE_DIRECTIVE = (
+    "VOICE MODE: your reply is read aloud by text-to-speech. Use NO markdown, NO bold, "
+    "NO headers, NO bullet symbols, NO numbered lists. Speak in 2–4 short spoken sentences. "
+    "Lead with the answer, then the key action. Say \"first… then…\" instead of lists. "
+    "Keep the whole reply under ~90 words, regardless of any length setting."
+)
+
+# Shared authenticity rules — applied in BOTH the Writer and Enhancer prompts.
+_QUALITY_RULES = (
+    "- Use real Indian product/brand names (Mancozeb 75WP, DAP, Urea, Chlorpyrifos 20EC, etc.) "
+    "with exact dose and timing.\n"
+    "- Differentiate by rainfed vs irrigated, soil type, current season/sowing window, and "
+    "district/taluka variation when relevant.\n"
+    "- Cite the authority (ICAR / KVK / state agriculture dept / product label) behind a "
+    "recommendation, and add a brief caveat when your advice depends on something you cannot see.\n"
+    "- Sound authentic, current and specific — never generic or templated."
+)
+
+_LIST_MARKER_RE = re.compile(r"^\s*(?:[-*•]\s*|\d+[.)]\s*)")
+
+
+def _length_directive(response_length: str, mode: str) -> str:
+    if mode == "voice":
+        return _VOICE_DIRECTIVE
+    return _LENGTH_DIRECTIVES.get((response_length or "short").lower(), _LENGTH_DIRECTIVES["short"])
+
+
+def _enhancer_enabled() -> bool:
+    return os.environ.get("AI_CHAT_ENHANCER_ENABLED", "true").strip().lower() != "false"
+
+
+# ── Shared farmer-context builder ─────────────────────────────────────────────
+
+def _compute_profile(farm_profile: dict) -> dict:
+    """Build the shared FARMER PROFILE block + language instruction once so every
+    prompt (writer / enhancer / vision) stays personalised and consistent."""
+    lang     = farm_profile.get("language", "en")
+    crops    = farm_profile.get("crops", [])
+    state    = farm_profile.get("state", "India")
     district = farm_profile.get("district", "")
-    season  = current_season()
-    month   = datetime.now().strftime("%B")
+    season   = current_season()
+    month    = datetime.now().strftime("%B")
 
-    # ── Farmer identity ──────────────────────────────────────────────────────
     farmer_name = farm_profile.get("farmerName", "")
     experience  = farm_profile.get("experience", "")
     farm_name   = farm_profile.get("farmName", "")
     village     = farm_profile.get("village", "")
     taluka      = farm_profile.get("taluka", "")
 
-    # ── Active crops ─────────────────────────────────────────────────────────
     crop_list = ""
     if crops:
         parts = []
         for c in crops[:5]:
-            name  = c.get("name", "")
-            stage = c.get("growthStage", "")
-            area  = c.get("areaAcres", "")
+            name    = c.get("name", "")
+            stage   = c.get("growthStage", "")
+            area    = c.get("areaAcres", "")
             variety = c.get("variety", "")
-            detail = name
+            detail  = name
             if variety:
                 detail += f" ({variety})"
             if stage:
@@ -73,14 +120,26 @@ def _build_system_prompt(farm_profile: dict) -> str:
             age = c.get("ageInDays")
             if age:
                 detail += f", {age} days old"
+            # Itemised crop-cycle history (from MyFarm activity logs)
+            subs = []
+            if c.get("fertilizerHistory"):
+                subs.append(f"Fertilizer used: {c['fertilizerHistory']}")
+            if c.get("pesticideHistory"):
+                subs.append(f"Sprays: {c['pesticideHistory']}")
+            if c.get("irrigationSummary"):
+                subs.append(f"Irrigation: {c['irrigationSummary']}")
+            if c.get("eventsSummary"):
+                subs.append(f"Observed events: {c['eventsSummary']}")
+            if c.get("costSplit"):
+                subs.append(f"Cost split: {c['costSplit']}")
+            if subs:
+                detail += "\n      - " + "\n      - ".join(subs)
             parts.append(detail)
         crop_list = "Current crops:\n    " + "\n    ".join(f"• {p}" for p in parts)
 
-    # ── Location ─────────────────────────────────────────────────────────────
     location_parts = [p for p in [village, taluka, district, state] if p]
-    location_hint = f"Located in {', '.join(location_parts)}." if location_parts else "Location: India."
+    location_hint  = f"Located in {', '.join(location_parts)}." if location_parts else "Location: India."
 
-    # ── Language ─────────────────────────────────────────────────────────────
     lang_instruction = ""
     if lang in ("hi", "hi-IN", "hi-in"):
         lang_instruction = "Always respond in Hindi (Devanagari script). Keep English technical terms as-is."
@@ -103,12 +162,11 @@ def _build_system_prompt(farm_profile: dict) -> str:
     elif lang not in ("en", "en-IN", "en-in"):
         lang_instruction = f"Respond in the farmer's preferred language ({lang}) where possible."
 
-    soil_hint      = farm_profile.get("soilType", "")
-    irr_hint       = farm_profile.get("irrigationType", "")
-    land_hint      = farm_profile.get("landSize", "")
-    water_sources  = farm_profile.get("waterSources", [])
+    soil_hint     = farm_profile.get("soilType", "")
+    irr_hint      = farm_profile.get("irrigationType", "")
+    land_hint     = farm_profile.get("landSize", "")
+    water_sources = farm_profile.get("waterSources", [])
 
-    # ── Soil health ──────────────────────────────────────────────────────────
     soil_data = farm_profile.get("soil") or {}
     soil_health = ""
     if soil_data:
@@ -126,31 +184,54 @@ def _build_system_prompt(farm_profile: dict) -> str:
         if soil_parts:
             soil_health = "Soil health report: " + ", ".join(soil_parts)
 
-    # ── Crop history ─────────────────────────────────────────────────────────
     recent_cycles = farm_profile.get("recentCycles", [])
     history_hint = ""
     if recent_cycles:
         parts = []
-        for rc in recent_cycles[:3]:
-            label = rc.get("label", "")
-            crop  = rc.get("cropName", "")
-            yld   = rc.get("yieldQuintal", "")
+        for rc in recent_cycles[:4]:
+            label  = rc.get("label", "")
+            crop   = rc.get("cropName", "")
+            yld    = rc.get("yieldQuintal", "")
             profit = rc.get("netProfitInr", "")
+            cost   = rc.get("totalCostInr", "")
+            ppa    = rc.get("profitPerAcreInr", "")
+            grade  = rc.get("qualityGrade", "")
             line = f"{crop}"
             if label:
                 line += f" ({label})"
             if yld:
                 line += f" — yield: {yld} quintals"
+            if grade:
+                line += f", grade {grade}"
+            if cost not in (None, ""):
+                line += f", cost: ₹{cost}"
             if profit is not None and profit != "":
                 line += f", profit: ₹{profit}"
+            if ppa not in (None, ""):
+                line += f" (₹{ppa}/acre)"
             parts.append(line)
         history_hint = "Recent crop history:\n    " + "\n    ".join(f"• {p}" for p in parts)
 
-    return f"""You are FarmMind, a senior agronomist and agricultural advisor built by FarmEasy for Indian farmers. You have deep expertise equivalent to an ICAR scientist combined with hands-on field experience across Maharashtra and all major farming states.
+    # Multi-year trends + recurring issues (from completed-cycle aggregate)
+    history = farm_profile.get("history") or {}
 
-EXPERTISE: Crop diseases & pest management (ICAR guidelines), mandi prices & MSP, government schemes (PM-KISAN, PMFBY, Kisan Credit Card), soil health & fertilizers, irrigation & water management, weather-based advisory, seed selection, post-harvest storage, district-level ICAR contingency plans.
+    def _trend_str(series):
+        pts = [s for s in (series or []) if s.get("value") is not None]
+        return " → ".join(f"{s.get('label', '')}: {s['value']}".strip() for s in pts[-4:])
 
-FARMER PROFILE:
+    trend_lines = []
+    yt = _trend_str(history.get("yieldTrend"))
+    if yt:
+        trend_lines.append(f"Yield (quintals): {yt}")
+    pt = _trend_str(history.get("profitTrend"))
+    if pt:
+        trend_lines.append(f"Net profit (₹): {pt}")
+    trend_hint = ("Multi-year trend:\n    " + "\n    ".join(f"• {t}" for t in trend_lines)) if trend_lines else ""
+
+    prior_issues = history.get("priorIssues") or farm_profile.get("priorIssues") or []
+    issues_hint = (f"Recurring issues on this farm: {', '.join(prior_issues[:8])}") if prior_issues else ""
+
+    profile_block = f"""FARMER PROFILE:
   {f"Farmer: {farmer_name}" if farmer_name else ""}
   {f"Farm: {farm_name}" if farm_name else ""}
   {f"Experience: {experience} years of farming" if experience else ""}
@@ -163,159 +244,264 @@ FARMER PROFILE:
   {f"Water sources: {', '.join(water_sources)}" if water_sources else ""}
   {f"Land size: {land_hint} acres" if land_hint else ""}
   {history_hint if history_hint else ""}
+  {trend_hint if trend_hint else ""}
+  {issues_hint if issues_hint else ""}"""
 
-IMPORTANT — PERSONALIZED CONTEXT:
-  You know this farmer personally. When they ask about "my farm", "my crops", "my soil", etc., use the FARMER PROFILE above to give specific, personalized answers. Never say you don't have information about their farm if the profile data is available above. Reference their specific crops, soil type, location, and history in your advice.
-
-RESPONSE QUALITY RULES:
-1. Match depth to question complexity:
-   - Complex decisions (crop planning, disease management, soil correction, financial planning):
-     Write 350–600 words. Use **bold headers** for sections. Give specific, differentiated advice.
-   - Moderate questions (variety selection, fertilizer schedule, pest control):
-     Write 200–350 words. Be specific with doses, timing, variety names.
-   - Simple factual queries (what is MSP, scheme eligibility, single yes/no):
-     Write 80–150 words. Direct answer first, brief context after.
-2. Always use real Indian product/brand names (Mancozeb 75WP, DAP, Urea, Chlorpyrifos 20EC, etc.) with exact dosage and timing.
-3. Never give one-size-fits-all advice. Always differentiate by:
-   - Rainfed vs irrigated land
-   - Soil type (black cotton / red laterite / alluvial / sandy loam)
-   - Current season and optimal sowing windows
-   - District or taluka-level agro-climatic variation when relevant
-4. For crop recommendations, ALWAYS cover:
-   - Best 2–3 crops for rainfed conditions
-   - Best 2–3 crops if irrigation is available
-   - ICAR-recommended varieties for that district/region
-   - Sowing window and key management tips
-   - Market/cash crop potential
-   - If taluka or soil type is unknown, mention it affects the answer and ask at the end.
-5. For disease queries with symptoms, return the DIAGNOSIS JSON block below.
-6. For market/price queries, return the MARKET JSON block below.
-7. End complex answers with ONE targeted follow-up question to get missing info (taluka, soil type, water source) that would sharpen the advice further.
-8. {lang_instruction or "Respond in English unless the farmer writes in another language."}
-
-DIAGNOSIS JSON FORMAT (use ONLY when farmer describes symptoms or shares disease name):
-{{
-  "type": "diagnosis",
-  "disease": "<Disease name>",
-  "confidence": <0-100 integer>,
-  "severity": "low|moderate|high|critical",
-  "immediateAction": "<single most urgent step>",
-  "treatment": {{
-    "chemical": "<product + dosage>",
-    "organic": "<organic option>",
-    "preventive": "<prevention measure>"
-  }},
-  "expectedRecovery": "<timeframe>",
-  "additionalNotes": "<extra context>"
-}}
-
-MARKET JSON FORMAT (use ONLY when asked about prices):
-{{
-  "type": "market",
-  "crop": "<crop>",
-  "msp": "<MSP in Rs/quintal>",
-  "marketRange": "<min-max Rs/quintal>",
-  "trend": "rising|stable|falling",
-  "bestMarket": "<nearest recommended mandi>",
-  "sellingAdvice": "<when/where to sell>"
-}}
-
-IMPORTANT: For JSON responses, output ONLY the JSON block — no extra text before or after. For all other responses, output plain text with **bold** for section headers."""
+    return {
+        "profile_block":    profile_block,
+        "lang_instruction": lang_instruction,
+    }
 
 
-# ── JSON extraction ───────────────────────────────────────────────────────────
-
-def _try_extract_json(text: str) -> Optional[dict]:
-    """Pull first JSON object from response, if any."""
-    from utils.json_extractor import extract_json
-    return extract_json(text)
-
-
-def _classify_response(text: str, structured: Optional[dict]) -> tuple[str, Optional[dict]]:
-    """Return (type, structuredData)."""
-    if structured:
-        t = structured.get("type", "")
-        if t == "diagnosis" or "disease" in structured:
-            return "diagnosis", structured
-        if t == "market" or "msp" in structured or "marketRange" in structured:
-            return "market", structured
-    return "text", None
+def _format_history(history_msgs: list[dict]) -> str:
+    """Concatenated dialogue — the cross-provider lowest-common-denominator shape."""
+    if not history_msgs:
+        return ""
+    formatted = []
+    for m in history_msgs:
+        role = "Farmer" if m["role"] == "user" else "FarmMind"
+        formatted.append(f"{role}: {m['content']}")
+    return "Previous conversation:\n" + "\n".join(formatted) + "\n\n"
 
 
-# ── Public function ───────────────────────────────────────────────────────────
+# ── Prompts ───────────────────────────────────────────────────────────────────
+
+def _writer_system(farm_profile: dict, response_length: str, mode: str, with_followups: bool = False) -> str:
+    ctx = _compute_profile(farm_profile)
+    tail = _followups_instruction(mode) if with_followups else " Do not add a follow-up questions list."
+    return f"""You are FarmMind, a senior agronomist and agricultural advisor built by FarmEasy for Indian farmers. Your expertise is equivalent to an ICAR scientist with hands-on field experience across Maharashtra and all major farming states (crop diseases & pests, mandi prices & MSP, government schemes, soil health, irrigation, weather-based advisory, seed selection).
+
+{ctx['profile_block']}
+
+You know this farmer personally — when they ask about "my farm / my crops / my soil", use the FARMER PROFILE above and reference their specifics.
+
+ANSWER RULES:
+- LENGTH & DEPTH (set by the farmer; OVERRIDES your own judgement): {_length_directive(response_length, mode)}
+{_QUALITY_RULES}
+LANGUAGE: {ctx['lang_instruction'] or "Respond in English unless the farmer writes in another language."}
+
+Write the best possible answer to the farmer's question. Output ONLY the answer text — no preamble, no JSON.{tail}"""
+
+
+def _enhancer_system(farm_profile: dict, response_length: str, mode: str, with_followups: bool = True) -> str:
+    ctx = _compute_profile(farm_profile)
+    tail = _followups_instruction(mode) if with_followups else " Do not add a follow-up questions list."
+    return f"""You are a senior agronomy editor and fact-checker for FarmMind, advising Indian farmers. You are given a DRAFT answer to a farmer's question. Rewrite it into the FINAL answer — keep what is correct, fix anything vague or inaccurate, and make every recommendation specific and trustworthy.
+
+{ctx['profile_block']}
+
+IMPROVE THE DRAFT BY:
+- Replacing vague advice with specific, correct guidance for THIS farmer's context above.
+{_QUALITY_RULES}
+- Matching this length exactly: {_length_directive(response_length, mode)}
+LANGUAGE: {ctx['lang_instruction'] or "Respond in English unless the farmer writes in another language."}
+
+Output ONLY the final improved answer text — no preamble, no notes about what you changed, no JSON.{tail}"""
+
+
+def _vision_system(farm_profile: dict, response_length: str, mode: str, with_followups: bool = True) -> str:
+    ctx = _compute_profile(farm_profile)
+    tail = _followups_instruction(mode) if with_followups else ""
+    return f"""You are FarmMind, a helpful farming assistant for Indian farmers. The farmer has shared an IMAGE, optionally with a question. The image could be anything — a crop or leaf, an insect/pest, a field, a product or seed label, a soil sample, a machine, or a document. Look at it carefully and use it as context to give a genuinely useful, specific answer.
+
+{ctx['profile_block']}
+
+ANSWER RULES:
+- Briefly describe what you see, then answer the farmer's question about it. If you are unsure what the image shows, say so plainly and ask ONE short clarifying question.
+- LENGTH & DEPTH: {_length_directive(response_length, mode)}
+{_QUALITY_RULES}
+LANGUAGE: {ctx['lang_instruction'] or "Respond in English unless the farmer writes in another language."}
+
+Output ONLY the answer text — no JSON.{tail}"""
+
+
+# ── Follow-ups (folded into the answer call — single delimiter, leak-proof) ────
+# The final-answer call appends ONE marker then the questions; we split on the
+# FIRST occurrence and ALWAYS strip the block from the visible answer, so even a
+# malformed block can never leak (worst case = no chips).
+_FOLLOWUP_MARKER = "###FOLLOWUPS###"
+
+
+def _followups_instruction(mode: str) -> str:
+    count = "2-3" if mode == "voice" else "3-5"
+    return (
+        f"\n\nAfter your complete answer, on a new line output exactly {_FOLLOWUP_MARKER} and then "
+        f"{count} short follow-up questions the farmer might tap next — one per line, each under 8 words, "
+        f"in the farmer's language. Put nothing after the last question."
+    )
+
+
+def _split_followups(raw: str, mode: str) -> tuple[str, list[str]]:
+    """Return (answer, follow-ups). Splits on the first marker; no marker → []."""
+    if not raw:
+        return "", []
+    idx = raw.upper().find(_FOLLOWUP_MARKER)
+    if idx == -1:
+        return raw.strip(), []
+    return raw[:idx].strip(), _parse_followups(raw[idx + len(_FOLLOWUP_MARKER):], mode)
+
+
+def _parse_followups(raw: str, mode: str) -> list[str]:
+    cap = 3 if mode == "voice" else 5
+    data = None
+    try:
+        data = extract_json(raw)
+    except Exception:
+        data = None
+    candidates = [str(x) for x in data] if isinstance(data, list) else (raw or "").splitlines()
+    items: list[str] = []
+    for c in candidates:
+        s = _LIST_MARKER_RE.sub("", c).strip().strip('"\'`[],').strip()
+        if len(s) >= 4 and any(ch.isalpha() for ch in s):
+            items.append(s)
+    return items[:cap]
+
+
+# ── Universal token meter ─────────────────────────────────────────────────────
+# Every reply path runs MULTIPLE LLM calls (writer + enhancer + follow-ups, or
+# vision + follow-ups). The credit system bills on ACTUAL tokens, so we must sum
+# tokens across ALL calls — returning only the last call's count (the old bug)
+# undercounted chat by 30-60%. `_new_usage`/`_accumulate` are the universal meter.
+
+def _new_usage(model: str = "") -> dict:
+    return {"model": model, "input_tokens": 0, "output_tokens": 0,
+            "total_tokens": 0, "cost_usd": 0.0, "calls": 0}
+
+
+def _accumulate(agg: dict, tok: dict) -> dict:
+    """Fold one call's token_info into the running aggregate. (Does NOT change
+    agg['model'] — callers set that to the answer-producing model.)"""
+    i = int(tok.get("input_tokens", 0) or 0)
+    o = int(tok.get("output_tokens", 0) or 0)
+    agg["input_tokens"]  += i
+    agg["output_tokens"] += o
+    agg["total_tokens"]  += int(tok.get("total_tokens", 0) or 0) or (i + o)
+    agg["cost_usd"]       = round(agg["cost_usd"] + float(tok.get("cost_usd", 0) or 0), 6)
+    agg["calls"]         += 1
+    return agg
+
+
+# ── Per-mode replies ──────────────────────────────────────────────────────────
+# Cost/latency: the Enhancer runs ONLY for long/extra_long; short/medium answer
+# in ONE Writer call. Follow-up chips are folded into the final-answer call (no
+# separate LLM call) and split out with a leak-proof delimiter. So a typical
+# message is 1 call (was 3): short/med = Writer only; long/extra = Writer+Enhancer.
+
+async def _agentic_text_reply(message, history, farm_profile, response_length, mode):
+    history_block = _format_history(history[-20:])
+    user_prompt = f"{history_block}Farmer: {message}\nFarmMind:"
+    usage = _new_usage()
+
+    use_enhancer = _enhancer_enabled() and (response_length or "short").lower() in ("long", "extra_long")
+
+    writer_cfg = get_feature_config("CHAT_WRITER")
+    try:
+        # When there's no Enhancer, the Writer IS the final answer → fold follow-ups.
+        draft, wtok = await call_llm_text(
+            writer_cfg,
+            _writer_system(farm_profile, response_length, mode, with_followups=not use_enhancer),
+            user_prompt,
+        )
+    except Exception as exc:
+        logger.error("[ChatService] writer %s failed: %s", writer_cfg.model, exc)
+        raise RuntimeError(f"Chat unavailable — {writer_cfg.model} failed: {exc}")
+    if not draft:
+        raise RuntimeError(f"Chat unavailable — {writer_cfg.model} returned empty response")
+    _accumulate(usage, wtok)
+    usage["model"] = wtok.get("model", writer_cfg.model)
+
+    final = draft
+    if use_enhancer:
+        enh_cfg = get_feature_config("CHAT_ENHANCER")
+        enh_user = (
+            f"{history_block}Farmer's question: {message}\n\n"
+            f"DRAFT answer to improve:\n{_split_followups(draft, mode)[0]}\n\nFinal improved answer:"
+        )
+        try:
+            improved, etok = await call_llm_text(
+                enh_cfg, _enhancer_system(farm_profile, response_length, mode, with_followups=True), enh_user
+            )
+            if improved and improved.strip():
+                final = improved
+                _accumulate(usage, etok)
+                usage["model"] = etok.get("model", enh_cfg.model)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[ChatService] enhancer %s failed — using draft: %s", enh_cfg.model, exc)
+
+    answer, follow_ups = _split_followups(final, mode)
+    return {"reply": answer, "type": "text", "structured_data": None,
+            "token_info": usage, "followUps": follow_ups}
+
+
+async def _voice_reply(message, history, farm_profile, response_length):
+    history_block = _format_history(history[-20:])
+    user_prompt = f"{history_block}Farmer: {message}\nFarmMind:"
+    usage = _new_usage()
+    cfg = get_feature_config("CHAT_WRITER")
+    try:
+        reply, wtok = await call_llm_text(
+            cfg, _writer_system(farm_profile, response_length, "voice", with_followups=True), user_prompt
+        )
+    except Exception as exc:
+        logger.error("[ChatService] voice writer %s failed: %s", cfg.model, exc)
+        raise RuntimeError(f"Chat unavailable — {cfg.model} failed: {exc}")
+    if not reply:
+        raise RuntimeError(f"Chat unavailable — {cfg.model} returned empty response")
+    _accumulate(usage, wtok)
+    usage["model"] = wtok.get("model", cfg.model)
+    answer, follow_ups = _split_followups(reply, "voice")
+    return {"reply": answer, "type": "text", "structured_data": None,
+            "token_info": usage, "followUps": follow_ups}
+
+
+async def _vision_reply(message, history, farm_profile, image, response_length, mode):
+    cfg = get_feature_config("CHAT_VISION")
+    images_b64 = [{"data": image["data"], "mime_type": image.get("mime_type", "image/jpeg")}]
+    question = (message or "").strip() or "Please look at this image and tell me what is relevant for my farm."
+    user_prompt = f"{_format_history(history[-20:])}Farmer: {question}\nFarmMind:"
+    usage = _new_usage()
+    try:
+        reply, vtok = await call_llm_vision(
+            cfg, _vision_system(farm_profile, response_length, mode, with_followups=True), user_prompt, images_b64
+        )
+    except Exception as exc:
+        logger.error("[ChatService] vision %s failed: %s", cfg.model, exc)
+        raise RuntimeError(f"Image chat unavailable — {cfg.model} failed: {exc}")
+    if not reply:
+        raise RuntimeError(f"Image chat unavailable — {cfg.model} returned empty response")
+    _accumulate(usage, vtok)
+    usage["model"] = vtok.get("model", cfg.model)
+    answer, follow_ups = _split_followups(reply, mode)
+    return {"reply": answer, "type": "text", "structured_data": None,
+            "token_info": usage, "followUps": follow_ups}
+
+
+# ── Public entrypoint ─────────────────────────────────────────────────────────
 
 async def chat_with_farmmind(
     message: str,
     history: list[dict],            # [{"role": "user"|"assistant", "content": str}]
     farm_profile: dict,
+    response_length: str = "short",
+    mode: str = "text",
+    image: Optional[dict] = None,   # {"data": <base64>, "mime_type": <str>} | None
 ) -> dict[str, Any]:
     """
-    Returns: { reply: str, type: str, structured_data: dict|None }
+    Returns: { reply, type: "text", structured_data: None, token_info, followUps }
 
-    Uses the single AI_TEXT_CHAT_MODEL / _API_KEY configured in .env.
-    No fallback — if the model fails, the call raises and the route
-    handler returns an error (admin then swaps the model in .env).
+    Routes to one of three isolated paths: general image vision, voice (concise
+    spoken), or the agentic Writer→Enhancer text pipeline. No structured cards —
+    crop-disease diagnosis lives in the separate /ai/scan pipeline.
     """
-    logger.info("[ChatService] farm_profile keys: %s", list(farm_profile.keys()))
-    logger.info("[ChatService] soilType=%s, irrigationType=%s, crops=%d, district=%s, farmName=%s",
-                farm_profile.get("soilType", "MISSING"),
-                farm_profile.get("irrigationType", "MISSING"),
-                len(farm_profile.get("crops", [])),
-                farm_profile.get("district", "MISSING"),
-                farm_profile.get("farmName", "MISSING"))
+    has_image = bool(image and isinstance(image, dict) and image.get("data"))
+    logger.info(
+        "[ChatService] crops=%d district=%s len=%s mode=%s image=%s enhancer=%s",
+        len(farm_profile.get("crops", [])), farm_profile.get("district", "MISSING"),
+        response_length, mode, has_image, _enhancer_enabled(),
+    )
 
-    cfg = get_feature_config("TEXT_CHAT")
-    system   = _build_system_prompt(farm_profile)
-    logger.info("[ChatService] System prompt length: %d chars; model=%s", len(system), cfg.model)
-    history_msgs = history[-20:]
-
-    # Format history into a single user-side context string. One-shot
-    # system + user is the cross-provider lowest-common-denominator
-    # shape; the dispatcher routes uniformly across Groq/Gemini/Anthropic
-    # /OpenAI without rewriting per-provider message formats.
-    history_block = ""
-    if history_msgs:
-        formatted = []
-        for m in history_msgs:
-            role = "Farmer" if m["role"] == "user" else "FarmMind"
-            formatted.append(f"{role}: {m['content']}")
-        history_block = "Previous conversation:\n" + "\n".join(formatted) + "\n\n"
-    user_prompt = f"{history_block}Farmer: {message}\nFarmMind:"
-
-    try:
-        # NOTE: sarvam-30b is a REASONING model — capping max_tokens starves the
-        # content budget (reasoning eats it) and yields an EMPTY reply. So we do
-        # NOT cap here; reliability comes from the raised Express→FastAPI chat
-        # timeout (120s) instead. (Switch AI_TEXT_CHAT_MODEL to a fast model like
-        # llama-3.3-70b-versatile if sub-5s chat latency is preferred.)
-        reply, token_info = await call_llm_text(
-            cfg,
-            system_prompt=system,
-            user_prompt=user_prompt,
-        )
-    except Exception as exc:
-        logger.error("[ChatService] %s call failed: %s", cfg.model, exc)
-        raise RuntimeError(f"Chat unavailable — {cfg.model} failed: {exc}")
-
-    if not reply:
-        raise RuntimeError(f"Chat unavailable — {cfg.model} returned empty response")
-    logger.info("[ChatService] reply via %s (%d in / %d out tokens)",
-                cfg.model, token_info.get("input_tokens", 0), token_info.get("output_tokens", 0))
-
-    structured = _try_extract_json(reply)
-    resp_type, structured_data = _classify_response(reply, structured)
-
-    # For structured responses, build a natural-language intro instead of showing raw JSON
-    if structured_data:
-        if resp_type == "diagnosis":
-            disease = structured_data.get("disease", "a crop condition")
-            action  = structured_data.get("immediateAction", "")
-            notes   = structured_data.get("additionalNotes", "")
-            reply   = f"I've diagnosed your crop with **{disease}**. {action}" if action else \
-                      f"I've detected **{disease}** in your crop. {notes}".strip()
-        elif resp_type == "market":
-            crop   = structured_data.get("crop", "your crop")
-            advice = structured_data.get("sellingAdvice", "")
-            reply  = advice if advice else f"Here are the current market details for {crop}."
-
-    return {"reply": reply, "type": resp_type, "structured_data": structured_data, "token_info": token_info}
+    if has_image:
+        return await _vision_reply(message, history, farm_profile, image, response_length, mode)
+    if mode == "voice":
+        return await _voice_reply(message, history, farm_profile, response_length)
+    return await _agentic_text_reply(message, history, farm_profile, response_length, mode)

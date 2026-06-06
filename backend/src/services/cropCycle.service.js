@@ -2,15 +2,38 @@
  * Crop Cycle Service — Per-farm, per-season crop records with full input/output tracking.
  */
 import prisma from '../config/db.js';
+import { generateForCycle } from './farmPrediction.service.js';
+
+// Fire-and-forget AI insight refresh — never blocks the write response.
+function refreshInsights(cycleId, farmerId) {
+  generateForCycle(cycleId, farmerId).catch(() => {});
+}
 
 function seasonLabel(season, year) { return `${season.charAt(0)}${season.slice(1).toLowerCase()} ${year}`; }
 
-function computeFinancials(cycle) {
+const ACTIVITY_TYPES = [
+  'LAND_PREP', 'SOWING', 'IRRIGATION', 'FERTILIZER', 'SPRAY', 'SCOUT',
+  'WEEDING', 'PRUNING', 'HARVEST', 'SALE', 'EXPENSE', 'INCOME',
+];
+
+const arr = (a) => (Array.isArray(a) ? a : []);
+const sumAmt = (a) => arr(a).reduce((s, x) => s + (Number(x?.amountInr) || 0), 0);
+
+/**
+ * Live financials. Labour/other costs come from the itemised laborLogs/
+ * expenseLogs arrays when present, else fall back to the scalar columns (so
+ * cycles created before the v2 loggers still total correctly). Gross income
+ * = sale revenue + any extra incomeLogs.
+ */
+export function computeFinancials(cycle) {
   const seedCost = cycle.seedTotalCostInr || 0;
-  const fertCost = (Array.isArray(cycle.fertilizersUsed) ? cycle.fertilizersUsed : []).reduce((s, f) => s + (f.costInr || 0), 0);
-  const pestCost = (Array.isArray(cycle.pesticidesUsed) ? cycle.pesticidesUsed : []).reduce((s, p) => s + (p.costInr || 0), 0);
-  const totalInput = seedCost + fertCost + pestCost + (cycle.laborCostInr || 0) + (cycle.machineryCostInr || 0) + (cycle.otherCostInr || 0);
-  const gross = cycle.saleTotalRevenueInr || 0;
+  const fertCost = arr(cycle.fertilizersUsed).reduce((s, f) => s + (f.costInr || 0), 0);
+  const pestCost = arr(cycle.pesticidesUsed).reduce((s, p) => s + (p.costInr || 0), 0);
+  const laborCost = arr(cycle.laborLogs).length ? sumAmt(cycle.laborLogs) : (cycle.laborCostInr || 0);
+  const otherCost = arr(cycle.expenseLogs).length ? sumAmt(cycle.expenseLogs) : (cycle.otherCostInr || 0);
+  const machineryCost = cycle.machineryCostInr || 0;
+  const totalInput = seedCost + fertCost + pestCost + laborCost + machineryCost + otherCost;
+  const gross = (cycle.saleTotalRevenueInr || 0) + sumAmt(cycle.incomeLogs);
   const net = gross - totalInput;
   const area = cycle.areaAllocatedAcres || 1;
   return { totalInputCostInr: totalInput, grossIncomeInr: gross, netProfitInr: net, profitPerAcreInr: Math.round((net / area) * 100) / 100 };
@@ -105,7 +128,77 @@ export async function addObservedEvent(cycleId, farmerId, entry) {
   if (!cycle) return null;
   const existing = Array.isArray(cycle.observedEvents) ? cycle.observedEvents : [];
   const newEntry = { date: entry.date || new Date().toISOString(), type: entry.type, severity: entry.severity || 'moderate', notes: entry.notes, damageEstimatePct: entry.damageEstimatePct ? parseFloat(entry.damageEstimatePct) : null };
-  return prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: { observedEvents: [...existing, newEntry] } });
+  const updated = await prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: { observedEvents: [...existing, newEntry] } });
+  if (['high', 'critical'].includes((entry.severity || '').toLowerCase())) refreshInsights(cycleId, farmerId);
+  return updated;
+}
+
+/** Generic activity log (land-prep, sowing, scout, weeding, pruning, …). */
+export async function addActivity(cycleId, farmerId, entry) {
+  const type = String(entry.type || '').toUpperCase();
+  if (!ACTIVITY_TYPES.includes(type)) throw new Error(`Unknown activity type: ${entry.type}`);
+  const cycle = await prisma.farmCropCycle.findFirst({ where: { id: cycleId, farmerId }, select: { activities: true } });
+  if (!cycle) return null;
+  const existing = arr(cycle.activities);
+  const newEntry = {
+    id: crypto.randomUUID(),
+    type,
+    date: entry.date || new Date().toISOString(),
+    title: entry.title || null,
+    notes: entry.notes || null,
+    photoUrl: entry.photoUrl || null,
+    voiceUrl: entry.voiceUrl || null,
+    fields: entry.fields && typeof entry.fields === 'object' ? entry.fields : {},
+  };
+  return prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: { activities: [...existing, newEntry] } });
+}
+
+/** Append a labour-cost log entry. */
+export async function addLaborLog(cycleId, farmerId, entry) {
+  const cycle = await prisma.farmCropCycle.findFirst({ where: { id: cycleId, farmerId }, select: { laborLogs: true } });
+  if (!cycle) return null;
+  const existing = arr(cycle.laborLogs);
+  const newEntry = {
+    id: crypto.randomUUID(),
+    date: entry.date || new Date().toISOString(),
+    task: entry.task || null,
+    workers: entry.workers != null ? parseInt(entry.workers, 10) : null,
+    wageInr: entry.wageInr != null ? parseFloat(entry.wageInr) : null,
+    amountInr: entry.amountInr != null ? parseFloat(entry.amountInr) : null,
+    notes: entry.notes || null,
+  };
+  return prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: { laborLogs: [...existing, newEntry] } });
+}
+
+/** Append a miscellaneous expense log entry (diesel, machinery hire, etc.). */
+export async function addExpenseLog(cycleId, farmerId, entry) {
+  const cycle = await prisma.farmCropCycle.findFirst({ where: { id: cycleId, farmerId }, select: { expenseLogs: true } });
+  if (!cycle) return null;
+  const existing = arr(cycle.expenseLogs);
+  const newEntry = {
+    id: crypto.randomUUID(),
+    date: entry.date || new Date().toISOString(),
+    category: entry.category || 'other',
+    amountInr: entry.amountInr != null ? parseFloat(entry.amountInr) : null,
+    vendor: entry.vendor || null,
+    notes: entry.notes || null,
+  };
+  return prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: { expenseLogs: [...existing, newEntry] } });
+}
+
+/** Append a non-sale income log entry (intercrop, subsidy, residue sale, …). */
+export async function addIncomeLog(cycleId, farmerId, entry) {
+  const cycle = await prisma.farmCropCycle.findFirst({ where: { id: cycleId, farmerId }, select: { incomeLogs: true } });
+  if (!cycle) return null;
+  const existing = arr(cycle.incomeLogs);
+  const newEntry = {
+    id: crypto.randomUUID(),
+    date: entry.date || new Date().toISOString(),
+    source: entry.source || 'other',
+    amountInr: entry.amountInr != null ? parseFloat(entry.amountInr) : null,
+    notes: entry.notes || null,
+  };
+  return prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: { incomeLogs: [...existing, newEntry] } });
 }
 
 export async function recordHarvest(cycleId, farmerId, data) {
@@ -122,41 +215,61 @@ export async function recordHarvest(cycleId, farmerId, data) {
 
 export async function recordSale(cycleId, farmerId, data) {
   const qty = parseFloat(data.soldQuantityKg), price = parseFloat(data.pricePerKgInr);
-  return prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: {
+  const updated = await prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: {
     saleSoldQuantityKg: qty, salePricePerKgInr: price, saleTotalRevenueInr: Math.round(qty * price * 100) / 100,
     saleBuyerType: data.buyerType, saleBuyerName: data.buyerName, saleDate: data.saleDate ? new Date(data.saleDate) : new Date(), saleMandiName: data.mandiName,
   }});
+  refreshInsights(cycleId, farmerId);
+  return updated;
 }
 
 export async function completeCycle(cycleId, farmerId) {
   const cycle = await prisma.farmCropCycle.findFirst({ where: { id: cycleId, farmerId } });
   if (!cycle) return null;
-  return prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: { status: 'COMPLETED', ...computeFinancials(cycle) } });
+  const updated = await prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: { status: 'COMPLETED', ...computeFinancials(cycle) } });
+  refreshInsights(cycleId, farmerId);
+  return updated;
 }
 
 export async function getCycleFinancials(cycleId) {
   const cycle = await prisma.farmCropCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) return null;
   const fin = computeFinancials(cycle);
-  const ferts = Array.isArray(cycle.fertilizersUsed) ? cycle.fertilizersUsed : [];
-  const pests = Array.isArray(cycle.pesticidesUsed) ? cycle.pesticidesUsed : [];
+  const ferts = arr(cycle.fertilizersUsed);
+  const pests = arr(cycle.pesticidesUsed);
+  const seedCost = cycle.seedTotalCostInr || 0;
+  const fertilizerCost = ferts.reduce((s, f) => s + (f.costInr || 0), 0);
+  const pesticideCost = pests.reduce((s, p) => s + (p.costInr || 0), 0);
+  const laborCost = arr(cycle.laborLogs).length ? sumAmt(cycle.laborLogs) : (cycle.laborCostInr || 0);
+  const machineryCost = cycle.machineryCostInr || 0;
+  const otherCost = arr(cycle.expenseLogs).length ? sumAmt(cycle.expenseLogs) : (cycle.otherCostInr || 0);
+  const area = cycle.areaAllocatedAcres || 1;
+  const round2 = (n) => Math.round(n * 100) / 100;
+
   return {
     ...fin,
-    seedCost: cycle.seedTotalCostInr || 0,
-    fertilizerCost: ferts.reduce((s, f) => s + (f.costInr || 0), 0),
-    pesticideCost: pests.reduce((s, p) => s + (p.costInr || 0), 0),
-    laborCost: cycle.laborCostInr || 0,
-    machineryCost: cycle.machineryCostInr || 0,
-    otherCost: cycle.otherCostInr || 0,
-    revenue: cycle.saleTotalRevenueInr || 0,
-    // Breakdown for pie chart
+    seedCost,
+    fertilizerCost,
+    pesticideCost,
+    laborCost,
+    machineryCost,
+    otherCost,
+    revenue: fin.grossIncomeInr,
+    // Per-acre economics + return on input cost
+    perAcre: {
+      costPerAcre: round2(fin.totalInputCostInr / area),
+      revenuePerAcre: round2(fin.grossIncomeInr / area),
+      profitPerAcre: fin.profitPerAcreInr,
+    },
+    roiPct: fin.totalInputCostInr > 0 ? round2((fin.netProfitInr / fin.totalInputCostInr) * 100) : null,
+    // Breakdown for the donut chart (matches cosmic chart colours; >0 only)
     costBreakdown: [
-      { label: 'Seed', value: cycle.seedTotalCostInr || 0, color: '#4CAF50' },
-      { label: 'Fertilizer', value: ferts.reduce((s, f) => s + (f.costInr || 0), 0), color: '#2196F3' },
-      { label: 'Pesticide', value: pests.reduce((s, p) => s + (p.costInr || 0), 0), color: '#FF9800' },
-      { label: 'Labour', value: cycle.laborCostInr || 0, color: '#9C27B0' },
-      { label: 'Machinery', value: cycle.machineryCostInr || 0, color: '#795548' },
-      { label: 'Other', value: cycle.otherCostInr || 0, color: '#607D8B' },
+      { label: 'Seed', value: seedCost, color: '#65A30D' },
+      { label: 'Fertilizer', value: fertilizerCost, color: '#00897B' },
+      { label: 'Pesticide', value: pesticideCost, color: '#7B1FA2' },
+      { label: 'Labour', value: laborCost, color: '#0288D1' },
+      { label: 'Machinery', value: machineryCost, color: '#6D4C41' },
+      { label: 'Other', value: otherCost, color: '#78716C' },
     ].filter(c => c.value > 0),
   };
 }

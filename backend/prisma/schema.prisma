@@ -1375,6 +1375,15 @@ model FarmCropCycle {
   irrigationLogs  Json @default("[]")
   observedEvents  Json @default("[]")
 
+  // Generic activity log + itemised cost logs (MyFarm v2 loggers).
+  // activities: land-prep/sowing/scout/weeding/pruning etc. {id,type,date,title,notes,photoUrl?,voiceUrl?,fields}
+  // labor/expense/income logs carry {id,date,...,amountInr} — computeFinancials() sums these,
+  // falling back to the scalar labor/other cost columns below when the arrays are empty.
+  activities   Json @default("[]")
+  laborLogs    Json @default("[]")
+  expenseLogs  Json @default("[]")
+  incomeLogs   Json @default("[]")
+
   // Harvest
   harvestYieldKg        Float?
   harvestYieldQuintal   Float?

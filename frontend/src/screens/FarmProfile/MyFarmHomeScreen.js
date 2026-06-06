@@ -34,6 +34,7 @@ import { CropIcon } from '../../components/CropIcons';
 import { COSMIC, GLOW, CR, CS, CT } from './theme/cosmicTheme';
 
 import { useMultiFarm } from '../../context/MultiFarmContext';
+import { useSyncStatus } from '../../services/writeQueue';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import * as farmApi from '../../services/farmApi';
@@ -112,7 +113,13 @@ export default function MyFarmHomeScreen({ navigation }) {
   const recentActivities = useMemo(() => buildRecentActivities(cycles), [cycles]);
   const streakDays = useMemo(() => computeStreak(recentActivities), [recentActivities]);
 
-  const syncStatus = syncing ? 'syncing' : 'synced';
+  // Real sync state: a failed/in-flight write (writeQueue) wins over the
+  // background farm-list refresh (syncing).
+  const write = useSyncStatus();
+  const syncStatus =
+    write.status === 'offline' || write.status === 'error' ? write.status
+    : (write.status === 'syncing' || syncing) ? 'syncing'
+    : 'synced';
   const activeCycleId = cycles[0]?.id;
 
   const goActivityPicker = (type) => {

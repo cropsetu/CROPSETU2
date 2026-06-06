@@ -6,8 +6,10 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './AuthContext';
 import * as farmApi from '../services/farmApi';
+import { withWrite } from '../services/writeQueue';
 
 const CACHE_FARMS = 'fe_farms_v1';
+const tempId = () => 'temp-' + Date.now().toString(36);
 const MultiFarmContext = createContext(null);
 
 export function MultiFarmProvider({ children }) {
@@ -46,24 +48,55 @@ export function MultiFarmProvider({ children }) {
     try { await farmApi.setActiveFarm(id); } catch {}
   }, []);
 
+  // Optimistic create: show the farm immediately, reconcile with the server
+  // row on success, roll it back on failure. The write retries via writeQueue.
   const addFarm = useCallback(async (data) => {
-    const farm = await farmApi.createFarm(data);
-    setFarms(p => [...p, farm]);
-    if (!activeFarmId) setActiveFarmId(farm.id);
-    return farm;
-  }, [activeFarmId]);
+    const tid = tempId();
+    const optimistic = { id: tid, ...data, _pending: true };
+    setFarms(p => [...p, optimistic]);
+    setActiveFarmId(prev => prev || tid);
+    try {
+      const farm = await withWrite(() => farmApi.createFarm(data), { label: 'createFarm' });
+      setFarms(p => p.map(f => (f.id === tid ? farm : f)));
+      setActiveFarmId(prev => (prev === tid || !prev ? farm.id : prev));
+      return farm;
+    } catch (e) {
+      setFarms(p => p.filter(f => f.id !== tid));   // rollback
+      setActiveFarmId(prev => (prev === tid ? null : prev));
+      throw e;
+    }
+  }, []);
 
   const editFarm = useCallback(async (id, fields) => {
-    const updated = await farmApi.updateFarm(id, fields);
-    setFarms(p => p.map(f => f.id === id ? { ...f, ...updated } : f));
-    return updated;
+    let prevSnapshot;
+    setFarms(p => { prevSnapshot = p; return p.map(f => (f.id === id ? { ...f, ...fields } : f)); });
+    try {
+      const updated = await withWrite(() => farmApi.updateFarm(id, fields), { label: 'updateFarm' });
+      setFarms(p => p.map(f => (f.id === id ? { ...f, ...updated } : f)));
+      return updated;
+    } catch (e) {
+      if (prevSnapshot) setFarms(prevSnapshot);     // rollback
+      throw e;
+    }
   }, []);
 
   const removeFarm = useCallback(async (id) => {
-    await farmApi.deleteFarm(id);
-    setFarms(p => p.filter(f => f.id !== id));
-    if (activeFarmId === id) { const rem = farms.filter(f => f.id !== id); setActiveFarmId(rem[0]?.id || null); }
-  }, [activeFarmId, farms]);
+    let prevSnapshot, prevActive;
+    setActiveFarmId(a => { prevActive = a; return a; });
+    setFarms(p => {
+      prevSnapshot = p;
+      const rem = p.filter(f => f.id !== id);
+      if (prevActive === id) setActiveFarmId(rem[0]?.id || null);
+      return rem;
+    });
+    try {
+      await withWrite(() => farmApi.deleteFarm(id), { label: 'deleteFarm' });
+    } catch (e) {
+      if (prevSnapshot) setFarms(prevSnapshot);      // rollback
+      setActiveFarmId(prevActive);
+      throw e;
+    }
+  }, []);
 
   return (
     <MultiFarmContext.Provider value={{

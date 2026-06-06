@@ -226,7 +226,11 @@ import SchemeScreen         from '../screens/AI/SchemeScreen';
 import DailyPlannerScreen   from '../screens/AI/DailyPlannerScreen';
 // New AI services
 import MSPTrackerScreen      from '../screens/AI/MSPTrackerScreen';
-import SoilHealthScreen      from '../screens/AI/SoilHealthScreen';
+import SoilHubScreen         from '../screens/AI/SoilHubScreen';
+import SoilFormScreen        from '../screens/AI/SoilFormScreen';
+import SoilReportScreen      from '../screens/AI/SoilReportScreen';
+import SoilScanScreen        from '../screens/AI/SoilScanScreen';
+import SoilGuideScreen       from '../screens/AI/SoilGuideScreen';
 import FarmCalendarScreen    from '../screens/AI/FarmCalendarScreen';
 import IrrigationScreen      from '../screens/AI/IrrigationScreen';
 import InputCalculatorScreen from '../screens/AI/InputCalculatorScreen';
@@ -270,6 +274,13 @@ import CropCycleCreateScreen    from '../screens/FarmProfile/CropCycleCreateScre
 import CropCycleDetailScreen    from '../screens/FarmProfile/CropCycleDetailScreen';
 import ActivityTypePickerScreen from '../screens/FarmProfile/ActivityTypePickerScreen';
 import IrrigationLogScreen      from '../screens/FarmProfile/logging/IrrigationLogScreen';
+import LandPrepLogScreen        from '../screens/FarmProfile/logging/LandPrepLogScreen';
+import SowingLogScreen          from '../screens/FarmProfile/logging/SowingLogScreen';
+import ScoutLogScreen           from '../screens/FarmProfile/logging/ScoutLogScreen';
+import WeedingLogScreen         from '../screens/FarmProfile/logging/WeedingLogScreen';
+import PruningLogScreen         from '../screens/FarmProfile/logging/PruningLogScreen';
+import ExpenseLogScreen         from '../screens/FarmProfile/logging/ExpenseLogScreen';
+import IncomeLogScreen          from '../screens/FarmProfile/logging/IncomeLogScreen';
 
 // Seller Portal (integrated)
 import SellerDashboard      from '../screens/Seller/DashboardScreen';
@@ -335,7 +346,14 @@ function AINavigator() {
       <AIStack.Screen name="DailyPlanner"      component={DailyPlannerScreen}     options={{ headerShown: false }} />
       {/* New AI services */}
       <AIStack.Screen name="MSPTracker"        component={MSPTrackerScreen}       options={{ headerShown: false }} />
-      <AIStack.Screen name="SoilHealth"        component={SoilHealthScreen}       options={{ headerShown: false }} />
+      {/* Soil Hub — cosmic redesign. 'SoilHealth' kept as the entry alias so the
+          AI home tile still works; sub-screens are the form/report/scan/guide. */}
+      <AIStack.Screen name="SoilHealth"        component={SoilHubScreen}          options={{ headerShown: false }} />
+      <AIStack.Screen name="SoilHub"           component={SoilHubScreen}          options={{ headerShown: false }} />
+      <AIStack.Screen name="SoilForm"          component={SoilFormScreen}         options={{ headerShown: false }} />
+      <AIStack.Screen name="SoilReport"        component={SoilReportScreen}       options={{ headerShown: false }} />
+      <AIStack.Screen name="SoilScan"          component={SoilScanScreen}         options={{ headerShown: false }} />
+      <AIStack.Screen name="SoilGuide"         component={SoilGuideScreen}        options={{ headerShown: false }} />
       <AIStack.Screen name="FarmCalendar"      component={FarmCalendarScreen}     options={{ headerShown: false }} />
       <AIStack.Screen name="Irrigation"        component={IrrigationScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="InputCalculator"   component={InputCalculatorScreen}  options={{ headerShown: false }} />
@@ -349,6 +367,13 @@ function AINavigator() {
       <AIStack.Screen name="CropCycleDetail"        component={CropCycleDetailScreen}  options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityTypePicker"     component={ActivityTypePickerScreen} options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityIrrigationLog"  component={IrrigationLogScreen}    options={{ headerShown: false }} />
+      <AIStack.Screen name="ActivityLandPrepLog"    component={LandPrepLogScreen}      options={{ headerShown: false }} />
+      <AIStack.Screen name="ActivitySowingLog"      component={SowingLogScreen}        options={{ headerShown: false }} />
+      <AIStack.Screen name="ActivityScoutLog"       component={ScoutLogScreen}         options={{ headerShown: false }} />
+      <AIStack.Screen name="ActivityWeedingLog"     component={WeedingLogScreen}       options={{ headerShown: false }} />
+      <AIStack.Screen name="ActivityPruningLog"     component={PruningLogScreen}       options={{ headerShown: false }} />
+      <AIStack.Screen name="ActivityExpenseLog"     component={ExpenseLogScreen}       options={{ headerShown: false }} />
+      <AIStack.Screen name="ActivityIncomeLog"      component={IncomeLogScreen}        options={{ headerShown: false }} />
       {/* Weather screens — accessible from AI tab */}
       <AIStack.Screen name="Weather"           component={WeatherHome}            options={{ headerShown: false }} />
       <AIStack.Screen name="CropCalendar"      component={CropCalendar}           options={{ title: t('cropCalendar.bannerTitle') }} />
@@ -397,6 +422,13 @@ function MyFarmNavigator() {
       <MyFarmStack.Screen name="CropCycleDetail"        component={CropCycleDetailScreen} />
       <MyFarmStack.Screen name="ActivityTypePicker"     component={ActivityTypePickerScreen} />
       <MyFarmStack.Screen name="ActivityIrrigationLog"  component={IrrigationLogScreen} />
+      <MyFarmStack.Screen name="ActivityLandPrepLog"    component={LandPrepLogScreen} />
+      <MyFarmStack.Screen name="ActivitySowingLog"      component={SowingLogScreen} />
+      <MyFarmStack.Screen name="ActivityScoutLog"       component={ScoutLogScreen} />
+      <MyFarmStack.Screen name="ActivityWeedingLog"     component={WeedingLogScreen} />
+      <MyFarmStack.Screen name="ActivityPruningLog"     component={PruningLogScreen} />
+      <MyFarmStack.Screen name="ActivityExpenseLog"     component={ExpenseLogScreen} />
+      <MyFarmStack.Screen name="ActivityIncomeLog"      component={IncomeLogScreen} />
     </MyFarmStack.Navigator>
   );
 }
@@ -441,6 +473,13 @@ function ProfileNavigator() {
       <ProfileStack.Screen name="CropCycleDetail"         component={CropCycleDetailScreen}   options={{ headerShown: false }} />
       <ProfileStack.Screen name="ActivityTypePicker"      component={ActivityTypePickerScreen} options={{ headerShown: false }} />
       <ProfileStack.Screen name="ActivityIrrigationLog"   component={IrrigationLogScreen}     options={{ headerShown: false }} />
+      <ProfileStack.Screen name="ActivityLandPrepLog"     component={LandPrepLogScreen}       options={{ headerShown: false }} />
+      <ProfileStack.Screen name="ActivitySowingLog"       component={SowingLogScreen}         options={{ headerShown: false }} />
+      <ProfileStack.Screen name="ActivityScoutLog"        component={ScoutLogScreen}          options={{ headerShown: false }} />
+      <ProfileStack.Screen name="ActivityWeedingLog"      component={WeedingLogScreen}        options={{ headerShown: false }} />
+      <ProfileStack.Screen name="ActivityPruningLog"      component={PruningLogScreen}        options={{ headerShown: false }} />
+      <ProfileStack.Screen name="ActivityExpenseLog"      component={ExpenseLogScreen}        options={{ headerShown: false }} />
+      <ProfileStack.Screen name="ActivityIncomeLog"       component={IncomeLogScreen}         options={{ headerShown: false }} />
     </ProfileStack.Navigator>
   );
 }

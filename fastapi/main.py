@@ -42,6 +42,7 @@ from db_pool import get_shared_pool, close_shared_pool
 from services.http_clients import close_all as close_http_clients
 from routes.chat            import router as chat_router
 from routes.scan            import router as scan_router
+from routes.soil_ocr        import router as soil_ocr_router
 from routes.feedback        import router as feedback_router
 from routes.alerts          import router as alerts_router
 from routes.agripredict     import router as agripredict_router
@@ -175,6 +176,7 @@ async def _request_context_middleware(request: Request, call_next):
 
 app.include_router(chat_router)             # POST /ai/chat
 app.include_router(scan_router)             # POST /ai/scan  +  GET /ai/scan/{job_id}
+app.include_router(soil_ocr_router)         # POST /ai/soil-card-ocr
 app.include_router(feedback_router)         # POST /ai/scan/{report_id}/feedback
 app.include_router(alerts_router)           # POST /ai/alerts
 app.include_router(agripredict_router)      # /agripredict/*

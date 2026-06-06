@@ -151,10 +151,10 @@ export async function getSigned(path, options = {}) {
  * (returns the inner .data field directly). Used to keep route handlers
  * minimally changed while migrating.
  */
-export async function callFastAPI(path, body, userId, timeoutMs) {
+export async function callFastAPI(path, body, userId, timeoutMs, requestId) {
   if (!SHARED_SECRET && process.env.NODE_ENV === 'production') {
     logger.warn('[FastAPI] AI_SHARED_SECRET not set — requests will be rejected if FastAPI enforces auth');
   }
-  const envelope = await postSignedJSON(path, body, { userId, timeoutMs });
+  const envelope = await postSignedJSON(path, body, { userId, timeoutMs, requestId });
   return envelope?.data;
 }

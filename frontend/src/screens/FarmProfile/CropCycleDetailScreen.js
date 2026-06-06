@@ -28,6 +28,9 @@ import GlassCard from './ui/GlassCard';
 import GlowButton from './ui/GlowButton';
 import StageTimelineBar from './ui/StageTimelineBar';
 import ActivityChip from './ui/ActivityChip';
+import { DonutChart, GrowthRing } from '../../components/charts';
+import MandiGlanceCard from './components/MandiGlanceCard';
+import SpeakerButton from './ui/SpeakerButton';
 
 import CropIcon from '../../components/CropIcons';
 import * as farmApi from '../../services/farmApi';
@@ -123,6 +126,26 @@ function buildActivityFeed(cycle) {
   (cycle.observedEvents || []).forEach((it) =>
     push('SCOUT', it.type || it.title || 'Observation',
       it.description || it.note || it.severity || '',
+      pickDate(it, fallback)));
+
+  // v2 generic activities (land-prep, sowing, scout, weeding, pruning, …)
+  (cycle.activities || []).forEach((it) =>
+    push(it.type || 'SCOUT', it.title || prettyStage(it.type || '') || 'Activity',
+      it.notes || '', pickDate(it, fallback)));
+
+  (cycle.laborLogs || []).forEach((it) =>
+    push('EXPENSE', it.task ? `Labour · ${it.task}` : 'Labour',
+      [it.workers ? `${it.workers} workers` : null, it.amountInr ? formatInr(it.amountInr) : null].filter(Boolean).join(' · '),
+      pickDate(it, fallback)));
+
+  (cycle.expenseLogs || []).forEach((it) =>
+    push('EXPENSE', it.category ? `Expense · ${it.category}` : 'Expense',
+      [it.vendor, it.amountInr ? formatInr(it.amountInr) : null].filter(Boolean).join(' · '),
+      pickDate(it, fallback)));
+
+  (cycle.incomeLogs || []).forEach((it) =>
+    push('INCOME', it.source ? `Income · ${it.source}` : 'Income',
+      it.amountInr ? formatInr(it.amountInr) : '',
       pickDate(it, fallback)));
 
   if (cycle.actualHarvestDate || cycle.harvestYieldKg || cycle.harvestYieldQuintal) {
@@ -272,6 +295,9 @@ export default function CropCycleDetailScreen({ navigation, route }) {
   const revenue   = Number(financials?.revenue || cycle.grossIncomeInr || 0);
   const net       = Number(financials?.netProfitInr || cycle.netProfitInr || (revenue - totalCost));
   const showPL    = totalCost > 0 || revenue > 0;
+  const costSegments = Array.isArray(financials?.costBreakdown)
+    ? financials.costBreakdown.filter((s) => Number(s?.value) > 0)
+    : [];
 
   const isCompleted = cycle.status === 'COMPLETED';
 
@@ -336,17 +362,49 @@ export default function CropCycleDetailScreen({ navigation, route }) {
           </LinearGradient>
         </View>
 
-        {/* ── Growth stage timeline (on a light card) ──────── */}
+        {/* ── Growth stage (ring + timeline) ───────────────── */}
         <SectionLabel title="Growth stage" />
         <GlassCard style={styles.section}>
-          <StageTimelineBar currentStage={stage} das={das} />
+          <View style={styles.growthRow}>
+            <GrowthRing currentStage={stage} das={das} size={104} strokeWidth={11} />
+            <View style={styles.growthTimeline}>
+              <StageTimelineBar currentStage={stage} das={das} />
+            </View>
+          </View>
         </GlassCard>
 
         {/* ── Profit & loss (only when data exists) ───────── */}
         {showPL && (
           <>
-            <SectionLabel title="Profit & loss" />
+            <View style={styles.plHeaderRow}>
+              <SectionLabel title="Profit & loss" />
+              <SpeakerButton
+                text={`This crop. Spent ${Math.round(totalCost)} rupees, earned ${Math.round(revenue)} rupees, ${net >= 0 ? 'profit' : 'loss'} ${Math.round(Math.abs(net))} rupees.`}
+                size={16}
+                style={{ marginRight: CS.base }}
+              />
+            </View>
             <GlassCard style={styles.section}>
+              {costSegments.length > 0 && (
+                <View style={styles.plRow}>
+                  <DonutChart
+                    size={120}
+                    strokeWidth={18}
+                    segments={costSegments}
+                    centerValue={formatInr(totalCost)}
+                    centerLabel="Total cost"
+                  />
+                  <View style={styles.plLegend}>
+                    {costSegments.map((s) => (
+                      <View key={s.label} style={styles.legendRow}>
+                        <View style={[styles.legendDot, { backgroundColor: s.color }]} />
+                        <Text style={styles.legendLabel} numberOfLines={1}>{s.label}</Text>
+                        <Text style={styles.legendValue}>{formatInr(s.value)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
               <View style={styles.finGrid}>
                 <FinCard label="Spent"   value={formatInr(totalCost)} tint={COSMIC.DANGER} icon="trending-down" />
                 <FinCard label="Earned"  value={formatInr(revenue)}   tint={COSMIC.PRIMARY} icon="trending-up" />
@@ -357,9 +415,33 @@ export default function CropCycleDetailScreen({ navigation, route }) {
                   icon={net >= 0 ? 'arrow-up' : 'arrow-down'}
                 />
               </View>
+              {(financials?.perAcre || financials?.roiPct != null) && (
+                <View style={styles.perAcreRow}>
+                  {financials?.perAcre?.profitPerAcre != null && (
+                    <Text style={styles.perAcreText}>
+                      <Text style={styles.perAcreStrong}>{formatInr(financials.perAcre.profitPerAcre)}</Text> / acre
+                    </Text>
+                  )}
+                  {financials?.roiPct != null && (
+                    <Text style={styles.perAcreText}>
+                      ROI <Text style={[styles.perAcreStrong, { color: financials.roiPct >= 0 ? COSMIC.PRIMARY : COSMIC.DANGER }]}>{financials.roiPct}%</Text>
+                    </Text>
+                  )}
+                </View>
+              )}
             </GlassCard>
           </>
         )}
+
+        {/* ── Mandi price (live Agmarknet) ─────────────────── */}
+        <SectionLabel title="Market price" />
+        <View style={styles.section}>
+          <MandiGlanceCard
+            cropName={cycle.cropName}
+            district={cycle.farm?.district}
+            salePricePerKgInr={cycle.salePricePerKgInr}
+          />
+        </View>
 
         {/* ── Quick log ───────────────────────────────────── */}
         {!isCompleted && (
@@ -815,8 +897,65 @@ const styles = StyleSheet.create({
   section: {
     marginHorizontal: CS.base,
   },
+  plHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  // Growth stage (ring + timeline)
+  growthRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  growthTimeline: {
+    flex: 1,
+  },
 
   // Profit & loss
+  plRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 12,
+  },
+  plLegend: {
+    flex: 1,
+    gap: 7,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  legendLabel: {
+    flex: 1,
+    fontSize: 13,
+    color: COSMIC.TEXT_2,
+    fontFamily: 'Inter_500Medium',
+  },
+  legendValue: {
+    fontSize: 13,
+    color: COSMIC.TEXT,
+    fontFamily: 'Inter_700Bold',
+  },
+  perAcreRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: COSMIC.BORDER,
+  },
+  perAcreText: { fontSize: 12, color: COSMIC.TEXT_3, fontFamily: 'Inter_500Medium' },
+  perAcreStrong: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_800ExtraBold' },
   finGrid: {
     flexDirection: 'row',
     gap: 6,

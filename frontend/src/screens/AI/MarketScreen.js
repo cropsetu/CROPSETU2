@@ -526,7 +526,7 @@ export default function MarketScreen({ navigation }) {
           <Ionicons name="chevron-back" size={22} color={SLATE} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={M.headerTitle}>Market Intelligence</Text>
+          <Text style={M.headerTitle}>Mandi Bhav</Text>
           {locationDetecting
             ? <Text style={M.headerSub}>Detecting location…</Text>
             : detectedCity

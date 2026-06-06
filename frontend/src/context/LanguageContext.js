@@ -7,7 +7,10 @@ import { getItem, setItem } from '../utils/storage';
 
 const LANG_KEY      = 'farmeasy_language';
 const CHAT_LANG_KEY = 'farmeasy_chat_language';   // 'auto' | language code
+const RESP_LEN_KEY  = 'farmeasy_response_length'; // 'short' | 'medium' | 'long' | 'extra_long'
 const DEFAULT_LANG  = 'en';
+const RESP_LENGTHS  = ['short', 'medium', 'long', 'extra_long'];
+const DEFAULT_RESP_LEN = 'short';
 
 const LanguageContext = createContext(null);
 
@@ -17,15 +20,19 @@ export function LanguageProvider({ children }) {
   // the user's message script. Distinct from `language` so picking auto in
   // the chat header doesn't switch the entire UI to an untranslated state.
   const [chatLanguage, setChatLanguageState] = useState(DEFAULT_LANG);
+  // Chat reply length preference. Mirrors chatLanguage: persisted separately so
+  // the farmer's pick (Short/Medium/Long/Extra Long) survives app restarts.
+  const [responseLength, setResponseLengthState] = useState(DEFAULT_RESP_LEN);
   const [ready, setReady] = useState(false);
 
   // Load saved language preferences
   useEffect(() => {
     (async () => {
       try {
-        const [savedApp, savedChat] = await Promise.all([
+        const [savedApp, savedChat, savedRespLen] = await Promise.all([
           getItem(LANG_KEY),
           getItem(CHAT_LANG_KEY),
+          getItem(RESP_LEN_KEY),
         ]);
         const appLang = savedApp && translations[savedApp] ? savedApp : DEFAULT_LANG;
         setLanguageState(appLang);
@@ -35,6 +42,9 @@ export function LanguageProvider({ children }) {
           setChatLanguageState(savedChat);
         } else {
           setChatLanguageState(appLang);
+        }
+        if (savedRespLen && RESP_LENGTHS.includes(savedRespLen)) {
+          setResponseLengthState(savedRespLen);
         }
       } catch {
         // ignore
@@ -57,6 +67,13 @@ export function LanguageProvider({ children }) {
     if (lang !== 'auto' && !translations[lang]) return;
     setChatLanguageState(lang);
     await setItem(CHAT_LANG_KEY, lang);
+  }, []);
+
+  // Persist the chat reply-length preference (Short/Medium/Long/Extra Long).
+  const setResponseLength = useCallback(async (len) => {
+    if (!RESP_LENGTHS.includes(len)) return;
+    setResponseLengthState(len);
+    await setItem(RESP_LEN_KEY, len);
   }, []);
 
   const t = useCallback(
@@ -91,7 +108,7 @@ export function LanguageProvider({ children }) {
   if (!ready) return null;
 
   return (
-    <LanguageContext.Provider value={{ language, setLanguage, chatLanguage, setChatLanguage, t, LANGUAGES }}>
+    <LanguageContext.Provider value={{ language, setLanguage, chatLanguage, setChatLanguage, responseLength, setResponseLength, t, LANGUAGES }}>
       {children}
     </LanguageContext.Provider>
   );

@@ -15,6 +15,12 @@ const IS_WEB = Platform.OS === 'web';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+// RN-safe UUID for the Idempotency-Key header (crypto.randomUUID when present).
+function genIdemKey() {
+  try { if (global.crypto?.randomUUID) return global.crypto.randomUUID(); } catch {}
+  return 'idem-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+
 // CSRF double-submit token. The server sets a (JS-readable) `csrf` cookie; we
 // echo it in X-CSRF-Token on mutating requests. Reading it from the cookie (not
 // memory) means it survives a reload, so the silent cookie-refresh still passes.
@@ -135,6 +141,16 @@ function attachInterceptors(instance) {
     if (IS_WEB && MUTATING.has((config.method || 'get').toUpperCase())) {
       const csrf = getCsrfToken();
       if (csrf) config.headers['X-CSRF-Token'] = csrf;
+    }
+
+    // Idempotency-Key on farm/cycle mutations. Set once per config so the
+    // 401-refresh replay (and writeQueue retries that reuse this config) carry
+    // the SAME key — the backend idempotency middleware then dedupes duplicates.
+    if (MUTATING.has((config.method || 'get').toUpperCase())) {
+      const url = config.url || '';
+      if ((url.includes('/farms') || url.includes('/cycles')) && !config.headers['Idempotency-Key']) {
+        config.headers['Idempotency-Key'] = genIdemKey();
+      }
     }
     return config;
   });

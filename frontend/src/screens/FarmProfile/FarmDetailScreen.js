@@ -26,6 +26,7 @@ import GlowButton   from './ui/GlowButton';
 import StageTimelineBar from './ui/StageTimelineBar';
 import WhyThisButton    from './ui/WhyThisButton';
 import { CropIcon }  from '../../components/CropIcons';
+import { RadialGauge } from '../../components/charts';
 import { useMultiFarm } from '../../context/MultiFarmContext';
 import { useLanguage }  from '../../context/LanguageContext';
 import * as farmApi     from '../../services/farmApi';
@@ -35,6 +36,14 @@ import { Haptics } from '../../utils/haptics';
 // ──────────────────────────────────────────────────────────────────────────────
 // Screen
 // ──────────────────────────────────────────────────────────────────────────────
+
+// Soil rating → gauge colour (high = healthy green, low = red, else amber).
+function soilColor(rating) {
+  const r = (rating || '').toLowerCase();
+  if (r.includes('high') || r.includes('adequate') || r.includes('optimum') || r.includes('normal')) return COSMIC.SUCCESS;
+  if (r.includes('low') || r.includes('deficient')) return COSMIC.DANGER;
+  return COSMIC.WARN;
+}
 
 export default function FarmDetailScreen({ navigation, route }) {
   const { t } = useLanguage();
@@ -186,11 +195,11 @@ export default function FarmDetailScreen({ navigation, route }) {
         <GlassCard variant="plain" style={styles.section}>
           {soil ? (
             <View style={styles.soilRow}>
-              <SoilBadge label="pH"  value={soil.ph}            rating={soil.phRating} />
-              <SoilBadge label="N"   value={soil.nitrogen}      rating={soil.nitrogenRating} />
-              <SoilBadge label="P"   value={soil.phosphorus}    rating={soil.phosphorusRating} />
-              <SoilBadge label="K"   value={soil.potassium}     rating={soil.potassiumRating} />
-              <SoilBadge label="OC"  value={soil.organicCarbon} rating={soil.organicCarbonRating} />
+              <RadialGauge size={62} strokeWidth={7} label="pH" value={soil.ph}            min={3} max={9}   decimals={1} color={soilColor(soil.phRating)} />
+              <RadialGauge size={62} strokeWidth={7} label="N"  value={soil.nitrogen}      min={0} max={600} color={soilColor(soil.nitrogenRating)} />
+              <RadialGauge size={62} strokeWidth={7} label="P"  value={soil.phosphorus}    min={0} max={60}  color={soilColor(soil.phosphorusRating)} />
+              <RadialGauge size={62} strokeWidth={7} label="K"  value={soil.potassium}     min={0} max={400} color={soilColor(soil.potassiumRating)} />
+              <RadialGauge size={62} strokeWidth={7} label="OC" value={soil.organicCarbon} min={0} max={2}   decimals={1} color={soilColor(soil.organicCarbonRating)} />
             </View>
           ) : (
             <View style={styles.emptyCyclesRow}>
@@ -552,7 +561,7 @@ const styles = StyleSheet.create({
   mutedText: { fontSize: 12, color: COSMIC.TEXT_2, lineHeight: 17, fontFamily: 'Inter_400Regular' },
 
   // Soil badges
-  soilRow: { flexDirection: 'row', gap: 6 },
+  soilRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   sBadge: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 },
   sBadgeLbl: {
     fontSize: 10,
