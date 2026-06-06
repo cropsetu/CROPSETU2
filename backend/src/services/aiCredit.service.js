@@ -15,8 +15,17 @@
  * Credits never expire (purchased ones). Free credits refill monthly.
  */
 import prisma from '../config/db.js';
+import { ENV } from '../config/env.js';
+
+// ── Token → credit policy (configurable via .env — see config/env.js) ────────
+// Debit = max(per-feature floor, ceil(actualTokens / TOKENS_PER_CREDIT)).
+// Company can change pricing/free-grant in .env without touching code.
+const TOKENS_PER_CREDIT    = ENV.AI_TOKENS_PER_CREDIT    || 1000;  // 100 credits ≈ 1 lakh tokens
+const FREE_MONTHLY_CREDITS = ENV.AI_FREE_MONTHLY_CREDITS || 100;
+const MIN_CREDITS_PER_CALL = ENV.AI_MIN_CREDITS_PER_CALL || 1;
 
 // ── Credit cost table ────────────────────────────────────────────────────────
+// These are now the per-feature MINIMUM (floor). Actual debit scales with tokens.
 export const CREDIT_COSTS = {
   // Feature name → credits consumed
   ai_scan_gemini:     3,
@@ -30,13 +39,26 @@ export const CREDIT_COSTS = {
   ai_translate:       1,
   ai_planner:         1,
   ai_soil:            1,
+  ai_soil_ocr:        3,   // Soil Health Card OCR (vision call — parity with scan)
   ai_calendar:        2,
   ai_irrigation:      1,
 };
 
+// ── Universal token → credit meter ───────────────────────────────────────────
+// ONE function used by every AI service (chat, voice, scan, …) to convert the
+// actual tokens a call consumed into credits to debit. Free features (floor 0)
+// stay free; everything else costs at least its floor, more for big responses.
+export function creditsForUsage(featureType, tokensUsed = 0) {
+  const floor = CREDIT_COSTS[featureType] ?? MIN_CREDITS_PER_CALL;
+  if (floor === 0) return 0;                                   // rule-based / free
+  const tokens = Number(tokensUsed) || 0;
+  if (tokens <= 0) return floor;                               // no token data → floor
+  return Math.max(floor, Math.ceil(tokens / TOKENS_PER_CREDIT));
+}
+
 // ── Tier limits ──────────────────────────────────────────────────────────────
 export const TIER_CONFIG = {
-  free:       { monthlyCredits: 100,   maxDailyTokens: 50_000,  label: 'Free' },
+  free:       { monthlyCredits: FREE_MONTHLY_CREDITS, maxDailyTokens: 50_000,  label: 'Free' },
   basic:      { monthlyCredits: 500,   maxDailyTokens: 200_000, label: 'Basic' },
   pro:        { monthlyCredits: 2000,  maxDailyTokens: 500_000, label: 'Pro' },
   enterprise: { monthlyCredits: 10000, maxDailyTokens: 2_000_000, label: 'Enterprise' },
@@ -135,9 +157,10 @@ export async function checkCredits(userId, featureType) {
  * @returns {{ balance, creditsUsed, transaction }}
  */
 export async function deductCredits(userId, featureType, details = {}) {
-  const cost = CREDIT_COSTS[featureType] ?? 1;
+  // Token-based debit: scales with what the AI actually consumed (details.tokensUsed),
+  // never below the per-feature floor. Free features stay free.
+  const cost = creditsForUsage(featureType, details.tokensUsed);
 
-  // Rule-based = free, no deduction needed
   if (cost === 0) {
     return { balance: null, creditsUsed: 0, transaction: null };
   }
@@ -182,6 +205,109 @@ export async function deductCredits(userId, featureType, details = {}) {
   } catch (err) {
     console.warn('[AICredit] Deduction failed:', err.message);
     return { balance: null, creditsUsed: cost, transaction: null, error: err.message };
+  }
+}
+
+// ── Reserve / settle / release (atomic, race-free) ────────────────────────────
+// Prevents the concurrent-burst overspend: a single atomic conditional decrement
+// holds an estimate BEFORE the LLM call; after success we reconcile to the actual
+// token cost; on failure we refund. Each call keeps exactly ONE ledger row
+// (HOLD → SETTLED / RELEASED) so credit summaries don't double-count.
+
+/**
+ * Atomically hold the per-feature floor estimate before the LLM call.
+ * @returns {{ ok:boolean, reserved:number, holdId:string|null, balance:number|null, message?:string }}
+ */
+export async function reserveCredits(userId, featureType) {
+  const estimate = CREDIT_COSTS[featureType] ?? MIN_CREDITS_PER_CALL;
+  if (estimate === 0) return { ok: true, reserved: 0, holdId: null, balance: null }; // free feature
+
+  await getOrCreateCredits(userId); // ensure row exists + monthly refill applied
+
+  // The guard + decrement is ONE atomic op — concurrent requests can't all pass.
+  const res = await prisma.aICredit.updateMany({
+    where: { userId, balance: { gte: estimate } },
+    data:  { balance: { decrement: estimate }, lifetimeSpent: { increment: estimate } },
+  });
+  if (res.count === 0) {
+    const c = await prisma.aICredit.findUnique({ where: { userId } });
+    return { ok: false, reserved: 0, holdId: null, balance: c?.balance ?? 0,
+             message: `Insufficient credits. Need ${estimate}, have ${c?.balance ?? 0}.` };
+  }
+
+  const credit = await prisma.aICredit.findUnique({ where: { userId } });
+  let holdId = null;
+  try {
+    const hold = await prisma.aICreditTransaction.create({
+      data: {
+        creditId: credit.id, amount: -estimate, balanceAfter: credit.balance,
+        type: featureType, description: `${featureType}: pending`,
+        metadata: { status: 'HOLD' },
+      },
+    });
+    holdId = hold.id;
+  } catch (e) { console.warn('[AICredit] hold-log failed:', e.message); }
+
+  return { ok: true, reserved: estimate, holdId, balance: credit.balance };
+}
+
+/**
+ * Reconcile a hold against ACTUAL token usage: charge the extra (clamped at 0)
+ * or refund the difference, and finalize the single ledger row. Awaited.
+ */
+export async function settleCredits(userId, featureType, { reserved = 0, holdId = null, tokensUsed = 0, model, description, costUsd } = {}) {
+  const actual = creditsForUsage(featureType, tokensUsed);
+  const delta  = actual - reserved;          // >0 charge more, <0 refund
+  try {
+    const credit = await prisma.$transaction(async (tx) => {
+      let c;
+      if (delta > 0) {
+        c = await tx.aICredit.update({ where: { userId },
+          data: { balance: { decrement: delta }, lifetimeSpent: { increment: delta } } });
+        if (c.balance < 0) c = await tx.aICredit.update({ where: { userId }, data: { balance: 0 } });
+      } else if (delta < 0) {
+        c = await tx.aICredit.update({ where: { userId },
+          data: { balance: { increment: -delta }, lifetimeSpent: { decrement: -delta } } });
+      } else {
+        c = await tx.aICredit.findUnique({ where: { userId } });
+      }
+      const txnData = {
+        amount: -actual, balanceAfter: c.balance, type: featureType,
+        description: description || `${featureType}: ${actual} credits`,
+        aiModel: model || null, tokensUsed: tokensUsed || null, costUsd: costUsd || null,
+        metadata: { status: 'SETTLED' },
+      };
+      if (holdId) await tx.aICreditTransaction.update({ where: { id: holdId }, data: txnData });
+      else        await tx.aICreditTransaction.create({ data: { creditId: c.id, ...txnData } });
+      return c;
+    });
+    return { balance: credit.balance, creditsUsed: actual };
+  } catch (err) {
+    console.warn('[AICredit] Settle failed:', err.message);
+    return { balance: null, creditsUsed: actual, error: err.message };
+  }
+}
+
+/**
+ * Refund a hold when the LLM call failed (no charge). Awaited.
+ */
+export async function releaseCredits(userId, featureType, { reserved = 0, holdId = null } = {}) {
+  if (!reserved) return { balance: null, released: 0 };
+  try {
+    const credit = await prisma.$transaction(async (tx) => {
+      const c = await tx.aICredit.update({ where: { userId },
+        data: { balance: { increment: reserved }, lifetimeSpent: { decrement: reserved } } });
+      if (holdId) {
+        await tx.aICreditTransaction.update({ where: { id: holdId },
+          data: { amount: 0, balanceAfter: c.balance, description: `${featureType}: released (failed)`,
+                  metadata: { status: 'RELEASED' } } });
+      }
+      return c;
+    });
+    return { balance: credit.balance, released: reserved };
+  } catch (err) {
+    console.warn('[AICredit] Release failed:', err.message);
+    return { balance: null, released: 0, error: err.message };
   }
 }
 
@@ -241,6 +367,7 @@ export async function getCreditSummary(userId) {
     lifetimeSpent: credit.lifetimeSpent,
     todaySpent,
     nextRefill: credit.freeRefillDate,
+    tokensPerCredit: TOKENS_PER_CREDIT,   // e.g. 1000 → "1 credit = 1000 tokens"
     recentTransactions: recentTransactions.map(t => ({
       id: t.id,
       amount: t.amount,

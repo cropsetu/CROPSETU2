@@ -124,6 +124,12 @@ const API = ENV.API_PREFIX;
 app.use(`${API}/upload`, skipMultipart(express.json({ limit: '10mb' })));
 // Multi-image crop scan JSON payload (up to 5 × ~8 MB base64-encoded images).
 app.use(`${API}/ai/scan/submit`, skipMultipart(express.json({ limit: '50mb' })));
+// In-chat image attach: a single compressed base64 image (~<1 MB). 12mb headroom
+// so an attached photo doesn't 413 against the tight global cap below.
+app.use(`${API}/ai/chat`, skipMultipart(express.json({ limit: '12mb' })));
+// Soil Health Card OCR: a single compressed base64 card photo (~<1 MB). 12mb
+// headroom so the image doesn't 413 against the tight global cap below.
+app.use(`${API}/ai/soil-card-ocr`, skipMultipart(express.json({ limit: '12mb' })));
 app.use(skipMultipart(express.json({ limit: '100kb' })));
 app.use(skipMultipart(express.urlencoded({ extended: true, limit: '100kb' })));
 

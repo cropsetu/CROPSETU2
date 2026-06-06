@@ -108,3 +108,45 @@ export function buildFarmHistory(cycle, farm) {
 
   return lines.join('\n');
 }
+
+const sumCost = (a, key) => (Array.isArray(a) ? a : []).reduce((s, x) => s + (Number(x?.[key]) || 0), 0);
+
+/** "Seed ₹1200, Fertilizer ₹800, Pesticide ₹400, Labour ₹600" (only >0 parts). */
+export function summarizeCostSplit(cycle) {
+  if (!cycle) return '';
+  const parts = [
+    ['Seed', cycle.seedTotalCostInr],
+    ['Fertilizer', sumCost(cycle.fertilizersUsed, 'costInr')],
+    ['Pesticide', sumCost(cycle.pesticidesUsed, 'costInr')],
+    ['Labour', cycle.laborCostInr],
+    ['Machinery', cycle.machineryCostInr],
+    ['Other', cycle.otherCostInr],
+  ];
+  return parts
+    .filter(([, v]) => Number(v) > 0)
+    .map(([label, v]) => `${label} ₹${Math.round(Number(v))}`)
+    .join(', ');
+}
+
+/**
+ * Deduped pests/diseases/weather events across cycles (observedEvents.type +
+ * pesticidesUsed.target). Powers the "What FarmMind knows about my farm"
+ * preview. Case-insensitive dedupe, original casing kept, capped at 8.
+ */
+export function buildPriorIssues(cycles) {
+  const seen = new Set();
+  const out = [];
+  const add = (raw) => {
+    const s = String(raw || '').trim();
+    if (!s) return;
+    const k = s.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(s);
+  };
+  for (const c of (Array.isArray(cycles) ? cycles : [])) {
+    for (const e of (Array.isArray(c?.observedEvents) ? c.observedEvents : [])) add(e?.type);
+    for (const p of (Array.isArray(c?.pesticidesUsed) ? c.pesticidesUsed : [])) add(p?.targetPestOrDisease);
+  }
+  return out.slice(0, 8);
+}

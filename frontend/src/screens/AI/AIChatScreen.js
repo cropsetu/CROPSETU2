@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   TextInput, KeyboardAvoidingView, Platform, Animated,
-  ActivityIndicator, StatusBar, Dimensions, Alert, Easing,
+  ActivityIndicator, StatusBar, Dimensions, Alert, Easing, Image,
 } from 'react-native';
 import {
   Sprout, Mic, Send, Plus, Menu, PenSquare, Paperclip,
@@ -28,6 +28,9 @@ import { SoundEffects } from '../../utils/sounds';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import VoiceWaveform from './components/VoiceWaveform';
 import LanguageSelector from './components/LanguageSelector';
+import ResponseLengthSelector from './components/ResponseLengthSelector';
+import * as ImagePicker from 'expo-image-picker';
+import { compressImage } from '../../utils/mediaCompressor';
 import { detectLanguage } from '../../utils/languageDetect';
 
 const { width: W } = Dimensions.get('window');
@@ -63,13 +66,14 @@ const MIN_REC_MS = 500;
 function humanReadableError(err, fallback = 'Something went wrong. Please try again.') {
   const status = err?.response?.status ?? err?.status;
   const serverMsg = err?.response?.data?.error?.message;
-  if (status === 429) return 'Too many requests — please wait 30 seconds.';
-  if (status === 402) return 'You’re out of AI credits. Top up to continue.';
-  if (status === 503) return 'AI service is temporarily unavailable.';
-  if (status === 413) return 'Recording was too long. Please try a shorter message.';
+  if (status === 429) return 'Too many requests — please wait 30 seconds and try again.';
+  if (status === 402) return 'You’ve used all your AI credits for this month. They refill on the 1st — check your balance in the AI home screen.';
+  if (status === 503 || status === 500 || status === 502 || status === 504)
+    return 'The AI service is temporarily down. Please try again in a moment.';
+  if (status === 413) return 'That was too large. Please try a shorter message or smaller photo.';
   if (status === 401) return 'Session expired. Please log in again.';
   if (err?.message === 'Network Error' || err?.code === 'ERR_NETWORK')
-    return 'No internet — check your connection.';
+    return 'No internet — check your connection and try again.';
   return serverMsg || fallback;
 }
 
@@ -243,7 +247,7 @@ function FormattedAIText({ text }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ── MessageBubble: user = gradient pill / AI = glass pill with Listen button
 // ─────────────────────────────────────────────────────────────────────────────
-function MessageBubble({ msg, onBuyMedicine, language }) {
+function MessageBubble({ msg, onBuyMedicine, language, isLast, onFollowUp }) {
   const isUser = msg.role === 'user';
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(8)).current;
@@ -375,7 +379,8 @@ function MessageBubble({ msg, onBuyMedicine, language }) {
               <Text style={S.voiceTagText}>voice</Text>
             </View>
           )}
-          <Text style={S.userBubbleText}>{msg.transcribing ? '…' : msg.text}</Text>
+          {msg.imageUri ? <Image source={{ uri: msg.imageUri }} style={S.userImage} /> : null}
+          {msg.text ? <Text style={S.userBubbleText}>{msg.transcribing ? '…' : msg.text}</Text> : null}
         </View>
       </Animated.View>
     );
@@ -407,6 +412,22 @@ function MessageBubble({ msg, onBuyMedicine, language }) {
         ) : null}
         {msg.diagnosisData && <DiagnosisCard data={msg.diagnosisData} onBuyMedicine={onBuyMedicine} />}
         {msg.marketData    && <MarketCard data={msg.marketData} />}
+        {isLast && Array.isArray(msg.followUps) && msg.followUps.length > 0 && (
+          <View style={S.followUpWrap}>
+            {msg.followUps.map((q, i) => (
+              <TouchableOpacity
+                key={i}
+                style={S.followUpChip}
+                onPress={() => onFollowUp?.(q)}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+              >
+                <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFillObject} />
+                <Text style={S.followUpText} numberOfLines={2}>{q}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
     </Animated.View>
   );
@@ -541,7 +562,7 @@ export default function AIChatScreen({ navigation, route }) {
   const farmCtx      = useFarm();
   const getAIContext = farmCtx?.getAIContext || (() => ({}));
   const { farms, activeFarm, activeFarmId, switchActiveFarm, hasFarms } = useMultiFarm();
-  const { language, chatLanguage, t } = useLanguage();
+  const { language, chatLanguage, responseLength, t } = useLanguage();
   // Resolve which language to send each message in:
   //   • chatLanguage === 'auto' → script-detect from the message (Devanagari
   //     ties broken by the app UI language).
@@ -567,6 +588,8 @@ export default function AIChatScreen({ navigation, route }) {
   const [input,    setInput]        = useState('');
   const [typing,   setTyping]       = useState(false);
   const [conversationId, setConvId] = useState(existingConversationId || null);
+  // Photo attached to the composer (camera/gallery) → conversational diagnosis.
+  const [attachedImage, setAttachedImage] = useState(null); // { uri, base64, mime_type }
   const flatRef    = useRef(null);
   const lastSentAt = useRef(0);
 
@@ -591,7 +614,10 @@ export default function AIChatScreen({ navigation, route }) {
 
   const sendMessage = useCallback(async (text) => {
     const msg = text || input.trim();
-    if (!msg || typing) return;
+    // Capture (and clear) any attached photo up-front so a slow request can't
+    // leak it into the next message. A photo alone — no text — is valid.
+    const img = attachedImage;
+    if ((!msg && !img) || typing) return;
     SoundEffects.send();
     const now = Date.now();
     if (now - lastSentAt.current < 6000) {
@@ -600,7 +626,8 @@ export default function AIChatScreen({ navigation, route }) {
     }
     lastSentAt.current = now;
     setInput('');
-    addMessage({ role: 'user', text: msg });
+    setAttachedImage(null);
+    addMessage({ role: 'user', text: msg, imageUri: img?.uri });
     setTyping(true);
     try {
       // Picker is authoritative unless user picked Auto-detect — in that case
@@ -613,16 +640,86 @@ export default function AIChatScreen({ navigation, route }) {
         farmContextEnabled ? getAIContext() : {},
         farmContextEnabled,
         msgLang,
+        responseLength,
+        img ? { data: img.base64, mime_type: img.mime_type } : null,
       );
       if (result.conversationId && !conversationId) setConvId(result.conversationId);
+      // Pure conversational chat — no diagnosis/market cards. Crop-disease
+      // diagnosis lives in the dedicated Crop Scan flow.
       const aiMsg = { role: 'ai', text: result.reply, lang: msgLang };
-      if (result.type === 'diagnosis' && result.card) aiMsg.diagnosisData = result.card;
-      if (result.type === 'market'    && result.card) aiMsg.marketData    = result.card;
+      if (Array.isArray(result.followUps) && result.followUps.length) aiMsg.followUps = result.followUps;
       addMessage(aiMsg);
     } catch (err) {
       addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, 'Could not reach FarmMind AI. Check your connection.')}` });
     } finally { setTyping(false); }
-  }, [input, typing, conversationId, addMessage, getAIContext, farmContextEnabled, resolveMsgLang]);
+  }, [input, typing, conversationId, addMessage, getAIContext, farmContextEnabled, resolveMsgLang, responseLength, attachedImage]);
+
+  // ── Reset / new chat ───────────────────────────────────────────────────────
+  // Clears the on-screen conversation only — saved history stays in the sidebar.
+  const resetChat = useCallback(() => {
+    setMessages([{ id: '0', role: 'ai', text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm KrishiAI, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field.") }]);
+    setConvId(null);
+    setInput('');
+    setAttachedImage(null);
+    setTyping(false);
+  }, [t]);
+
+  const confirmReset = useCallback(() => {
+    // Nothing to clear (only the welcome bubble) → reset silently.
+    if (messages.length <= 1) { resetChat(); return; }
+    Alert.alert(
+      t('aiChat.newChatTitle', 'Start a new chat?'),
+      t('aiChat.newChatBody', 'This clears the current conversation from the screen. Your saved history is not deleted.'),
+      [
+        { text: t('common.cancel', 'Cancel'), style: 'cancel' },
+        { text: t('aiChat.newChat', 'New chat'), style: 'destructive', onPress: resetChat },
+      ],
+    );
+  }, [messages.length, resetChat, t]);
+
+  // ── Image attach (camera / gallery) → conversational diagnosis ──────────────
+  const attachImage = useCallback(async (asset) => {
+    if (!asset?.uri) return;
+    try {
+      const c = await compressImage(asset.uri, { needBase64: true });
+      const base64 = c?.base64;
+      if (!base64) { Alert.alert('Photo', 'Could not read that image. Please try another.'); return; }
+      setAttachedImage({ uri: c?.uri || asset.uri, base64, mime_type: 'image/jpeg' });
+    } catch (e) {
+      if (__DEV__) console.warn('[AIChat] image compress failed', e?.message);
+      Alert.alert('Photo', 'Could not process that image. Please try another.');
+    }
+  }, []);
+
+  const pickFromCamera = useCallback(async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Camera Permission', 'Please allow camera access in Settings → Apps → CropSetu → Permissions.');
+      return;
+    }
+    const res = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', quality: 0.85, allowsEditing: true, aspect: [4, 3] });
+    if (!res.canceled && res.assets?.[0]) attachImage(res.assets[0]);
+  }, [attachImage]);
+
+  const pickFromGallery = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Photos Permission', 'Please allow photo access in Settings → Apps → CropSetu → Permissions.');
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.85 });
+    if (!res.canceled && res.assets?.[0]) attachImage(res.assets[0]);
+  }, [attachImage]);
+
+  const onAttachPress = useCallback(() => {
+    Alert.alert(t('cropScan.addImage', 'Add a photo'), t('aiChat.attachHint', 'Share a photo of your crop for a quick diagnosis.'), [
+      { text: t('cropScan.takePhoto', 'Take photo'), onPress: pickFromCamera },
+      { text: t('cropScan.chooseGallery', 'From gallery'), onPress: pickFromGallery },
+      { text: t('common.cancel', 'Cancel'), style: 'cancel' },
+    ]);
+  }, [t, pickFromCamera, pickFromGallery]);
+
+  const onFollowUpPress = useCallback((q) => { sendMessage(q); }, [sendMessage]);
 
   // ── Inline recording (Lovable composer UX) ────────────────────────────────
   const startRecording = useCallback(async () => {
@@ -762,8 +859,7 @@ export default function AIChatScreen({ navigation, route }) {
           // replays in the same language the user spoke in.
           lang: (result.detectedLanguage || '').split('-')[0] || undefined,
         };
-        if (result.type === 'diagnosis' && result.card) aiMsg.diagnosisData = result.card;
-        if (result.type === 'market'    && result.card) aiMsg.marketData    = result.card;
+        if (Array.isArray(result.followUps) && result.followUps.length) aiMsg.followUps = result.followUps;
         addMessage(aiMsg);
       }
     } catch (err) {
@@ -821,8 +917,7 @@ export default function AIChatScreen({ navigation, route }) {
       // If the user is currently viewing the conversation they just deleted,
       // reset the chat to a fresh welcome state.
       if (conversationId === item.id) {
-        setMessages([{ id: '0', role: 'ai', text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm KrishiAI, your farming assistant.") }]);
-        setConvId(null);
+        resetChat();
       }
     } catch (err) {
       // Rollback — put the item back at its original position (sorted by updatedAt)
@@ -838,6 +933,16 @@ export default function AIChatScreen({ navigation, route }) {
   }, [conversationId, t]);
 
   useEffect(() => { if (sidebarOpen && !historyLoaded) loadHistory(); }, [sidebarOpen]);
+
+  // Arriving from the AI hub's "Chat history" entry → open the history sidebar
+  // (param-watched so it works whether AIChat is freshly pushed or already in
+  // the stack; cleared after so it doesn't re-trigger).
+  useEffect(() => {
+    if (route?.params?.showHistory) {
+      setSidebarOpen(true);
+      navigation.setParams({ showHistory: undefined });
+    }
+  }, [route?.params?.showHistory]);
 
   useEffect(() => {
     if (existingConversationId) {
@@ -873,7 +978,7 @@ export default function AIChatScreen({ navigation, route }) {
   // ───────────────────────────────────────────────────────────────────────────
   // ── Render
   // ───────────────────────────────────────────────────────────────────────────
-  const showSend = input.trim().length > 0;
+  const showSend = input.trim().length > 0 || !!attachedImage;
 
   return (
     <AnimatedScreen>
@@ -884,10 +989,7 @@ export default function AIChatScreen({ navigation, route }) {
       <ChatHeader
         insets={insets}
         onMenuPress={() => setSidebarOpen(true)}
-        onNewChatPress={() => {
-          setMessages([{ id: '0', role: 'ai', text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm KrishiAI, your farming assistant.") }]);
-          setConvId(null);
-        }}
+        onNewChatPress={confirmReset}
       />
 
       {/* ── Farm context bar (minimal glass pill) ── */}
@@ -978,8 +1080,14 @@ export default function AIChatScreen({ navigation, route }) {
               catch { flatRef.current?.scrollToEnd({ animated: true }); }
             }, 200);
           }}
-          renderItem={({ item }) => (
-            <MessageBubble msg={item} onBuyMedicine={() => navigation.navigate('AgriStore')} language={language} />
+          renderItem={({ item, index }) => (
+            <MessageBubble
+              msg={item}
+              onBuyMedicine={() => navigation.navigate('AgriStore')}
+              language={language}
+              isLast={index === messages.length - 1}
+              onFollowUp={onFollowUpPress}
+            />
           )}
           ListFooterComponent={typing ? (
             <View style={S.aiBubbleWrap}>
@@ -1010,17 +1118,28 @@ export default function AIChatScreen({ navigation, route }) {
           ) : (
             // ── Idle / typing state ───────────────────────────────────────────
             <BlurView intensity={30} tint="dark" style={C.composer}>
+              {attachedImage ? (
+                <View style={C.attachRow}>
+                  <Image source={{ uri: attachedImage.uri }} style={C.attachThumb} />
+                  <Text style={C.attachLabel} numberOfLines={1}>{t('aiChat.photoAttached', 'Photo attached')}</Text>
+                  <TouchableOpacity onPress={() => setAttachedImage(null)} style={C.attachClose} activeOpacity={0.7} accessibilityLabel="Remove photo">
+                    <CloseIcon size={16} color={MUTED} strokeWidth={2.4} />
+                  </TouchableOpacity>
+                </View>
+              ) : null}
               <View style={C.inputRow}>
                 <TouchableOpacity
                   style={C.iconBtn}
-                  onPress={() => Alert.alert('Attach', 'Image attachment coming soon.')}
+                  onPress={onAttachPress}
                   activeOpacity={0.7}
                 >
-                  <Paperclip size={20} color={MUTED} strokeWidth={2.2} />
+                  <Paperclip size={20} color={attachedImage ? PRIMARY : MUTED} strokeWidth={2.2} />
                 </TouchableOpacity>
+                <ResponseLengthSelector compact />
+
                 <TextInput
                   style={C.textInput}
-                  placeholder="Type a message…"
+                  placeholder={attachedImage ? t('aiChat.photoNote', 'Add a note (optional)…') : 'Type a message…'}
                   placeholderTextColor={MUTED}
                   value={input}
                   onChangeText={setInput}
@@ -1067,10 +1186,7 @@ export default function AIChatScreen({ navigation, route }) {
         sessions={sessions}
         historyLoading={historyLoading}
         insets={insets}
-        onNewChat={() => {
-          setMessages([{ id: '0', role: 'ai', text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm KrishiAI, your farming assistant.") }]);
-          setConvId(null);
-        }}
+        onNewChat={confirmReset}
         onSessionPress={(item) => navigation.push('AIChat', { conversationId: item.id })}
         onDeleteSession={deleteSession}
       />
@@ -1121,6 +1237,23 @@ const C = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
     backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  // ── Attached-photo preview row (above the input) ─────────────────────────────
+  attachRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 12, paddingTop: 10, paddingBottom: 2,
+  },
+  attachThumb: {
+    width: 44, height: 44, borderRadius: 10,
+    borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE,
+  },
+  attachLabel: {
+    flex: 1, fontSize: 13, color: TEXT2, fontFamily: INTER_SEMI,
+  },
+  attachClose: {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER,
   },
   // ── Idle row ────────────────────────────────────────────────────────────────
   inputRow: {
@@ -1254,6 +1387,20 @@ const S = StyleSheet.create({
   voiceTag: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 3 },
   voiceTagText: { fontSize: 9, color: 'rgba(12,36,21,0.85)', letterSpacing: 0.5, fontFamily: INTER_SEMI },
   userBubbleText: { fontSize: 15, color: BG, lineHeight: 22, fontFamily: INTER_SEMI },
+  userImage: {
+    width: 180, height: 135, borderRadius: 12, marginBottom: 6,
+    backgroundColor: 'rgba(0,0,0,0.12)',
+  },
+
+  // Follow-up suggestion chips (rendered under the latest AI reply)
+  followUpWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
+  followUpChip: {
+    borderRadius: 999, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(34,197,94,0.28)',
+    backgroundColor: 'rgba(34,197,94,0.07)',
+    paddingHorizontal: 12, paddingVertical: 8, maxWidth: '100%',
+  },
+  followUpText: { fontSize: 13, color: P_LIGHT, fontFamily: INTER_SEMI, lineHeight: 17 },
 
   // Typing dots
   dotsRow: { flexDirection: 'row', gap: 5, alignItems: 'center', height: 20 },

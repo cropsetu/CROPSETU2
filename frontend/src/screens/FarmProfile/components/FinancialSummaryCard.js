@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLanguage } from '../../../context/LanguageContext';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '../../../constants/colors';
+import { COSMIC } from '../theme/cosmicTheme';
+import { DonutChart, MiniBars } from '../../../components/charts';
 
 const SEASONS = ['YTD', 'KHARIF', 'RABI', 'ZAID'];
 
@@ -30,6 +32,7 @@ function Stat({ label, value, color, icon }) {
 export default function FinancialSummaryCard({ summary, activeSeason, onSeasonChange, loading }) {
   const { t } = useLanguage();
   const totals = summary?.totals;
+  const byCycle = Array.isArray(summary?.byCycle) ? summary.byCycle : [];
 
   return (
     <View style={styles.card}>
@@ -58,13 +61,58 @@ export default function FinancialSummaryCard({ summary, activeSeason, onSeasonCh
       ) : !totals || totals.cycleCount === 0 ? (
         <Text style={styles.empty}>{t('myFarm.financials.noData')}</Text>
       ) : (
-        <View style={styles.grid}>
-          <Stat label={t('myFarm.financials.grossIncome')} value={fmtInr(totals.grossIncomeInr)} color="#16A34A" icon="trending-up" />
-          <Stat label={t('myFarm.financials.totalCost')}   value={fmtInr(totals.totalCostInr)}   color="#DC2626" icon="trending-down" />
-          <Stat label={t('myFarm.financials.netProfit')}   value={fmtInr(totals.netProfitInr)}   color={COLORS.primary} icon="wallet" />
-          <Stat label={t('myFarm.financials.profitPerAcre')} value={fmtInr(totals.profitPerAcreInr)} color={COLORS.cta} icon="stats-chart" />
-        </View>
+        <>
+          <View style={styles.vizRow}>
+            <DonutChart
+              size={118}
+              strokeWidth={18}
+              segments={[
+                { label: t('myFarm.financials.totalCost'), value: totals.totalCostInr, color: COSMIC.DANGER },
+                { label: t('myFarm.financials.netProfit'), value: Math.max(0, totals.netProfitInr || 0), color: COSMIC.PRIMARY },
+              ]}
+              centerValue={fmtInr(totals.grossIncomeInr)}
+              centerLabel={t('myFarm.financials.grossIncome')}
+            />
+            <View style={styles.vizRight}>
+              {byCycle.length >= 2 ? (
+                <>
+                  <Text style={styles.vizCaption}>{t('myFarm.financials.netProfit')}</Text>
+                  <MiniBars
+                    height={70}
+                    bars={byCycle.slice(-5).map((c) => ({
+                      label: (c.cropName || '').slice(0, 4) || (c.seasonLabel || '').slice(0, 4),
+                      value: c.netProfitInr || 0,
+                    }))}
+                    valueFormat={fmtInr}
+                  />
+                </>
+              ) : (
+                <View style={styles.legend}>
+                  <LegendRow color={COSMIC.DANGER} label={t('myFarm.financials.totalCost')} value={fmtInr(totals.totalCostInr)} />
+                  <LegendRow color={COSMIC.PRIMARY} label={t('myFarm.financials.netProfit')} value={fmtInr(totals.netProfitInr)} />
+                </View>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.grid}>
+            <Stat label={t('myFarm.financials.grossIncome')} value={fmtInr(totals.grossIncomeInr)} color="#16A34A" icon="trending-up" />
+            <Stat label={t('myFarm.financials.totalCost')}   value={fmtInr(totals.totalCostInr)}   color="#DC2626" icon="trending-down" />
+            <Stat label={t('myFarm.financials.netProfit')}   value={fmtInr(totals.netProfitInr)}   color={COLORS.primary} icon="wallet" />
+            <Stat label={t('myFarm.financials.profitPerAcre')} value={fmtInr(totals.profitPerAcreInr)} color={COLORS.cta} icon="stats-chart" />
+          </View>
+        </>
       )}
+    </View>
+  );
+}
+
+function LegendRow({ color, label, value }) {
+  return (
+    <View style={styles.legendRow}>
+      <View style={[styles.legendDot, { backgroundColor: color }]} />
+      <Text style={styles.legendLabel} numberOfLines={1}>{label}</Text>
+      <Text style={styles.legendValue}>{value}</Text>
     </View>
   );
 }
@@ -85,6 +133,14 @@ const styles = StyleSheet.create({
   tabText: { fontSize: TYPE.size.xs, fontWeight: TYPE.weight.medium, color: COLORS.textMedium },
   tabTextActive: { color: COLORS.primary, fontWeight: TYPE.weight.semibold },
   empty: { textAlign: 'center', color: COLORS.textMedium, paddingVertical: 12 },
+  vizRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 },
+  vizRight: { flex: 1, justifyContent: 'center' },
+  vizCaption: { fontSize: TYPE.size.xs, color: COLORS.textMedium, fontWeight: TYPE.weight.semibold, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.6 },
+  legend: { gap: 8 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendLabel: { flex: 1, fontSize: TYPE.size.sm, color: COLORS.textMedium },
+  legendValue: { fontSize: TYPE.size.sm, fontWeight: TYPE.weight.bold, color: COLORS.textDark },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   stat: { width: '48%', padding: 10, borderRadius: RADIUS.md, backgroundColor: COLORS.surfaceSunken },
   statLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },

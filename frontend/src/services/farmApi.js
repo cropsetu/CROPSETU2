@@ -123,3 +123,35 @@ export async function getCycleFinancials(cycleId) {
   const { data: res } = await api.get(`/cycles/${cycleId}/financials`);
   return res.data;
 }
+
+// ── v2 activity logging ───────────────────────────────────────────────────────
+
+export async function addActivity(cycleId, entry) {
+  const { data: res } = await api.post(`/cycles/${cycleId}/activity`, entry);
+  return res.data;
+}
+
+export async function addLaborLog(cycleId, entry) {
+  const { data: res } = await api.post(`/cycles/${cycleId}/labor`, entry);
+  return res.data;
+}
+
+export async function addExpenseLog(cycleId, entry) {
+  const { data: res } = await api.post(`/cycles/${cycleId}/expense`, entry);
+  return res.data;
+}
+
+export async function addIncomeLog(cycleId, entry) {
+  const { data: res } = await api.post(`/cycles/${cycleId}/income`, entry);
+  return res.data;
+}
+
+export async function addObservedEvent(cycleId, entry) {
+  const { data: res } = await api.post(`/cycles/${cycleId}/event`, entry);
+  return res.data;
+}
+
+export async function advanceStage(cycleId, stage) {
+  const { data: res } = await api.post(`/cycles/${cycleId}/stage`, { stage });
+  return res.data;
+}

@@ -59,6 +59,15 @@ function rateSoilParam(param, value) {
     case 'sulphur': // ppm
       if (v < 10)   return { rating: 'low',    ratingHi: 'कम',     color: '#E74C3C', advice: 'Apply Gypsum 100-200 kg/acre or SSP as sulphur source' };
       return                { rating: 'sufficient', ratingHi: 'पर्याप्त', color: '#2ECC71', advice: 'Adequate sulphur.' };
+    case 'iron': // DTPA Fe (ppm) — ICAR critical limit 4.5
+      if (v < 4.5)  return { rating: 'low',    ratingHi: 'कम',     color: '#E74C3C', advice: 'Apply Ferrous Sulphate (FeSO₄) 25 kg/acre or 0.5% foliar spray' };
+      return                { rating: 'sufficient', ratingHi: 'पर्याप्त', color: '#2ECC71', advice: 'Adequate iron.' };
+    case 'manganese': // DTPA Mn (ppm) — ICAR critical limit 2.0
+      if (v < 2.0)  return { rating: 'low',    ratingHi: 'कम',     color: '#E74C3C', advice: 'Apply Manganese Sulphate (MnSO₄) 10 kg/acre or 0.5% foliar spray' };
+      return                { rating: 'sufficient', ratingHi: 'पर्याप्त', color: '#2ECC71', advice: 'Adequate manganese.' };
+    case 'copper': // DTPA Cu (ppm) — ICAR critical limit 0.2
+      if (v < 0.2)  return { rating: 'low',    ratingHi: 'कम',     color: '#E74C3C', advice: 'Apply Copper Sulphate (CuSO₄) 5 kg/acre as basal' };
+      return                { rating: 'sufficient', ratingHi: 'पर्याप्त', color: '#2ECC71', advice: 'Adequate copper.' };
     default:
       return { rating: 'recorded', ratingHi: 'दर्ज', color: '#95A5A6', advice: '' };
   }
@@ -164,7 +173,7 @@ router.post('/manual', authenticate, async (req, res) => {
       boron:         boron         ? parseFloat(boron)         : null,
       sulphur:       sulphur       ? parseFloat(sulphur)       : null,
       ratings,
-      inputMethod:   'manual',
+      inputMethod:   req.body.inputMethod === 'ocr' ? 'ocr' : 'manual',
     },
   });
 

@@ -26,6 +26,18 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useMultiFarm } from '../../context/MultiFarmContext';
 import { COSMIC, CR, CS, CT, ACTIVITY_TYPES } from './theme/cosmicTheme';
 
+// Activity type → dedicated logger route (registered in AppNavigator).
+const LOGGER_ROUTE = {
+  IRRIGATION: 'ActivityIrrigationLog',
+  LAND_PREP:  'ActivityLandPrepLog',
+  SOWING:     'ActivitySowingLog',
+  SCOUT:      'ActivityScoutLog',
+  WEEDING:    'ActivityWeedingLog',
+  PRUNING:    'ActivityPruningLog',
+  EXPENSE:    'ActivityExpenseLog',
+  INCOME:     'ActivityIncomeLog',
+};
+
 // Pretty labels (stable even without i18n v2).
 const TYPE_LABELS = {
   LAND_PREP:  'Land prep',
@@ -52,18 +64,20 @@ export default function ActivityTypePickerScreen({ navigation, route }) {
     : undefined;
 
   const pick = (type) => {
-    if (type === 'IRRIGATION') {
-      navigation.navigate('ActivityIrrigationLog', { farmId, cycleId, plotId });
+    // Dedicated logger screens (cosmic form per activity type).
+    const route = LOGGER_ROUTE[type];
+    if (route) {
+      navigation.navigate(route, { farmId, cycleId, plotId });
       return;
     }
-    // Type not shipped yet — route to CropCycleDetail inline modal if we have a cycle
+    // Fertilizer / spray / harvest / sale use the inline modal on the cycle screen.
     if (cycleId && ['FERTILIZER', 'SPRAY', 'HARVEST', 'SALE'].includes(type)) {
       navigation.navigate('CropCycleDetail', { cycleId, prefillActivity: type });
       return;
     }
     Alert.alert(
       `${TYPE_LABELS[type] || type} log`,
-      'This activity type is landing in the next milestone. Until then, use the logs inside the crop-cycle detail screen.',
+      'Open a crop cycle first, then log this activity from the cycle screen.',
     );
   };
 
@@ -93,7 +107,7 @@ export default function ActivityTypePickerScreen({ navigation, route }) {
             <View key={a.key} style={styles.gridCell}>
               <ActivityChip.Tile
                 type={a.key}
-                label={TYPE_LABELS[a.key] || a.key}
+                label={t(a.i18n, TYPE_LABELS[a.key] || a.key)}
                 onPress={() => pick(a.key)}
               />
             </View>

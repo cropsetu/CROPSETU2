@@ -41,10 +41,12 @@ import {
   flattenFastAPIDiagnosis,
   extractUsage as extractFastAPIUsage,
 } from '../services/ai.scan.fastapi.js';
-import { checkCredits, deductCredits, getCreditSummary } from '../services/aiCredit.service.js';
+import { checkCredits, deductCredits, getCreditSummary, reserveCredits, settleCredits, releaseCredits } from '../services/aiCredit.service.js';
 import { buildFarmerChatContext } from '../services/chatContext.service.js';
 import { getWeatherData } from '../services/weather.service.js';
 import { aiChatLimit, aiScanLimit, aiVoiceLimit } from '../middleware/redisRateLimit.js';
+import { idempotency } from '../middleware/idempotency.js';
+import redis from '../config/redis.js';
 import { uploadBuffer } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
 import logger from '../utils/logger.js';
@@ -179,14 +181,19 @@ function alertCacheSet(uid, data) {
   alertCache.set(uid, { data, expiresAt: Date.now() + ALERT_TTL_MS });
 }
 
-// ── Per-user AI cooldown (6 s gap) ───────────────────────────────────────────
-const lastAiCall  = new Map();
-const AI_MIN_GAP  = 6000;
-function checkCooldown(uid) {
-  const diff = Date.now() - (lastAiCall.get(uid) || 0);
-  if (diff < AI_MIN_GAP) return Math.ceil((AI_MIN_GAP - diff) / 1000);
-  lastAiCall.set(uid, Date.now());
-  return 0;
+// ── Per-user AI cooldown (6 s gap) — Redis so it holds across instances ───────
+const AI_MIN_GAP_MS = 6000;
+async function checkCooldown(uid) {
+  // Returns seconds the caller must wait (0 = allowed). Fail-open if Redis down.
+  try {
+    if (redis?.status !== 'ready') return 0;
+    const ok = await redis.set(`cooldown:ai:${uid}`, '1', 'PX', AI_MIN_GAP_MS, 'NX');
+    if (ok === 'OK') return 0;                      // first call in window → allow + arm
+    const pttl = await redis.pttl(`cooldown:ai:${uid}`);
+    return pttl > 0 ? Math.ceil(pttl / 1000) : 0;   // still cooling down
+  } catch {
+    return 0;                                       // never block on a Redis blip
+  }
 }
 
 // ── In-flight scan deduplication (prevents double-tap duplicate Gemini calls) ─
@@ -199,10 +206,7 @@ setInterval(() => {
   for (const [uid, e] of alertCache) {
     if (now > e.expiresAt) alertCache.delete(uid);
   }
-  // Cooldown entries older than 2x gap are stale
-  for (const [uid, ts] of lastAiCall) {
-    if (now - ts > AI_MIN_GAP * 2) lastAiCall.delete(uid);
-  }
+  // (AI cooldown now lives in Redis with a TTL — no in-memory map to sweep.)
 }, MAP_CLEANUP_INTERVAL).unref();
 
 // ── Shared farm context enrichment (used by /chat, /voice, /scan/:id/chat) ───
@@ -227,9 +231,15 @@ async function buildEnrichedProfile(userId, frontendOverrides = {}) {
       waterSources: farmCtx.farm.waterSources,
       crops: (farmCtx.activeCycles || []).map(c => ({
         name: c.cropName, variety: c.variety, areaAcres: c.areaAcres, growthStage: c.growthStage,
+        season: c.seasonLabel,
+        fertilizerHistory: c.fertilizerHistory, pesticideHistory: c.pesticideHistory,
+        irrigationSummary: c.irrigationSummary, eventsSummary: c.eventsSummary,
+        costSplit: c.costSplit, netProfitInr: c.netProfitInr, profitPerAcreInr: c.profitPerAcreInr,
       })),
       soil: farmCtx.soil,
       recentCycles: farmCtx.recentCycles,
+      history: farmCtx.history,
+      priorIssues: farmCtx.history?.priorIssues || [],
     };
     // Only let frontend values override if non-empty
     if (frontendOverrides) {
@@ -327,19 +337,37 @@ const audioUpload = multer({
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/chat  — proxy to FastAPI, save to Prisma
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/chat', authenticate, aiChatLimit, async (req, res) => {
-  const { message, conversationId, farmProfile, includeFarmContext = true, language } = req.body;
+router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req, res) => {
+  const { message, conversationId, farmProfile, includeFarmContext = true, language, responseLength, image } = req.body;
 
-  if (!message?.trim())      return sendError(res, 'message is required', 400);
-  if (message.length > 1000) return sendError(res, 'message too long (max 1000 chars)', 400);
+  // An attached photo routes to the (pricier) vision model for a conversational
+  // disease read. A photo alone — no text — is a valid request.
+  const hasImage = !!(image && typeof image === 'object' && image.data);
+  if (hasImage) {
+    if (typeof image.mime_type === 'string' && !image.mime_type.startsWith('image/')) {
+      return sendError(res, 'attached file must be an image', 400);
+    }
+    if (typeof image.data !== 'string' || image.data.length > 12_000_000) {
+      return sendError(res, 'attached image is too large', 413);
+    }
+  }
 
-  const wait = checkCooldown(req.user.id);
+  if (!message?.trim() && !hasImage) return sendError(res, 'message is required', 400);
+  if (message && message.length > 1000) return sendError(res, 'message too long (max 1000 chars)', 400);
+
+  // Whitelist the farmer-selected response length (defaults to "short").
+  const LENGTHS = ['short', 'medium', 'long', 'extra_long'];
+  const respLen = LENGTHS.includes(responseLength) ? responseLength : 'short';
+
+  const wait = await checkCooldown(req.user.id);
   if (wait > 0) return sendError(res, `Please wait ${wait}s before sending another message.`, 429);
 
-  // Reject before expensive LLM call if user is out of credits
-  const creditCheck = await checkCredits(req.user.id, 'ai_chat_groq');
-  if (!creditCheck.allowed) {
-    return sendError(res, creditCheck.message || 'Insufficient AI credits', 402);
+  // RESERVE credits atomically before the expensive LLM call (race-free). Image
+  // chats hold against the vision (scan) bucket; text holds the chat floor.
+  const reserveFeature = hasImage ? 'ai_scan_gemini' : 'ai_chat_claude';
+  const hold = await reserveCredits(req.user.id, reserveFeature);
+  if (!hold.ok) {
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
   }
 
   try {
@@ -381,12 +409,15 @@ router.post('/chat', authenticate, aiChatLimit, async (req, res) => {
     if (language) enrichedProfile.language = language;
 
     const result = await callFastAPI('/ai/chat', {
-      message:      message.trim(),
+      message:         (message || '').trim(),
       history,
-      farm_profile: enrichedProfile,
-    }, req.user.id, 120_000);  // Indic chat models can be slow; output is capped server-side
+      farm_profile:    enrichedProfile,
+      response_length: respLen,
+      mode:            'text',
+      ...(hasImage ? { image: { data: image.data, mime_type: image.mime_type || 'image/jpeg' } } : {}),
+    }, req.user.id, 120_000, req.id);  // Indic chat models can be slow; output is capped server-side
 
-    const { reply, type, structured_data: structuredData, token_info: tokenInfo } = result;
+    const { reply, type, structured_data: structuredData, token_info: tokenInfo, followUps } = result;
     const tokens = tokenInfo?.total_tokens || 0;
     const model  = tokenInfo?.model || 'unknown';
 
@@ -394,8 +425,9 @@ router.post('/chat', authenticate, aiChatLimit, async (req, res) => {
     await prisma.aIMessage.createMany({
       data: [
         {
-          conversationId: convo.id, role: 'user', content: message.trim(),
-          messageType: 'text', language: farmProfile?.language || 'en',
+          conversationId: convo.id, role: 'user',
+          content: (message || '').trim() || '[photo]',
+          messageType: hasImage ? 'image' : 'text', language: farmProfile?.language || 'en',
         },
         {
           conversationId: convo.id, role: 'assistant', content: reply,
@@ -414,21 +446,30 @@ router.post('/chat', authenticate, aiChatLimit, async (req, res) => {
     });
 
     // ── 6. Track usage + deduct credits (non-blocking) ───────────────────────
-    const featureType = model.includes('groq') || model.includes('llama') ? 'ai_chat_groq' : 'ai_chat_claude';
+    const featureType = hasImage
+      ? 'ai_scan_gemini'
+      : (model.includes('groq') || model.includes('llama') ? 'ai_chat_groq' : 'ai_chat_claude');
     const today = new Date(); today.setUTCHours(0, 0, 0, 0);
     prisma.aIUsage.upsert({
       where:  { userId_date: { userId: req.user.id, date: today } },
       create: { userId: req.user.id, date: today, chatCount: 1, totalTokens: tokens, monthlyTokens: tokens },
       update: { chatCount: { increment: 1 }, totalTokens: { increment: tokens }, monthlyTokens: { increment: tokens } },
     }).catch(() => {});
-    deductCredits(req.user.id, featureType, { model, tokensUsed: tokens, description: `Chat: ${model}` }).catch(() => {});
+    // SETTLE the hold against actual tokens (awaited — spend is never lost).
+    await settleCredits(req.user.id, featureType, {
+      reserved: hold.reserved, holdId: hold.holdId, tokensUsed: tokens, model,
+      description: `Chat: ${model}`, costUsd: tokenInfo?.cost_usd,
+    });
 
     return sendSuccess(res, {
       reply, type, card: structuredData ?? null, conversationId: convo.id,
+      followUps: Array.isArray(followUps) ? followUps : [],
       tokenUsage: { totalTokens: tokens, model },
     });
 
   } catch (err) {
+    // LLM/processing failed → refund the hold so the user isn't charged.
+    await releaseCredits(req.user.id, reserveFeature, { reserved: hold.reserved, holdId: hold.holdId });
     logger.error('[AI Chat] %s', err.message);
     if (err.status === 429)
       return sendError(res, 'AI rate limit reached. Please wait 30 seconds.', 429);
@@ -439,20 +480,69 @@ router.post('/chat', authenticate, aiChatLimit, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/ai/soil-card-ocr
+// Soil Health Card photo → FastAPI vision → structured 12-parameter JSON.
+// The farmer reviews/edits the extracted values before saving (never auto-saved).
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/soil-card-ocr', authenticate, aiChatLimit, async (req, res) => {
+  const { image } = req.body;
+
+  const hasImage = !!(image && typeof image === 'object' && image.data);
+  if (!hasImage) return sendError(res, 'image is required', 400);
+  if (typeof image.mime_type === 'string' && !image.mime_type.startsWith('image/')) {
+    return sendError(res, 'attached file must be an image', 400);
+  }
+  if (typeof image.data !== 'string' || image.data.length > 12_000_000) {
+    return sendError(res, 'attached image is too large', 413);
+  }
+
+  // Reject before the (pricier) vision call if the user is out of credits.
+  const creditCheck = await checkCredits(req.user.id, 'ai_soil_ocr');
+  if (!creditCheck.allowed) {
+    return sendError(res, creditCheck.message || 'Insufficient AI credits', 402);
+  }
+
+  try {
+    const result = await callFastAPI('/ai/soil-card-ocr', {
+      image: { data: image.data, mime_type: image.mime_type || 'image/jpeg' },
+    }, req.user.id, 60_000);
+
+    const tokens = result?.token_info?.total_tokens || 0;
+    const model  = result?.token_info?.model || 'gemini';
+
+    // Track usage + deduct credits (non-blocking).
+    const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+    prisma.aIUsage.upsert({
+      where:  { userId_date: { userId: req.user.id, date: today } },
+      create: { userId: req.user.id, date: today, totalTokens: tokens, monthlyTokens: tokens },
+      update: { totalTokens: { increment: tokens }, monthlyTokens: { increment: tokens } },
+    }).catch(() => {});
+    deductCredits(req.user.id, 'ai_soil_ocr', { model, tokensUsed: tokens, description: 'Soil card OCR' }).catch(() => {});
+
+    return sendSuccess(res, result);
+  } catch (err) {
+    logger.error('[Soil OCR] %s', err.message);
+    if (err.name === 'AbortError')
+      return sendError(res, 'Card reading timed out. Please try again or enter values manually.', 504);
+    return sendError(res, 'Could not read the card. Please enter values manually.', 500);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/voice
 // Sarvam STT → FastAPI /ai/chat → (opt) Sarvam TTS
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/voice', authenticate, aiVoiceLimit, audioUpload.single('audio'), async (req, res) => {
+router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpload.single('audio'), async (req, res) => {
   const file = req.file;
   if (!file) return sendError(res, 'audio file is required (field name: audio)', 400);
 
   const cleanUp = (p) => { try { fs.unlinkSync(p); } catch { /* ignore */ } };
 
-  // Reject before expensive STT/TTS pipeline if user is out of credits
-  const creditCheck = await checkCredits(req.user.id, 'ai_voice');
-  if (!creditCheck.allowed) {
+  // RESERVE credits atomically before the expensive STT/LLM pipeline (race-free).
+  const hold = await reserveCredits(req.user.id, 'ai_voice');
+  if (!hold.ok) {
     cleanUp(file.path);
-    return sendError(res, creditCheck.message || 'Insufficient AI credits', 402);
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
   }
 
   try {
@@ -500,7 +590,7 @@ router.post('/voice', authenticate, aiVoiceLimit, audioUpload.single('audio'), a
     if (!transcription)
       return sendError(res, 'Could not transcribe audio — please speak clearly and try again.', 422);
 
-    const wait = checkCooldown(req.user.id);
+    const wait = await checkCooldown(req.user.id);
     if (wait > 0) {
       return sendSuccess(res, {
         transcription, detectedLanguage,
@@ -556,13 +646,23 @@ router.post('/voice', authenticate, aiVoiceLimit, audioUpload.single('audio'), a
     if (replyLang) enrichedProfile.language = replyLang;
 
     // ── Proxy chat inference to FastAPI ───────────────────────────────────────
+    // The dedicated voice screen requests TTS (tts=1) → concise, header-free
+    // spoken reply. The inline mic inside text chat (no TTS) is just voice INPUT,
+    // so it gets a normal text-style reply honouring the farmer's length setting.
+    const speakReply = req.query.tts === '1' || req.body.tts === true || req.body.tts === 'true';
+    const LENGTHS = ['short', 'medium', 'long', 'extra_long'];
+    const voiceRespLen = speakReply
+      ? 'short'
+      : (LENGTHS.includes(req.body.responseLength) ? req.body.responseLength : 'short');
     const result = await callFastAPI('/ai/chat', {
-      message:      transcription,
+      message:         transcription,
       history,
-      farm_profile: enrichedProfile,
-    }, req.user.id);
+      farm_profile:    enrichedProfile,
+      mode:            speakReply ? 'voice' : 'text',
+      response_length: voiceRespLen,
+    }, req.user.id, undefined, req.id);
 
-    const { reply, type, structured_data: structuredData, token_info: voiceTokenInfo } = result;
+    const { reply, type, structured_data: structuredData, token_info: voiceTokenInfo, followUps } = result;
     const voiceTokens = voiceTokenInfo?.total_tokens || 0;
     const voiceModel  = voiceTokenInfo?.model || 'unknown';
 
@@ -586,7 +686,11 @@ router.post('/voice', authenticate, aiVoiceLimit, audioUpload.single('audio'), a
       create: { userId: req.user.id, date: vToday, chatCount: 1, totalTokens: voiceTokens, monthlyTokens: voiceTokens },
       update: { chatCount: { increment: 1 }, totalTokens: { increment: voiceTokens }, monthlyTokens: { increment: voiceTokens } },
     }).catch(() => {});
-    deductCredits(req.user.id, 'ai_voice', { model: voiceModel, tokensUsed: voiceTokens, description: `Voice chat: ${voiceModel}` }).catch(() => {});
+    // SETTLE the hold against actual tokens (awaited).
+    await settleCredits(req.user.id, 'ai_voice', {
+      reserved: hold.reserved, holdId: hold.holdId, tokensUsed: voiceTokens, model: voiceModel,
+      description: `Voice chat: ${voiceModel}`, costUsd: voiceTokenInfo?.cost_usd,
+    });
 
     // ── Optional TTS ─────────────────────────────────────────────────────────
     let audioData = null;
@@ -611,10 +715,13 @@ router.post('/voice', authenticate, aiVoiceLimit, audioUpload.single('audio'), a
     return sendSuccess(res, {
       transcription, detectedLanguage, reply, type,
       card: structuredData ?? null, conversationId: convo.id,
+      followUps: Array.isArray(followUps) ? followUps : [],
       ...(audioData ? { audio: audioData } : {}),
     });
 
   } catch (err) {
+    // Pipeline failed → refund the hold so the user isn't charged.
+    await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
     try { if (req.file?.path) fs.unlinkSync(req.file.path); } catch { /* ignore */ }
     logger.error('[AI Voice] %s', err.message);
     if (err.name === 'AbortError') return sendError(res, 'AI response timed out.', 504);
@@ -1383,7 +1490,7 @@ router.post('/scan/:sessionId/chat', authenticate, async (req, res) => {
   if (!message?.trim())      return sendError(res, 'message is required', 400);
   if (message.length > 1000) return sendError(res, 'message too long (max 1000 chars)', 400);
 
-  const wait = checkCooldown(req.user.id);
+  const wait = await checkCooldown(req.user.id);
   if (wait > 0) return sendError(res, `Please wait ${wait}s before sending another message.`, 429);
 
   try {

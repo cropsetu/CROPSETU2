@@ -9,7 +9,7 @@
  */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView,
   Animated, Dimensions, StatusBar, Platform, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +20,7 @@ import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import { WebView } from 'react-native-webview';
-import { sendVoiceChatMessage } from '../../services/aiApi';
+import { sendVoiceChatMessage, textToSpeech } from '../../services/aiApi';
 import { useFarm } from '../../context/FarmContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { COLORS } from '../../constants/colors';
@@ -41,13 +41,14 @@ const SILENCE_MS = 10_000;
 function humanReadableVoiceError(err, fallback = 'Could not process. Please try again.') {
   const status = err?.response?.status ?? err?.status;
   const serverMsg = err?.response?.data?.error?.message;
-  if (status === 429) return 'Too many requests — please wait 30 seconds.';
-  if (status === 402) return 'You’re out of AI credits. Top up to continue.';
-  if (status === 503) return 'Voice service is temporarily unavailable.';
-  if (status === 413) return 'Recording was too long. Please keep it shorter.';
+  if (status === 429) return 'Too many requests — please wait 30 seconds and try again.';
+  if (status === 402) return 'You’ve used all your AI credits for this month. They refill on the 1st.';
+  if (status === 503 || status === 500 || status === 502 || status === 504)
+    return 'The voice service is temporarily down. Please try again in a moment.';
+  if (status === 413) return 'That recording was too long. Please keep it shorter.';
   if (status === 401) return 'Session expired. Please log in again.';
   if (err?.message === 'Network Error' || err?.code === 'ERR_NETWORK')
-    return 'No internet — check your connection.';
+    return 'No internet — check your connection and try again.';
   return serverMsg || fallback;
 }
 
@@ -243,7 +244,7 @@ function CosmicBackdrop() {
 }
 
 // ── Sphere component (sized like Lovable Galaxy: default 300) ────────────────
-function HolographicSphere({ state, audioLevel, size }) {
+function HolographicSphere({ state, audioLevel, size, animScale, animShiftY }) {
   const wvRef = useRef(null);
 
   useEffect(() => {
@@ -256,16 +257,21 @@ function HolographicSphere({ state, audioLevel, size }) {
     wvRef.current?.postMessage(JSON.stringify({ type: 'audioLevel', value: audioLevel }));
   }, [audioLevel]);
 
-  const wrapper = size
-    ? { width: size, height: size }
-    : StyleSheet.absoluteFillObject;
+  // Full-screen sphere is centered by the canvas; the caller animates scale +
+  // vertical shift so it grows while the user speaks and shrinks/drops while the
+  // AI replies (Perplexity-style).
+  const base = size ? { width: size, height: size } : StyleSheet.absoluteFillObject;
+  const transform = [];
+  if (animShiftY != null) transform.push({ translateY: animShiftY });
+  if (animScale  != null) transform.push({ scale: animScale });
+  const wrapper = transform.length ? [base, { transform }] : base;
 
   if (Platform.OS === 'web') {
-    return <View style={[wrapper, { backgroundColor: 'transparent' }]} />;
+    return <View style={[base, { backgroundColor: 'transparent' }]} />;
   }
 
   return (
-    <View style={wrapper} pointerEvents="none">
+    <Animated.View style={wrapper} pointerEvents="none">
       <WebView
         ref={wvRef}
         source={{ html: SPHERE_HTML }}
@@ -278,7 +284,7 @@ function HolographicSphere({ state, audioLevel, size }) {
         backgroundColor="transparent"
         allowsInlineMediaPlayback
       />
-    </View>
+    </Animated.View>
   );
 }
 
@@ -310,7 +316,10 @@ export default function VoiceChatScreen({ navigation }) {
   // Transcript state — shows what user said & AI reply as floating text
   const [userTranscript, setUserTranscript] = useState('');
   const [aiReply, setAiReply] = useState('');
+  const [typedReply, setTypedReply] = useState('');  // typewriter reveal of aiReply (top, Perplexity-style)
+  const [errorMsg, setErrorMsg] = useState('');     // distinct error banner (service down / credits)
   const [showTranscript, setShowTranscript] = useState(false);
+  const replyScrollRef = useRef(null);
 
   const recordRef = useRef(null);
   const lockRef = useRef(false);
@@ -322,12 +331,45 @@ export default function VoiceChatScreen({ navigation }) {
   // Animations
   const transcriptFade = useRef(new Animated.Value(0)).current;
   const micScale = useRef(new Animated.Value(1)).current;
+  const sphereScale  = useRef(new Animated.Value(1)).current;   // grows speaking, shrinks replying
+  const sphereShiftY = useRef(new Animated.Value(-H * 0.05)).current;
 
-  // Sphere state
+  // Sphere state. Once a reply exists (aiReply), stay in the small "replying"
+  // state until the user taps the mic again (which clears aiReply) — avoids a
+  // flicker between processing→playing and keeps the reply visible.
   const sphereState = isRecording ? 'recording'
     : isProcessing ? 'processing'
-    : isPlaying ? 'playing'
+    : (isPlaying || aiReply) ? 'playing'
     : 'idle';
+
+  // Animate sphere size + vertical position per state (Perplexity-style):
+  //   idle/listening → large & centered · user speaking → larger · AI replying → small & dropped down.
+  useEffect(() => {
+    const cfg = {
+      idle:       { scale: 1.0,  shift: -H * 0.05 },
+      recording:  { scale: 1.18, shift: -H * 0.05 },
+      processing: { scale: 0.82, shift:  H * 0.06 },
+      playing:    { scale: 0.55, shift:  H * 0.16 },
+    }[sphereState] || { scale: 1.0, shift: -H * 0.05 };
+    Animated.parallel([
+      Animated.spring(sphereScale,  { toValue: cfg.scale, useNativeDriver: true, friction: 7, tension: 55 }),
+      Animated.spring(sphereShiftY, { toValue: cfg.shift, useNativeDriver: true, friction: 7, tension: 55 }),
+    ]).start();
+  }, [sphereState]);
+
+  // Typewriter: reveal the AI reply at the top, character by character (the text
+  // "flows down" as more arrives). Auto-scrolls to keep the latest line visible.
+  useEffect(() => {
+    if (!aiReply) { setTypedReply(''); return; }
+    setTypedReply('');
+    let i = 0;
+    const id = setInterval(() => {
+      i = Math.min(aiReply.length, i + 2);
+      setTypedReply(aiReply.slice(0, i));
+      if (i >= aiReply.length) clearInterval(id);
+    }, 30);
+    return () => clearInterval(id);
+  }, [aiReply]);
 
   // Cleanup on unmount — kill mic + audio session so we don't leak resources
   useEffect(() => {
@@ -362,6 +404,7 @@ export default function VoiceChatScreen({ navigation }) {
     // Clear previous transcripts
     setUserTranscript('');
     setAiReply('');
+    setErrorMsg('');
     setShowTranscript(false);
 
     try {
@@ -478,17 +521,23 @@ export default function VoiceChatScreen({ navigation }) {
       setUserTranscript(transcribed);
       if (result.reply) setAiReply(result.reply);
       setShowTranscript(true);
+      setIsProcessing(false);
 
-      // Play audio response if backend returned TTS audio
-      if (result.audio?.audio) {
-        setIsProcessing(false);
-        await playBase64Audio(result.audio.audio, result.audio.mimeType || 'audio/wav');
-      } else {
-        setIsProcessing(false);
+      // Text-first: the reply is already on screen; now fetch + auto-play audio
+      // via /ai/tts. Best-effort — a TTS failure no longer wastes the STT+LLM
+      // spend, and the smaller /voice payload returns faster.
+      if (result.reply) {
+        try {
+          const ttsLang = result.detectedLanguage || sarvamLang || 'hi-IN';
+          const tts = await textToSpeech(result.reply, ttsLang);
+          if (tts?.audio) await playBase64Audio(tts.audio, tts.mimeType || 'audio/wav');
+        } catch (e) {
+          if (__DEV__) console.warn('[VoiceChat] TTS failed (non-fatal):', e?.message);
+        }
       }
     } catch (err) {
       recordRef.current = null;
-      setAiReply(humanReadableVoiceError(err));
+      setErrorMsg(humanReadableVoiceError(err));
       setShowTranscript(true);
       setIsProcessing(false);
     }
@@ -533,11 +582,11 @@ export default function VoiceChatScreen({ navigation }) {
     }
   }
 
-  // Status text — minimum, action-only (language-agnostic)
+  // Status hint — minimal, action-only. Shown below the sphere when idle/listening;
+  // hidden while the AI reply types in at the top.
   const statusText = isRecording ? 'Listening…'
-    : isProcessing ? 'Processing…'
-    : isPlaying ? 'Speaking…'
-    : 'Tap to speak…';
+    : isProcessing ? 'Thinking…'
+    : 'Say something…';
 
   // Main mic button logic: idle→startRecording / recording→stopAndSend
   const onMicTap = () => {
@@ -553,8 +602,13 @@ export default function VoiceChatScreen({ navigation }) {
         {/* ── Cosmic atmospheric backdrop (bottom layer) ── */}
         <CosmicBackdrop />
 
-        {/* ── Full-screen particle sphere (fills whole screen, particles spread edge-to-edge) ── */}
-        <HolographicSphere state={sphereState} audioLevel={audioLevel} />
+        {/* ── Particle sphere — animated scale + vertical shift per state ── */}
+        <HolographicSphere
+          state={sphereState}
+          audioLevel={audioLevel}
+          animScale={sphereScale}
+          animShiftY={sphereShiftY}
+        />
 
         {/* ── Vignette — darken extreme top + bottom so overlays are legible ── */}
         <LinearGradient
@@ -579,25 +633,30 @@ export default function VoiceChatScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* ── MIDDLE-LOW overlay: state label + transcript (no timer — conversational UX) ── */}
-        <View style={S.midLowOverlay} pointerEvents="box-none">
-          <Text style={S.stateLabel} key={statusText}>{statusText}</Text>
+        {/* ── TOP: AI reply types in here and flows downward ── */}
+        {typedReply ? (
+          <View style={[S.replyArea, { top: insets.top + 60, maxHeight: H * 0.40 }]} pointerEvents="none">
+            <ScrollView
+              ref={replyScrollRef}
+              showsVerticalScrollIndicator={false}
+              onContentSizeChange={() => replyScrollRef.current?.scrollToEnd({ animated: true })}
+            >
+              <Text style={S.replyText}>{typedReply}</Text>
+            </ScrollView>
+          </View>
+        ) : null}
 
-          <Animated.View
-            style={[S.transcriptArea, { opacity: transcriptFade }]}
-            pointerEvents={showTranscript ? 'auto' : 'none'}
-          >
-            {userTranscript ? (
-              <Text style={S.tUserTxt} numberOfLines={2}>
-                <Text style={S.tYouLabel}>You: </Text>{userTranscript}
-              </Text>
-            ) : null}
-            {aiReply ? (
-              <Text style={S.tAiTxt} numberOfLines={5}>
-                <Text style={S.tAiLabel}>AI: </Text>{aiReply}
-              </Text>
-            ) : null}
-          </Animated.View>
+        {/* ── Status hint (below sphere) / error banner ── */}
+        <View style={S.hintOverlay} pointerEvents="box-none">
+          {!aiReply && !errorMsg ? (
+            <Text style={S.hintText} key={statusText}>{statusText}</Text>
+          ) : null}
+          {errorMsg ? (
+            <View style={S.errorBanner}>
+              <Ionicons name="alert-circle" size={18} color="#FCA5A5" />
+              <Text style={S.errorText} numberOfLines={4}>{errorMsg}</Text>
+            </View>
+          ) : null}
         </View>
 
         {/* ── BOTTOM: 3-button glass pill ── */}
@@ -674,35 +733,37 @@ const S = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
   },
 
-  // ── MID-LOW overlay: state label + transcript, sits just above the bottom pill ──
-  midLowOverlay: {
+  // ── TOP: AI reply types in here (Perplexity-style), flows downward ──
+  replyArea: {
+    position: 'absolute', left: 0, right: 0,
+    paddingHorizontal: 26, zIndex: 8,
+  },
+  replyText: {
+    fontSize: 20, lineHeight: 30, color: '#F0FDF4', textAlign: 'center',
+    fontFamily: INTER_SEMI,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8,
+  },
+  // ── Status hint below the sphere (idle / listening) ──
+  hintOverlay: {
     position: 'absolute', left: 0, right: 0,
     bottom: 150, alignItems: 'center',
     paddingHorizontal: 28, zIndex: 8,
   },
-  stateLabel: {
-    fontSize: 17, color: FG, letterSpacing: 0.6,
-    textAlign: 'center', marginBottom: 10,
+  hintText: {
+    fontSize: 17, color: 'rgba(240,253,244,0.9)', letterSpacing: 0.5,
+    textAlign: 'center',
     textShadowColor: 'rgba(0,0,0,0.7)',
     textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 10,
     fontFamily: INTER_SEMI,
   },
-  transcriptArea: {
-    minHeight: 48, maxWidth: 480, alignItems: 'center',
-    paddingHorizontal: 12,
+  // Distinct, prominent error banner (service down / credits exhausted)
+  errorBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12,
+    maxWidth: 320, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14,
+    backgroundColor: 'rgba(239,68,68,0.14)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.35)',
   },
-  tYouLabel: { color: HARVEST, fontFamily: INTER_SEMI },
-  tAiLabel: { color: '#4ADE80', fontFamily: INTER_SEMI },
-  tUserTxt: {
-    fontSize: 13, color: 'rgba(255,255,255,0.7)',
-    textAlign: 'center', lineHeight: 19,
-    fontFamily: INTER_REG,
-  },
-  tAiTxt: {
-    fontSize: 14, color: 'rgba(255,255,255,0.92)',
-    textAlign: 'center', lineHeight: 22, marginTop: 4,
-    fontFamily: INTER_REG,
-  },
+  errorText: { flex: 1, fontSize: 13, color: '#FCA5A5', lineHeight: 18, fontFamily: INTER_SEMI },
 
   // ── BOTTOM: 3-button glass pill (floats at the bottom over the sphere) ─────
   bottomSection: {

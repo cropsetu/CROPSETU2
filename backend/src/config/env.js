@@ -104,6 +104,14 @@ export const ENV = {
   // chains have been smoke-tested in staging.
   USE_FASTAPI_FOR_SCAN: String(process.env.USE_FASTAPI_FOR_SCAN || 'false').toLowerCase() === 'true',
 
+  // ── AI Credits & token metering (company policy — tune without code) ─────────
+  // Credits are debited per ACTUAL tokens consumed: credits = ceil(tokens / TOKENS_PER_CREDIT),
+  // with a per-feature minimum (CREDIT_COSTS) as a floor. Free users get a monthly
+  // grant that auto-refills on the 1st. Change these to update pricing/policy.
+  AI_TOKENS_PER_CREDIT:    parseInt(process.env.AI_TOKENS_PER_CREDIT || '1000', 10),   // 100 credits ~ 1 lakh tokens
+  AI_FREE_MONTHLY_CREDITS: parseInt(process.env.AI_FREE_MONTHLY_CREDITS || '100', 10), // free grant / month
+  AI_MIN_CREDITS_PER_CALL: parseInt(process.env.AI_MIN_CREDITS_PER_CALL || '1', 10),   // floor per billable call
+
   // ── Sarvam AI (Indian multilingual STT / TTS / Translation) ─────────────────
   // Get key: https://dashboard.sarvam.ai  — supports 10+ Indian languages
   SARVAM_API_KEY: process.env.SARVAM_API_KEY || '',
@@ -148,3 +156,19 @@ export const ENV = {
 
   IS_DEV: process.env.NODE_ENV !== 'production',
 };
+
+// ── Production secret validation (fail-fast at boot) ──────────────────────────
+// An empty AI_SHARED_SECRET ⇒ the Express↔FastAPI HMAC is computed over an empty
+// key ⇒ FastAPI is effectively unauthenticated. Empty provider keys ⇒ AI fails
+// silently at runtime. Refuse to start in production so these can't ship unnoticed.
+if (ENV.NODE_ENV === 'production') {
+  const problems = [];
+  if (!ENV.AI_SHARED_SECRET || ENV.AI_SHARED_SECRET.length < 16) {
+    problems.push('AI_SHARED_SECRET missing/weak (Express↔FastAPI auth)');
+  }
+  if (!ENV.GEMINI_API_KEY) problems.push('GEMINI_API_KEY missing (chat + crop scan)');
+  if (!ENV.GROQ_API_KEY)   problems.push('GROQ_API_KEY missing (voice STT)');
+  if (problems.length) {
+    throw new Error(`FATAL: production config invalid — ${problems.join('; ')}`);
+  }
+}

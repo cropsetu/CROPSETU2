@@ -6,6 +6,7 @@ import { body, param, query } from 'express-validator';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { idempotency } from '../middleware/idempotency.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound } from '../utils/response.js';
 import logger from '../utils/logger.js';
 import { createFarm, listFarms, getFarmDetail, updateFarm, deleteFarm, setActiveFarm, getFarmInsights, getFarmFinancialSummary } from '../services/farm.service.js';
@@ -14,6 +15,7 @@ const router = Router();
 router.use(authenticate);
 
 const writeLimit = (_req, _res, next) => next();   // rate limit disabled for now
+const idemFarm = idempotency('farm_write');        // dedupe duplicate farm writes (401-replay / retry)
 
 const OPT = { values: 'falsy' }; // skip validation for null, "", undefined, 0
 const farmValidators = [
@@ -34,7 +36,7 @@ router.get('/', async (req, res) => {
   catch (e) { logger.error({ err: e }, '[Farm] list'); return sendError(res, 'Failed', 500); }
 });
 
-router.post('/', writeLimit, [body('landSizeAcres').notEmpty().isFloat({ min: 0.01 }), ...farmValidators], validate, async (req, res) => {
+router.post('/', writeLimit, idemFarm, [body('landSizeAcres').notEmpty().isFloat({ min: 0.01 }), ...farmValidators], validate, async (req, res) => {
   try { return sendCreated(res, await createFarm(req.user.id, req.body)); }
   catch (e) { logger.error({ err: e }, '[Farm] create'); return sendError(res, e.message || 'Failed', 500); }
 });
@@ -46,12 +48,12 @@ router.get('/:farmId', [param('farmId').isUUID()], validate, async (req, res) =>
   } catch (e) { logger.error({ err: e }, '[Farm] get'); return sendError(res, 'Failed', 500); }
 });
 
-router.patch('/:farmId', writeLimit, [param('farmId').isUUID(), ...farmValidators], validate, async (req, res) => {
+router.patch('/:farmId', writeLimit, idemFarm, [param('farmId').isUUID(), ...farmValidators], validate, async (req, res) => {
   try { return sendSuccess(res, await updateFarm(req.params.farmId, req.user.id, req.body)); }
   catch (e) { logger.error({ err: e }, '[Farm] update'); return sendError(res, 'Failed', 500); }
 });
 
-router.delete('/:farmId', writeLimit, [param('farmId').isUUID()], validate, async (req, res) => {
+router.delete('/:farmId', writeLimit, idemFarm, [param('farmId').isUUID()], validate, async (req, res) => {
   try { await deleteFarm(req.params.farmId, req.user.id); return sendSuccess(res, { deleted: true }); }
   catch (e) { logger.error({ err: e }, '[Farm] delete'); return sendError(res, 'Failed', 500); }
 });

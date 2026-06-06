@@ -8,6 +8,13 @@ import { compressImage } from '../utils/mediaCompressor';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_BASE_URL } from '../constants/config';
 
+// One key per *send action* (NOT per HTTP attempt) so a 401-replay / network
+// retry reuses it and the server returns the cached response instead of
+// re-calling the LLM + re-charging credits. See backend middleware/idempotency.js.
+function newIdemKey() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AI CHAT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -17,11 +24,28 @@ import { API_BASE_URL } from '../constants/config';
  * @param {string} message
  * @param {string|null} conversationId  Pass null to start a new conversation.
  * @param {object} farmProfile  Farm context to personalise the AI response.
- * @returns {{ reply, type, card, conversationId }}
+ * @param {boolean} includeFarmContext
+ * @param {string} language
+ * @param {string} responseLength  'short' | 'medium' | 'long' | 'extra_long'
+ * @param {{data:string, mime_type:string}|null} image  Optional attached photo
+ *        (compressed base64) → conversational disease diagnosis.
+ * @returns {{ reply, type, card, followUps, conversationId }}
  */
-export async function sendChatMessage(message, conversationId = null, farmProfile = {}, includeFarmContext = true, language = 'en') {
-  const { data } = await api.post('/ai/chat', { message, conversationId, farmProfile, includeFarmContext, language });
-  return data.data; // { reply, type, card, conversationId }
+export async function sendChatMessage(
+  message,
+  conversationId = null,
+  farmProfile = {},
+  includeFarmContext = true,
+  language = 'en',
+  responseLength = 'short',
+  image = null,
+) {
+  const { data } = await api.post(
+    '/ai/chat',
+    { message, conversationId, farmProfile, includeFarmContext, language, responseLength, image },
+    { headers: { 'Idempotency-Key': newIdemKey() } },
+  );
+  return data.data; // { reply, type, card, followUps, conversationId }
 }
 
 /**
@@ -302,6 +326,7 @@ export async function getMarketCrops() {
  */
 export async function sendVoiceMessage(audioUri, conversationId = null, farmProfile = {}, language = 'en') {
   const isWeb = typeof document !== 'undefined';
+  const idemKey = newIdemKey();
 
   // ── Web path ────────────────────────────────────────────────────────────────
   if (isWeb) {
@@ -318,7 +343,7 @@ export async function sendVoiceMessage(audioUri, conversationId = null, farmProf
     formData.append('farmProfile', JSON.stringify(farmProfile));
     if (language) formData.append('language', language);
     const { data } = await api.post('/ai/voice', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': 'multipart/form-data', 'Idempotency-Key': idemKey },
       timeout: 60000,
     });
     return data.data;
@@ -340,7 +365,7 @@ export async function sendVoiceMessage(audioUri, conversationId = null, farmProf
       uploadType:  FileSystem.FileSystemUploadType.MULTIPART,
       fieldName:   'audio',
       mimeType:    'audio/m4a',
-      headers:     token ? { Authorization: `Bearer ${token}` } : {},
+      headers:     { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Idempotency-Key': idemKey },
       parameters:  params,
     },
   );
@@ -368,7 +393,11 @@ export async function sendVoiceMessage(audioUri, conversationId = null, farmProf
  */
 export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', conversationId = null, farmProfile = {}) {
   const isWeb = typeof document !== 'undefined';
+  const idemKey = newIdemKey();
 
+  // Text-first: hit /ai/voice WITHOUT tts so the {transcription, reply} returns
+  // immediately; the screen fetches audio via textToSpeech() and auto-plays.
+  // (A TTS failure no longer wastes the STT+LLM spend, and the payload is small.)
   if (isWeb) {
     const formData = new FormData();
     const resp = await fetch(audioUri);
@@ -377,8 +406,8 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
     formData.append('language', language);
     if (conversationId) formData.append('conversationId', conversationId);
     formData.append('farmProfile', JSON.stringify(farmProfile));
-    const { data } = await api.post('/ai/voice?tts=1', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    const { data } = await api.post('/ai/voice', formData, {
+      headers: { 'Content-Type': 'multipart/form-data', 'Idempotency-Key': idemKey },
       timeout: 90000,
     });
     return data.data;
@@ -389,14 +418,14 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
   if (conversationId) params.conversationId = conversationId;
 
   const uploadResult = await FileSystem.uploadAsync(
-    `${API_BASE_URL}/ai/voice?tts=1`,
+    `${API_BASE_URL}/ai/voice`,
     audioUri,
     {
       httpMethod: 'POST',
       uploadType: FileSystem.FileSystemUploadType.MULTIPART,
       fieldName: 'audio',
       mimeType: 'audio/m4a',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Idempotency-Key': idemKey },
       parameters: params,
     },
   );
@@ -610,11 +639,32 @@ export async function getSoilReports() {
   return data.data || [];
 }
 
-export async function getSoilRecommendation(reportId = null, targetCrop = null) {
+export async function getSoilReportDetail(id) {
+  const { data } = await api.get(`/soil/reports/${id}`);
+  return data.data;
+}
+
+export async function getSoilRecommendation(soilId, crop, area = 1, unit = 'acre') {
   const params = {};
-  if (reportId)   params.reportId   = reportId;
-  if (targetCrop) params.targetCrop = targetCrop;
+  if (soilId) params.soilId = soilId;
+  if (crop)   params.crop   = crop;
+  if (area)   params.area   = area;
+  if (unit)   params.unit   = unit;
   const { data } = await api.get('/soil/recommendation', { params });
+  return data.data;
+}
+
+/**
+ * Soil Health Card OCR — upload a card photo, get the 12 parameters extracted.
+ * Returns { fields, units, confidence, notes, fieldsFound, token_info }.
+ * The caller must let the farmer review/edit before saving (never auto-submit).
+ */
+export async function scanSoilCard(base64, mimeType = 'image/jpeg') {
+  const { data } = await api.post(
+    '/ai/soil-card-ocr',
+    { image: { data: base64, mime_type: mimeType } },
+    { timeout: 60000 },
+  );
   return data.data;
 }
 

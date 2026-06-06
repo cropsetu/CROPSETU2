@@ -32,7 +32,7 @@ const GREEN_L = COLORS.primaryPale;
 const QUICK_SERVICES = [
   { id: 'scan',    labelKey: 'aiHome.quickServices.scan',    icon: 'scan-circle',         color: COLORS.primary, bg: COLORS.greenTint,  screen: 'CropScan' },
   { id: 'chat',    labelKey: 'aiHome.quickServices.chat',    icon: 'chatbubble-ellipses', color: COLORS.blue, bg: COLORS.blueMist,  screen: 'AIChat'   },
-  { id: 'markets', labelKey: 'aiHome.quickServices.markets', icon: 'trending-up',         color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market'   },
+  { id: 'markets', labelKey: 'aiHome.tools.mandi.label', icon: 'trending-up',         color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market'   },
   { id: 'weather', labelKey: 'aiHome.quickServices.weather', icon: 'partly-sunny',        color: COLORS.sellerConfirmed, bg: COLORS.skyPale, screen: 'Weather'  },
 ];
 
