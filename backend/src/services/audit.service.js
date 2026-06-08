@@ -61,8 +61,16 @@ export async function auditLog({
 export async function auditPiiUpdate(req, entity, entityId, changedFields) {
   // Redact actual PII values — only log which fields changed
   const redacted = {};
+  const SENSITIVE = [
+    'aadharNumber', 'panNumber', 'phone',
+    // Bank financial PII — now encrypted at rest; never echo the value
+    // (even ciphertext) into the audit trail.
+    'bankAccountNumber', 'bankHolderName', 'bankName', 'bankIfsc',
+    // KYC document references (private Cloudinary public_ids).
+    'kycDocumentUrls',
+  ];
   for (const key of Object.keys(changedFields)) {
-    if (['aadharNumber', 'panNumber', 'bankAccountNumber', 'phone'].includes(key)) {
+    if (SENSITIVE.includes(key)) {
       redacted[key] = '***REDACTED***';
     } else {
       redacted[key] = changedFields[key];

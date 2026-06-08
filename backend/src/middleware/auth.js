@@ -90,3 +90,29 @@ export function requireRole(...roles) {
     next();
   };
 }
+
+/**
+ * [DPDP §9] Block users flagged as minors from age-inappropriate flows —
+ * financial onboarding, KYC, selling, and other commerce that a child should
+ * not perform. Place AFTER `authenticate`. Minors are blocked outright here
+ * (these actions are unsuitable for children even with guardian consent);
+ * general data processing remains gated by guardian consent elsewhere.
+ */
+export async function blockMinors(req, res, next) {
+  try {
+    if (!req.user) return sendUnauthorized(res);
+    const u = await prisma.user.findUnique({
+      where:  { id: req.user.id },
+      select: { isMinor: true },
+    });
+    if (u?.isMinor) {
+      return sendForbidden(
+        res,
+        'This action is restricted for users under 18 (DPDP Act §9). Please contact support if you believe this is an error.',
+      );
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}

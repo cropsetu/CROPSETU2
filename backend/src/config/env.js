@@ -6,6 +6,76 @@ function required(key) {
   return val;
 }
 
+/**
+ * Validate the field-encryption key at startup in EVERY environment.
+ *
+ * Without a valid key the encrypt() helpers silently fall back to writing PII
+ * (Aadhaar, PAN, bank account) in plaintext. Allowing a service to boot in that
+ * state is the bug — so we refuse to start anywhere rather than degrade quietly.
+ * The key must be a 64-char hex string = 32 bytes (AES-256). Generate one with:
+ *   openssl rand -hex 32
+ */
+function requiredEncryptionKey() {
+  const val = process.env.FIELD_ENCRYPTION_KEY;
+  if (!val) {
+    throw new Error(
+      'FIELD_ENCRYPTION_KEY is required in all environments — refusing to start ' +
+      'to avoid writing PII unencrypted. Generate one with: openssl rand -hex 32',
+    );
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(val)) {
+    throw new Error(
+      'FIELD_ENCRYPTION_KEY is invalid — it must be a 64-character hex string ' +
+      '(32 bytes for AES-256). Generate a valid key with: openssl rand -hex 32',
+    );
+  }
+  return val;
+}
+
+// ── Versioned encryption keys (key rotation) ─────────────────────────────────
+// FIELD_ENCRYPTION_KEY is always available under the reserved id "0" (the legacy
+// key). Additional keys for rotation are supplied via FIELD_ENCRYPTION_KEYS as
+// comma-separated "id:hexkey" pairs, and FIELD_ENCRYPTION_ACTIVE_KEY_ID selects
+// which key encrypts NEW data. All listed keys remain available for DECRYPTION,
+// so a rotation can re-encrypt existing rows with zero downtime.
+const ENC_KEY_ID_RE = /^[A-Za-z0-9_-]+$/;
+const ENC_HEX64_RE  = /^[0-9a-fA-F]{64}$/;
+export const LEGACY_ENCRYPTION_KEY_ID = '0';
+
+function parseExtraEncryptionKeys() {
+  const raw = process.env.FIELD_ENCRYPTION_KEYS;
+  const keys = {};
+  if (!raw || !raw.trim()) return keys;
+  for (const part of raw.split(',')) {
+    const entry = part.trim();
+    if (!entry) continue;
+    const idx = entry.indexOf(':');
+    if (idx === -1) throw new Error(`FIELD_ENCRYPTION_KEYS entry "${entry}" must be "id:hexkey"`);
+    const id  = entry.slice(0, idx).trim();
+    const hex = entry.slice(idx + 1).trim();
+    if (!ENC_KEY_ID_RE.test(id)) throw new Error(`FIELD_ENCRYPTION_KEYS: invalid key id "${id}" (allowed: letters, digits, _ and -)`);
+    if (id === LEGACY_ENCRYPTION_KEY_ID) throw new Error('FIELD_ENCRYPTION_KEYS: id "0" is reserved for FIELD_ENCRYPTION_KEY');
+    if (!ENC_HEX64_RE.test(hex)) throw new Error(`FIELD_ENCRYPTION_KEYS: key "${id}" must be a 64-character hex string`);
+    if (keys[id]) throw new Error(`FIELD_ENCRYPTION_KEYS: duplicate key id "${id}"`);
+    keys[id] = hex;
+  }
+  return keys;
+}
+
+function resolveActiveEncryptionKeyId(extraKeys) {
+  const active = (process.env.FIELD_ENCRYPTION_ACTIVE_KEY_ID || LEGACY_ENCRYPTION_KEY_ID).trim();
+  if (active !== LEGACY_ENCRYPTION_KEY_ID && !extraKeys[active]) {
+    throw new Error(
+      `FIELD_ENCRYPTION_ACTIVE_KEY_ID "${active}" is not defined — add it to ` +
+      'FIELD_ENCRYPTION_KEYS (or use "0" for the legacy FIELD_ENCRYPTION_KEY).',
+    );
+  }
+  return active;
+}
+
+const _extraEncryptionKeys = parseExtraEncryptionKeys();
+const _activeEncryptionKeyId = resolveActiveEncryptionKeyId(_extraEncryptionKeys);
+
 export const ENV = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   PORT: parseInt(process.env.PORT || '3000', 10),
@@ -122,10 +192,12 @@ export const ENV = {
 
   // ── Field-level encryption (PII: Aadhaar, PAN, bank account) ─────────────────
   // 64-char hex string = 32 bytes. Generate with: openssl rand -hex 32
-  // REQUIRED in production — without it PII is stored unencrypted (dev warning only).
-  FIELD_ENCRYPTION_KEY: process.env.NODE_ENV === 'production'
-    ? (process.env.FIELD_ENCRYPTION_KEY || (() => { throw new Error('FIELD_ENCRYPTION_KEY is required in production'); })())
-    : (process.env.FIELD_ENCRYPTION_KEY || ''),
+  // REQUIRED in ALL environments — a missing/invalid key aborts startup so PII
+  // can never be written unencrypted (see requiredEncryptionKey above).
+  FIELD_ENCRYPTION_KEY: requiredEncryptionKey(),
+  // Additional rotation keys ({ id: hex }) + which id encrypts new data.
+  FIELD_ENCRYPTION_KEYS: _extraEncryptionKeys,
+  FIELD_ENCRYPTION_ACTIVE_KEY_ID: _activeEncryptionKeyId,
 
   // ── Payment Gateway (Razorpay) ────────────────────────────────────────────
   // Get keys from https://dashboard.razorpay.com — use test keys for dev

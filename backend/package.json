@@ -27,6 +27,8 @@
     "lint:console": "node scripts/check-console-logs.js",
     "mandi:seed": "node scripts/seedMandiData.js",
     "mandi:seed:quick": "node scripts/seedMandiData.js --quick",
+    "rotate:keys": "node scripts/rotate-encryption-key.js",
+    "rotate:keys:dry": "node scripts/rotate-encryption-key.js --dry-run",
     "ai:start": "cd AI_CROP_DISESE_DETECTION && .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8001 --reload"
   },
   "jest": {

@@ -7,8 +7,10 @@ import { jest } from '@jest/globals';
 // Must set the key BEFORE importing encrypt module
 process.env.FIELD_ENCRYPTION_KEY = 'a'.repeat(64); // 32 bytes hex
 
-const { encrypt, decrypt, maskAadhaar, maskAccount, maskPan, maskIfsc, stripHtml } =
-  await import('../../../src/utils/encrypt.js');
+const {
+  encrypt, decrypt, encryptNumber, decryptNumber,
+  maskAadhaar, maskAccount, maskPan, maskIfsc, stripHtml,
+} = await import('../../../src/utils/encrypt.js');
 
 describe('encrypt / decrypt', () => {
   test('round-trip: decrypt(encrypt(x)) === x', () => {
@@ -36,6 +38,20 @@ describe('encrypt / decrypt', () => {
     expect(decrypt(b)).toBe('same');
   });
 
+  test('every encryption uses a fresh, unique 96-bit IV (GCM nonce safety)', () => {
+    // IV is the first hex segment of the 3-part legacy format (iv:tag:ct).
+    const ivOf = (ct) => ct.split(':')[0];
+    const ivs = new Set();
+    const N = 1000;
+    for (let i = 0; i < N; i++) {
+      const iv = ivOf(encrypt('fixed-plaintext')); // same plaintext each time
+      expect(iv).toHaveLength(24);                  // 12 bytes = 96-bit IV
+      expect(iv).not.toBe('0'.repeat(24));          // never the degenerate all-zero IV
+      ivs.add(iv);
+    }
+    expect(ivs.size).toBe(N); // all IVs distinct — no (key, IV) reuse
+  });
+
   test('encrypt(null) returns null', () => {
     expect(encrypt(null)).toBeNull();
   });
@@ -56,6 +72,64 @@ describe('encrypt / decrypt', () => {
   test('handles numeric input by coercing to string', () => {
     const cipher = encrypt(123456789012);
     expect(decrypt(cipher)).toBe('123456789012');
+  });
+
+  test('GST number round-trips and is ciphertext at rest', () => {
+    const gst = '27ABCDE1234F1Z5';
+    const cipher = encrypt(gst);
+    expect(cipher).not.toBe(gst);          // not stored in plaintext
+    expect(cipher).not.toContain(gst);     // ciphertext does not embed it
+    expect(decrypt(cipher)).toBe(gst);     // decrypts back exactly
+  });
+
+  test('GST opt-out empty value stays empty (encrypt is a no-op on "")', () => {
+    // PUT /me stores '' when gstOptOut is set; it must remain falsy so the
+    // profile-completion truthiness check keeps working.
+    expect(encrypt('')).toBe('');
+    expect(decrypt('')).toBe('');
+  });
+});
+
+describe('encryptNumber / decryptNumber (lat / lng / income)', () => {
+  test('round-trips a positive coordinate', () => {
+    const cipher = encryptNumber(19.9975);
+    expect(typeof cipher).toBe('string');
+    expect(cipher).not.toBe('19.9975');       // ciphertext at rest
+    expect(decryptNumber(cipher)).toBe(19.9975);
+  });
+
+  test('round-trips a negative coordinate and an integer income', () => {
+    expect(decryptNumber(encryptNumber(-73.7898))).toBe(-73.7898);
+    expect(decryptNumber(encryptNumber(450000))).toBe(450000);
+  });
+
+  test('ciphertext is in iv:tag:ciphertext form (not the raw number)', () => {
+    const cipher = encryptNumber(12.34);
+    expect(cipher.split(':')).toHaveLength(3);
+  });
+
+  test('accepts numeric strings', () => {
+    expect(decryptNumber(encryptNumber('19.9975'))).toBe(19.9975);
+  });
+
+  test('passes null / undefined / empty through on encrypt, returns null on decrypt', () => {
+    expect(encryptNumber(null)).toBeNull();
+    expect(encryptNumber(undefined)).toBeUndefined();
+    expect(encryptNumber('')).toBe('');
+    expect(decryptNumber(null)).toBeNull();
+    expect(decryptNumber(undefined)).toBeNull();
+    expect(decryptNumber('')).toBeNull();
+  });
+
+  test('non-finite input encrypts to null (never persists garbage)', () => {
+    expect(encryptNumber('not-a-number')).toBeNull();
+    expect(encryptNumber(NaN)).toBeNull();
+  });
+
+  test('decrypts legacy plaintext numbers (pre-encryption rows)', () => {
+    // After the Float→String migration, old rows hold a bare numeric string.
+    expect(decryptNumber('19.9975')).toBe(19.9975);
+    expect(decryptNumber('450000')).toBe(450000);
   });
 });
 

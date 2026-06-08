@@ -11,6 +11,7 @@ import prisma from './config/db.js';
 import redis from './config/redis.js';
 import { registerChatSocket } from './socket/chat.socket.js';
 import { seedDefaultFlags } from './services/featureFlag.service.js';
+import { runRetentionSweep } from './services/retention.service.js';
 import logger from './utils/logger.js';
 
 // ── Startup config validation ─────────────────────────────────────────────────
@@ -174,6 +175,19 @@ async function start() {
         where: { expiresAt: { lt: new Date() } },
       });
       logger.info('[AgriPredict] Deleted %d expired prediction caches', expired.count);
+    });
+
+    // ── Data-retention sweep (DPDP minimisation) ────────────────────────────
+    // Daily at 2:30 AM UTC — purge transient/log data past its retention window
+    // (OTP sessions, expired tokens, old notifications, voice transcripts, AI
+    // usage logs, aged audit logs). See constants/retention.js for the policy.
+    cron.schedule('30 2 * * *', async () => {
+      try {
+        const purged = await runRetentionSweep();
+        logger.info({ purged }, '[Retention] Daily sweep complete');
+      } catch (err) {
+        logger.error({ err }, '[Retention] Daily sweep failed');
+      }
     });
 
     httpServer.on('error', (err) => {

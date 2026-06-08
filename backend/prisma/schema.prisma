@@ -23,8 +23,10 @@ model User {
   district                 String?
   city                     String?
   state                    String?              @default("Maharashtra")
-  lat                      Float?
-  lng                      Float?
+  // Encrypted at rest (AES-256-GCM ciphertext string). Decrypt to a Float in
+  // app code before any geo math — see utils/encrypt.js + cropReportShare routes.
+  lat                      String?
+  lng                      String?
   isOnline                 Boolean              @default(false)
   lastSeenAt               DateTime?
   createdAt                DateTime             @default(now())
@@ -38,8 +40,15 @@ model User {
   village                  String?
   aadhaarLast4             String?
   activeFarmId             String?
-  annualHouseholdIncome    Float?
+  // Encrypted at rest (AES-256-GCM ciphertext string). Decrypt to a number on read.
+  annualHouseholdIncome    String?
   dateOfBirth              DateTime?
+  // ── DPDP Act §9 (children's data) ──────────────────────────────────────────
+  // isMinor is derived from dateOfBirth (< 18) and persisted so it can gate
+  // restricted flows without recomputing. guardianConsentAt records verifiable
+  // parental/guardian consent (the lawful basis to process a child's data).
+  isMinor                  Boolean              @default(false)
+  guardianConsentAt        DateTime?
   dependents               Int?
   education                Education?
   familySize               Int?
@@ -64,6 +73,7 @@ model User {
   chatsAsSeller            Chat[]               @relation("SellerChats")
   commentLikes             CommentLike[]
   comments                 Comment[]
+  consentRecords           ConsentRecord[]
   cropCalendars            CropCalendar[]
   cropDiseaseReports       CropDiseaseReport[]
   cropReportSharesAsFarmer CropReportShare[]    @relation("CropReportSharesByFarmer")
@@ -1720,6 +1730,46 @@ enum Gender {
   OTHER
 }
 
+// ── Security incident / breach tracking (DPDP §8(6) notification duty) ───────
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  CONTAINED
+  RESOLVED
+  CLOSED
+}
+
+enum IncidentCategory {
+  DATA_BREACH // confirmed unauthorized access/disclosure of personal data
+  UNAUTHORIZED_ACCESS // access attempt/violation without confirmed data loss
+  ACCOUNT_TAKEOVER // credential/session compromise of a user account
+  TOKEN_COMPROMISE // leaked/replayed auth token or secret
+  OTP_ABUSE // OTP brute-force / bombing
+  PII_EXPOSURE // PII returned/logged/stored insecurely
+  VULNERABILITY // discovered weakness (not yet exploited)
+  PHISHING // social-engineering against users/staff
+  SYSTEM_COMPROMISE // server/infrastructure compromise
+  OTHER
+}
+
+// Purposes for which we capture consent (DPDP Act §5 — specific & informed).
+enum ConsentPurpose {
+  TERMS_OF_SERVICE // acceptance of the Terms of Service
+  PRIVACY_POLICY // acknowledgement of the Privacy Policy
+  DATA_PROCESSING // core processing of personal data to provide the service
+  AI_PROCESSING // sending crop images / voice to third-party AI providers
+  LOCATION // use of precise geolocation
+  MARKETING // promotional / marketing communications
+  GUARDIAN_CONSENT // DPDP §9 verifiable parental/guardian consent for a minor
+}
+
 enum GrowthStage {
   PLANNING
   LAND_PREP
@@ -1808,4 +1858,82 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ── Consent records — DPDP Act §5 lawful-basis proof ─────────────────────────
+// Append-only: every grant or withdrawal is a new immutable row. The EFFECTIVE
+// consent for a (user, purpose) is the most recent row by createdAt. Each row
+// captures the policy version shown, the timestamp, and proof of the request
+// (IP + user-agent + how it was captured) so consent can be demonstrated later.
+model ConsentRecord {
+  id            String         @id @default(uuid())
+  userId        String
+  purpose       ConsentPurpose
+  granted       Boolean // true = granted, false = withdrawn
+  policyVersion String // version of the terms/privacy notice presented (e.g. "2026-06-01")
+  method        String? // how it was captured: "signup", "settings_toggle", "api"
+  ip            String? // proof: request IP at the time of action
+  userAgent     String? // proof: client user-agent at the time of action
+  metadata      String? // JSON: any extra context (e.g. screen, locale)
+  createdAt     DateTime       @default(now())
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, purpose])
+  @@index([purpose])
+  @@index([createdAt])
+  @@map("consent_records")
+}
+
+// ── Security incident log — breach-notification tracking (DPDP §8(6)) ─────────
+// One row per detected/reported incident. The notification fields record the
+// statutory duty to inform the Data Protection Board of India and the affected
+// data principals. Each incident has an append-only IncidentUpdate timeline.
+model SecurityIncident {
+  id                   String           @id @default(uuid())
+  title                String
+  description          String?
+  category             IncidentCategory
+  severity             IncidentSeverity
+  status               IncidentStatus   @default(OPEN)
+  source               String? // 'system' (auto-detected) | 'manual' | subsystem name
+  detectedAt           DateTime         @default(now())
+  reportedById         String? // user/admin who reported (null = system-detected)
+  affectedUserCount    Int?
+  affectedUserIds      String[] // ids of affected data principals (may be empty)
+  dataCategories       String[] // PII categories involved, e.g. ['phone','aadhaar','bank']
+  // ── Breach-notification duty tracking ──────────────────────────────────────
+  notificationRequired Boolean          @default(false)
+  notifyDueAt          DateTime? // SLA deadline to notify once required
+  boardNotifiedAt      DateTime? // when the Data Protection Board was informed
+  usersNotifiedAt      DateTime? // when affected users were informed
+  rootCause            String?
+  remediation          String?
+  metadata             String? // JSON: extra structured context
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  updates              IncidentUpdate[]
+
+  @@index([status])
+  @@index([severity])
+  @@index([category])
+  @@index([detectedAt])
+  @@index([notificationRequired, boardNotifiedAt])
+  @@map("security_incidents")
+}
+
+// Append-only timeline for an incident: notes + status transitions, who & when.
+model IncidentUpdate {
+  id         String           @id @default(uuid())
+  incidentId String
+  incident   SecurityIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  authorId   String? // admin who added the note (null = system)
+  note       String
+  statusFrom IncidentStatus?
+  statusTo   IncidentStatus?
+  createdAt  DateTime         @default(now())
+
+  @@index([incidentId])
+  @@index([createdAt])
+  @@map("incident_updates")
 }
