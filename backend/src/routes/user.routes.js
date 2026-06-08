@@ -24,24 +24,44 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
 import { rateLimiter, clientIp } from '../middleware/rateLimit.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireRole, blockMinors } from '../middleware/auth.js';
+import { isMinorDob } from '../utils/age.js';
+import { isSensitivePiiUpdate } from '../constants/pii.js';
 import { validate } from '../middleware/validate.js';
-import { createUploader, createAvatarUploader, uploadFiles } from '../config/cloudinary.js';
+import {
+  createUploader, createAvatarUploader, uploadFiles,
+  uploadPrivateFiles, signedPrivateUrl, KYC_SIGNED_URL_TTL_SEC,
+} from '../config/cloudinary.js';
 import prisma from '../config/db.js';
 import { sendSuccess, sendError, sendNotFound } from '../utils/response.js';
 import {
   encrypt,
+  decrypt,
+  encryptNumber,
   stripHtml,
 } from '../utils/encrypt.js';
 import { maskSensitiveFields } from '../utils/mask.js';
 import logger from '../utils/logger.js';
-import { auditPiiUpdate } from '../services/audit.service.js';
+import { auditPiiUpdate, auditLog } from '../services/audit.service.js';
+import { verifyOtp } from '../services/otp.service.js';
+import { eraseUserAccount } from '../services/erasure.service.js';
 import { signAccessToken, createRefreshToken, enforceSessionLimit } from '../utils/jwt.js';
 
 const router = Router();
 router.use(authenticate); // all user routes require auth
 
 const avatarUpload = createAvatarUploader();
+// KYC documents are buffered in memory by multer, then streamed to Cloudinary's
+// PRIVATE (authenticated) storage — never the public CDN. Field name: 'images'.
+const kycUpload = createUploader(5);
+
+// Map stored Cloudinary public_ids → short-lived signed URLs for the response.
+// We never return the raw public_ids; access always goes back through signing.
+function signKycDocs(publicIds) {
+  return (publicIds || [])
+    .filter(Boolean)
+    .map((id) => ({ url: signedPrivateUrl(id), expiresInSec: KYC_SIGNED_URL_TTL_SEC }));
+}
 
 // ── [M1] Per-user rate limiter for expensive write operations ─────────────────
 // Caps profile / seller-profile / farm writes at 20 per 15 min per user. These
@@ -55,6 +75,29 @@ const profileWriteLimit = rateLimiter({
   prefix:   'user:write',
   key:      (req) => req.user?.id || clientIp(req),
   message:  'Too many profile updates. Please wait a few minutes and try again.',
+});
+
+// ── Dedicated rate limit for SENSITIVE PII churn ─────────────────────────────
+// The general profileWriteLimit (20/15min) is shared with benign edits (name,
+// avatar, location). Sensitive identifiers (Aadhaar, PAN, bank, GST, DOB) change
+// very rarely, so they get their own much tighter budget on top: 5 changes per
+// hour per user. Excess sensitive-PII updates return 429. Used in two flavours:
+//   - piiUpdateLimit:   only counts requests that actually carry a sensitive PII
+//                       field (so a name-only PUT /me is unaffected).
+//   - kycSubmitLimit:   unconditional — KYC docs arrive as multipart files (not
+//                       body fields), and every submission is inherently PII.
+// Both share the 'user:pii' counter so the cap spans all sensitive-PII routes.
+const PII_LIMIT = { windowMs: 60 * 60 * 1000, max: 5, prefix: 'user:pii',
+  message: 'Too many updates to sensitive details. For your security, please wait before changing these again.' };
+
+const piiUpdateLimit = rateLimiter({
+  ...PII_LIMIT,
+  key: (req) => (req.user?.id && isSensitivePiiUpdate(req.body) ? req.user.id : null),
+});
+
+const kycSubmitLimit = rateLimiter({
+  ...PII_LIMIT,
+  key: (req) => req.user?.id || clientIp(req),
 });
 
 // ── Helper: recalculate profile completion (0-100) ────────────────────────────
@@ -96,6 +139,8 @@ router.get('/me', async (req, res) => {
         // Farmer profile module
         onboardingStep: true, activeFarmId: true, totalFarms: true, totalLandAcres: true,
         gender: true, education: true, farmingExperienceYrs: true,
+        // [DPDP §9] surface minor status + guardian-consent state to the client
+        dateOfBirth: true, isMinor: true, guardianConsentAt: true,
         sellerProfile: {
           select: {
             id: true,
@@ -120,8 +165,12 @@ router.get('/me', async (req, res) => {
 
     if (!user) return sendNotFound(res, 'User');
 
-    // [C1] Return masked PII
-    return sendSuccess(res, { ...user, sellerProfile: safeSellerProfile(user.sellerProfile) });
+    // [C1] Return masked PII; [C2] decrypt the owner's own GST for display.
+    return sendSuccess(res, {
+      ...user,
+      gstNumber: user.gstNumber ? (decrypt(user.gstNumber) ?? user.gstNumber) : user.gstNumber,
+      sellerProfile: safeSellerProfile(user.sellerProfile),
+    });
   } catch (err) {
     logger.error({ err }, '[User] GET /me error');
     return sendError(res, 'Failed to load profile', 500);
@@ -136,6 +185,7 @@ router.put(
     if (err) return sendError(res, err.message, 400);
     next();
   }),
+  piiUpdateLimit, // tight cap on sensitive-PII churn (runs after body is parsed)
   [
     body('name').optional().trim().isLength({ min: 2, max: 80 }),
     body('language').optional().isIn(['en', 'hi', 'mr']),
@@ -148,6 +198,9 @@ router.put(
     body('state').optional().trim().isLength({ max: 100 }),
     body('lat').optional({ values: 'null' }).isFloat({ min: -90,  max: 90  }).withMessage('lat must be between -90 and 90'),
     body('lng').optional({ values: 'null' }).isFloat({ min: -180, max: 180 }).withMessage('lng must be between -180 and 180'),
+    // [DPDP §9] Date of birth — drives minor detection. Must be a valid past date.
+    body('dateOfBirth').optional({ values: 'null' }).isISO8601().withMessage('dateOfBirth must be a valid date')
+      .custom((val) => { if (val && new Date(val) > new Date()) throw new Error('dateOfBirth cannot be in the future'); return true; }),
     body('businessType').optional().isIn([
       'individual_farmer', 'farmer_group', 'fpc', 'cooperative', 'agri_business',
       'krushi_kendra', 'fertilizer_dealer', 'pesticide_dealer', 'seed_supplier', 'agri_input_shop',
@@ -187,7 +240,7 @@ router.put(
       const {
         name, language, statusQuote,
         pincode, district, taluka, village, city, state,
-        lat, lng,
+        lat, lng, dateOfBirth,
         businessType, gstNumber, gstOptOut,
         bankHolderName, bankName, bankAccountNumber, bankIfsc,
         aadharNumber, panNumber,
@@ -221,19 +274,33 @@ router.put(
       if (village     !== undefined) userData.village     = village;
       if (city        !== undefined) userData.city        = city;
       if (state       !== undefined) userData.state       = state;
-      if (lat         !== undefined) userData.lat         = lat === null ? null : Number(lat);
-      if (lng         !== undefined) userData.lng         = lng === null ? null : Number(lng);
+      // [C2] Encrypt geolocation at rest — stored as ciphertext, decrypted to a
+      // Float in app code (e.g. the sellers-nearby geo search) when needed.
+      if (lat         !== undefined) userData.lat         = lat === null ? null : encryptNumber(lat);
+      if (lng         !== undefined) userData.lng         = lng === null ? null : encryptNumber(lng);
+      // [DPDP §9] Persist dob and derive minor status so restricted flows can be
+      // gated. Setting dob recomputes isMinor; clearing it resets the flag.
+      if (dateOfBirth !== undefined) {
+        userData.dateOfBirth = dateOfBirth === null ? null : new Date(dateOfBirth);
+        userData.isMinor     = dateOfBirth === null ? false : isMinorDob(dateOfBirth);
+      }
       if (businessType !== undefined) userData.businessType = businessType;
       // Auto-upgrade role to SELLER when a businessType is set on a FARMER account.
       // The role lives in the JWT, so we also re-issue fresh tokens at the end of
       // this handler when this flip happens (otherwise the next request would
       // still see the old FARMER role).
-      const roleFlipped = businessType && req.user.role === 'FARMER';
+      // [DPDP §9] Never auto-upgrade a minor to SELLER. (Seller financial flows
+      // are also blocked by the blockMinors middleware on those routes.)
+      const roleFlipped = businessType && req.user.role === 'FARMER' && userData.isMinor !== true;
       if (roleFlipped) userData.role = 'SELLER';
       if (resolvedGstOptOut !== undefined) userData.gstOptOut = resolvedGstOptOut;
-      // [M4] Use the already-resolved boolean, not the raw body string
+      // [M4] Use the already-resolved boolean, not the raw body string.
+      // [C2] GST is a financial identifier — encrypt at rest. The empty
+      // opt-out value stays '' (encrypt is a no-op on ''), so the truthiness
+      // check in calcProfileCompletion still works.
       if (gstNumber !== undefined) {
-        userData.gstNumber = resolvedGstOptOut ? '' : (gstNumber?.trim().toUpperCase() || '');
+        const gstPlain = resolvedGstOptOut ? '' : (gstNumber?.trim().toUpperCase() || '');
+        userData.gstNumber = encrypt(gstPlain);
       }
 
       // ── 2. Build SellerProfile payload — [C2] encrypt before write ─────────
@@ -263,11 +330,13 @@ router.put(
 
         if (hasBankOrKyc) {
           const spData = {};
-          if (bankHolderName    !== undefined) spData.bankHolderName    = stripHtml(bankHolderName);
-          if (bankName          !== undefined) spData.bankName          = stripHtml(bankName);
-          // [C2] Encrypt PII before writing to DB
+          // [C2] Encrypt all bank/KYC financial PII before writing to DB.
+          // Sanitize (stripHtml / uppercase) the plaintext FIRST, then encrypt,
+          // so the ciphertext decrypts back to the clean canonical value.
+          if (bankHolderName    !== undefined) spData.bankHolderName    = encrypt(stripHtml(bankHolderName));
+          if (bankName          !== undefined) spData.bankName          = encrypt(stripHtml(bankName));
           if (bankAccountNumber !== undefined) spData.bankAccountNumber = encrypt(bankAccountNumber);
-          if (bankIfsc          !== undefined) spData.bankIfsc          = bankIfsc?.toUpperCase();
+          if (bankIfsc          !== undefined) spData.bankIfsc          = encrypt(bankIfsc?.toUpperCase());
           if (aadharNumber      !== undefined) spData.aadharNumber      = encrypt(aadharNumber);
           if (panNumber         !== undefined) spData.panNumber         = encrypt(panNumber?.toUpperCase());
 
@@ -320,7 +389,7 @@ router.put(
         city:              updatedUser.city,
         state:             updatedUser.state,
         businessType:      updatedUser.businessType,
-        gstNumber:         updatedUser.gstNumber,
+        gstNumber:         updatedUser.gstNumber ? (decrypt(updatedUser.gstNumber) ?? updatedUser.gstNumber) : updatedUser.gstNumber,
         gstOptOut:         updatedUser.gstOptOut,
         kycStatus:         updatedUser.kycStatus,
         profileCompletion: updatedUser.profileCompletion,
@@ -339,6 +408,8 @@ router.put(
 router.put(
   '/me/seller-profile',
   profileWriteLimit, // [M1]
+  blockMinors,       // [DPDP §9] no financial/seller onboarding for under-18s
+  piiUpdateLimit,    // tight cap on sensitive-PII churn (bank / Aadhaar / PAN)
   [
     body('bankHolderName').optional().trim().isLength({ max: 100 }),
     body('bankName').optional().trim().isLength({ max: 100 }),
@@ -359,11 +430,12 @@ router.put(
       const { bankHolderName, bankName, bankAccountNumber, bankIfsc, aadharNumber, panNumber } = req.body;
 
       const data = {};
-      if (bankHolderName    !== undefined) data.bankHolderName    = stripHtml(bankHolderName); // [L5]
-      if (bankName          !== undefined) data.bankName          = stripHtml(bankName);        // [L5]
-      // [C2] Encrypt before write
+      // [C2] Encrypt all bank/KYC financial PII before write. Sanitize the
+      // plaintext ([L5] stripHtml / uppercase) FIRST, then encrypt.
+      if (bankHolderName    !== undefined) data.bankHolderName    = encrypt(stripHtml(bankHolderName));
+      if (bankName          !== undefined) data.bankName          = encrypt(stripHtml(bankName));
       if (bankAccountNumber !== undefined) data.bankAccountNumber = encrypt(bankAccountNumber);
-      if (bankIfsc          !== undefined) data.bankIfsc          = bankIfsc.toUpperCase();
+      if (bankIfsc          !== undefined) data.bankIfsc          = encrypt(bankIfsc.toUpperCase());
       if (aadharNumber      !== undefined) data.aadharNumber      = encrypt(aadharNumber);
       if (panNumber         !== undefined) data.panNumber         = encrypt(panNumber.toUpperCase());
 
@@ -384,6 +456,144 @@ router.put(
     } catch (err) {
       logger.error({ err }, '[User] PUT /me/seller-profile error');
       return sendError(res, 'Failed to update seller profile', 500);
+    }
+  }
+);
+
+// ── KYC documents — PRIVATE storage, signed-URL access ────────────────────────
+// ID proofs must never be publicly fetchable. They are uploaded to Cloudinary's
+// authenticated storage; we persist only the opaque public_id and hand out
+// short-lived signed URLs (default 5 min). A plain/public request for the asset
+// fails at Cloudinary (401). Read access is gated to the owner and ADMIN.
+
+// POST /me/kyc-documents — owner (re)submits KYC document images.
+router.post(
+  '/me/kyc-documents',
+  profileWriteLimit, // [M1]
+  blockMinors,       // [DPDP §9] no identity/KYC submission for under-18s
+  kycSubmitLimit,    // tight cap on sensitive KYC submissions (5/hour/user)
+  (req, res, next) => kycUpload(req, res, (err) => {
+    if (err) return sendError(res, err.message, 400);
+    next();
+  }),
+  async (req, res) => {
+    try {
+      if (!req.files?.length) {
+        return sendError(res, 'At least one KYC document image is required', 400);
+      }
+      // Store privately under a per-user folder; keep only the public_ids.
+      const publicIds = await uploadPrivateFiles(req.files, `kyc/${req.user.id}`);
+
+      // Persist references and reset KYC to PENDING — new docs need re-review.
+      const [sp] = await prisma.$transaction([
+        prisma.sellerProfile.upsert({
+          where:  { userId: req.user.id },
+          create: { userId: req.user.id, kycDocumentUrls: publicIds },
+          update: { kycDocumentUrls: publicIds },
+          select: { kycDocumentUrls: true },
+        }),
+        prisma.user.update({
+          where: { id: req.user.id },
+          data:  { kycStatus: 'PENDING' },
+        }),
+      ]);
+
+      auditPiiUpdate(req, 'SellerProfile', req.user.id, { kycDocumentUrls: publicIds }).catch(() => {});
+
+      return sendSuccess(res, { documents: signKycDocs(sp.kycDocumentUrls) }, 201);
+    } catch (err) {
+      logger.error({ err }, '[User] POST /me/kyc-documents error');
+      // Surface the "not configured" guard so misconfig is obvious; otherwise generic.
+      const msg = /Cloudinary is not configured/.test(err.message) ? err.message : 'Failed to upload KYC documents';
+      return sendError(res, msg, 500);
+    }
+  }
+);
+
+// GET /me/kyc-documents — owner fetches fresh signed URLs for their own docs.
+router.get('/me/kyc-documents', async (req, res) => {
+  try {
+    const sp = await prisma.sellerProfile.findUnique({
+      where:  { userId: req.user.id },
+      select: { kycDocumentUrls: true },
+    });
+    return sendSuccess(res, { documents: signKycDocs(sp?.kycDocumentUrls) });
+  } catch (err) {
+    logger.error({ err }, '[User] GET /me/kyc-documents error');
+    return sendError(res, 'Failed to load KYC documents', 500);
+  }
+});
+
+// GET /:userId/kyc-documents — ADMIN fetches signed URLs to review a seller.
+router.get('/:userId/kyc-documents', requireRole('ADMIN'), async (req, res) => {
+  try {
+    const sp = await prisma.sellerProfile.findUnique({
+      where:  { userId: req.params.userId },
+      select: { kycDocumentUrls: true },
+    });
+    if (!sp) return sendNotFound(res, 'Seller profile');
+    return sendSuccess(res, { documents: signKycDocs(sp.kycDocumentUrls) });
+  } catch (err) {
+    logger.error({ err }, '[User] GET /:userId/kyc-documents error');
+    return sendError(res, 'Failed to load KYC documents', 500);
+  }
+});
+
+// ── DELETE /me — Right to Erasure (DPDP Act §8) ───────────────────────────────
+// Irreversible. The caller must re-verify with an OTP sent to their registered
+// phone (request one first via POST /auth/send-otp). On success we anonymize the
+// user row + shared records, hard-delete personal data and purge media, then
+// record an audit entry. The just-deleted sessions + bumped tokenVersion make
+// the caller's current tokens invalid immediately afterwards.
+router.delete(
+  '/me',
+  profileWriteLimit, // [M1]
+  [
+    body('otp').trim().matches(/^\d{6}$/).withMessage('A valid 6-digit OTP is required'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const me = await prisma.user.findUnique({
+        where:  { id: req.user.id },
+        select: { phone: true },
+      });
+      if (!me) return sendNotFound(res, 'User');
+
+      // [verification] OTP must match a live session for THIS user's phone.
+      const result = await verifyOtp(me.phone, req.body.otp);
+      if (!result.success) {
+        const status = result.locked ? 423 : 401;
+        return sendError(res, result.reason || 'OTP verification failed', status);
+      }
+      if (result.userId && result.userId !== req.user.id) {
+        // Defense-in-depth: the verified phone must belong to the caller.
+        return sendError(res, 'OTP verification failed', 401);
+      }
+
+      const summary = await eraseUserAccount(req.user.id);
+      if (!summary.erased) return sendNotFound(res, 'User');
+
+      // Audit AFTER erasure. AuditLog has no FK to User, so it survives; we store
+      // only non-PII counters, never the erased values.
+      await auditLog({
+        userId:    req.user.id,
+        action:    'ACCOUNT_ERASURE',
+        entity:    'User',
+        entityId:  req.user.id,
+        ip:        req.ip,
+        requestId: req.id,
+        metadata:  { mediaRefs: summary.mediaRefs, mediaDeleted: summary.mediaDeleted },
+      });
+
+      logger.info({ userId: req.user.id, ...summary }, '[User] account erased (DPDP §8)');
+      return sendSuccess(res, {
+        erased: true,
+        message: 'Your account and personal data have been permanently erased.',
+      });
+    } catch (err) {
+      logger.error({ err }, '[User] DELETE /me erasure error');
+      return sendError(res, 'Failed to erase account. Please try again.', 500);
     }
   }
 );

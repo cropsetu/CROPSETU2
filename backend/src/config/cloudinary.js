@@ -145,6 +145,83 @@ export function uploadVideoBuffer(buffer, folder) {
   });
 }
 
+// ── Private (authenticated) storage for KYC / ID documents ───────────────────
+// Regular uploads above use the default `type: 'upload'`, which serves assets
+// from the PUBLIC CDN — anyone with the URL can fetch them. KYC documents (ID
+// proofs) must NOT be public. These helpers upload with `type: 'authenticated'`
+// so the asset is never reachable via a plain URL: it can only be delivered
+// through a short-lived SIGNED url (see signedPrivateUrl). We persist the
+// Cloudinary `public_id` (an opaque storage reference), never a public URL, so
+// access always has to go back through the signing + authz path.
+
+/** Default lifetime of a KYC signed URL. Short by design — re-sign on demand. */
+export const KYC_SIGNED_URL_TTL_SEC = 5 * 60; // 5 minutes
+
+/**
+ * Upload a single buffer PRIVATELY. Returns the Cloudinary `public_id`
+ * (a reference, NOT a fetchable URL).
+ */
+export function uploadPrivateBuffer(buffer, folder) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Cloudinary upload timed out')), 55000);
+
+    const C = MEDIA_COMPRESSION.image;
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder:        `farmeasy/${folder}`,
+        type:          'authenticated', // private — not served from the public CDN
+        format:        C.format,
+        transformation: [{ width: C.maxWidth, crop: 'limit', quality: C.quality }],
+      },
+      (err, result) => {
+        clearTimeout(timer);
+        if (err) reject(err);
+        else resolve(result.public_id);
+      }
+    );
+    streamifier.createReadStream(buffer).pipe(stream);
+  });
+}
+
+/**
+ * Upload all req.files buffers privately. Returns an array of `public_id`s.
+ * Throws if Cloudinary is not configured — KYC must never silently no-op into
+ * an empty/plaintext state (unlike best-effort public media uploads).
+ */
+export async function uploadPrivateFiles(files = [], folder) {
+  if (!files.length) return [];
+  if (!ENV.CLOUDINARY_CLOUD_NAME) {
+    throw new Error('Cloudinary is not configured — cannot store KYC documents securely');
+  }
+  return Promise.all(files.map((f) => uploadPrivateBuffer(f.buffer, folder)));
+}
+
+/**
+ * Generate a short-lived SIGNED, EXPIRING URL for a privately-stored asset.
+ * Uses Cloudinary's private_download_url, whose signature includes the
+ * `expires_at` timestamp — so the URL stops working once it lapses, and any
+ * tampering invalidates the signature. A plain/public request for an
+ * authenticated asset (no signature) is rejected by Cloudinary (401).
+ *
+ * NOTE: `cloudinary.url({ sign_url, expires_at })` does NOT bind the expiry
+ * into the signature (it produces a non-expiring URL), which is why we use
+ * private_download_url here instead.
+ *
+ * Uploads are normalised to JPEG (see MEDIA_COMPRESSION.image.format), so the
+ * stored asset format is 'jpg'.
+ */
+export function signedPrivateUrl(
+  publicId,
+  { expiresInSec = KYC_SIGNED_URL_TTL_SEC, resourceType = 'image', format = 'jpg' } = {},
+) {
+  if (!publicId) return null;
+  return cloudinary.utils.private_download_url(publicId, format, {
+    resource_type: resourceType,
+    type:          'authenticated',
+    expires_at:    Math.floor(Date.now() / 1000) + expiresInSec,
+  });
+}
+
 export function createVideoUploader() {
   return multer({
     storage: memoryStorage,
@@ -156,6 +233,49 @@ export function createVideoUploader() {
       cb(null, true);
     },
   }).single('video');
+}
+
+// ── Asset deletion (used by account erasure / right-to-erasure) ──────────────
+
+/**
+ * Extract the Cloudinary public_id from a stored secure_url.
+ * Returns null for non-Cloudinary strings. Our uploads carry no delivery-time
+ * transformations, so the path is simply
+ *   /<cloud>/<resource_type>/<type>/v<version>/<folder>/<name>.<ext>
+ */
+export function publicIdFromUrl(url) {
+  if (typeof url !== 'string' || !url.includes('res.cloudinary.com')) return null;
+  try {
+    const parts = new URL(url).pathname.split('/').filter(Boolean);
+    const typeIdx = parts.findIndex((p) => ['upload', 'authenticated', 'private', 'fetch'].includes(p));
+    if (typeIdx === -1) return null;
+    // Drop everything up to and including the delivery type, plus the version.
+    const rest = parts.slice(typeIdx + 1).filter((p) => !/^v\d+$/.test(p));
+    if (!rest.length) return null;
+    return rest.join('/').replace(/\.[^/.]+$/, ''); // strip file extension
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Best-effort delete of a single asset by public_id. Never throws — erasure
+ * must continue even if one asset is already gone or Cloudinary is unreachable.
+ * Returns true on confirmed delete.
+ */
+export async function destroyAsset(publicId, { resourceType = 'image', type = 'upload' } = {}) {
+  if (!publicId || !ENV.CLOUDINARY_CLOUD_NAME) return false;
+  try {
+    const res = await cloudinary.uploader.destroy(publicId, {
+      resource_type: resourceType,
+      type,
+      invalidate: true, // purge CDN cache too
+    });
+    return res?.result === 'ok' || res?.result === 'not found';
+  } catch (err) {
+    console.warn(`[Cloudinary] destroy failed for ${publicId}: ${err.message}`);
+    return false;
+  }
 }
 
 export { cloudinary };

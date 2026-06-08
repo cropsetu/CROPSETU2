@@ -23,6 +23,8 @@ import {
 import { generateCsrfToken } from '../middleware/csrf.js';
 import { auditAuthEvent, AUTH_ACTIONS, maskPhone } from '../services/audit.service.js';
 import { sendOtp, verifyOtp } from '../services/otp.service.js';
+import { captureSignupConsent } from '../services/consent.service.js';
+import { reportSecurityEvent } from '../services/incident.service.js';
 import {
   signAccessToken,
   createRefreshToken,
@@ -148,6 +150,14 @@ router.post(
           data: { phone, name: name || null },
           select: { id: true, phone: true, name: true, role: true, language: true, onboardingStep: true, activeFarmId: true, totalFarms: true, tokenVersion: true },
         });
+        // [DPDP §5] Capture proof of the required consents accepted on the
+        // signup screen (Terms, Privacy, core data processing). Best-effort:
+        // logged but never blocks registration.
+        await captureSignupConsent({
+          userId:    user.id,
+          ip:        req.ip,
+          userAgent: req.headers['user-agent'] || null,
+        });
       } else {
         user = await prisma.user.findUnique({
           where: { id: result.userId },
@@ -218,6 +228,17 @@ router.post(
           { userId: result.userId, familyId: result.familyId },
           '[Auth] Refresh token reuse detected — revoked token family'
         );
+        // Auto-log a security incident: a replayed refresh token means the token
+        // leaked and both the user and an attacker held it. Best-effort.
+        reportSecurityEvent({
+          title:           'Refresh token reuse detected',
+          description:     'A spent refresh token was replayed; the token family was revoked. Possible token theft / account-takeover attempt.',
+          category:        'ACCOUNT_TAKEOVER',
+          severity:        'HIGH',
+          affectedUserIds: result.userId ? [result.userId] : [],
+          dataCategories:  ['session'],
+          metadata:        { familyId: result.familyId, ip: req.ip },
+        }).catch(() => {});
         return sendUnauthorized(res, 'Refresh token reuse detected. Please sign in again.');
       }
       if (result.status !== 'ok') {

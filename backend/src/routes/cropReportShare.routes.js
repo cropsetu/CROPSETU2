@@ -19,6 +19,8 @@ import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, paginationMeta } from '../utils/response.js';
 import { sendPushToUser } from '../services/push.service.js';
+import { decryptNumber } from '../utils/encrypt.js';
+import logger from '../utils/logger.js';
 import prisma from '../config/db.js';
 
 const router = Router();
@@ -30,6 +32,11 @@ const KRUSHI_KENDRA_TYPES = [
   'agri_input_shop',
   'pesticide_dealer',
 ];
+
+// Upper bound on candidate sellers scanned for the in-app Haversine filter.
+// Because lat/lng are encrypted we can't pre-filter by a SQL bounding box, so
+// we cap the scan to keep the query bounded and decrypt at most this many rows.
+const CANDIDATE_SCAN_CAP = 1000;
 
 // Haversine — great-circle distance in km between two lat/lng pairs.
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -61,8 +68,9 @@ router.get('/sellers/nearby', authenticate, async (req, res) => {
     where:  { id: req.user.id },
     select: { lat: true, lng: true, district: true, taluka: true },
   });
-  if (farmerLat == null) farmerLat = farmer?.lat ?? null;
-  if (farmerLng == null) farmerLng = farmer?.lng ?? null;
+  // lat/lng are encrypted at rest — decrypt the stored row back to numbers.
+  if (farmerLat == null) farmerLat = decryptNumber(farmer?.lat);
+  if (farmerLng == null) farmerLng = decryptNumber(farmer?.lng);
   if (!queryDistrict)   queryDistrict = farmer?.district || null;
   if (!queryTaluka)     queryTaluka   = farmer?.taluka   || null;
 
@@ -79,30 +87,45 @@ router.get('/sellers/nearby', authenticate, async (req, res) => {
   let sellers = [];
 
   if (farmerLat != null && farmerLng != null) {
-    // GPS path — fetch all candidate sellers in a generous bounding box, then
-    // filter + sort precisely by Haversine in JS. Bounding box keeps the SQL
-    // cheap; the precise filter lives in app code so we don't need PostGIS.
-    const degLat = RADIUS_KM / 111; // ~1 deg latitude = 111 km
-    const degLng = RADIUS_KM / (111 * Math.cos((farmerLat * Math.PI) / 180) || 1);
+    // GPS path. lat/lng are encrypted at rest, so a SQL bounding-box pre-filter
+    // (gte/lte on the columns) is no longer possible — non-deterministic GCM
+    // ciphertext has no orderable form. Instead we fetch candidate sellers of
+    // the right businessType that have coords, decrypt in app code, then filter
+    // + sort precisely by Haversine. CANDIDATE_SCAN_CAP bounds the scan; if it
+    // is ever hit we log so the truncation is visible rather than silent.
     const candidates = await prisma.user.findMany({
       where: {
         id:           { not: me },
         businessType: { in: businessTypes },
-        lat:          { not: null, gte: farmerLat - degLat, lte: farmerLat + degLat },
-        lng:          { not: null, gte: farmerLng - degLng, lte: farmerLng + degLng },
+        lat:          { not: null },
+        lng:          { not: null },
       },
       select: SELLER_SELECT,
-      take: 100,
+      take: CANDIDATE_SCAN_CAP,
     });
+    if (candidates.length === CANDIDATE_SCAN_CAP) {
+      logger.warn(
+        { businessTypes, cap: CANDIDATE_SCAN_CAP },
+        '[sellers/nearby] candidate scan hit cap — some distant sellers may be omitted',
+      );
+    }
 
     sellers = candidates
-      .map((s) => ({
-        ...s,
-        productCount: s._count.sellerProducts,
-        distanceKm:   haversineKm(farmerLat, farmerLng, s.lat, s.lng),
-        proximity:    'gps',
-      }))
-      .filter((s) => s.distanceKm <= RADIUS_KM)
+      .map((s) => {
+        const sLat = decryptNumber(s.lat);
+        const sLng = decryptNumber(s.lng);
+        return {
+          ...s,
+          lat:          sLat,
+          lng:          sLng,
+          productCount: s._count.sellerProducts,
+          distanceKm:   sLat != null && sLng != null
+            ? haversineKm(farmerLat, farmerLng, sLat, sLng)
+            : null,
+          proximity:    'gps',
+        };
+      })
+      .filter((s) => s.distanceKm != null && s.distanceKm <= RADIUS_KM)
       .sort((a, b) => a.distanceKm - b.distanceKm)
       .slice(0, 30)
       .map(({ _count, ...rest }) => rest);
@@ -125,6 +148,10 @@ router.get('/sellers/nearby', authenticate, async (req, res) => {
       ...fallback
         .map((s) => ({
           ...s,
+          // Decrypt coords so the response never carries ciphertext (these
+          // sellers are matched by district and may or may not have coords).
+          lat:          decryptNumber(s.lat),
+          lng:          decryptNumber(s.lng),
           productCount: s._count.sellerProducts,
           distanceKm:   null,
           proximity:    s.taluka === queryTaluka ? 'taluka' : 'district',
