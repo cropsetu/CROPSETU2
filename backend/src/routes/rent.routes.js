@@ -32,9 +32,12 @@
 import { Router } from 'express';
 import { body, query } from 'express-validator';
 import { authenticate, optionalAuth } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
+import { maxLen } from '../middleware/textLength.js';
+import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
-import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, paginationMeta } from '../utils/response.js';
+import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta } from '../utils/response.js';
 import { haversineKm, attachDistance } from '../utils/geo.js';
 import { stripHtml } from '../utils/encrypt.js';
 
@@ -82,6 +85,7 @@ function deriveBookedStatus(bookings, startOfToday) {
 }
 
 const router = Router();
+router.param('id', uuidParamGuard); // machinery / labour / booking ids — reject non-UUIDs with 400
 
 /**
  * Build a bounding-box Prisma where clause for a geo-radius query.
@@ -103,7 +107,9 @@ function boundingBox(lat, lng, radiusKm) {
 router.get('/machinery', optionalAuth, async (req, res) => {
   const page     = Math.max(parseInt(req.query.page  || '1'),  1);
   const limit    = Math.min(parseInt(req.query.limit || '20'), 50);
-  const { category, district, search, available } = req.query;
+  const { category, available } = req.query;
+  const district = sanitizeSearch(req.query.district); // strip LIKE wildcards / cap length
+  const search   = sanitizeSearch(req.query.search);
   const userLat  = req.query.lat    ? parseFloat(req.query.lat)    : null;
   const userLng  = req.query.lng    ? parseFloat(req.query.lng)    : null;
   const radiusKm = req.query.radius ? parseFloat(req.query.radius) : 50; // default 50 km
@@ -274,6 +280,17 @@ router.get('/machinery/:id/availability', async (req, res) => {
   return sendSuccess(res, bookings);
 });
 
+// Per-field character caps for listing free-text — bound DB row size and reject
+// oversized payloads with 400. Shared by each resource's create + update routes.
+const MACHINERY_TEXT_LIMITS = {
+  name: 150, category: 80, description: 5000, brand: 100, fuelType: 40,
+  location: 150, district: 120, state: 120, ownerName: 120,
+};
+const LABOUR_TEXT_LIMITS = {
+  name: 150, leader: 120, groupName: 120, experience: 200, description: 5000,
+  languages: 200, location: 150, district: 120, state: 120,
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MACHINERY — create listing
 // ─────────────────────────────────────────────────────────────────────────────
@@ -287,6 +304,7 @@ router.post(
     body('pricePerDay').isFloat({ min: 1 }).withMessage('pricePerDay must be positive'),
     body('location').trim().notEmpty().withMessage('Location is required'),
     body('district').trim().notEmpty().withMessage('District is required'),
+    ...maxLen(MACHINERY_TEXT_LIMITS),
   ],
   validate,
   async (req, res) => {
@@ -347,7 +365,7 @@ router.post(
 // MACHINERY — update listing
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.put('/machinery/:id', authenticate, async (req, res) => {
+router.put('/machinery/:id', authenticate, maxLen(MACHINERY_TEXT_LIMITS), validate, async (req, res) => {
   const listing = await prisma.machineryListing.findUnique({ where: { id: req.params.id } });
   if (!listing) return sendNotFound(res, 'Listing not found');
   if (listing.ownerId !== req.user.id) return sendForbidden(res, 'Not your listing');
@@ -409,7 +427,9 @@ router.delete('/machinery/:id', authenticate, async (req, res) => {
 router.get('/labour', optionalAuth, async (req, res) => {
   const page   = Math.max(parseInt(req.query.page  || '1'),  1);
   const limit  = Math.min(parseInt(req.query.limit || '20'), 50);
-  const { district, skill, search, available } = req.query;
+  const { skill, available } = req.query;
+  const district = sanitizeSearch(req.query.district); // strip LIKE wildcards / cap length
+  const search   = sanitizeSearch(req.query.search);
   const userLat  = req.query.lat    ? parseFloat(req.query.lat)    : null;
   const userLng  = req.query.lng    ? parseFloat(req.query.lng)    : null;
   const radiusKm = req.query.radius ? parseFloat(req.query.radius) : 50;
@@ -576,6 +596,7 @@ router.post(
     body('pricePerDay').isFloat({ min: 1 }).withMessage('pricePerDay must be positive'),
     body('location').trim().notEmpty().withMessage('Location is required'),
     body('district').trim().notEmpty().withMessage('District is required'),
+    ...maxLen(LABOUR_TEXT_LIMITS),
   ],
   validate,
   async (req, res) => {
@@ -633,7 +654,7 @@ router.post(
 // LABOUR — update
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.put('/labour/:id', authenticate, async (req, res) => {
+router.put('/labour/:id', authenticate, maxLen(LABOUR_TEXT_LIMITS), validate, async (req, res) => {
   const listing = await prisma.labourListing.findUnique({ where: { id: req.params.id } });
   if (!listing) return sendNotFound(res, 'Listing not found');
   if (listing.providerId !== req.user.id) return sendForbidden(res, 'Not your listing');
@@ -901,22 +922,22 @@ router.post(
           conflictWhere.machineryListingId = machineryListingId;
           const listing = await tx.machineryListing.findUnique({ where: { id: machineryListingId } });
           if (!listing || listing.status !== 'ACTIVE') {
-            throw Object.assign(new Error('Machinery listing not available'), { statusCode: 400 });
+            throw Object.assign(new Error('Machinery listing not available'), { statusCode: 400, expose: true });
           }
 
           // Owners cannot book their own listing
           if (listing.ownerId === req.user.id) {
-            throw Object.assign(new Error('You cannot book your own listing'), { statusCode: 403 });
+            throw Object.assign(new Error('You cannot book your own listing'), { statusCode: 403, expose: true });
           }
 
           // Booking must lie within the listing's availability window
           if (!withinAvailability(startDate, endDate, listing.availableFrom, listing.availableTo)) {
-            throw Object.assign(new Error("Selected dates are outside this listing's availability window"), { statusCode: 400 });
+            throw Object.assign(new Error("Selected dates are outside this listing's availability window"), { statusCode: 400, expose: true });
           }
 
           const conflict = await tx.booking.findFirst({ where: conflictWhere });
           if (conflict) {
-            throw Object.assign(new Error('Machinery is already booked for these dates'), { statusCode: 409 });
+            throw Object.assign(new Error('Machinery is already booked for these dates'), { statusCode: 409, expose: true });
           }
 
           // [FIX #6] Server-calculate totalAmount from listing price
@@ -927,22 +948,22 @@ router.post(
           conflictWhere.labourListingId = labourListingId;
           const listing = await tx.labourListing.findUnique({ where: { id: labourListingId } });
           if (!listing || listing.status !== 'ACTIVE') {
-            throw Object.assign(new Error('Labour listing not available'), { statusCode: 400 });
+            throw Object.assign(new Error('Labour listing not available'), { statusCode: 400, expose: true });
           }
 
           // Providers cannot book their own listing
           if (listing.providerId === req.user.id) {
-            throw Object.assign(new Error('You cannot book your own listing'), { statusCode: 403 });
+            throw Object.assign(new Error('You cannot book your own listing'), { statusCode: 403, expose: true });
           }
 
           // Booking must lie within the listing's availability window
           if (!withinAvailability(startDate, endDate, listing.availableFrom, listing.availableTo)) {
-            throw Object.assign(new Error("Selected dates are outside this listing's availability window"), { statusCode: 400 });
+            throw Object.assign(new Error("Selected dates are outside this listing's availability window"), { statusCode: 400, expose: true });
           }
 
           const conflict = await tx.booking.findFirst({ where: conflictWhere });
           if (conflict) {
-            throw Object.assign(new Error('Worker is already booked for these dates'), { statusCode: 409 });
+            throw Object.assign(new Error('Worker is already booked for these dates'), { statusCode: 409, expose: true });
           }
 
           // [FIX #6] Server-calculate totalAmount from listing price
@@ -995,8 +1016,7 @@ router.post(
 
       return sendCreated(res, booking);
     } catch (err) {
-      const status = err.statusCode || 500;
-      return sendError(res, err.message || 'Booking failed', status);
+      return sendServerError(res, err, 'Booking failed. Please try again.');
     }
   }
 );

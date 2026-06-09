@@ -68,6 +68,42 @@ describe('Global per-IP rate limiter', () => {
     expect(other.status).toBe(200);
   });
 
+  test('prepending a forged X-Forwarded-For hop cannot escape the per-IP bucket', async () => {
+    // Mirror the production config: a fixed number of trusted proxy hops (Railway
+    // edge = 1) rather than `trust proxy: true`. Express then resolves req.ip from
+    // the RIGHT-most untrusted hop, so junk prepended to the LEFT of XFF — what an
+    // attacker controls — is ignored and the real client stays in one bucket.
+    const max = 3;
+    const app = express();
+    app.set('trust proxy', 1); // exactly one trusted hop (the immediate peer)
+    app.use(rateLimiter({
+      windowMs: 60_000, max, prefix: 'test:spoof', key: clientIp,
+      message: 'Too many requests.',
+    }));
+    app.get('/ping', (_req, res) => res.json({ ok: true }));
+
+    const realClient = '203.0.113.50';
+
+    // Saturate the bucket for the real client (right-most XFF hop).
+    for (let i = 0; i < max; i++) {
+      await request(app).get('/ping').set('X-Forwarded-For', realClient);
+    }
+
+    // Same client now rotates a forged LEADING hop on every request. If the
+    // limiter trusted left-most XFF it would mint a fresh bucket each time; with
+    // trust-proxy keying on req.ip it stays throttled.
+    for (const fake of ['1.1.1.1', '8.8.8.8', '9.9.9.9']) {
+      const res = await request(app).get('/ping')
+        .set('X-Forwarded-For', `${fake}, ${realClient}`);
+      expect(res.status).toBe(429);
+    }
+
+    // A genuinely different real client (different right-most hop) still passes.
+    const other = await request(app).get('/ping')
+      .set('X-Forwarded-For', `1.1.1.1, 203.0.113.51`);
+    expect(other.status).toBe(200);
+  });
+
   test('limiter is enabled in prod config and off only under tests', () => {
     // Mirrors the predicate in config/env.js — guards against the default
     // silently flipping back to "disabled".

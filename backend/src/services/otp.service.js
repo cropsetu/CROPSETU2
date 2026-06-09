@@ -84,9 +84,11 @@ export async function verifyOtp(phone, otp) {
     return { success: false, reason: 'OTP expired or not found. Please request a new one.' };
   }
 
-  // [FIX #3] Dev bypass ONLY in development mode — never in production.
-  // Previously this was reachable in prod if MSG91_AUTH_KEY was not set.
-  const devBypass = ENV.IS_DEV && !ENV.MSG91_AUTH_KEY && otp === '000000';
+  // [FIX #3] Dev bypass — fail-closed and resolved once at boot. ENV.OTP_DEV_BYPASS
+  // is true ONLY for an explicit non-prod opt-in with no SMS provider, and is
+  // hard-forced false in production (see config/env.js). Never re-derive the rule
+  // here — gate solely on the frozen flag so prod can't reach this path.
+  const devBypass = ENV.OTP_DEV_BYPASS && otp === '000000';
   const match = devBypass || await bcrypt.compare(otp, session.otp);
 
   if (!match) {

@@ -7,16 +7,45 @@
  * GET  /api/v1/irrigation/history?crop=soybean&days=30
  */
 import { Router } from 'express';
+import { body, query } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
-import { sendSuccess, sendError } from '../utils/response.js';
+import { validate } from '../middleware/validate.js';
+import { sendSuccess, sendError, sendServerError } from '../utils/response.js';
+import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import { isEnabled } from '../services/featureFlag.service.js';
 import { getIrrigationRecommendation } from '../services/irrigation.service.js';
 import prisma from '../config/db.js';
 
 const router = Router();
 
+// ── Validation rules ──────────────────────────────────────────────────────────
+const LAT_LON_RULES = [
+  query('lat').optional({ checkFalsy: true }).isFloat({ min: -90, max: 90 }).withMessage('lat must be between -90 and 90'),
+  query('lon').optional({ checkFalsy: true }).isFloat({ min: -180, max: 180 }).withMessage('lon must be between -180 and 180'),
+];
+export const todayRules = [
+  query('crop').notEmpty().withMessage('crop is required').isString().trim().isLength({ max: 100 }),
+  query('sowingDate').optional({ checkFalsy: true }).isISO8601().withMessage('sowingDate must be a valid date'),
+  query('fieldName').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  ...LAT_LON_RULES,
+];
+export const weeklyRules = [
+  query('crop').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  query('sowingDate').optional({ checkFalsy: true }).isISO8601().withMessage('sowingDate must be a valid date'),
+  ...LAT_LON_RULES,
+];
+export const logRules = [
+  body('logId').notEmpty().withMessage('logId is required').isString(),
+  body('farmerAction').isIn(['irrigated', 'skipped', 'pending'])
+    .withMessage('farmerAction must be irrigated | skipped | pending'),
+];
+export const historyRules = [
+  query('crop').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  query('days').optional({ checkFalsy: true }).isInt({ min: 1, max: 365 }).withMessage('days must be 1-365').toInt(),
+];
+
 // ── GET /api/v1/irrigation/today ─────────────────────────────────────────────
-router.get('/today', authenticate, async (req, res) => {
+router.get('/today', authenticate, todayRules, validate, async (req, res) => {
   if (!await isEnabled('irrigation')) return sendError(res, 'सिंचाई शेड्यूलर अभी उपलब्ध नहीं है।', 503);
 
   const { crop, sowingDate, fieldName } = req.query;
@@ -37,14 +66,13 @@ router.get('/today', authenticate, async (req, res) => {
 
     return sendSuccess(res, recommendation);
   } catch (err) {
-    console.error('[Irrigation]', err.message);
-    return sendError(res, err.message || 'सिंचाई डेटा उपलब्ध नहीं है।', 503);
+    return sendServerError(res, err, 'सिंचाई डेटा उपलब्ध नहीं है। कृपया बाद में प्रयास करें।', 503);
   }
 });
 
 // ── GET /api/v1/irrigation/weekly ────────────────────────────────────────────
 // Returns the weeklyForecast strip from the same engine
-router.get('/weekly', authenticate, async (req, res) => {
+router.get('/weekly', authenticate, weeklyRules, validate, async (req, res) => {
   if (!await isEnabled('irrigation')) return sendError(res, 'सिंचाई शेड्यूलर अभी उपलब्ध नहीं है।', 503);
 
   const lat  = parseFloat(req.query.lat  || '18.52');
@@ -64,13 +92,8 @@ router.get('/weekly', authenticate, async (req, res) => {
 
 // ── POST /api/v1/irrigation/log ───────────────────────────────────────────────
 // Farmer logs what they actually did (irrigated / skipped)
-router.post('/log', authenticate, async (req, res) => {
+router.post('/log', authenticate, logRules, validate, async (req, res) => {
   const { logId, farmerAction } = req.body;
-
-  if (!logId)      return sendError(res, 'logId is required', 400);
-  if (!['irrigated', 'skipped', 'pending'].includes(farmerAction)) {
-    return sendError(res, 'farmerAction must be irrigated | skipped | pending', 400);
-  }
 
   const log = await prisma.irrigationLog.findFirst({ where: { id: logId, userId: req.user.id } });
   if (!log) return sendError(res, 'Log not found', 404);
@@ -84,8 +107,8 @@ router.post('/log', authenticate, async (req, res) => {
 });
 
 // ── GET /api/v1/irrigation/history ───────────────────────────────────────────
-router.get('/history', authenticate, async (req, res) => {
-  const crop = req.query.crop || null;
+router.get('/history', authenticate, historyRules, validate, async (req, res) => {
+  const crop = sanitizeSearch(req.query.crop); // strip LIKE wildcards / cap length
   const days = Math.min(parseInt(req.query.days || '30', 10), 365);
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 

@@ -9,7 +9,17 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { isEnabled } from '../services/featureFlag.service.js';
+import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
+
+// Safely percent-decode a path segment, then strip LIKE wildcards. A raw "%" is
+// not valid percent-encoding and would make decodeURIComponent throw, so fall
+// back to the raw value before sanitizing.
+function safeCommodity(raw) {
+  let v = raw;
+  try { v = decodeURIComponent(raw); } catch { /* keep raw */ }
+  return sanitizeSearch(v);
+}
 
 const router = Router();
 
@@ -48,7 +58,8 @@ router.get('/rates', authenticate, async (req, res) => {
 router.get('/rates/:commodity', authenticate, async (req, res) => {
   if (!await isEnabled('msp_tracker')) return sendError(res, 'MSP Tracker अभी उपलब्ध नहीं है।', 503);
 
-  const commodity = decodeURIComponent(req.params.commodity);
+  const commodity = safeCommodity(req.params.commodity);
+  if (!commodity) return sendError(res, 'Commodity not found in MSP database', 404);
   const rates = await prisma.mSPRate.findMany({
     where:   { commodity: { contains: commodity, mode: 'insensitive' } },
     orderBy: [{ year: 'desc' }, { season: 'asc' }],
@@ -71,8 +82,9 @@ router.get('/rates/:commodity', authenticate, async (req, res) => {
 router.get('/compare/:commodity', authenticate, async (req, res) => {
   if (!await isEnabled('msp_tracker')) return sendError(res, 'MSP Tracker अभी उपलब्ध नहीं है।', 503);
 
-  const commodity = decodeURIComponent(req.params.commodity);
-  const state     = req.query.state || req.user?.state || 'Maharashtra';
+  const commodity = safeCommodity(req.params.commodity);
+  if (!commodity) return sendError(res, 'Commodity not found in MSP database', 404);
+  const state     = sanitizeSearch(req.query.state) || req.user?.state || 'Maharashtra';
 
   const { season, year } = currentSeasonYear();
 

@@ -149,7 +149,7 @@ router.post(
       });
     } catch (err) {
       logger.error({ err }, '[Onboarding] complete error');
-      return sendError(res, err.message || 'Onboarding failed', 500);
+      return sendError(res, 'Onboarding failed. Please try again.', 500);
     }
   }
 );

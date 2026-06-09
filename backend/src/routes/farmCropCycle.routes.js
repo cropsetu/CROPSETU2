@@ -7,8 +7,9 @@ import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { idempotency } from '../middleware/idempotency.js';
-import { sendSuccess, sendCreated, sendError, sendNotFound } from '../utils/response.js';
+import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError } from '../utils/response.js';
 import logger from '../utils/logger.js';
+import prisma from '../config/db.js';
 import {
   createCropCycle, listCropCycles, getCropCycleDetail, updateCropCycle, deleteCropCycle,
   advanceGrowthStage, addFertilizer, addPesticide, addIrrigationLog,
@@ -29,6 +30,31 @@ router.use((req, _res, next) => {
 const wl = (_req, _res, next) => next();   // rate limit disabled for now
 const idemCycle = idempotency('cycle_write');  // dedupe duplicate cycle writes (401-replay / retry)
 
+// ── Ownership guard for every /cycles/:cycleId* route ─────────────────────────
+// Centralizes the authorization check so no individual handler can forget it.
+// Returns a clean 403 when another farmer's cycle is targeted (not a 404/500
+// leaked from a scoped DB write), and — critically — closes the IDOR on the
+// read-only detail and financials endpoints, which previously loaded a cycle by
+// id with no owner scope. The per-route services still scope writes by farmerId,
+// so this is also defense-in-depth for the mutating routes.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export async function requireCycleOwner(req, res, next) {
+  // Defer malformed ids to each route's param('cycleId').isUUID() → clean 400.
+  if (!UUID_RE.test(req.params.cycleId || '')) return next();
+  try {
+    const cycle = await prisma.farmCropCycle.findUnique({
+      where:  { id: req.params.cycleId },
+      select: { farmerId: true },
+    });
+    if (!cycle) return sendNotFound(res, 'Crop cycle');
+    if (cycle.farmerId !== req.user.id) return sendForbidden(res, 'Not your crop cycle');
+    return next();
+  } catch (err) {
+    return next(err); // Express 4 won't catch async throws — hand to error handler
+  }
+}
+router.use('/cycles/:cycleId', requireCycleOwner);
+
 // List cycles for a farm
 router.get('/farms/:farmId/cycles', [param('farmId').isUUID(), query('season').optional(), query('year').optional().isInt(), query('status').optional()], validate, async (req, res) => {
   try { return sendSuccess(res, await listCropCycles(req.params.farmId, req.query)); }
@@ -40,7 +66,7 @@ router.post('/farms/:farmId/cycles', wl, idemCycle, [param('farmId').isUUID(), b
   try {
     const cycle = await createCropCycle(req.user.id, req.params.farmId, req.body);
     return cycle ? sendCreated(res, cycle) : sendNotFound(res, 'Farm');
-  } catch (e) { logger.error({ err: e }, '[CropCycle] create'); return sendError(res, e.message || 'Failed', 400); }
+  } catch (e) { return sendServerError(res, e, 'Could not create crop cycle.', 400); }
 });
 
 // Get cycle detail
@@ -108,7 +134,7 @@ router.post('/cycles/:cycleId/activity', wl, idemCycle, [param('cycleId').isUUID
   try {
     const c = await addActivity(req.params.cycleId, req.user.id, req.body);
     return c ? sendSuccess(res, c) : sendNotFound(res, 'Crop cycle');
-  } catch (e) { return sendError(res, e.message || 'Failed', 400); }
+  } catch (e) { return sendServerError(res, e, 'Could not add activity.', 400); }
 });
 
 // Add labour-cost log

@@ -16,18 +16,24 @@ import { body, query } from 'express-validator';
 import multer from 'multer';
 import os from 'os';
 import { authenticate } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
+import { auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
 import { validate } from '../middleware/validate.js';
 import { createUploader, uploadFiles } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, paginationMeta } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
+import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 
 const router = Router();
+router.param('id', uuidParamGuard);     // group id
+router.param('userId', uuidParamGuard); // member user id
 const avatarUpload = createUploader(1); // 1 image max for group avatar
 
 // ── List groups (discover) ─────────────────────────────────────────────────────
 router.get('/', authenticate, async (req, res) => {
-  const { district, city, search } = req.query;
+  const { district, city } = req.query;
+  const search = sanitizeSearch(req.query.search); // strip LIKE wildcards / cap length
   const page  = parseInt(req.query.page  || '1', 10);
   const limit = parseInt(req.query.limit || '20', 10);
 
@@ -239,6 +245,14 @@ router.delete('/:id/members/:userId', authenticate, async (req, res) => {
   await prisma.groupMember.deleteMany({
     where: { groupId: req.params.id, userId: req.params.userId },
   });
+
+  // Audit the moderation action (admin removed a member from a group).
+  auditAction(req, {
+    action:   AUDIT_ACTIONS.GROUP_MEMBER_REMOVE,
+    entity:   'Group',
+    entityId: req.params.id,
+    metadata: { removedUserId: req.params.userId, removedBy: req.user.id },
+  }).catch(() => {});
 
   return sendSuccess(res, { removed: true });
 });

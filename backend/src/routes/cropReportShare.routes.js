@@ -16,6 +16,7 @@ import { Router } from 'express';
 import { body } from 'express-validator';
 
 import { authenticate } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, paginationMeta } from '../utils/response.js';
 import { sendPushToUser } from '../services/push.service.js';
@@ -24,6 +25,8 @@ import logger from '../utils/logger.js';
 import prisma from '../config/db.js';
 
 const router = Router();
+router.param('reportId', uuidParamGuard); // crop report id
+router.param('shareId', uuidParamGuard);  // report-share id
 
 const KRUSHI_KENDRA_TYPES = [
   'krushi_kendra',

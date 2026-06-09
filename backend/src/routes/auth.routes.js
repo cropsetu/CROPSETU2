@@ -22,6 +22,8 @@ import {
 } from '../utils/cookies.js';
 import { generateCsrfToken } from '../middleware/csrf.js';
 import { auditAuthEvent, AUTH_ACTIONS, maskPhone } from '../services/audit.service.js';
+import { assessLoginRisk, notifyRiskyLogin } from '../services/loginRisk.service.js';
+import { normalizeIndianMobile, indianMobileBody } from '../utils/phone.js';
 import { sendOtp, verifyOtp } from '../services/otp.service.js';
 import { captureSignupConsent } from '../services/consent.service.js';
 import { reportSecurityEvent } from '../services/incident.service.js';
@@ -35,7 +37,7 @@ import {
   enforceSessionLimit,
 } from '../utils/jwt.js';
 import prisma from '../config/db.js';
-import { sendSuccess, sendCreated, sendError, sendUnauthorized } from '../utils/response.js';
+import { sendSuccess, sendCreated, sendError, sendUnauthorized, sendServerError } from '../utils/response.js';
 import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
 
@@ -58,10 +60,10 @@ const otpPhoneLimiter = rateLimiter({
   prefix:   'otp:phone',
   // Only key on a well-formed phone; malformed input falls through to the
   // validator below (422) instead of being rate-limited.
-  key:      (req) => {
-    const phone = String(req.body?.phone || '').trim();
-    return /^[6-9]\d{9}$/.test(phone) ? phone : null;
-  },
+  // Normalize so the per-phone limit keys consistently regardless of how the
+  // number was formatted (+91 / 0 / spaces); malformed input → null (not limited,
+  // falls through to the validator's 400).
+  key:      (req) => normalizeIndianMobile(req.body?.phone),
   message:  'Too many OTP requests for this number. Please try again later.',
 });
 
@@ -81,10 +83,10 @@ const otpVerifyPhoneLimiter = rateLimiter({
   windowMs: ENV.OTP_VERIFY_RATE_LIMIT_WINDOW_MS,
   max:      ENV.OTP_VERIFY_RATE_LIMIT_MAX,
   prefix:   'otp:verify:phone',
-  key:      (req) => {
-    const phone = String(req.body?.phone || '').trim();
-    return /^[6-9]\d{9}$/.test(phone) ? phone : null;
-  },
+  // Normalize so the per-phone limit keys consistently regardless of how the
+  // number was formatted (+91 / 0 / spaces); malformed input → null (not limited,
+  // falls through to the validator's 400).
+  key:      (req) => normalizeIndianMobile(req.body?.phone),
   message:  'Too many verification attempts for this number. Please try again later.',
 });
 
@@ -94,19 +96,16 @@ router.post(
   otpIpLimiter,
   otpPhoneLimiter,
   [
-    body('phone')
-      .trim()
-      .matches(/^[6-9]\d{9}$/)
-      .withMessage('Enter a valid 10-digit Indian mobile number'),
+    indianMobileBody('phone'),
   ],
   validate,
   async (req, res) => {
     try {
-      const { phone } = req.body;
+      const { phone } = req.body; // normalized to 10 digits by indianMobileBody
       const result = await sendOtp(phone);
       return sendSuccess(res, result, 200);
     } catch (err) {
-      return sendError(res, err.message, 500);
+      return sendServerError(res, err, 'Failed to send OTP. Please try again.');
     }
   }
 );
@@ -117,7 +116,7 @@ router.post(
   otpVerifyIpLimiter,
   otpVerifyPhoneLimiter,
   [
-    body('phone').trim().matches(/^[6-9]\d{9}$/).withMessage('Invalid phone'),
+    indianMobileBody('phone', 'Invalid phone'),
     body('otp').trim().isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
     body('name').optional().trim().isLength({ min: 2, max: 80 }),
   ],
@@ -171,9 +170,28 @@ router.post(
       // Cap concurrent sessions — a new login evicts the oldest beyond the limit.
       await enforceSessionLimit(user.id);
 
+      // ── Fraud / ATO risk signals ──────────────────────────────────────────
+      // Brute-force is already blocked upstream (OTP lockout + rate limits). Here
+      // we flag a *successful* login that looks risky vs the account's recent
+      // history. Assess BEFORE recording this login so it compares against prior
+      // events only. A brand-new account is the baseline — never risky.
+      const userAgent = req.headers['user-agent'] || null;
+      const risk = result.isNewUser
+        ? { risky: false, signals: [], notify: false }
+        : await assessLoginRisk({ userId: user.id, ip: req.ip, userAgent });
+
       await auditAuthEvent(user.id, AUTH_ACTIONS.LOGIN, req.ip, {
-        outcome: 'success', isNewUser: result.isNewUser,
+        outcome: 'success', isNewUser: result.isNewUser, userAgent,
       });
+
+      if (risk.risky) {
+        // Forensic flag for every risky login; user alert only on the strong
+        // signal (new device) to avoid mobile/CGNAT IP-change noise.
+        await auditAuthEvent(user.id, AUTH_ACTIONS.LOGIN_RISKY, req.ip, {
+          signals: risk.signals, userAgent,
+        });
+        if (risk.notify) notifyRiskyLogin(user.id, risk.signals).catch(() => {});
+      }
 
       // Don't leak the internal tokenVersion in the API response.
       const { tokenVersion: _tv, ...safeUser } = user;
@@ -285,7 +303,7 @@ router.post(
   '/change-phone',
   authenticate,
   [
-    body('newPhone').trim().matches(/^[6-9]\d{9}$/).withMessage('Enter a valid 10-digit Indian mobile number'),
+    indianMobileBody('newPhone'),
     body('otp').trim().isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
   ],
   validate,

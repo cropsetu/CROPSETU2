@@ -18,6 +18,7 @@
 import axios from 'axios';
 import prisma from '../config/db.js';
 import { ENV } from '../config/env.js';
+import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 
 const DATA_GOV_BASE     = 'https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070';
 const CACHE_TTL_MS      = 4 * 60 * 60 * 1000;  // 4 hours
@@ -167,12 +168,17 @@ async function persistToDB(records) {
 // ── DB lookup helper ──────────────────────────────────────────────────────────
 async function queryDB(commodity, state, district, withinDays = 90) {
   const since = new Date(Date.now() - withinDays * 24 * 60 * 60 * 1000);
+  // Strip LIKE wildcards from every value before it reaches a `contains` filter
+  // so a crafted commodity/state/district can't force a pathological ILIKE scan.
+  const safeCommodity = sanitizeSearch(normaliseCommodity(commodity)) || '';
+  const safeState     = sanitizeSearch(state) || '';
+  const safeDistrict  = sanitizeSearch(district);
   const where = {
-    commodity: { contains: normaliseCommodity(commodity), mode: 'insensitive' },
-    state:     { contains: state, mode: 'insensitive' },
+    commodity: { contains: safeCommodity, mode: 'insensitive' },
+    state:     { contains: safeState, mode: 'insensitive' },
     priceDate: { gte: since },
   };
-  if (district) where.district = { contains: district, mode: 'insensitive' };
+  if (safeDistrict) where.district = { contains: safeDistrict, mode: 'insensitive' };
   const rows = await prisma.mandiPrice.findMany({
     where, orderBy: { priceDate: 'desc' }, take: 300,
   });
@@ -305,10 +311,14 @@ export async function getMandiPrices(commodity, state, district = null) {
 // ── Price trend (7/30 days) for a commodity+market ────────────────────────────
 export async function getPriceTrend(commodity, market, days = 30) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  // Strip LIKE wildcards before the values reach a `contains` filter (ReDoS-style
+  // ILIKE DoS guard) — defense-in-depth even though callers also sanitize.
+  const safeCommodity = sanitizeSearch(normaliseCommodity(commodity)) || '';
+  const safeMarket    = sanitizeSearch(market) || '';
   const records = await prisma.mandiPrice.findMany({
     where: {
-      commodity: { contains: normaliseCommodity(commodity), mode: 'insensitive' },
-      market:    { contains: market, mode: 'insensitive' },
+      commodity: { contains: safeCommodity, mode: 'insensitive' },
+      market:    { contains: safeMarket, mode: 'insensitive' },
       priceDate: { gte: since },
     },
     orderBy: { priceDate: 'asc' },

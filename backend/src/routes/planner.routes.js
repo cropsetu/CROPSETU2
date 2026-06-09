@@ -7,7 +7,10 @@
  * POST /api/v1/planner/generate      — AI generate tasks for today
  */
 import { Router } from 'express';
+import { body, query } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 import { generatePlannerTasks, getCurrentSeason } from '../services/ai.chat.service.js';
@@ -18,9 +21,37 @@ const lastPlannerGen = new Map();
 const PLANNER_MIN_GAP_MS = 60 * 1000;
 
 const router = Router();
+router.param('id', uuidParamGuard); // reject non-UUID :id (task) with 400 before Prisma
+
+// ── Validation rules ──────────────────────────────────────────────────────────
+const PRIORITIES = ['urgent', 'today', 'plan'];
+export const listTasksRules = [
+  query('date').optional({ checkFalsy: true }).isISO8601().withMessage('date must be a valid date (YYYY-MM-DD)'),
+];
+export const createTaskRules = [
+  body('title').trim().notEmpty().withMessage('title is required').isLength({ max: 200 }),
+  body('description').optional({ checkFalsy: true }).isString().isLength({ max: 2000 }),
+  body('crop').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  body('field').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  body('priority').optional({ checkFalsy: true }).isIn(PRIORITIES),
+  body('icon').optional({ checkFalsy: true }).isString().isLength({ max: 50 }),
+  body('color').optional({ checkFalsy: true }).matches(/^#[0-9A-Fa-f]{3,8}$/).withMessage('color must be a hex code'),
+  body('scheduledFor').optional({ checkFalsy: true }).isISO8601().withMessage('scheduledFor must be a valid date'),
+];
+export const updateTaskRules = [
+  body('done').optional().isBoolean().withMessage('done must be a boolean'),
+  body('title').optional({ checkFalsy: true }).trim().isLength({ max: 200 }),
+  body('description').optional().isString().isLength({ max: 2000 }),
+  body('priority').optional({ checkFalsy: true }).isIn(PRIORITIES),
+];
+export const generateTasksRules = [
+  body('crop').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  body('state').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  body('dayOfSeason').optional({ checkFalsy: true }).isInt({ min: 0, max: 400 }).withMessage('dayOfSeason must be 0-400').toInt(),
+];
 
 // ── GET /api/v1/planner/tasks ─────────────────────────────────────────────────
-router.get('/tasks', authenticate, async (req, res) => {
+router.get('/tasks', authenticate, listTasksRules, validate, async (req, res) => {
   const dateStr = req.query.date || new Date().toISOString().split('T')[0];
   const date    = new Date(dateStr);
   const nextDay = new Date(date);
@@ -42,11 +73,8 @@ router.get('/tasks', authenticate, async (req, res) => {
 });
 
 // ── POST /api/v1/planner/tasks ────────────────────────────────────────────────
-router.post('/tasks', authenticate, async (req, res) => {
+router.post('/tasks', authenticate, createTaskRules, validate, async (req, res) => {
   const { title, description, crop, field, priority, icon, color, scheduledFor } = req.body;
-  if (!title?.trim()) return sendError(res, 'title is required', 400);
-  if (title.length > 200) return sendError(res, 'title too long (max 200 chars)', 400);
-  if (description && description.length > 2000) return sendError(res, 'description too long (max 2000 chars)', 400);
 
   const task = await prisma.plannerTask.create({
     data: {
@@ -67,7 +95,7 @@ router.post('/tasks', authenticate, async (req, res) => {
 });
 
 // ── PUT /api/v1/planner/tasks/:id ─────────────────────────────────────────────
-router.put('/tasks/:id', authenticate, async (req, res) => {
+router.put('/tasks/:id', authenticate, updateTaskRules, validate, async (req, res) => {
   const task = await prisma.plannerTask.findFirst({
     where: { id: req.params.id, userId: req.user.id },
   });
@@ -101,7 +129,7 @@ router.delete('/tasks/:id', authenticate, async (req, res) => {
 
 // ── POST /api/v1/planner/generate ─────────────────────────────────────────────
 // AI generates tasks for today based on farm context
-router.post('/generate', authenticate, async (req, res) => {
+router.post('/generate', authenticate, generateTasksRules, validate, async (req, res) => {
   // Enforce per-user cooldown to avoid hammering Gemini
   const last = lastPlannerGen.get(req.user.id) || 0;
   const diff = Date.now() - last;

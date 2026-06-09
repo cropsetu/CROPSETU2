@@ -25,6 +25,7 @@ import { Router } from 'express';
 import { body } from 'express-validator';
 import { rateLimiter, clientIp } from '../middleware/rateLimit.js';
 import { authenticate, requireRole, blockMinors } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { isMinorDob } from '../utils/age.js';
 import { isSensitivePiiUpdate } from '../constants/pii.js';
 import { validate } from '../middleware/validate.js';
@@ -42,12 +43,13 @@ import {
 } from '../utils/encrypt.js';
 import { maskSensitiveFields } from '../utils/mask.js';
 import logger from '../utils/logger.js';
-import { auditPiiUpdate, auditLog } from '../services/audit.service.js';
+import { auditPiiUpdate, auditLog, auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
 import { verifyOtp } from '../services/otp.service.js';
 import { eraseUserAccount } from '../services/erasure.service.js';
 import { signAccessToken, createRefreshToken, enforceSessionLimit } from '../utils/jwt.js';
 
 const router = Router();
+router.param('userId', uuidParamGuard); // :userId (admin KYC lookup) — reject non-UUIDs with 400
 router.use(authenticate); // all user routes require auth
 
 const avatarUpload = createAvatarUploader();
@@ -532,6 +534,15 @@ router.get('/:userId/kyc-documents', requireRole('ADMIN'), async (req, res) => {
       select: { kycDocumentUrls: true },
     });
     if (!sp) return sendNotFound(res, 'Seller profile');
+
+    // Audit admin access to another user's KYC PII (who viewed whose documents).
+    auditAction(req, {
+      action:   AUDIT_ACTIONS.KYC_ACCESS,
+      entity:   'SellerProfile',
+      entityId: req.params.userId,
+      metadata: { accessedBy: req.user.id, docCount: (sp.kycDocumentUrls || []).length },
+    }).catch(() => {});
+
     return sendSuccess(res, { documents: signKycDocs(sp.kycDocumentUrls) });
   } catch (err) {
     logger.error({ err }, '[User] GET /:userId/kyc-documents error');
