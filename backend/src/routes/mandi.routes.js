@@ -9,13 +9,18 @@
  * DELETE /api/v1/mandi/alerts/:id           — delete alert
  */
 import { Router } from 'express';
+import { body, query, param } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
+import { validate } from '../middleware/validate.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { isEnabled } from '../services/featureFlag.service.js';
 import { getMandiPrices, getPriceTrend, getNearbyMandiNames } from '../services/mandiPrice.service.js';
+import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
 
 const router = Router();
+router.param('id', uuidParamGuard); // reject non-UUID :id (alerts) with 400; :commodity is a name, not validated
 
 const SUPPORTED_COMMODITIES = [
   'Tomato', 'Onion', 'Potato', 'Wheat', 'Rice', 'Soyabean', 'Cotton',
@@ -23,8 +28,32 @@ const SUPPORTED_COMMODITIES = [
   'Sunflower Seed', 'Sugarcane',
 ];
 
+// ── Validation rules ──────────────────────────────────────────────────────────
+// Free-text commodity/state/district flow into Prisma `contains` filters and the
+// data.gov.in query string — cap their length so a caller can't push a giant
+// string into the DB scan or the upstream request.
+export const locationQueryRules = [
+  query('commodity').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  query('state').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  query('district').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+];
+export const trendQueryRules = [
+  param('commodity').isString().trim().isLength({ min: 1, max: 100 }),
+  query('market').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  query('days').optional({ checkFalsy: true }).isInt({ min: 1, max: 365 }).withMessage('days must be 1-365').toInt(),
+];
+export const createAlertRules = [
+  body('commodity').isString().trim().notEmpty().withMessage('commodity is required').isLength({ max: 100 }),
+  body('market').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  body('targetPrice').notEmpty().withMessage('targetPrice is required')
+    .isFloat({ gt: 0 }).withMessage('targetPrice must be a positive number'),
+  body('condition').isIn(['above', 'below']).withMessage('condition must be above or below'),
+  body('notificationMethod').optional({ checkFalsy: true }).isIn(['push', 'whatsapp', 'both'])
+    .withMessage('notificationMethod must be push | whatsapp | both'),
+];
+
 // ── GET /api/v1/mandi/prices ──────────────────────────────────────────────────
-router.get('/prices', authenticate, async (req, res) => {
+router.get('/prices', authenticate, locationQueryRules, validate, async (req, res) => {
   if (!await isEnabled('mandi_bhav')) {
     return sendError(res, 'मंडी भाव सेवा अभी उपलब्ध नहीं है। कृपया बाद में देखें।', 503);
   }
@@ -62,14 +91,17 @@ router.get('/prices', authenticate, async (req, res) => {
 });
 
 // ── GET /api/v1/mandi/prices/:commodity/trend ─────────────────────────────────
-router.get('/prices/:commodity/trend', authenticate, async (req, res) => {
+router.get('/prices/:commodity/trend', authenticate, trendQueryRules, validate, async (req, res) => {
   if (!await isEnabled('mandi_bhav')) return sendError(res, 'मंडी भाव सेवा अभी उपलब्ध नहीं है।', 503);
 
-  const commodity = decodeURIComponent(req.params.commodity);
-  const market    = req.query.market || '';
+  let rawCommodity = req.params.commodity;
+  try { rawCommodity = decodeURIComponent(rawCommodity); } catch { /* keep raw on bad %-encoding */ }
+  const commodity = sanitizeSearch(rawCommodity); // strip LIKE wildcards / cap length
+  const market    = sanitizeSearch(req.query.market);
   const days      = Math.min(parseInt(req.query.days || '30', 10), 365);
 
-  if (!market.trim()) return sendError(res, 'market query param is required', 400);
+  if (!commodity) return sendError(res, 'commodity is required', 400);
+  if (!market) return sendError(res, 'market query param is required', 400);
 
   const trend = await getPriceTrend(commodity, market, days);
   if (!trend.length) return sendError(res, `${days} दिनों में ${commodity} के लिए ${market} में कोई डेटा नहीं मिला`, 404);
@@ -90,12 +122,12 @@ router.get('/prices/:commodity/trend', authenticate, async (req, res) => {
 });
 
 // ── GET /api/v1/mandi/nearby ──────────────────────────────────────────────────
-router.get('/nearby', authenticate, async (req, res) => {
+router.get('/nearby', authenticate, locationQueryRules, validate, async (req, res) => {
   if (!await isEnabled('mandi_bhav')) return sendError(res, 'मंडी भाव सेवा अभी उपलब्ध नहीं है।', 503);
 
   const district  = req.query.district  || req.user?.district || 'Pune';
-  const state     = req.query.state     || req.user?.state    || 'Maharashtra';
-  const commodity = req.query.commodity || 'Soyabean';
+  const state     = sanitizeSearch(req.query.state)     || req.user?.state || 'Maharashtra'; // strip LIKE wildcards
+  const commodity = sanitizeSearch(req.query.commodity) || 'Soyabean';
 
   const nearbyMandis = getNearbyMandiNames(district);
   if (!nearbyMandis.length) return sendError(res, `${district} जिले के लिए मंडी सूची उपलब्ध नहीं है`, 404);
@@ -122,25 +154,8 @@ router.get('/nearby', authenticate, async (req, res) => {
 });
 
 // ── POST /api/v1/mandi/alerts ─────────────────────────────────────────────────
-router.post('/alerts', authenticate, async (req, res) => {
+router.post('/alerts', authenticate, createAlertRules, validate, async (req, res) => {
   const { commodity, market, targetPrice, condition, notificationMethod } = req.body;
-
-  if (!commodity || !targetPrice || !condition) {
-    return sendError(res, 'commodity, targetPrice, condition are required', 400);
-  }
-  if (typeof commodity !== 'string' || commodity.trim().length > 100) {
-    return sendError(res, 'commodity must be a string (max 100 chars)', 400);
-  }
-  if (market && (typeof market !== 'string' || market.trim().length > 100)) {
-    return sendError(res, 'market must be a string (max 100 chars)', 400);
-  }
-  if (!['above', 'below'].includes(condition)) return sendError(res, 'condition must be above or below', 400);
-  if (!['push', 'whatsapp', 'both'].includes(notificationMethod || 'push')) {
-    return sendError(res, 'notificationMethod must be push | whatsapp | both', 400);
-  }
-  if (isNaN(parseFloat(targetPrice)) || parseFloat(targetPrice) <= 0) {
-    return sendError(res, 'targetPrice must be a positive number', 400);
-  }
 
   const alert = await prisma.priceAlert.create({
     data: {

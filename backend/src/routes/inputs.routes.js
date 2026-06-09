@@ -8,12 +8,23 @@
  * Prices sourced from APEDA / Maharashtra Agri Dept retail reference (2025).
  */
 import { Router } from 'express';
+import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { isEnabled } from '../services/featureFlag.service.js';
 import prisma from '../config/db.js';
 
 const router = Router();
+
+// ── Validation rules ──────────────────────────────────────────────────────────
+export const calculateInputsRules = [
+  body('crop').trim().notEmpty().withMessage('crop is required').isLength({ max: 100 }),
+  body('area').notEmpty().withMessage('area is required')
+    .isFloat({ gt: 0, max: 100000 }).withMessage('area must be a positive number'),
+  body('unit').optional({ checkFalsy: true }).isIn(['acre', 'acres', 'hectare', 'ha', 'bigha', 'guntha']),
+  body('organic').optional().isBoolean().withMessage('organic must be a boolean'),
+];
 
 // ── Reference input prices (₹/unit, Maharashtra retail, April 2025) ──────────
 const INPUT_PRICES = {
@@ -60,14 +71,10 @@ function toAcres(area, unit) {
 }
 
 // ── POST /api/v1/inputs/calculate ────────────────────────────────────────────
-router.post('/calculate', authenticate, async (req, res) => {
+router.post('/calculate', authenticate, calculateInputsRules, validate, async (req, res) => {
   if (!await isEnabled('input_calculator')) return sendError(res, 'इनपुट कैलकुलेटर अभी उपलब्ध नहीं है।', 503);
 
   const { crop, area, unit = 'acre', organic = false } = req.body;
-  if (!crop)                     return sendError(res, 'crop is required', 400);
-  if (!area || isNaN(parseFloat(area)) || parseFloat(area) <= 0) {
-    return sendError(res, 'area (positive number) is required', 400);
-  }
 
   const areaAcres = toAcres(parseFloat(area), unit);
 

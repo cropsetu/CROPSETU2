@@ -4,19 +4,23 @@
  * Accepts multipart/form-data (with optional images) OR JSON.
  */
 import { Router } from 'express';
+import { query } from 'express-validator';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
 
 import { authenticate } from '../middleware/auth.js';
-import { sendSuccess, sendError } from '../utils/response.js';
+import { validate } from '../middleware/validate.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
+import { sendSuccess, sendError, sendServerError } from '../utils/response.js';
 import { getWeatherData } from '../services/weather.service.js';
 import { getSoilData } from '../services/soildata.service.js';
 import { predictCropDisease } from '../services/ai.predict.service.js';
 import prisma from '../config/db.js';
 
 const router = Router();
+router.param('id', uuidParamGuard); // reject non-UUID :id (reports) with 400 before Prisma
 
 // ─── Multer — store to OS temp dir ───────────────────────────────────────────
 const upload = multer({
@@ -206,9 +210,21 @@ router.post(
   },
 );
 
+// Pagination guard — bounds page/limit so a caller can't request take:1000000
+// (query bloat / memory DoS) or a negative skip (Prisma error).
+export const listReportsRules = [
+  query('page').optional().isInt({ min: 1 }).withMessage('page must be a positive integer').toInt(),
+  query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('limit must be between 1 and 100').toInt(),
+];
+
+// Reusable 6-digit pincode query guard.
+export const pincodeQueryRules = [
+  query('pincode').matches(/^\d{6}$/).withMessage('Valid 6-digit pincode required'),
+];
+
 // ─── GET /api/v1/crop-disease/reports ────────────────────────────────────────
 // List the authenticated user's past AI analysis reports (newest first)
-router.get('/reports', authenticate, async (req, res) => {
+router.get('/reports', authenticate, listReportsRules, validate, async (req, res) => {
   const page  = parseInt(req.query.page  || '1', 10);
   const limit = parseInt(req.query.limit || '10', 10);
 
@@ -243,27 +259,21 @@ router.get('/reports/:id', authenticate, async (req, res) => {
 
 // ─── GET /api/v1/crop-disease/soil-info?pincode=413704 ───────────────────────
 // Quick endpoint to preview soil data for a pincode (no AI, no auth needed)
-router.get('/soil-info', async (req, res) => {
+router.get('/soil-info', pincodeQueryRules, validate, async (req, res) => {
   const { pincode } = req.query;
-  if (!pincode || String(pincode).length !== 6) {
-    return sendError(res, 'Valid 6-digit pincode required', 400);
-  }
   const soilData = getSoilData(pincode);
   return sendSuccess(res, soilData);
 });
 
 // ─── GET /api/v1/crop-disease/weather?pincode=413704 ─────────────────────────
 // Quick endpoint to check weather for a pincode
-router.get('/weather', authenticate, async (req, res) => {
+router.get('/weather', authenticate, pincodeQueryRules, validate, async (req, res) => {
   const { pincode } = req.query;
-  if (!pincode || String(pincode).length !== 6) {
-    return sendError(res, 'Valid 6-digit pincode required', 400);
-  }
   try {
     const weatherData = await getWeatherData(pincode);
     return sendSuccess(res, weatherData);
   } catch (err) {
-    return sendError(res, err.message, 503);
+    return sendServerError(res, err, 'Weather service is temporarily unavailable. Please try again.', 503);
   }
 });
 

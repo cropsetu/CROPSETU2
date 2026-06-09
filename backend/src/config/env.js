@@ -76,6 +76,49 @@ function resolveActiveEncryptionKeyId(extraKeys) {
 const _extraEncryptionKeys = parseExtraEncryptionKeys();
 const _activeEncryptionKeyId = resolveActiveEncryptionKeyId(_extraEncryptionKeys);
 
+// ── OTP development bypass (auth bypass — NEVER in production) ────────────────
+// Accepting the fixed OTP "000000" to skip real verification is strictly a
+// non-production convenience (local dev + automated tests with no SMS provider).
+// Resolved ONCE here, FAIL-CLOSED, so verifyOtp() checks a single frozen flag and
+// absent / loose config can never enable it. ALL three must hold:
+//   • explicit opt-in : OTP_DEV_BYPASS_ENABLED === 'true'
+//   • never in prod   : NODE_ENV must not be 'production'
+//   • no live SMS     : MSG91_AUTH_KEY must be empty
+// The opt-in is what closes the old hole: the previous gate keyed only on
+// NODE_ENV !== 'production', so a prod deploy that forgot to set NODE_ENV (unset,
+// "prod", "staging") with no SMS key silently accepted "000000". Requiring a
+// positive opt-in means a misconfigured prod box is safe by default, and the boot
+// guard below additionally REFUSES to start if the opt-in is set under
+// NODE_ENV=production — so it fails fast instead of exposing the bypass.
+const _otpDevBypass =
+  process.env.OTP_DEV_BYPASS_ENABLED === 'true' &&
+  process.env.NODE_ENV !== 'production' &&
+  !process.env.MSG91_AUTH_KEY;
+
+// ── Reverse-proxy trust (X-Forwarded-For) ────────────────────────────────────
+// Behind Railway / any load balancer the socket peer is the proxy, so per-IP
+// rate limiting must resolve the real client from X-Forwarded-For. Express does
+// that SAFELY only when `trust proxy` is set to the exact number of proxy hops
+// in front of the app: it then reads the client from the right-most untrusted
+// hop, which a client cannot forge. Trusting too many hops (or `true`) lets a
+// client prepend a fake XFF entry, mint a fresh per-IP bucket every request, and
+// bypass the global limiter — i.e. silently disable it. Railway terminates at a
+// single edge proxy → 1. Override via TRUST_PROXY: a number (hop count),
+// true/false, or an Express trust-proxy string ('loopback', subnet list, …).
+function parseTrustProxy() {
+  const raw = process.env.TRUST_PROXY;
+  if (raw == null || raw.trim() === '') {
+    // Default: 1 hop in production (Railway edge proxy); loopback in dev/test
+    // where requests come straight from localhost and there is no real proxy.
+    return process.env.NODE_ENV === 'production' ? 1 : 'loopback';
+  }
+  const t = raw.trim();
+  if (t === 'true')  return true;
+  if (t === 'false') return false;
+  if (/^\d+$/.test(t)) return parseInt(t, 10);
+  return t; // pass-through: 'loopback', comma-separated subnet allowlist, etc.
+}
+
 export const ENV = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   PORT: parseInt(process.env.PORT || '3000', 10),
@@ -205,6 +248,15 @@ export const ENV = {
   RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || '',
 
   ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean),
+  // How long (seconds) browsers may cache a CORS preflight (Access-Control-Max-Age),
+  // cutting the extra OPTIONS round-trip on every cross-origin call. Default 10 min;
+  // browsers cap it (Chrome ≤ 2h, Firefox ≤ 24h). Keep modest so CORS policy
+  // changes propagate quickly. Set 0 to disable caching.
+  CORS_MAX_AGE: parseInt(process.env.CORS_MAX_AGE || '600', 10),
+  // Number of trusted reverse-proxy hops (see parseTrustProxy above). Drives
+  // app.set('trust proxy', …) so req.ip — and therefore the per-IP rate-limit
+  // key — is the real, unspoofable client address.
+  TRUST_PROXY: parseTrustProxy(),
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
   RATE_LIMIT_MAX: parseInt(process.env.RATE_LIMIT_MAX || '200', 10),
   // Global per-IP limiter toggle. On by default in dev/prod; off under the
@@ -226,6 +278,10 @@ export const ENV = {
   OTP_VERIFY_RATE_LIMIT_MAX: parseInt(process.env.OTP_VERIFY_RATE_LIMIT_MAX || '10', 10),
   OTP_VERIFY_IP_RATE_LIMIT_MAX: parseInt(process.env.OTP_VERIFY_IP_RATE_LIMIT_MAX || '30', 10),
 
+  // Resolved, frozen OTP dev-bypass decision (see _otpDevBypass above). Always
+  // false in production. verifyOtp() must gate the "000000" bypass on THIS only.
+  OTP_DEV_BYPASS: _otpDevBypass,
+
   IS_DEV: process.env.NODE_ENV !== 'production',
 };
 
@@ -235,6 +291,12 @@ export const ENV = {
 // silently at runtime. Refuse to start in production so these can't ship unnoticed.
 if (ENV.NODE_ENV === 'production') {
   const problems = [];
+  // The OTP dev-bypass is already forced off in production (_otpDevBypass), but
+  // a deploy that ships OTP_DEV_BYPASS_ENABLED=true signals a dangerous config
+  // mistake — refuse to boot rather than leave a foot-gun one NODE_ENV slip away.
+  if (process.env.OTP_DEV_BYPASS_ENABLED === 'true') {
+    problems.push('OTP_DEV_BYPASS_ENABLED must not be enabled in production (OTP auth bypass)');
+  }
   if (!ENV.AI_SHARED_SECRET || ENV.AI_SHARED_SECRET.length < 16) {
     problems.push('AI_SHARED_SECRET missing/weak (Express↔FastAPI auth)');
   }

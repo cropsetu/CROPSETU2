@@ -4,6 +4,7 @@
  * Success: { success: true, data, meta? }
  * Error:   { success: false, error: { message, details? } }
  */
+import logger from './logger.js';
 
 export function sendSuccess(res, data, statusCode = 200, meta) {
   const payload = { success: true, data };
@@ -24,6 +25,30 @@ export function sendError(res, message, statusCode = 500, details, extra) {
   const reqId = extra?.requestId ?? res.req?.id;
   if (reqId) error.requestId = reqId;
   return res.status(statusCode).json({ success: false, error });
+}
+
+/**
+ * Catch-block helper: log the real error server-side, return a SAFE message.
+ *
+ * Use this in route `catch` blocks instead of `sendError(res, err.message, …)`,
+ * which leaks internal details (Prisma/SQL text, stack traces, upstream payloads)
+ * to the client — an information-disclosure bug.
+ *
+ * The full error (with request_id + path for correlation) always goes to the
+ * logs. The client only sees the error's own message when it was DELIBERATELY
+ * marked client-safe via `err.expose === true` (same convention the global error
+ * handler in app.js uses); otherwise it gets the generic `fallback`.
+ *
+ * @param {object} res
+ * @param {Error}  err        the caught error (logged in full)
+ * @param {string} fallback   generic, user-facing message for non-exposed errors
+ * @param {number} [statusCode] overrides err.statusCode / err.status (default 500)
+ */
+export function sendServerError(res, err, fallback = 'Something went wrong. Please try again.', statusCode) {
+  const status = statusCode ?? err?.statusCode ?? err?.status ?? 500;
+  logger.error({ err, requestId: res.req?.id, path: res.req?.path }, '[Route Error]');
+  const message = err?.expose === true && err?.message ? err.message : fallback;
+  return sendError(res, message, status);
 }
 
 export function sendNotFound(res, resource = 'Resource') {

@@ -56,6 +56,40 @@ export async function auditLog({
   }
 }
 
+// ── Audit action taxonomy ────────────────────────────────────────────────────
+// One coordinated catalogue of sensitive-operation action names (OPS-8). Use
+// these constants instead of string literals so the taxonomy stays consistent
+// and greppable across routes. AUTH_* events live in AUTH_ACTIONS below.
+export const AUDIT_ACTIONS = {
+  // Already emitted elsewhere — listed here so the taxonomy is complete.
+  PII_UPDATE:          'PII_UPDATE',
+  ORDER_STATUS_CHANGE: 'ORDER_STATUS_CHANGE',
+  ACCOUNT_ERASURE:     'ACCOUNT_ERASURE',
+  // Newly covered sensitive operations.
+  PRODUCT_DELETE:      'PRODUCT_DELETE',       // seller removes a product listing
+  FEATURE_FLAG_CHANGE: 'FEATURE_FLAG_CHANGE',  // admin toggles a feature flag (config change)
+  KYC_ACCESS:          'KYC_ACCESS',           // admin views another user's KYC documents (PII access)
+  GROUP_MEMBER_REMOVE: 'GROUP_MEMBER_REMOVE',  // group admin removes a member
+  CONSENT_CHANGE:      'CONSENT_CHANGE',       // DPDP consent grant/withdraw
+};
+
+/**
+ * Thin request-aware wrapper over auditLog for route handlers: pulls the actor,
+ * IP and request id off `req` so a caller only specifies the action + target.
+ * Best-effort (auditLog never throws on a DB miss); call sites still attach
+ * `.catch(() => {})` so auditing can never break the operation it records.
+ */
+export async function auditAction(req, { action, entity, entityId, before = null, after = null, metadata = null }) {
+  await auditLog({
+    userId: req.user?.id,
+    action, entity, entityId,
+    before, after,
+    ip: req.ip,
+    requestId: req.id,
+    metadata,
+  });
+}
+
 // ── Pre-built audit helpers ──────────────────────────────────────────────────
 
 export async function auditPiiUpdate(req, entity, entityId, changedFields) {
@@ -105,6 +139,7 @@ export async function auditOrderStatusChange(req, orderId, oldStatus, newStatus)
 // in the name; an explicit `outcome` is also added to metadata for clarity).
 export const AUTH_ACTIONS = {
   LOGIN:         'AUTH_LOGIN',
+  LOGIN_RISKY:   'AUTH_LOGIN_RISKY', // successful login flagged by risk signals (new device / IP)
   LOGOUT:        'AUTH_LOGOUT',
   OTP_FAILURE:   'AUTH_OTP_FAILURE',
   OTP_LOCKOUT:   'AUTH_OTP_LOCKOUT',

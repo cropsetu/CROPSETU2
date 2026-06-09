@@ -12,6 +12,7 @@
 import { Router } from 'express';
 import { body, query } from 'express-validator';
 import { authenticate, optionalAuth } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
 import { createUploader, uploadFiles } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
@@ -19,8 +20,10 @@ import {
   sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, paginationMeta,
 } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
+import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 
 const router = Router();
+router.param('id', uuidParamGuard); // reject non-UUID :id with 400 before Prisma
 const postImageUpload = createUploader(4);
 
 // ── Posts ─────────────────────────────────────────────────────────────────────
@@ -35,7 +38,8 @@ router.get(
   async (req, res) => {
     const page  = parseInt(req.query.page  || '1', 10);
     const limit = parseInt(req.query.limit || '20', 10);
-    const { category, search, scope, district, city } = req.query;
+    const { category, scope, district, city } = req.query;
+    const search = sanitizeSearch(req.query.search); // strip LIKE wildcards / cap length
 
     const where = {};
     if (category && category !== 'all') where.category = category;

@@ -12,12 +12,43 @@
  *   Fertilizer recommendations: ICAR / MPKV Rahuri, Maharashtra
  */
 import { Router } from 'express';
+import { body, query } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
+import { validate } from '../middleware/validate.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { isEnabled } from '../services/featureFlag.service.js';
 import prisma from '../config/db.js';
 
 const router = Router();
+router.param('id', uuidParamGuard); // reject non-UUID :id (reports) with 400 before Prisma
+
+// ── Validation rules ──────────────────────────────────────────────────────────
+// Soil parameters are persisted as Float columns; without bounds a payload like
+// { ph: "abc" } becomes NaN and { nitrogen: 1e308 } bloats the row. Cap each to a
+// physically-sensible range. checkFalsy mirrors the handler, which treats '', 0
+// and null as "not provided".
+const SOIL_NUMERIC = {
+  nitrogen: 10000, phosphorus: 10000, potassium: 10000,
+  ph: 14, ec: 50, organicCarbon: 100,
+  zinc: 1000, iron: 1000, manganese: 1000, copper: 1000, boron: 1000, sulphur: 1000,
+};
+export const soilManualRules = [
+  body('fieldName').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+  body('sampleId').optional({ checkFalsy: true }).isString().trim().isLength({ max: 50 }),
+  body('testDate').optional({ checkFalsy: true }).isISO8601().withMessage('testDate must be a valid date'),
+  body('inputMethod').optional({ checkFalsy: true }).isIn(['manual', 'ocr']),
+  ...Object.entries(SOIL_NUMERIC).map(([field, max]) =>
+    body(field).optional({ checkFalsy: true }).isFloat({ min: 0, max })
+      .withMessage(`${field} must be a number between 0 and ${max}`)),
+];
+
+export const soilRecommendationRules = [
+  query('soilId').notEmpty().withMessage('soilId is required').isString(),
+  query('crop').notEmpty().withMessage('crop is required').isString().trim().isLength({ max: 100 }),
+  query('area').optional({ checkFalsy: true }).isFloat({ min: 0.01, max: 100000 }).withMessage('area must be a positive number'),
+  query('unit').optional({ checkFalsy: true }).isIn(['acre', 'acres', 'hectare', 'ha', 'bigha', 'guntha']),
+];
 
 // ── ICAR Soil Health Card rating thresholds ───────────────────────────────────
 function rateSoilParam(param, value) {
@@ -131,7 +162,7 @@ async function generateFertilizerRec(soilRecord, cropName, areaAcres) {
 }
 
 // ── POST /api/v1/soil/manual ──────────────────────────────────────────────────
-router.post('/manual', authenticate, async (req, res) => {
+router.post('/manual', authenticate, soilManualRules, validate, async (req, res) => {
   if (!await isEnabled('soil_health')) return sendError(res, 'मिट्टी जांच सेवा अभी उपलब्ध नहीं है।', 503);
 
   const {
@@ -211,12 +242,10 @@ router.get('/reports/:id', authenticate, async (req, res) => {
 });
 
 // ── GET /api/v1/soil/recommendation ──────────────────────────────────────────
-router.get('/recommendation', authenticate, async (req, res) => {
+router.get('/recommendation', authenticate, soilRecommendationRules, validate, async (req, res) => {
   if (!await isEnabled('soil_health')) return sendError(res, 'मिट्टी जांच सेवा अभी उपलब्ध नहीं है।', 503);
 
   const { soilId, crop, area = 1, unit = 'acre' } = req.query;
-  if (!soilId) return sendError(res, 'soilId is required', 400);
-  if (!crop)   return sendError(res, 'crop is required', 400);
 
   const report = await prisma.soilHealthRecord.findFirst({ where: { id: soilId, userId: req.user.id } });
   if (!report) return sendError(res, 'Soil report not found', 404);

@@ -15,16 +15,21 @@
 import { Router } from 'express';
 import { body, query } from 'express-validator';
 import { authenticate, optionalAuth } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
+import { maxLen } from '../middleware/textLength.js';
+import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import { createUploader, uploadFiles } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
 import {
-  sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, paginationMeta,
+  sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta,
 } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 import { haversineKm } from '../utils/geo.js';
 
 const router = Router();
+router.param('id', uuidParamGuard);     // animal listing id
+router.param('chatId', uuidParamGuard); // animal chat id
 const imageUpload = createUploader(8);
 
 // ── Chat inbox (must be registered BEFORE /:id to win path matching) ─────────
@@ -91,7 +96,9 @@ router.get(
   async (req, res) => {
     const page  = parseInt(req.query.page  || '1', 10);
     const limit = parseInt(req.query.limit || '20', 10);
-    const { animal, search, minPrice, maxPrice, district, lat, lng, radius } = req.query;
+    const { animal, minPrice, maxPrice, lat, lng, radius } = req.query;
+    const search   = sanitizeSearch(req.query.search);   // strip LIKE wildcards / cap length
+    const district = sanitizeSearch(req.query.district);
 
     const where = { status: 'ACTIVE' };
     if (animal)   where.animal = { equals: animal, mode: 'insensitive' };
@@ -206,6 +213,13 @@ router.get('/:id', async (req, res) => {
   return sendSuccess(res, listing);
 });
 
+// Per-field character caps for animal-listing free-text — bound DB row size and
+// reject oversized payloads with 400. Shared by create + update.
+const ANIMAL_TEXT_LIMITS = {
+  animal: 80, breed: 80, age: 40, weight: 40, milkYield: 80,
+  sellerLocation: 200, description: 5000,
+};
+
 router.post(
   '/',
   authenticate,
@@ -233,6 +247,7 @@ router.post(
     body('description').optional().trim(),
     body('lat').optional({ checkFalsy: true }).isFloat({ min: -90,  max: 90  }).withMessage('lat invalid'),
     body('lng').optional({ checkFalsy: true }).isFloat({ min: -180, max: 180 }).withMessage('lng invalid'),
+    ...maxLen(ANIMAL_TEXT_LIMITS),
   ],
   validate,
   async (req, res) => {
@@ -300,6 +315,8 @@ router.put(
     if (err) return sendError(res, err.message, 400);
     next();
   }),
+  maxLen(ANIMAL_TEXT_LIMITS), // runs after multer populates req.body from the multipart form
+  validate,
   async (req, res) => {
     const listing = await prisma.animalListing.findUnique({ where: { id: req.params.id } });
     if (!listing) return sendNotFound(res, 'Animal listing');
@@ -372,8 +389,7 @@ router.delete('/:id', authenticate, async (req, res) => {
     console.log('[animals DELETE] soft-deleted', listing.id);
     return sendSuccess(res, { deleted: true });
   } catch (err) {
-    console.error('[animals DELETE] failed:', err?.message, err?.stack);
-    return sendError(res, err?.message || 'Failed to delete listing', 500);
+    return sendServerError(res, err, 'Failed to delete listing. Please try again.', 500);
   }
 });
 

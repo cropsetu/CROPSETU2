@@ -24,6 +24,7 @@ import {
   getEffectiveConsents,
   getConsentHistory,
 } from '../services/consent.service.js';
+import { auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
 
 const router = Router();
 router.use(authenticate);
@@ -95,6 +96,16 @@ router.post(
           data:  { guardianConsentAt: granted ? new Date() : null },
         });
       }
+
+      // The ConsentRecord above is the authoritative DPDP proof trail; also emit
+      // a unified audit event so consent changes appear in the cross-cut log
+      // alongside other sensitive operations (coordinated taxonomy).
+      auditAction(req, {
+        action:   AUDIT_ACTIONS.CONSENT_CHANGE,
+        entity:   'ConsentRecord',
+        entityId: record.id,
+        after:    { purpose: record.purpose, granted: record.granted, policyVersion: record.policyVersion },
+      }).catch(() => {});
 
       return sendSuccess(res, {
         purpose:       record.purpose,

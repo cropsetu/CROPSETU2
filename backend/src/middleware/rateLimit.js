@@ -70,17 +70,20 @@ async function check(key, windowMs, max, now) {
 }
 
 /**
- * Best-effort client IP. Prefers the left-most X-Forwarded-For hop (set by the
- * load balancer) so per-IP limits stay per-client behind Railway's proxy;
- * falls back to the socket address. Returns null when nothing is resolvable.
+ * Resolve the client IP to key per-IP limits on.
  *
- * Note: X-Forwarded-For is only trustworthy behind a proxy that overwrites it.
- * That is the case on Railway; a direct-exposed deployment should set
- * `app.set('trust proxy', …)` and key on `req.ip` instead.
+ * Uses Express's req.ip, which is the trust-proxy-resolved client address: with
+ * `app.set('trust proxy', <hops>)` configured (see app.js) Express walks
+ * X-Forwarded-For from the RIGHT and returns the first hop the trusted proxy
+ * chain did not add — an address the client cannot forge. Keying on raw
+ * left-most XFF (the previous behaviour) trusted a client-controlled value, so a
+ * flood could mint a fresh bucket per request and bypass the limiter entirely.
+ *
+ * Falls back to the socket peer when req.ip is somehow unset (e.g. non-HTTP
+ * harness). Returns null when nothing is resolvable so the limiter skips rather
+ * than collapsing every caller onto one shared key.
  */
 export function clientIp(req) {
-  const xff = req.headers['x-forwarded-for'];
-  if (xff) return String(xff).split(',')[0].trim();
   return req.ip || req.socket?.remoteAddress || null;
 }
 

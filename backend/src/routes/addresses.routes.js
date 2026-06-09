@@ -9,15 +9,14 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
 import prisma from '../config/db.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound } from '../utils/response.js';
+import { normalizeIndianMobile } from '../utils/phone.js';
 
 const router = Router();
-
-function normalisePhone(raw) {
-  return raw.replace(/\D/g, '').replace(/^(91|0)/, '');
-}
+router.param('id', uuidParamGuard); // reject non-UUID :id with 400 before Prisma
 
 // ── List ──────────────────────────────────────────────────────────────────────
 router.get('/', authenticate, async (req, res) => {
@@ -48,8 +47,8 @@ router.post(
   async (req, res) => {
     const { type = 'HOME', name, phone, flat, street, city, state, pincode, landmark, isDefault } = req.body;
 
-    const normPhone = normalisePhone(phone);
-    if (!/^[6-9]\d{9}$/.test(normPhone)) {
+    const normPhone = normalizeIndianMobile(phone);
+    if (!normPhone) {
       return sendError(res, 'Invalid phone number', 400);
     }
 
@@ -113,8 +112,8 @@ router.put(
     if (pincode  !== undefined) data.pincode  = pincode.trim();
     if (landmark !== undefined) data.landmark = landmark?.trim().slice(0, 200) || null;
     if (phone    !== undefined) {
-      const norm = normalisePhone(phone);
-      if (!/^[6-9]\d{9}$/.test(norm)) return sendError(res, 'Invalid phone number', 400);
+      const norm = normalizeIndianMobile(phone);
+      if (!norm) return sendError(res, 'Invalid phone number', 400);
       data.phone = norm;
     }
 

@@ -38,7 +38,7 @@ router.get('/', async (req, res) => {
 
 router.post('/', writeLimit, idemFarm, [body('landSizeAcres').notEmpty().isFloat({ min: 0.01 }), ...farmValidators], validate, async (req, res) => {
   try { return sendCreated(res, await createFarm(req.user.id, req.body)); }
-  catch (e) { logger.error({ err: e }, '[Farm] create'); return sendError(res, e.message || 'Failed', 500); }
+  catch (e) { logger.error({ err: e }, '[Farm] create'); return sendError(res, 'Could not create farm. Please try again.', 500); }
 });
 
 router.get('/:farmId', [param('farmId').isUUID()], validate, async (req, res) => {

@@ -8,12 +8,14 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
 import prisma from '../config/db.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 
 const router = Router();
+router.param('userId', uuidParamGuard); // conversation-partner user id — reject non-UUIDs with 400
 
 // ── All conversations (like WhatsApp home) ────────────────────────────────────
 router.get('/conversations', authenticate, async (req, res) => {

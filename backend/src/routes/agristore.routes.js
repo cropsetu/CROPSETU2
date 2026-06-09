@@ -15,14 +15,19 @@
 import { Router } from 'express';
 import { body, query } from 'express-validator';
 import { authenticate, optionalAuth, requireRole } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
+import { maxLen } from '../middleware/textLength.js';
+import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
-import { sendSuccess, sendCreated, sendError, sendNotFound, paginationMeta } from '../utils/response.js';
+import { sendSuccess, sendCreated, sendError, sendNotFound, sendServerError, paginationMeta } from '../utils/response.js';
 import { stripHtml, deepStripHtml } from '../utils/encrypt.js';
 import { createPaymentOrder, verifyPaymentSignature } from '../services/payment.service.js';
-import { auditOrderStatusChange } from '../services/audit.service.js';
+import { auditOrderStatusChange, auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
 
 const router = Router();
+router.param('id', uuidParamGuard);        // product / order / seller-product ids
+router.param('productId', uuidParamGuard); // cart item product id
 
 // ── Categories (public) ───────────────────────────────────────────────────────
 router.get('/categories', async (_req, res) => {
@@ -45,7 +50,8 @@ router.get(
   async (req, res) => {
     const page  = parseInt(req.query.page  || '1', 10);
     const limit = parseInt(req.query.limit || '20', 10);
-    const { category, search, featured, district } = req.query;
+    const { category, featured, district } = req.query;
+    const search = sanitizeSearch(req.query.search); // strip LIKE wildcards / cap length
 
     const { subcategory } = req.query;
     const where = { isActive: true };
@@ -229,7 +235,7 @@ router.post(
           include: { product: true },
         });
         if (!cartItems.length) {
-          throw Object.assign(new Error('Cart is empty'), { statusCode: 400 });
+          throw Object.assign(new Error('Cart is empty'), { statusCode: 400, expose: true });
         }
 
         // Validate stock INSIDE the transaction so concurrent checkouts
@@ -238,10 +244,10 @@ router.post(
           // Re-read product with fresh data inside the transaction
           const freshProduct = await tx.product.findUnique({ where: { id: item.productId } });
           if (!freshProduct || !freshProduct.isActive) {
-            throw Object.assign(new Error(`Product "${item.product.name}" is no longer available`), { statusCode: 400 });
+            throw Object.assign(new Error(`Product "${item.product.name}" is no longer available`), { statusCode: 400, expose: true });
           }
           if (freshProduct.stock < item.quantity) {
-            throw Object.assign(new Error(`Insufficient stock for ${freshProduct.name}`), { statusCode: 400 });
+            throw Object.assign(new Error(`Insufficient stock for ${freshProduct.name}`), { statusCode: 400, expose: true });
           }
         }
 
@@ -285,8 +291,7 @@ router.post(
 
       return sendCreated(res, order);
     } catch (err) {
-      const status = err.statusCode || 500;
-      return sendError(res, err.message || 'Checkout failed', status);
+      return sendServerError(res, err, 'Checkout failed. Please try again.');
     }
   }
 );
@@ -448,16 +453,16 @@ router.post(
           include: { product: true },
         });
         if (!cartItems.length) {
-          throw Object.assign(new Error('Cart is empty'), { statusCode: 400 });
+          throw Object.assign(new Error('Cart is empty'), { statusCode: 400, expose: true });
         }
 
         for (const item of cartItems) {
           const freshProduct = await tx.product.findUnique({ where: { id: item.productId } });
           if (!freshProduct || !freshProduct.isActive) {
-            throw Object.assign(new Error(`Product "${item.product.name}" unavailable`), { statusCode: 400 });
+            throw Object.assign(new Error(`Product "${item.product.name}" unavailable`), { statusCode: 400, expose: true });
           }
           if (freshProduct.stock < item.quantity) {
-            throw Object.assign(new Error(`Insufficient stock for ${freshProduct.name}`), { statusCode: 400 });
+            throw Object.assign(new Error(`Insufficient stock for ${freshProduct.name}`), { statusCode: 400, expose: true });
           }
         }
 
@@ -497,7 +502,7 @@ router.post(
 
       return sendCreated(res, order);
     } catch (err) {
-      return sendError(res, err.message || 'Order confirmation failed', err.statusCode || 500);
+      return sendServerError(res, err, 'Order confirmation failed. Please try again.');
     }
   }
 );
@@ -509,6 +514,14 @@ router.post(
 // DELETE /seller/products/:id    → delete own product
 // GET    /seller/stats           → dashboard stats
 // GET    /seller/orders          → orders that include seller's products
+
+// Per-field character caps for product free-text — bound DB row size and reject
+// oversized payloads with 400. Shared by create + update.
+const PRODUCT_TEXT_LIMITS = {
+  name: 150, nameHi: 150, nameMr: 150, description: 5000, unit: 40,
+  district: 120, taluka: 120, village: 120, state: 120,
+  harvestDate: 40, subcategory: 100, brand: 100, manufacturer: 120, countryOfOrigin: 80,
+};
 
 // [FIX #5] All seller routes require SELLER, VERIFIED_FARMER, or ADMIN role.
 // Previously any FARMER could create products.
@@ -539,6 +552,7 @@ router.post(
     body('countryOfOrigin').optional().trim(),
     body('highlights').optional().isArray(),
     body('specifications').optional().isObject(),
+    ...maxLen(PRODUCT_TEXT_LIMITS),
   ],
   validate,
   async (req, res) => {
@@ -616,6 +630,7 @@ router.put(
     body('countryOfOrigin').optional().trim(),
     body('highlights').optional().isArray(),
     body('specifications').optional().isObject(),
+    ...maxLen(PRODUCT_TEXT_LIMITS),
   ],
   validate,
   async (req, res) => {
@@ -674,6 +689,15 @@ router.delete('/seller/products/:id', authenticate, requireRole('SELLER', 'VERIF
     prisma.product.update({ where: { id: req.params.id }, data: { isActive: false } }),
     prisma.cartItem.deleteMany({ where: { productId: req.params.id } }),
   ]);
+
+  // Audit the listing removal (the audit service explicitly tracks deletions).
+  auditAction(req, {
+    action:   AUDIT_ACTIONS.PRODUCT_DELETE,
+    entity:   'Product',
+    entityId: req.params.id,
+    metadata: { sellerId: req.user.id, name: product.name },
+  }).catch(() => {});
+
   return sendSuccess(res, { archived: true });
 });
 

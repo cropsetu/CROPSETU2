@@ -10,11 +10,13 @@
  */
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { callClaude } from '../services/claude.service.js';
 import prisma from '../config/db.js';
 
 const router = Router();
+router.param('id', uuidParamGuard); // reject non-UUID :id (scheme) with 400 before Prisma
 
 // ── Per-user cooldown for AI scheme Q&A (max 1 every 10 s) ───────────────────
 const lastSchemeAsk = new Map();

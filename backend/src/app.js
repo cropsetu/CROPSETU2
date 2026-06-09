@@ -58,6 +58,16 @@ const app = express();
 // browser-side axios (default validateStatus rejects 3xx) and stale-data bugs.
 app.disable('etag');
 
+// ── Trust the reverse proxy ───────────────────────────────────────────────────
+// Railway (and any LB) terminate TLS and forward the client via X-Forwarded-For.
+// Without this, req.ip is the proxy's address and every client behind it shares
+// one rate-limit bucket. With it, Express resolves req.ip from the right-most
+// untrusted XFF hop — an address the client CANNOT spoof — so the global per-IP
+// limiter actually keys per client and can't be bypassed by forging XFF. Hop
+// count is bounded by ENV.TRUST_PROXY (default 1 in prod). MUST be set before the
+// rate limiter (and any req.ip consumer) is mounted.
+app.set('trust proxy', ENV.TRUST_PROXY);
+
 // ── Request ID for tracing (attach before any other middleware) ───────────────
 app.use((req, res, _next) => {
   req.id = req.headers['x-request-id'] || crypto.randomUUID();
@@ -93,6 +103,9 @@ app.use(cors({
     callback(new Error('CORS: no allowed origins configured'));
   },
   credentials: true,
+  // Cache the preflight (Access-Control-Max-Age) so browsers skip the extra
+  // OPTIONS round-trip on subsequent cross-origin requests. See ENV.CORS_MAX_AGE.
+  maxAge: ENV.CORS_MAX_AGE,
 }));
 
 // ── Compression ───────────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { invalidateCache } from '../services/featureFlag.service.js';
+import { auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
 import prisma from '../config/db.js';
 
 const router = Router();
@@ -52,6 +53,16 @@ router.patch('/features/:key', authenticate, requireAdmin, async (req, res) => {
   });
 
   invalidateCache();
+
+  // Audit the config change — who toggled which flag to what state.
+  auditAction(req, {
+    action:   AUDIT_ACTIONS.FEATURE_FLAG_CHANGE,
+    entity:   'FeatureFlag',
+    entityId: key,
+    after:    { isEnabled: flag.isEnabled, disabledReason: flag.disabledReason },
+    metadata: { updatedBy: req.user.id },
+  }).catch(() => {});
+
   return sendSuccess(res, flag);
 });
 

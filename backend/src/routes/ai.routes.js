@@ -24,6 +24,7 @@ import fs          from 'fs';
 import os          from 'os';
 import OpenAI      from 'openai';
 import { authenticate } from '../middleware/auth.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { ENV } from '../config/env.js';
 import {
@@ -168,6 +169,10 @@ function getGroqSTT() {
 }
 
 const router = Router();
+// :id (conversations) and :sessionId (scan sessions) are uuid()s; reject non-UUIDs
+// with 400. :jobId is a FastAPI job id (not a DB id), so it is intentionally not guarded.
+router.param('id', uuidParamGuard);
+router.param('sessionId', uuidParamGuard);
 
 // ── Per-user caches ───────────────────────────────────────────────────────────
 const alertCache   = new Map();
@@ -1024,7 +1029,7 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
   } catch (err) {
     cleanupFile();
     logger.error({ err }, '[Express/Scan/submit] enqueue failed');
-    return sendError(res, `Scan submit failed: ${err.message || 'Unknown error'}`, err.status || 500);
+    return sendError(res, 'Scan submission failed. Please try again.', err.status || 500);
   }
 });
 
@@ -1038,7 +1043,7 @@ router.get('/scan/job/:jobId', authenticate, async (req, res) => {
     snap = await getFastAPIScanStatus({ jobId, userId: req.user.id, requestId: req.id });
   } catch (err) {
     logger.error({ err, jobId }, '[Express/Scan/job] status fetch failed');
-    return sendError(res, `Job status fetch failed: ${err.message}`, err.status || 502);
+    return sendError(res, 'Could not fetch scan status. Please try again.', err.status || 502);
   }
 
   if (snap.status === 'queued' || snap.status === 'running') {
@@ -1476,7 +1481,7 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
     if (err.status === 400 && err.message?.includes('image'))
       return sendError(res, 'Image could not be read. Please take a new photo and try again.', 400);
 
-    return sendError(res, `Scan failed: ${err.message || 'Unknown error'}. Please try again.`, 500);
+    return sendError(res, 'Scan failed. Please try again.', 500);
   } finally {
     inflightScans.delete(req.user.id);
   }
