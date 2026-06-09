@@ -52,7 +52,7 @@ router.patch('/features/:key', authenticate, requireAdmin, async (req, res) => {
     },
   });
 
-  invalidateCache();
+  invalidateCache(key); // clears this instance + broadcasts to all others via Redis pub/sub
 
   // Audit the config change — who toggled which flag to what state.
   auditAction(req, {

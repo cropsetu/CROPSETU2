@@ -20,6 +20,7 @@ import { validate } from '../middleware/validate.js';
 import { maxLen } from '../middleware/textLength.js';
 import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
+import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, sendServerError, paginationMeta } from '../utils/response.js';
 import { stripHtml, deepStripHtml } from '../utils/encrypt.js';
 import { createPaymentOrder, verifyPaymentSignature } from '../services/payment.service.js';
@@ -29,13 +30,28 @@ const router = Router();
 router.param('id', uuidParamGuard);        // product / order / seller-product ids
 router.param('productId', uuidParamGuard); // cart item product id
 
-// ── Categories (public) ───────────────────────────────────────────────────────
+// ── Listing cache namespaces + short TTLs ─────────────────────────────────────
+// Public catalogue reads are identical across users, so we cache them in Redis
+// (shared across instances) and invalidate by bumping the namespace version on
+// any catalogue write. TTLs are short so order-driven stock drift (which we do
+// NOT invalidate on — too write-heavy) self-corrects quickly; cart/checkout always
+// re-reads fresh stock inside its transaction, so listings showing slightly stale
+// stock is safe.
+const NS_CATEGORIES = 'agristore:categories';
+const NS_PRODUCTS   = 'agristore:products';
+const CATEGORIES_TTL = 300; // categories change rarely (seed/migration)
+const PRODUCTS_TTL   = 60;  // short — bounds stock drift between writes
+
+// ── Categories (public, cached) ───────────────────────────────────────────────
 router.get('/categories', async (_req, res) => {
-  const cats = await prisma.category.findMany({
-    where: { isActive: true },
-    orderBy: { sortOrder: 'asc' },
-  });
-  return sendSuccess(res, cats);
+  const { data, cached } = await cachedListing(NS_CATEGORIES, 'all', CATEGORIES_TTL, async () => ({
+    data: await prisma.category.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: 'asc' },
+    }),
+  }));
+  res.setHeader('X-Cache', cached ? 'HIT' : 'MISS');
+  return sendSuccess(res, data);
 });
 
 // ── Products list (public) ────────────────────────────────────────────────────
@@ -76,18 +92,25 @@ router.get(
       }];
     }
 
-    const [products, total] = await Promise.all([
-      prisma.product.findMany({
-        where,
-        include: { category: { select: { id: true, name: true, icon: true, color: true } } },
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: [{ isFeatured: 'desc' }, { rating: 'desc' }],
-      }),
-      prisma.product.count({ where }),
-    ]);
+    // Cache per distinct query-param signature. The response is user-independent
+    // (the WHERE clause uses only public filters), so it's safe to share globally.
+    const identity = JSON.stringify([category || '', subcategory || '', featured ? 1 : 0, district || '', search || '', page, limit]);
+    const { data, meta, cached } = await cachedListing(NS_PRODUCTS, identity, PRODUCTS_TTL, async () => {
+      const [products, total] = await Promise.all([
+        prisma.product.findMany({
+          where,
+          include: { category: { select: { id: true, name: true, icon: true, color: true } } },
+          skip: (page - 1) * limit,
+          take: limit,
+          orderBy: [{ isFeatured: 'desc' }, { rating: 'desc' }],
+        }),
+        prisma.product.count({ where }),
+      ]);
+      return { data: products, meta: paginationMeta(total, page, limit) };
+    });
 
-    return sendSuccess(res, products, 200, paginationMeta(total, page, limit));
+    res.setHeader('X-Cache', cached ? 'HIT' : 'MISS');
+    return sendSuccess(res, data, 200, meta);
   }
 );
 
@@ -594,6 +617,7 @@ router.post(
       },
       include: { category: { select: { id: true, name: true, icon: true, color: true } } },
     });
+    await bumpListingVersion(NS_PRODUCTS); // new listing → invalidate product caches
     return sendCreated(res, product);
   }
 );
@@ -677,6 +701,7 @@ router.put(
       data,
       include: { category: { select: { id: true, name: true, icon: true, color: true } } },
     });
+    await bumpListingVersion(NS_PRODUCTS); // listing fields may have changed → invalidate
     return sendSuccess(res, updated);
   }
 );
@@ -689,6 +714,8 @@ router.delete('/seller/products/:id', authenticate, requireRole('SELLER', 'VERIF
     prisma.product.update({ where: { id: req.params.id }, data: { isActive: false } }),
     prisma.cartItem.deleteMany({ where: { productId: req.params.id } }),
   ]);
+
+  await bumpListingVersion(NS_PRODUCTS); // removed from listings → invalidate
 
   // Audit the listing removal (the audit service explicitly tracks deletions).
   auditAction(req, {
@@ -847,6 +874,8 @@ router.post(
       return r;
     });
 
+    // The product's avg rating changed — it orders the listing, so invalidate.
+    await bumpListingVersion(NS_PRODUCTS);
     return sendCreated(res, review);
   }
 );

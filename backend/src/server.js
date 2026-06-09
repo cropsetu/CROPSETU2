@@ -8,9 +8,11 @@ import Redis from 'ioredis';
 import app from './app.js';
 import { ENV } from './config/env.js';
 import prisma from './config/db.js';
-import redis from './config/redis.js';
+import redis, { beginRedisShutdown, getRedisMemoryMetrics } from './config/redis.js';
 import { registerChatSocket } from './socket/chat.socket.js';
-import { seedDefaultFlags } from './services/featureFlag.service.js';
+import { seedDefaultFlags, initFlagInvalidationSubscriber, stopFlagInvalidationSubscriber } from './services/featureFlag.service.js';
+import { warmAllCaches } from './services/cacheWarmer.service.js';
+import { checkCacheAlerts } from './utils/cacheMetrics.js';
 import { runRetentionSweep } from './services/retention.service.js';
 import logger from './utils/logger.js';
 
@@ -99,10 +101,30 @@ async function start() {
       logger.warn('[Redis] Not available — continuing without cache (dev mode)');
     }
 
+    // Subscribe for cross-instance feature-flag invalidations (no-op if Redis is
+    // down — flags then converge via the in-process TTL). Safe after the connect
+    // attempt above; it uses its own dedicated subscriber connection.
+    await initFlagInvalidationSubscriber();
+
     httpServer.listen(ENV.PORT, () => {
       logger.info('[Server] FarmEasy API running on http://localhost:%d%s', ENV.PORT, ENV.API_PREFIX);
       logger.info('[Server] Environment: %s', ENV.NODE_ENV);
     });
+
+    // ── Cache warming ───────────────────────────────────────────────────────
+    // Preload the hottest mandi-price keys so the first post-deploy user hits a
+    // warm cache instead of paying the cold Groq latency. Fired right after
+    // listen and NON-BLOCKING so it never delays readiness; warming completes
+    // within seconds, and the single-flight guard means a user racing in during
+    // the warm window still triggers only one recompute. A scheduled re-warm
+    // (just under the 30-min cache TTL) keeps hot keys from lapsing to cold
+    // during quiet periods.
+    if (ENV.CACHE_WARMING_ENABLED) {
+      warmAllCaches().catch(e => logger.warn('[CacheWarm] startup warm failed: %s', e.message));
+      cron.schedule('*/25 * * * *', () => {
+        warmAllCaches().catch(e => logger.warn('[CacheWarm] scheduled warm failed: %s', e.message));
+      });
+    }
 
     // ── AgriPredict cron jobs ───────────────────────────────────────────────
     const AI_BASE = ENV.AI_BACKEND_URL || 'http://localhost:8001';
@@ -177,6 +199,20 @@ async function start() {
       logger.info('[AgriPredict] Deleted %d expired prediction caches', expired.count);
     });
 
+    // ── Cache observability alerting ────────────────────────────────────────
+    // Every 5 min, evaluate the windowed cache hit rate + Redis memory and emit a
+    // loud [ALERT] log if either breaches its threshold (see utils/cacheMetrics.js).
+    // Metrics themselves are scraped from /readyz; this is the alerting half.
+    cron.schedule('*/5 * * * *', () => {
+      try {
+        checkCacheAlerts({
+          hitRateFloor: ENV.CACHE_HIT_RATE_ALERT_THRESHOLD,
+          memPctCeil:   ENV.REDIS_MEMORY_ALERT_PCT,
+          memPct:       getRedisMemoryMetrics().used_memory_pct,
+        });
+      } catch (err) { logger.warn('[CacheMetrics] alert check failed: %s', err.message); }
+    });
+
     // ── Data-retention sweep (DPDP minimisation) ────────────────────────────
     // Daily at 2:30 AM UTC — purge transient/log data past its retention window
     // (OTP sessions, expired tokens, old notifications, voice transcripts, AI
@@ -215,7 +251,9 @@ async function shutdown(signal) {
   }, 10_000).unref();
 
   httpServer.close(async () => {
+    beginRedisShutdown(); // suppress the close/end outage alert for this intentional quit
     await Promise.allSettled([
+      stopFlagInvalidationSubscriber(),
       prisma.$disconnect(),
       redis.quit().catch(() => {}),
     ]);

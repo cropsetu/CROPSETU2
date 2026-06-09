@@ -9,7 +9,8 @@ import { ENV } from './config/env.js';
 import { sendError } from './utils/response.js';
 import logger from './utils/logger.js';
 import prisma from './config/db.js';
-import redis from './config/redis.js';
+import redis, { getRedisHealth, getRedisMemoryMetrics } from './config/redis.js';
+import { getCacheMetrics } from './utils/cacheMetrics.js';
 import { rateLimiter, clientIp } from './middleware/rateLimit.js';
 import { csrfProtection } from './middleware/csrf.js';
 
@@ -174,23 +175,48 @@ app.get('/readyz', async (_req, res) => {
     logger.warn({ err: err?.message }, '[readyz] DB check failed');
   }
 
+  // Redis is OPTIONAL for readiness: a Redis outage must NOT pull every instance
+  // out of the load balancer (that would turn a cache outage into a full outage).
+  // We surface its REAL health (CACHE-9) so monitoring/alerting can act on it,
+  // without flipping `ready` to false. The healthy→down transition already fires a
+  // loud [ALERT][Redis] log from the client wrapper (see config/redis.js).
+  const rh = getRedisHealth();
   try {
-    if (redis?.status === 'ready') {
+    if (rh.healthy) {
       await redis.ping();
       checks.redis = 'ok';
     } else {
-      // Redis is optional in dev; don't fail readiness if it just isn't
-      // connected yet.
-      checks.redis = 'degraded';
+      // Distinguish "down" (was connected, now lost) from "connecting"/"not yet
+      // up" so dashboards can tell a real outage from a cold start.
+      checks.redis = rh.everReady ? 'down' : 'connecting';
     }
   } catch {
     checks.redis = 'down';
-    // Redis being down is degraded but not unready — features that depend
-    // on Redis (cross-instance rate limit, Socket.IO adapter) will fall
-    // back to in-memory mode.
   }
 
-  res.status(ready ? 200 : 503).json({ ready, checks });
+  // Expose health + cache + memory as lightweight metrics for scrapers/alerting
+  // (dashboards show hit rate and memory; OPS-4 alerts on low hit rate / high
+  // memory). NOTE: /readyz is public (mounted before auth) — only non-sensitive
+  // numbers here; the raw Redis error string is kept server-side (the [ALERT][Redis]
+  // log). Memory comes from a throttled snapshot, so this never issues an INFO per
+  // healthcheck; cache counters are in-process and free to read.
+  const mem = getRedisMemoryMetrics();
+  const cache = getCacheMetrics();
+  const metrics = {
+    redis_healthy:               rh.healthy ? 1 : 0,
+    redis_down_ms:               rh.downForMs ?? 0,
+    redis_status:                rh.status,
+    redis_used_memory_bytes:     mem.used_memory ?? 0,
+    redis_used_memory_rss_bytes: mem.used_memory_rss ?? 0,
+    redis_maxmemory_bytes:       mem.maxmemory ?? 0,
+    redis_used_memory_pct:       mem.used_memory_pct ?? 0,
+    redis_mem_fragmentation:     mem.frag_ratio ?? 0,
+    cache_hits:                  cache.hits,
+    cache_misses:                cache.misses,
+    cache_hit_rate:              cache.hitRate ?? 0,
+  };
+
+  res.status(ready ? 200 : 503).json({ ready, checks, metrics, cacheBySource: cache.bySource });
 });
 
 // ── Global per-IP rate limit ──────────────────────────────────────────────────

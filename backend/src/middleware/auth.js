@@ -7,6 +7,7 @@
  */
 import { verifyAccessToken } from '../utils/jwt.js';
 import { sendUnauthorized, sendForbidden } from '../utils/response.js';
+import { isAccessTokenDenylisted } from '../services/tokenDenylist.service.js';
 import prisma from '../config/db.js';
 
 // Exactly: scheme "Bearer", one space, then a single non-whitespace token.
@@ -43,6 +44,14 @@ export async function authenticate(req, res, next) {
     return sendUnauthorized(res, 'Invalid or expired token');
   }
 
+  // Cross-instance revocation: a single-device logout denylists this token's jti
+  // in Redis (shared by every instance), so a logged-out token is rejected
+  // everywhere immediately. Checked before the DB lookup so a revoked token
+  // short-circuits. Fails open if Redis is down (see tokenDenylist.service.js).
+  if (await isAccessTokenDenylisted(payload.jti)) {
+    return sendUnauthorized(res, 'Session expired. Please sign in again.');
+  }
+
   // Validate against the live account: reject tokens for missing/disabled users
   // and tokens whose embedded version is behind the user's current
   // tokenVersion (bumped on security-sensitive changes like a phone change).
@@ -63,15 +72,21 @@ export async function authenticate(req, res, next) {
   }
 
   req.user = { id: payload.sub, role: payload.role };
+  // Expose the token identity so the logout handler can denylist exactly this
+  // access token (jti) for its remaining lifetime (exp).
+  req.auth = { jti: payload.jti, exp: payload.exp };
   next();
 }
 
-export function optionalAuth(req, _res, next) {
+export async function optionalAuth(req, _res, next) {
   const token = parseBearerToken(req.headers.authorization);
   if (token) {
     try {
       const payload = verifyAccessToken(token);
-      if (payload && typeof payload.sub === 'string' && payload.sub) {
+      // Honour the denylist here too: a logged-out token must not keep granting
+      // the user's identity on anonymous-friendly routes.
+      if (payload && typeof payload.sub === 'string' && payload.sub
+          && !(await isAccessTokenDenylisted(payload.jti))) {
         req.user = { id: payload.sub, role: payload.role };
       }
     } catch {

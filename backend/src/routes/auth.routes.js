@@ -27,6 +27,7 @@ import { normalizeIndianMobile, indianMobileBody } from '../utils/phone.js';
 import { sendOtp, verifyOtp } from '../services/otp.service.js';
 import { captureSignupConsent } from '../services/consent.service.js';
 import { reportSecurityEvent } from '../services/incident.service.js';
+import { denylistAccessToken } from '../services/tokenDenylist.service.js';
 import {
   signAccessToken,
   createRefreshToken,
@@ -383,6 +384,10 @@ router.post(
     try {
       const rawToken = req.body.refreshToken || readRefreshCookie(req);
       if (rawToken) await revokeRefreshTokenByRaw(req.user.id, rawToken);
+      // Revoke THIS access token across every instance immediately (Redis
+      // denylist), so logout is atomic on the stateless access token too — not
+      // just the refresh lineage. Bounded to the token's remaining life.
+      if (req.auth?.jti) await denylistAccessToken(req.auth.jti, req.auth.exp);
       clearRefreshCookie(res);
       clearCsrfCookie(res);
       await auditAuthEvent(req.user.id, AUTH_ACTIONS.LOGOUT, req.ip, { outcome: 'success' });
@@ -398,6 +403,11 @@ router.post(
 // ── POST /logout-all ───────────────────────────────────────────────────────────
 router.post('/logout-all', authenticate, async (req, res) => {
   await revokeAllRefreshTokens(req.user.id);
+  // Invalidate every outstanding access token for this user across all instances.
+  // The tokenVersion bump is DB-backed and checked by authenticate() on every
+  // request, so it's atomic fleet-wide without needing per-token denylist entries
+  // (and covers the current device too — "all" includes this one).
+  await bumpTokenVersion(req.user.id);
   clearRefreshCookie(res);
   clearCsrfCookie(res);
   return sendSuccess(res, { message: 'Logged out from all devices' });

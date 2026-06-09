@@ -3,9 +3,9 @@
  */
 import { Router } from 'express';
 import { body, param, query } from 'express-validator';
-import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { rateLimiter, clientIp } from '../middleware/rateLimit.js';
 import { idempotency } from '../middleware/idempotency.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError } from '../utils/response.js';
 import logger from '../utils/logger.js';
@@ -27,7 +27,22 @@ router.use((req, _res, next) => {
   if (p.startsWith('/farms/') || p.startsWith('/cycles/')) return authenticate(req, _res, next);
   return next('router');
 });
-const wl = (_req, _res, next) => next();   // rate limit disabled for now
+// Per-user write throttle shared across every crop-cycle mutation (cycle CRUD plus
+// the fertilizer / pesticide / irrigation / labor / expense / income / harvest / sale
+// sub-logs). Redis-backed sliding window shared across all instances (in-memory
+// fallback when Redis is down — see middleware/rateLimit.js), so the cap holds in a
+// clustered deploy. Keyed on the authenticated user id (router runs `authenticate`),
+// falling back to client IP only if user is somehow absent. Logging a day's field
+// activity can legitimately span many writes, so the budget is generous (120/15min ≈
+// sustained 8/min) — enough for real logging, tight enough to stop scripted floods.
+// Stacks on top of the global per-IP limiter.
+const wl = rateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max:      120,            // 120 cycle writes / 15 min / user
+  prefix:   'cycle:write',
+  key:      (req) => req.user?.id || clientIp(req),
+  message:  'Too many crop-cycle updates. Please wait a few minutes and try again.',
+});
 const idemCycle = idempotency('cycle_write');  // dedupe duplicate cycle writes (401-replay / retry)
 
 // ── Ownership guard for every /cycles/:cycleId* route ─────────────────────────

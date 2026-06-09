@@ -16,6 +16,11 @@ const JWT_AUDIENCE = 'cropsetu-mobile';
  * authenticate() rejects a token whose `tv` is behind the user's current
  * version — that's how a security-sensitive change (e.g. phone change) revokes
  * every previously issued token.
+ *
+ * Each token also carries a unique `jti` (JWT ID) so an individual token can be
+ * revoked on a single-device logout via the Redis denylist (see
+ * services/tokenDenylist.service.js) without disturbing the user's other
+ * sessions — which a tokenVersion bump would.
  */
 export function signAccessToken({ sub, role, tokenVersion = 0 }) {
   return jwt.sign({ sub, role, tv: tokenVersion }, ENV.JWT_SECRET, {
@@ -23,6 +28,7 @@ export function signAccessToken({ sub, role, tokenVersion = 0 }) {
     algorithm: 'HS256',
     issuer:    JWT_ISSUER,
     audience:  JWT_AUDIENCE,
+    jwtid:     crypto.randomUUID(),
   });
 }
 

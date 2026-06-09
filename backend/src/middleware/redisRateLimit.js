@@ -13,6 +13,7 @@
  *   router.post('/expensive', redisRateLimit({ max: 10, windowSec: 60 }), handler);
  */
 import redis from '../config/redis.js';
+import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
 import { sendError } from '../utils/response.js';
 
@@ -50,7 +51,17 @@ async function slidingWindow(key, windowMs, max, now) {
  * @param {string} [opts.prefix]   — Redis key prefix
  * @param {function} [opts.keyGenerator] — (req) => string
  * @param {string} [opts.message]  — error message on limit hit
+ * @param {boolean} [opts.failClosed] — when Redis is unavailable, REJECT with 503
+ *        instead of allowing the request. Defaults to ENV.RATE_LIMIT_FAIL_CLOSED
+ *        (on in production). This limiter has no in-memory fallback, so failing
+ *        open means UNLIMITED requests across the whole fleet during a Redis
+ *        outage — which is exactly how an outage used to silently disable abuse
+ *        protection. Failing closed trades availability of these (cost-bearing AI)
+ *        routes for that protection.
  */
+const UNAVAILABLE_MSG = 'Service temporarily unavailable. Please retry in a few seconds.';
+const UNAVAILABLE_RETRY_SEC = 5;
+
 export function redisRateLimit(opts = {}) {
   const {
     max = 30,
@@ -58,16 +69,30 @@ export function redisRateLimit(opts = {}) {
     prefix = 'rl:ai',
     keyGenerator = (req) => req.user?.id || req.ip,
     message = 'Too many requests. Please wait a minute.',
+    failClosed = ENV.RATE_LIMIT_FAIL_CLOSED,
   } = opts;
   const windowMs = windowSec * 1000;
+
+  const reject503 = (res) => {
+    res.setHeader('Retry-After', UNAVAILABLE_RETRY_SEC);
+    return sendError(res, UNAVAILABLE_MSG, 503, { retryAfter: UNAVAILABLE_RETRY_SEC });
+  };
 
   return async (req, res, next) => {
     let id;
     try { id = keyGenerator(req); } catch { id = null; }
     if (!id) return next();                 // nothing to key on → don't block
 
-    // Redis not connected (dev / outage) → fail open.
-    if (redis?.status !== 'ready') return next();
+    // Redis not connected (dev / outage). With no local fallback we cannot
+    // enforce the limit: fail closed (reject) when configured, else fail open.
+    // The wrapper has already fired a loud [ALERT][Redis] log for the outage.
+    if (redis?.status !== 'ready') {
+      if (failClosed) {
+        logger.warn('[RateLimit] %s: Redis unavailable — failing closed (503)', prefix);
+        return reject503(res);
+      }
+      return next();
+    }
 
     try {
       const { limited, retryAfterMs } = await slidingWindow(`${prefix}:${id}`, windowMs, max, Date.now());
@@ -78,7 +103,9 @@ export function redisRateLimit(opts = {}) {
         return sendError(res, message, 429, { retryAfter });
       }
     } catch (err) {
-      logger.warn('[RateLimit] %s check failed, allowing request: %s', prefix, err.message);
+      // A live command failed mid-request (store glitch). Same dilemma as above.
+      logger.warn('[RateLimit] %s check failed: %s', prefix, err.message);
+      if (failClosed) return reject503(res);
     }
     return next();
   };
