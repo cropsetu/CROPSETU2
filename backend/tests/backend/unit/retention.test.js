@@ -27,6 +27,7 @@ describe('retentionCutoffs', () => {
   test('known windows resolve to the right dates', () => {
     expect(cutoffs.otpSessions.toISOString()).toBe('2026-06-07T00:00:00.000Z'); // 1 day
     expect(cutoffs.auditLogs.toISOString()).toBe('2025-06-08T00:00:00.000Z');   // 365 days
+    expect(cutoffs.mspRates.toISOString()).toBe('2023-06-09T00:00:00.000Z');    // 1095 days (~3y)
   });
 
   test('all cutoffs are in the past relative to now', () => {
@@ -62,5 +63,15 @@ describe('RETENTION_POLICY integrity', () => {
       expect(typeof delegate.deleteMany).toBe('function');
       expect(typeof delegate.count).toBe('function');
     }
+  });
+
+  test('MSP rates are covered by an expiry policy (unbounded-growth fix)', () => {
+    const msp = RETENTION_POLICY.find((p) => p.model === 'mSPRate');
+    expect(msp).toBeDefined();
+    // Pruned by createdAt (stable vintage), not updatedAt (re-sync would refresh it
+    // and keep ancient rows alive forever).
+    expect(msp.dateField).toBe('createdAt');
+    expect(msp.days).toBe(1095); // ~3 crop years — preserves the multi-year trend
+    expect(typeof prisma.mSPRate.deleteMany).toBe('function');
   });
 });

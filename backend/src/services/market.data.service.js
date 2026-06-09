@@ -15,6 +15,8 @@
 import OpenAI from 'openai';
 import { ENV } from '../config/env.js';
 import { getCurrentSeason } from './ai.chat.service.js';
+import { singleFlight } from '../utils/singleFlight.js';
+import { recordCacheHit, recordCacheMiss } from '../utils/cacheMetrics.js';
 
 // ── Groq client ────────────────────────────────────────────────────────────────
 let _groq = null;
@@ -26,15 +28,25 @@ function getGroq() {
   return _groq;
 }
 
-// ── 30-min cache ───────────────────────────────────────────────────────────────
+// ── 30-min cache (stampede-guarded: single-flight + jittered TTL) ──────────────
 const cache = new Map();
 const CACHE_TTL = 30 * 60 * 1000;
+// ±10% TTL jitter. The startup seed (see server.js) populates ~50 commodity/state
+// keys within a few seconds; without jitter they'd all expire at the same instant
+// 30 min later and stampede in lockstep. Jitter spreads expiry over a window so
+// recomputes are smeared out instead of synchronized.
+const TTL_JITTER = 0.1;
+function jitteredExp(ttl) {
+  const jitter = ttl * TTL_JITTER * (Math.random() * 2 - 1); // ±10%
+  return Date.now() + ttl + jitter;
+}
 function cacheGet(k) {
   const e = cache.get(k);
-  if (!e || Date.now() > e.exp) { cache.delete(k); return null; }
+  if (!e || Date.now() > e.exp) { cache.delete(k); recordCacheMiss('market'); return null; }
+  recordCacheHit('market');
   return e.data;
 }
-function cacheSet(k, data) { cache.set(k, { data, exp: Date.now() + CACHE_TTL }); }
+function cacheSet(k, data, ttl = CACHE_TTL) { cache.set(k, { data, exp: jitteredExp(ttl) }); }
 
 // ── Real historical price ranges (₹/quintal) used to ground the AI ────────────
 const PRICE_CONTEXT = {
@@ -179,48 +191,52 @@ export async function getMarketPrices(commodity = 'Tomato', state = 'Maharashtra
   const cached = cacheGet(key);
   if (cached) return { ...cached, fromCache: true };
 
-  try {
-    const client = getGroq();
-    const completion = await client.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: buildPricePrompt(commodity, state, city) }],
-      temperature: 0.4,
-      max_tokens: 600,
-      response_format: { type: 'json_object' },
-    });
+  // Single-flight: concurrent misses on this key coalesce into ONE Groq call.
+  return singleFlight(`mkt:${key}`, async () => {
+    try {
+      const client = getGroq();
+      const completion = await client.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: buildPricePrompt(commodity, state, city) }],
+        temperature: 0.4,
+        max_tokens: 600,
+        response_format: { type: 'json_object' },
+      });
 
-    const raw    = completion.choices[0]?.message?.content || '{}';
-    const parsed = JSON.parse(raw);
+      const raw    = completion.choices[0]?.message?.content || '{}';
+      const parsed = JSON.parse(raw);
 
-    const result = {
-      crop:           commodity,
-      unit:           parsed.unit        || 'quintal',
-      current:        parsed.current     || 2200,
-      weekHigh:       parsed.weekHigh    || 2600,
-      weekLow:        parsed.weekLow     || 1800,
-      trend:          parsed.trend       || 'stable',
-      change:         parsed.changePercent ?? 0,
-      forecast7d:     Array.isArray(parsed.forecast7d) ? parsed.forecast7d : [],
-      insight:        parsed.insight     || '',
-      recommendation: parsed.recommendation || 'hold',
-      prices:         (parsed.prices || []).map((p, i) => ({
-        mandi:    p.mandi,
-        price:    p.price,
-        minPrice: p.minPrice,
-        maxPrice: p.maxPrice,
-        dist:     ['18 km', '42 km', '65 km', '110 km'][i] || '100 km',
-      })),
-      lastUpdated: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      source:      'AI Market Intelligence (Groq)',
-      isFallback:  false,
-    };
+      const result = {
+        crop:           commodity,
+        unit:           parsed.unit        || 'quintal',
+        current:        parsed.current     || 2200,
+        weekHigh:       parsed.weekHigh    || 2600,
+        weekLow:        parsed.weekLow     || 1800,
+        trend:          parsed.trend       || 'stable',
+        change:         parsed.changePercent ?? 0,
+        forecast7d:     Array.isArray(parsed.forecast7d) ? parsed.forecast7d : [],
+        insight:        parsed.insight     || '',
+        recommendation: parsed.recommendation || 'hold',
+        prices:         (parsed.prices || []).map((p, i) => ({
+          mandi:    p.mandi,
+          price:    p.price,
+          minPrice: p.minPrice,
+          maxPrice: p.maxPrice,
+          dist:     ['18 km', '42 km', '65 km', '110 km'][i] || '100 km',
+        })),
+        lastUpdated: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        source:      'AI Market Intelligence (Groq)',
+        isFallback:  false,
+      };
 
-    cacheSet(key, result);
-    return result;
-  } catch (err) {
-    console.error(`[Market] Groq price generation failed for ${commodity}/${state}:`, err.message);
-    return buildFallback(commodity, state);
-  }
+      cacheSet(key, result);
+      return result;
+    } catch (err) {
+      // Don't cache the fallback — let the next request retry the real source.
+      console.error(`[Market] Groq price generation failed for ${commodity}/${state}:`, err.message);
+      return buildFallback(commodity, state);
+    }
+  });
 }
 
 // ── 7-day price prediction ─────────────────────────────────────────────────────
@@ -260,24 +276,27 @@ Return ONLY this JSON:
   "factors": ["factor1", "factor2", "factor3"]
 }`;
 
-  try {
-    const client = getGroq();
-    const completion = await client.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-      max_tokens: 500,
-      response_format: { type: 'json_object' },
-    });
+  // Single-flight: concurrent misses on this key coalesce into ONE Groq call.
+  return singleFlight(`mkt:${key}`, async () => {
+    try {
+      const client = getGroq();
+      const completion = await client.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 500,
+        response_format: { type: 'json_object' },
+      });
 
-    const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
-    const result = { commodity, state, ...parsed, generatedAt: new Date().toISOString() };
-    cacheSet(key, result);
-    return result;
-  } catch (err) {
-    console.error('[Market] prediction failed:', err.message);
-    throw err;
-  }
+      const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
+      const result = { commodity, state, ...parsed, generatedAt: new Date().toISOString() };
+      cacheSet(key, result);
+      return result;
+    } catch (err) {
+      console.error('[Market] prediction failed:', err.message);
+      throw err;
+    }
+  });
 }
 
 // ── Extended multi-month forecast (3m / 6m / 12m) ─────────────────────────────
@@ -335,32 +354,37 @@ Return ONLY valid JSON (no other text):
 
   // Tokens scale with number of months: each month entry ~120 tokens + overhead
   const maxTokens = Math.max(1200, periodMonths * 150 + 600);
+  const EXT_TTL = 2 * 60 * 60 * 1000; // 2h — extended forecasts change slowly
 
-  try {
-    const client = getGroq();
-    const completion = await client.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.25,
-      max_tokens: maxTokens,
-      response_format: { type: 'json_object' },
-    });
+  // Single-flight: concurrent misses on this key coalesce into ONE Groq call.
+  return singleFlight(`mkt:${key}`, async () => {
+    try {
+      const client = getGroq();
+      const completion = await client.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.25,
+        max_tokens: maxTokens,
+        response_format: { type: 'json_object' },
+      });
 
-    const raw    = completion.choices[0]?.message?.content || '{}';
-    const parsed = JSON.parse(raw);
+      const raw    = completion.choices[0]?.message?.content || '{}';
+      const parsed = JSON.parse(raw);
 
-    // Validate we got a usable forecast array
-    if (!Array.isArray(parsed.forecast) || parsed.forecast.length === 0) {
-      throw new Error('Empty forecast array from AI');
+      // Validate we got a usable forecast array
+      if (!Array.isArray(parsed.forecast) || parsed.forecast.length === 0) {
+        throw new Error('Empty forecast array from AI');
+      }
+
+      const result = { commodity, state, period, periodMonths, ...parsed, generatedAt: new Date().toISOString() };
+      cacheSet(key, result, EXT_TTL);
+      return result;
+    } catch (err) {
+      // Don't cache the fallback — let the next request retry the real source.
+      console.error('[Market] extended forecast failed, using synthetic fallback:', err.message);
+      return buildExtendedFallback(commodity, state, period, periodMonths, monthLabels, ctx);
     }
-
-    const result = { commodity, state, period, periodMonths, ...parsed, generatedAt: new Date().toISOString() };
-    cache.set(key, { data: result, exp: Date.now() + 2 * 60 * 60 * 1000 });
-    return result;
-  } catch (err) {
-    console.error('[Market] extended forecast failed, using synthetic fallback:', err.message);
-    return buildExtendedFallback(commodity, state, period, periodMonths, monthLabels, ctx);
-  }
+  });
 }
 
 // ── Synthetic extended forecast when AI is unavailable ─────────────────────────

@@ -265,6 +265,30 @@ export const ENV = {
   RATE_LIMIT_ENABLED: process.env.RATE_LIMIT_ENABLED != null
     ? process.env.RATE_LIMIT_ENABLED === 'true'
     : process.env.NODE_ENV !== 'test',
+  // Fail-closed switch for security-critical rate limiters that have NO local
+  // fallback (the Redis-only AI cost limiters in middleware/redisRateLimit.js).
+  // When Redis is unavailable the limit cannot be enforced across instances, so
+  // rather than silently allowing unlimited requests we REJECT with 503. Defaults
+  // ON in production (security over availability for these paths) and OFF in
+  // dev/test, where Redis is often absent and requests must still flow. The
+  // OTP/global/user limiters in middleware/rateLimit.js are unaffected — they keep
+  // their per-instance in-memory fallback so login never hard-fails on a Redis blip.
+  RATE_LIMIT_FAIL_CLOSED: process.env.RATE_LIMIT_FAIL_CLOSED != null
+    ? process.env.RATE_LIMIT_FAIL_CLOSED === 'true'
+    : process.env.NODE_ENV === 'production',
+  // Cache warming: preload the hottest mandi-price keys on startup + on a
+  // schedule so the first post-deploy request hits a warm cache instead of the
+  // cold Groq latency (see services/cacheWarmer.service.js). On by default;
+  // auto-off under tests. Warming no-ops gracefully when GROQ_API_KEY is unset.
+  CACHE_WARMING_ENABLED: process.env.CACHE_WARMING_ENABLED != null
+    ? process.env.CACHE_WARMING_ENABLED === 'true'
+    : process.env.NODE_ENV !== 'test',
+  // Cache observability alert thresholds (see utils/cacheMetrics.js). A periodic
+  // check emits a loud [ALERT] log when the windowed cache hit rate drops below
+  // CACHE_HIT_RATE_ALERT_THRESHOLD (0..1) or Redis used-memory exceeds
+  // REDIS_MEMORY_ALERT_PCT (% of maxmemory) — picked up by OPS-4 log alerting.
+  CACHE_HIT_RATE_ALERT_THRESHOLD: parseFloat(process.env.CACHE_HIT_RATE_ALERT_THRESHOLD || '0.5'),
+  REDIS_MEMORY_ALERT_PCT: parseFloat(process.env.REDIS_MEMORY_ALERT_PCT || '85'),
   // OTP send limits — sliding window per phone and per IP (see middleware/rateLimit.js).
   // Per-phone caps SMS-bombing of a single number; per-IP caps total cost from
   // one network/NAT across many numbers. Window defaults to 1 hour.

@@ -24,6 +24,14 @@ describe('signAccessToken', () => {
     // Default 15m = 900s, give 60s tolerance
     expect(decoded.exp - now).toBeLessThanOrEqual(960);
   });
+
+  test('embeds a unique jti so a single token can be denylisted on logout', () => {
+    const a = jwt.decode(signAccessToken({ sub: 'u' }));
+    const b = jwt.decode(signAccessToken({ sub: 'u' }));
+    expect(typeof a.jti).toBe('string');
+    expect(a.jti.length).toBeGreaterThan(0);
+    expect(a.jti).not.toBe(b.jti); // two tokens for the same user are independently revocable
+  });
 });
 
 describe('verifyAccessToken', () => {

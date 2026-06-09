@@ -3,9 +3,9 @@
  */
 import { Router } from 'express';
 import { body, param, query } from 'express-validator';
-import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { rateLimiter, clientIp } from '../middleware/rateLimit.js';
 import { idempotency } from '../middleware/idempotency.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound } from '../utils/response.js';
 import logger from '../utils/logger.js';
@@ -14,7 +14,20 @@ import { createFarm, listFarms, getFarmDetail, updateFarm, deleteFarm, setActive
 const router = Router();
 router.use(authenticate);
 
-const writeLimit = (_req, _res, next) => next();   // rate limit disabled for now
+// Per-user write throttle for farm mutations (create / update / delete / set-active).
+// Redis-backed sliding window shared across every instance (in-memory fallback when
+// Redis is down — see middleware/rateLimit.js), so the cap can't be bypassed by
+// hitting a different process/pod. Keyed on the authenticated user id (these routes
+// sit behind `authenticate`); falls back to client IP only if user is somehow absent.
+// Farm CRUD is inherently low-frequency, so 40/15min comfortably clears legitimate
+// editing while capping scripted abuse. Stacks on top of the global per-IP limiter.
+const writeLimit = rateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max:      40,             // 40 farm writes / 15 min / user
+  prefix:   'farm:write',
+  key:      (req) => req.user?.id || clientIp(req),
+  message:  'Too many farm updates. Please wait a few minutes and try again.',
+});
 const idemFarm = idempotency('farm_write');        // dedupe duplicate farm writes (401-replay / retry)
 
 const OPT = { values: 'falsy' }; // skip validation for null, "", undefined, 0
@@ -58,7 +71,7 @@ router.delete('/:farmId', writeLimit, idemFarm, [param('farmId').isUUID()], vali
   catch (e) { logger.error({ err: e }, '[Farm] delete'); return sendError(res, 'Failed', 500); }
 });
 
-router.post('/active', [body('farmId').notEmpty().isUUID()], validate, async (req, res) => {
+router.post('/active', writeLimit, [body('farmId').notEmpty().isUUID()], validate, async (req, res) => {
   try {
     const farm = await setActiveFarm(req.user.id, req.body.farmId);
     return farm ? sendSuccess(res, { activeFarmId: farm.id }) : sendNotFound(res, 'Farm');

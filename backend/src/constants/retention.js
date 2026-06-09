@@ -39,6 +39,16 @@ export const RETENTION_POLICY = [
     key: 'auditLogs', model: 'auditLog', dateField: 'createdAt', days: 365,
     description: 'Forensic audit trail older than 1 year.',
   },
+  {
+    // MSP rates are upserted one row per (commodity, season, year), so every new
+    // crop year adds a fresh batch and old years pile up forever — unbounded growth.
+    // Pruned by createdAt (set once on insert; NOT bumped by re-sync upserts the way
+    // updatedAt is, so it reflects the row's true vintage). The 3-year window keeps
+    // enough history for the multi-year MSP trend in msp.routes.js while bounding
+    // growth. Non-PII, regenerable from the CACP seed.
+    key: 'mspRates', model: 'mSPRate', dateField: 'createdAt', days: 1095,
+    description: 'Government MSP rates whose rows were created more than ~3 crop years ago.',
+  },
 ];
 
 export const MS_PER_DAY = 24 * 60 * 60 * 1000;

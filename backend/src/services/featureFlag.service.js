@@ -11,6 +11,8 @@
  *   input_calculator | crop_master
  */
 import prisma from '../config/db.js';
+import redis from '../config/redis.js';
+import logger from '../utils/logger.js';
 
 const DEFAULT_FLAGS = [
   'mandi_bhav', 'msp_tracker', 'soil_health', 'pest_alerts',
@@ -22,6 +24,20 @@ const DEFAULT_FLAGS = [
 let _cache = null;
 let _lastFetched = 0;
 const CACHE_TTL = 5 * 60 * 1000;
+
+// ── Cross-instance invalidation via Redis pub/sub ─────────────────────────────
+// Each instance caches flags in-process, so an admin toggle on one instance is
+// invisible to the others until their TTL lapses (up to 5 min of inconsistency).
+// We broadcast every change on a Redis channel that all instances subscribe to,
+// so they drop their cache and reload within milliseconds. If Redis is down the
+// system degrades to the TTL-only behaviour — flags still converge, just slower.
+const FLAG_CHANNEL = 'featureflags:invalidate';
+let _subscriber = null;
+
+function clearLocalCache() {
+  _cache = null;
+  _lastFetched = 0;
+}
 
 async function loadFlags() {
   const now = Date.now();
@@ -55,8 +71,59 @@ export async function seedDefaultFlags() {
   }
 }
 
-/** Force cache invalidation (called after admin update). */
-export function invalidateCache() {
-  _cache = null;
-  _lastFetched = 0;
+/**
+ * Force cache invalidation after an admin update.
+ *
+ * Clears THIS process's cache immediately and broadcasts the change to every
+ * other instance over Redis pub/sub (fire-and-forget — a publish failure must
+ * never break the admin write). The local subscriber will also receive this
+ * broadcast and re-clear, which is harmless.
+ *
+ * @param {string} [featureKey='*'] — the key that changed (for broadcast logging)
+ */
+export function invalidateCache(featureKey = '*') {
+  clearLocalCache();
+  if (redis?.status === 'ready') {
+    redis.publish(FLAG_CHANNEL, String(featureKey))
+      .catch((err) => logger.warn('[FeatureFlags] invalidation broadcast failed: %s', err.message));
+  }
+}
+
+/**
+ * Subscribe to cross-instance flag invalidations. Call ONCE at startup, after the
+ * primary Redis connection is up. Uses a dedicated connection because a Redis
+ * connection in subscribe mode cannot run normal commands (the main client must
+ * stay free for publishes and every other Redis user). ioredis auto-resubscribes
+ * after a reconnect, so the subscription survives Redis blips.
+ *
+ * Degrades gracefully: if Redis is unavailable this logs and returns; flags then
+ * converge within CACHE_TTL via the periodic refresh. Idempotent.
+ */
+export async function initFlagInvalidationSubscriber() {
+  if (_subscriber) return;
+  try {
+    const sub = redis.duplicate();
+    sub.on('error', (err) => logger.warn('[FeatureFlags] subscriber error: %s', err.message));
+    sub.on('message', (channel, message) => {
+      if (channel !== FLAG_CHANNEL) return;
+      clearLocalCache();
+      logger.info('[FeatureFlags] cache invalidated by broadcast (key=%s)', message);
+    });
+    await sub.connect();
+    await sub.subscribe(FLAG_CHANNEL);
+    _subscriber = sub;
+    logger.info('[FeatureFlags] subscribed to %s for cross-instance invalidation', FLAG_CHANNEL);
+  } catch (err) {
+    logger.warn(
+      '[FeatureFlags] pub/sub unavailable — flags converge via %d-min TTL only: %s',
+      CACHE_TTL / 60000, err.message,
+    );
+  }
+}
+
+/** Stop the invalidation subscriber (graceful shutdown / tests). */
+export async function stopFlagInvalidationSubscriber() {
+  if (!_subscriber) return;
+  try { await _subscriber.quit(); } catch { /* already closing — ignore */ }
+  _subscriber = null;
 }

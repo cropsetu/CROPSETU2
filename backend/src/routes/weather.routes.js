@@ -25,34 +25,53 @@ import prisma from '../config/db.js';
 
 const router = Router();
 
-const CACHE_TTL_MS       = 60 * 60 * 1000;  // 1 hour
-const STALE_THRESHOLD_MS = 30 * 60 * 1000;  // 30 min — trigger background refresh
+// ── Per-segment cache windows ─────────────────────────────────────────────────
+// The response is composed from TWO independently-sourced, independently-refreshing
+// segments, each cached under its OWN location-scoped key (see makeCacheKey):
+//   • 'forecast' — the Open-Meteo bundle (current + hourly + daily horizons arrive
+//                  in a SINGLE upstream call, so they share one segment/TTL).
+//   • 'alerts'   — IMD warnings, a SEPARATE scraper on a slower, best-effort cadence.
+// Splitting them means a forecast refresh never wipes the alerts (the old bug: the
+// OM rebuild reset `alerts: []`), an IMD update never clobbers the forecast, and the
+// two refresh on their own schedules instead of as one coarse unit.
+const FORECAST_TTL_MS   = 60 * 60 * 1000;  // 1 hour
+const FORECAST_STALE_MS = 30 * 60 * 1000;  // 30 min — trigger background refresh
+const ALERTS_TTL_MS     = 60 * 60 * 1000;  // 1 hour
+const ALERTS_STALE_MS   = 30 * 60 * 1000;  // 30 min — re-scrape IMD in background
 
 // ── L1: In-process memory cache ───────────────────────────────────────────────
-// Key: cacheKey string → { data, cachedAt (ms), imdEnriched }
-// Capped at 500 entries — each entry ~4KB JSON → max ~2MB RAM
-const MAX_MEM_ENTRIES = 500;
+// Key: segmented cacheKey → { data, cachedAt (ms), expiresAt (ms) }. Two segments
+// per location now, so the cap is doubled; forecast ~4KB + alerts ~1KB per location.
+const MAX_MEM_ENTRIES = 1000;
 const _mem = new Map();
 
 function memGet(key) {
   const e = _mem.get(key);
   if (!e) return null;
-  if (Date.now() - e.cachedAt > CACHE_TTL_MS) { _mem.delete(key); return null; }
+  if (Date.now() > e.expiresAt) { _mem.delete(key); return null; }
   return e;
 }
 
-function memSet(key, data, imdEnriched = false) {
-  // Evict oldest entry when cap reached (simple FIFO)
+// Set with an explicit cachedAt so a promotion from L2 preserves the original age
+// (and therefore staleness), and an explicit TTL since segments differ.
+function memSetAt(key, data, cachedAtMs, ttlMs) {
   if (_mem.size >= MAX_MEM_ENTRIES) {
-    const firstKey = _mem.keys().next().value;
+    const firstKey = _mem.keys().next().value; // simple FIFO eviction
     _mem.delete(firstKey);
   }
-  _mem.set(key, { data, cachedAt: Date.now(), imdEnriched });
+  _mem.set(key, { data, cachedAt: cachedAtMs, expiresAt: cachedAtMs + ttlMs });
 }
+function memSet(key, data, ttlMs) { memSetAt(key, data, Date.now(), ttlMs); }
 
-// ── Cache key ──────────────────────────────────────────────────────────────────
-function makeCacheKey(lat, lon) {
-  return `${parseFloat(lat).toFixed(2)}_${parseFloat(lon).toFixed(2)}`;
+/** Test-only: clear the in-process weather cache so entries don't leak between tests. */
+export function _resetWeatherCacheForTest() { _mem.clear(); lastPurge = 0; }
+
+// ── Cache key (location + segment) ────────────────────────────────────────────
+// Restructured so each independently-refreshable part has its own key. Updating
+// one location's forecast (or one segment) can't invalidate any other location or
+// the other segment.
+export function makeCacheKey(lat, lon, segment) {
+  return `${parseFloat(lat).toFixed(2)}_${parseFloat(lon).toFixed(2)}:${segment}`;
 }
 
 // ── L2: Prisma cache helpers ──────────────────────────────────────────────────
@@ -62,9 +81,9 @@ async function dbGet(key) {
   } catch { return null; }
 }
 
-async function dbSet(key, data) {
+async function dbSet(key, data, ttlMs) {
   const now       = new Date();
-  const expiresAt = new Date(now.getTime() + CACHE_TTL_MS);
+  const expiresAt = new Date(now.getTime() + ttlMs);
   try {
     await prisma.weatherCache.upsert({
       where:  { cacheKey: key },
@@ -74,6 +93,22 @@ async function dbSet(key, data) {
   } catch (e) {
     console.warn('[Weather] DB write failed (non-fatal):', e.message?.slice(0, 80));
   }
+}
+
+// Read a segment from L1, falling back to a non-expired L2 row (which it promotes
+// into L1, preserving the original cachedAt). Returns { data, cachedAt } or null.
+async function readSegment(key, ttlMs) {
+  const m = memGet(key);
+  if (m) return { data: m.data, cachedAt: m.cachedAt };
+  const d = await dbGet(key);
+  if (d) {
+    const cachedAtMs = new Date(d.cachedAt).getTime();
+    if (Date.now() - cachedAtMs < ttlMs) {
+      memSetAt(key, d.data, cachedAtMs, ttlMs); // promote to L1
+      return { data: d.data, cachedAt: cachedAtMs };
+    }
+  }
+  return null;
 }
 
 // ── Opportunistic expired-entry purge (once per 10 min, non-blocking) ─────────
@@ -86,21 +121,14 @@ function purgeExpiredAsync() {
     .catch(() => {});
 }
 
-// ── Build Open-Meteo-only response (fast, no IMD wait) ────────────────────────
-async function buildOMResponse(lat, lon, lang, cityName) {
-  // Resolve location name: use client-supplied city if present,
-  // otherwise reverse-geocode from lat/lon (runs in parallel with weather fetch)
+// ── Build the Open-Meteo forecast segment (no IMD — alerts are their own segment)
+async function buildForecast(lat, lon, lang, cityName) {
   const [omData, resolvedName] = await Promise.all([
     fetchOpenMeteo(lat, lon, lang),
     cityName ? Promise.resolve(cityName) : reverseGeocode(lat, lon),
   ]);
 
-  const advisories = generateAdvisories(
-    omData.current,
-    omData.daily,
-    omData.agriculture,
-    lang,
-  );
+  const advisories = generateAdvisories(omData.current, omData.daily, omData.agriculture, lang);
 
   return {
     current:     omData.current,
@@ -108,32 +136,38 @@ async function buildOMResponse(lat, lon, lang, cityName) {
     daily:       omData.daily,
     agriculture: omData.agriculture,
     advisories,
-    alerts:      [],          // IMD alerts added later by background enrichment
     meta: {
       primarySource: 'Open-Meteo',
-      imdAvailable:  false,  // updated to true once IMD enrichment completes
       cachedAt:      new Date().toISOString(),
       location:      { lat, lon, name: resolvedName || '' },
     },
   };
 }
 
-// ── Background IMD enrichment ─────────────────────────────────────────────────
-// Called AFTER the response is already sent. Updates both cache layers.
-function enrichWithIMDAsync(key, currentData, cityName) {
+// Compose the client response from the two segments. IMD availability is derived
+// from the alerts segment, so it's correct regardless of which segment refreshed last.
+function compose(forecastData, alerts, extraMeta = {}) {
+  return {
+    ...forecastData,
+    alerts,
+    meta: { ...forecastData.meta, imdAvailable: alerts.length > 0, ...extraMeta },
+  };
+}
+
+// ── Background segment refreshers (each writes ONLY its own segment) ───────────
+function refreshForecastAsync(key, lat, lon, lang, city) {
+  buildForecast(lat, lon, lang, city)
+    .then(fresh => { memSet(key, fresh, FORECAST_TTL_MS); dbSet(key, fresh, FORECAST_TTL_MS).catch(() => {}); })
+    .catch(() => {}); // best-effort; the served (stale) forecast remains valid
+}
+
+function refreshAlertsAsync(key, cityName) {
   scrapeIMD(cityName || '')
-    .then(imdData => {
-      if (!imdData.imdAvailable || !imdData.alerts.length) return;
-
-      const enriched = {
-        ...currentData,
-        alerts: imdData.alerts,
-        meta:   { ...currentData.meta, imdAvailable: true },
-      };
-
-      // Update both cache layers so next request gets alerts immediately
-      memSet(key, enriched, true);
-      dbSet(key, enriched).catch(() => {});
+    .then(imd => {
+      if (!imd.imdAvailable || !imd.alerts.length) return; // keep prior alerts, don't overwrite with empty
+      const seg = { alerts: imd.alerts, imdAvailable: true };
+      memSet(key, seg, ALERTS_TTL_MS);
+      dbSet(key, seg, ALERTS_TTL_MS).catch(() => {});
     })
     .catch(() => {}); // fully swallow — IMD is best-effort
 }
@@ -151,86 +185,44 @@ router.get('/', async (req, res) => {
     return sendError(res, 'lat/lon out of valid range', 400);
   }
 
-  const safeLang = lang === 'hi' ? 'hi' : 'en';
-  const key      = makeCacheKey(parsedLat, parsedLon);
+  const safeLang     = lang === 'hi' ? 'hi' : 'en';
+  const forecastKey  = makeCacheKey(parsedLat, parsedLon, 'forecast');
+  const alertsKey    = makeCacheKey(parsedLat, parsedLon, 'alerts');
 
-  // ── L1: Memory cache hit (0ms) ────────────────────────────────────────────
-  const memEntry = memGet(key);
-  if (memEntry) {
-    const ageMs = Date.now() - memEntry.cachedAt;
+  // ── Alerts segment (independent): compose into every response, refresh on its
+  //    own cadence. Missing/stale alerts never block or invalidate the forecast.
+  const alertsSeg = await readSegment(alertsKey, ALERTS_TTL_MS);
+  const alerts    = Array.isArray(alertsSeg?.data?.alerts) ? alertsSeg.data.alerts : [];
+  if (!alertsSeg || Date.now() - alertsSeg.cachedAt > ALERTS_STALE_MS) {
+    setImmediate(() => refreshAlertsAsync(alertsKey, city));
+  }
 
-    // Stale-while-revalidate: refresh in background if cache is 30–60 min old
-    if (ageMs > STALE_THRESHOLD_MS) {
-      buildOMResponse(parsedLat, parsedLon, safeLang, city)
-        .then(fresh => {
-          memSet(key, fresh);
-          dbSet(key, fresh).catch(() => {});
-          if (!memEntry.imdEnriched) enrichWithIMDAsync(key, fresh, city);
-        })
-        .catch(() => {});
-    } else if (!memEntry.imdEnriched) {
-      // IMD wasn't enriched yet for this entry — try now in background
-      enrichWithIMDAsync(key, memEntry.data, city);
+  // ── Forecast segment (L1 → L2) ────────────────────────────────────────────
+  const forecastSeg = await readSegment(forecastKey, FORECAST_TTL_MS);
+  if (forecastSeg) {
+    // Stale-while-revalidate: refresh ONLY the forecast segment — alerts untouched.
+    if (Date.now() - forecastSeg.cachedAt > FORECAST_STALE_MS) {
+      setImmediate(() => refreshForecastAsync(forecastKey, parsedLat, parsedLon, safeLang, city));
     }
-
     purgeExpiredAsync();
-    return sendSuccess(res, memEntry.data);
+    return sendSuccess(res, compose(forecastSeg.data, alerts));
   }
 
-  // ── L2: Prisma DB cache (~10ms) ───────────────────────────────────────────
-  const dbEntry = await dbGet(key);
-  if (dbEntry) {
-    const ageMs = Date.now() - new Date(dbEntry.cachedAt).getTime();
-
-    if (ageMs < CACHE_TTL_MS) {
-      // Promote to L1 so next request is instant
-      memSet(key, dbEntry.data, dbEntry.data?.meta?.imdAvailable ?? false);
-
-      if (ageMs > STALE_THRESHOLD_MS) {
-        buildOMResponse(parsedLat, parsedLon, safeLang, city)
-          .then(fresh => {
-            memSet(key, fresh);
-            dbSet(key, fresh).catch(() => {});
-            enrichWithIMDAsync(key, fresh, city);
-          })
-          .catch(() => {});
-      } else if (!dbEntry.data?.meta?.imdAvailable) {
-        enrichWithIMDAsync(key, dbEntry.data, city);
-      }
-
-      purgeExpiredAsync();
-      return sendSuccess(res, dbEntry.data);
-    }
-    // DB entry expired — fall through to fresh fetch
-  }
-
-  // ── L3: Fresh fetch from Open-Meteo ──────────────────────────────────────
-  // Return immediately without waiting for IMD.
+  // ── No fresh forecast → fetch Open-Meteo, return immediately ──────────────
   try {
-    const data = await buildOMResponse(parsedLat, parsedLon, safeLang, city);
-
-    // Write to both cache layers (non-blocking)
-    memSet(key, data);
-    dbSet(key, data).catch(() => {});
-
-    // IMD enrichment happens AFTER response is sent
-    // It updates the cache so the NEXT request already has IMD alerts
-    setImmediate(() => enrichWithIMDAsync(key, data, city));
-
+    const fresh = await buildForecast(parsedLat, parsedLon, safeLang, city);
+    memSet(forecastKey, fresh, FORECAST_TTL_MS);
+    dbSet(forecastKey, fresh, FORECAST_TTL_MS).catch(() => {});
     purgeExpiredAsync();
-    return sendSuccess(res, data);
-
+    return sendSuccess(res, compose(fresh, alerts));
   } catch (err) {
     console.error('[Weather] Open-Meteo fetch failed:', err.message);
 
-    // Last resort: serve expired DB cache with stale flag
-    if (dbEntry?.data) {
-      return sendSuccess(res, {
-        ...dbEntry.data,
-        meta: { ...dbEntry.data.meta, stale: true },
-      });
+    // Last resort: serve an expired forecast segment from L2 with a stale flag.
+    const stale = await dbGet(forecastKey);
+    if (stale?.data) {
+      return sendSuccess(res, compose(stale.data, alerts, { stale: true }));
     }
-
     return sendError(res, 'Weather data unavailable. Please try again.', 503);
   }
 });
