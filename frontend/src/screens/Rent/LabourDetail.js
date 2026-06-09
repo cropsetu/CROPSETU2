@@ -6,8 +6,9 @@
 import { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Image, Linking, ActivityIndicator, Dimensions, StatusBar,
+  Image, ActivityIndicator, Dimensions, StatusBar,
 } from 'react-native';
+import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -65,7 +66,7 @@ export default function LabourDetail({ route, navigation }) {
 
   const handleCall = () => {
     if (!phone) { return; }
-    Linking.openURL(`tel:${phone}`);
+    safeOpenURL(`tel:${sanitizePhone(phone)}`);
   };
 
   return (

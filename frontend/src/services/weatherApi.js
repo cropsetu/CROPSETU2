@@ -18,6 +18,7 @@
  *    → User sees data immediately; fresh data replaces it silently.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecureJSON, setSecureJSON } from '../utils/secureCache';
 import * as Location from 'expo-location';
 import { API_BASE_URL } from '../constants/config';
 
@@ -27,6 +28,8 @@ const LOCATION_CACHE_TTL_MS = 15 * 60 * 1000;   // 15 min  — GPS coords + city
 const TIMEOUT_MS            = 8_000;             // reduced from 10s → 8s
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
+// Weather payloads (fe_wx_*) are public data → plain AsyncStorage. The precise
+// GPS coordinates in fe_loc are PII → encrypted secure storage (see secureCache).
 const WEATHER_KEY_PREFIX = 'fe_wx_';            // fe_wx_{lat}_{lon}
 const LOCATION_KEY       = 'fe_loc';            // { lat, lon, city, savedAt }
 
@@ -75,9 +78,8 @@ async function writeWxCache(key, data) {
 // ── Location cache ────────────────────────────────────────────────────────────
 async function readLocationCache() {
   try {
-    const raw = await AsyncStorage.getItem(LOCATION_KEY);
-    if (!raw) return null;
-    const loc = JSON.parse(raw);
+    const loc = await getSecureJSON(LOCATION_KEY);
+    if (!loc) return null;
     if (Date.now() - loc.savedAt > LOCATION_CACHE_TTL_MS) return null;
     return { lat: loc.lat, lon: loc.lon, city: loc.city };
   } catch { return null; }
@@ -85,7 +87,7 @@ async function readLocationCache() {
 
 async function writeLocationCache(lat, lon, city) {
   try {
-    await AsyncStorage.setItem(LOCATION_KEY, JSON.stringify({ lat, lon, city, savedAt: Date.now() }));
+    await setSecureJSON(LOCATION_KEY, { lat, lon, city, savedAt: Date.now() });
   } catch { /* non-fatal */ }
 }
 

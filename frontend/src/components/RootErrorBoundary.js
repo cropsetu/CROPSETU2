@@ -6,6 +6,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { COLORS } from '../constants/colors';
+import { captureException } from '../services/crashReporter';
 
 let _Updates = null;
 function getUpdates() {
@@ -24,10 +25,10 @@ export default class RootErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    if (__DEV__) {
-      console.error('[RootErrorBoundary]', error, info?.componentStack);
-    }
-    // Future: forward to Sentry / Bugsnag here.
+    // Report the crash to all configured sinks (dev console, backend logs, and
+    // any registered external provider). Fatal: a render-tree crash white-screened
+    // the app. See services/crashReporter.js.
+    captureException(error, { componentStack: info?.componentStack, fatal: true, source: 'errorBoundary' });
   }
 
   reload = async () => {

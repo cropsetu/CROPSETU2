@@ -68,6 +68,31 @@ export async function createPaymentOrder(amountInPaise, currency = 'INR', receip
 }
 
 /**
+ * Fetch an existing Razorpay order — the authoritative record of the amount that
+ * was locked in at /initiate (and auto-captured on payment). Used at /confirm to
+ * bind "what was actually authorized/paid" to the freshly recomputed cart total,
+ * so a client can't initiate+pay for a cheap cart and then enlarge it before
+ * confirming.
+ * @param {string} orderId — Razorpay order id (razorpayOrderId)
+ * @returns {Promise<{ id, amount, amount_paid, currency, receipt, status, mock? }>}
+ *          In mock mode returns `{ id, mock: true }` (no amount to bind against).
+ */
+export async function fetchPaymentOrder(orderId) {
+  if (isMock) {
+    return { id: orderId, mock: true };
+  }
+
+  const auth = Buffer.from(`${ENV.RAZORPAY_KEY_ID}:${ENV.RAZORPAY_KEY_SECRET}`).toString('base64');
+
+  const { data } = await axios.get(`${RAZORPAY_API}/orders/${orderId}`, {
+    headers: { Authorization: `Basic ${auth}` },
+    timeout: 10000,
+  });
+
+  return data; // { id, amount, amount_paid, currency, receipt, status, ... }
+}
+
+/**
  * Verify the Razorpay payment signature (HMAC SHA256).
  * @param {string} razorpayOrderId
  * @param {string} razorpayPaymentId

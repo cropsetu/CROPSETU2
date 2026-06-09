@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
+import { isValidPhone, isValidPincode, normalizePhone } from '../../utils/validators';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 
 const { width: W } = Dimensions.get('window');
@@ -23,7 +24,6 @@ const GREEN_BG = 'rgba(23,107,67,0.08)';
 const GREEN_B  = 'rgba(23,107,67,0.15)';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const normPhone = (s = '') => s.replace(/\D/g, '').replace(/^(91|0)/, '');
 const addrLine  = a => a ? [a.flat, a.street, a.city, a.state, a.pincode].filter(Boolean).join(', ') : '';
 
 const TYPE_ICON  = { HOME: 'home-outline', OFFICE: 'business-outline', OTHER: 'location-outline' };
@@ -400,17 +400,17 @@ export default function CheckoutScreen({ route, navigation }) {
   const selectedAddrObj = addresses.find(a => a.id === selectedAddr);
 
   async function saveAddress() {
-    const phone = normPhone(form.phone);
+    const phone = normalizePhone(form.phone);
     if (!form.name.trim() || !form.phone.trim() || !form.flat.trim() || !form.street.trim() ||
         !form.city.trim() || !form.state.trim() || !form.pincode.trim()) {
       Alert.alert(t('checkout.required'), t('checkout.fillAllFields'));
       return;
     }
-    if (!/^[6-9]\d{9}$/.test(phone)) {
+    if (!isValidPhone(phone)) {
       Alert.alert(t('checkout.invalidPhone'), t('checkout.invalidPhoneMsg'));
       return;
     }
-    if (!/^\d{6}$/.test(form.pincode.trim())) {
+    if (!isValidPincode(form.pincode)) {
       Alert.alert(t('checkout.invalidPincode'), t('checkout.invalidPincodeMsg'));
       return;
     }
@@ -447,10 +447,19 @@ export default function CheckoutScreen({ route, navigation }) {
     if (!selectedAddr) { Alert.alert(t('checkout.selectAddress'), t('checkout.selectAddressMsg')); return; }
     setPlacing(true);
     try {
+      // Send the items subtotal we displayed so the server can reject if its
+      // authoritative recomputation disagrees (matches server's totalAmount =
+      // sum(price × qty); delivery is not part of the server total). Only sent
+      // when the cart actually loaded, so a failed cart fetch can't force 0.
+      const expectedTotal = cartItems.length
+        ? cartItems.reduce((s, i) => s + i.product.price * i.quantity, 0)
+        : undefined;
+
       const { data } = await api.post('/agristore/orders', {
         deliveryAddressId: selectedAddr,
         paymentMethod: payMethod,
         note: note.trim() || undefined,
+        expectedTotal,
       });
       navigation.replace('OrderConfirmed', {
         order: data.data, paymentMethod: payMethod, grandTotal,

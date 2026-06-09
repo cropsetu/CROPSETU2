@@ -37,6 +37,7 @@ import rentRoutes          from './routes/rent.routes.js';
 import addressesRoutes     from './routes/addresses.routes.js';
 import consentRoutes       from './routes/consent.routes.js';
 import incidentRoutes      from './routes/incident.routes.js';
+import telemetryRoutes     from './routes/telemetry.routes.js';
 // ── New AI Services (Phase 1-4) ───────────────────────────────────────────────
 import mandiRoutes         from './routes/mandi.routes.js';
 import mspRoutes           from './routes/msp.routes.js';
@@ -263,6 +264,7 @@ app.use(`${API}/schemes`,      schemesRoutes);
 app.use(`${API}/addresses`,    addressesRoutes);
 app.use(`${API}/consent`,      consentRoutes);
 app.use(`${API}/admin/incidents`, incidentRoutes);
+app.use(`${API}/telemetry`,    telemetryRoutes);
 
 // ── New AI Services ───────────────────────────────────────────────────────────
 app.use(`${API}/mandi`,      mandiRoutes);

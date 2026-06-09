@@ -6,7 +6,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRef, useEffect, useCallback } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import linking from './linking';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '../constants/colors';
 import { Haptics } from '../utils/haptics';
@@ -487,6 +489,7 @@ function ProfileNavigator() {
 // ── Root navigator ────────────────────────────────────────────────────────────
 export default function AppNavigator() {
   const { t } = useLanguage();
+  const { markActivity } = useAuth();
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -496,7 +499,7 @@ export default function AppNavigator() {
   }, []);
 
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking} onStateChange={() => markActivity()}>
       <Tab.Navigator
         tabBar={(props) => <ImmersiveTabBar {...props} />}
         screenOptions={{ headerShown: false }}

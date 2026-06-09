@@ -3,10 +3,11 @@
  *
  * Stores: location, crop list (with age), soil, irrigation, land size, previous crop.
  * All AI calls read from this context to personalise Groq/Gemini responses.
- * Persisted to AsyncStorage so it survives app restarts.
+ * Persisted to encrypted secure storage (Keychain/Keystore) so it survives app
+ * restarts without leaving the farmer's name + GPS location as plaintext on disk.
  */
 import { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecureJSON, setSecureJSON } from '../utils/secureCache';
 
 const STORAGE_KEY = 'farmeasy_farm_profile_v2';
 
@@ -64,11 +65,9 @@ export function FarmProvider({ children }) {
 
   // Load from storage on mount
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then(raw => {
-        if (raw) {
-          try { setFarmProfileState(prev => ({ ...prev, ...JSON.parse(raw) })); } catch { /* keep default */ }
-        }
+    getSecureJSON(STORAGE_KEY)
+      .then(saved => {
+        if (saved) setFarmProfileState(prev => ({ ...prev, ...saved }));
       })
       .catch(() => {})
       .finally(() => setProfileReady(true));
@@ -87,7 +86,7 @@ export function FarmProvider({ children }) {
           ? { ...prev.location, ...updates.location }
           : prev.location,
       };
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+      setSecureJSON(STORAGE_KEY, next).catch(() => {});
       return next;
     });
   };
@@ -106,7 +105,7 @@ export function FarmProvider({ children }) {
         crops = [...prev.currentCrops, crop];
       }
       const next = { ...prev, currentCrops: crops };
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+      setSecureJSON(STORAGE_KEY, next).catch(() => {});
       return next;
     });
   };

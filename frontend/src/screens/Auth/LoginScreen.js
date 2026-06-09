@@ -21,6 +21,7 @@ import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { OTP_RESEND_COOLDOWN_SEC } from '../../constants/config';
+import { isValidPhone, isValidOtp } from '../../utils/validators';
 import { s, vs, fs, ms } from '../../utils/responsive';
 
 const STEPS = { PHONE: 'phone', OTP: 'otp' };
@@ -72,7 +73,15 @@ export default function LoginScreen() {
 
   // ── Step 1: send OTP ──────────────────────────────────────────────────────
   async function handleSendOtp({ isResend = false } = {}) {
-    if (!/^[6-9]\d{9}$/.test(phone)) {
+    // Client-side rate-limit guard: never fire while a request is in flight or
+    // during the resend cooldown. Enforcing it HERE (not just on the button's
+    // disabled prop) covers every entry point — the Send button, the Resend
+    // link, and the keyboard "done" (onSubmitEditing) — so the cooldown can't be
+    // bypassed by navigating back to the phone step or pressing return. The
+    // server limits remain authoritative (AUTH-1); this just curbs local spam.
+    if (loading || resendIn > 0) return;
+
+    if (!isValidPhone(phone)) {
       setErrorMsg(t('login.invalidPhoneMsg'));
       return;
     }
@@ -87,6 +96,12 @@ export default function LoginScreen() {
       const devOtp = result?.data?.devOtp ?? result?.devOtp;
       if (devOtp) setOtp(devOtp);
     } catch (err) {
+      // If the server rate-limited the request, honour its Retry-After so the
+      // local cooldown matches the authoritative server window.
+      const retryAfter = Number(err?.response?.headers?.['retry-after']);
+      if (Number.isFinite(retryAfter) && retryAfter > 0) {
+        setResendIn(Math.min(Math.ceil(retryAfter), 300)); // cap to a sane max
+      }
       setErrorMsg(err.userMessage || err.response?.data?.error?.message || t('login.otpError'));
     } finally {
       setLoading(false);
@@ -95,7 +110,7 @@ export default function LoginScreen() {
 
   // ── Step 2: verify OTP ────────────────────────────────────────────────────
   async function handleVerifyOtp() {
-    if (otp.length !== 6) {
+    if (!isValidOtp(otp)) {
       setErrorMsg(t('login.invalidOtpMsg'));
       return;
     }
@@ -202,9 +217,9 @@ export default function LoginScreen() {
                   </View>
 
                   <PrimaryButton
-                    label={t('login.sendOtp')}
+                    label={resendIn > 0 ? `${t('login.sendOtp')} (${resendIn}s)` : t('login.sendOtp')}
                     loading={loading}
-                    disabled={loading || phone.length !== 10}
+                    disabled={loading || phone.length !== 10 || resendIn > 0}
                     onPress={handleSendOtp}
                     trailingIcon="arrow-forward"
                   />
