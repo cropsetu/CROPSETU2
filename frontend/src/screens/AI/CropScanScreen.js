@@ -15,7 +15,6 @@ import {
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Linking,
   Modal, Switch,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Haptics } from '../../utils/haptics';

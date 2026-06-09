@@ -302,6 +302,21 @@ export const ENV = {
   OTP_VERIFY_RATE_LIMIT_MAX: parseInt(process.env.OTP_VERIFY_RATE_LIMIT_MAX || '10', 10),
   OTP_VERIFY_IP_RATE_LIMIT_MAX: parseInt(process.env.OTP_VERIFY_IP_RATE_LIMIT_MAX || '30', 10),
 
+  // ── Proof-of-work gate on OTP send (anti-enumeration / anti-bulk-abuse) ──────
+  // Under suspicion (more than OTP_POW_SUSPICION_THRESHOLD sends from one IP in
+  // the OTP window, still below the hard per-IP cap), /send-otp demands a solved
+  // proof-of-work before sending. Cheap for a human sending once; expensive at
+  // scale, so bulk automated sends become costly. Pairs with the AUTH-1 limits.
+  // Disabled automatically when OTP_POW_SECRET is unset (fail-safe — never blocks
+  // login if misconfigured). Secret signs challenges so verification is stateless.
+  // Defaults ON in dev/prod (reuses the JWT secret) but OFF under the test runner
+  // so the existing OTP/rate-limit suites aren't forced through a PoW challenge.
+  OTP_POW_SECRET: process.env.OTP_POW_SECRET
+    || (process.env.NODE_ENV === 'test' ? '' : process.env.JWT_ACCESS_SECRET || ''),
+  OTP_POW_DIFFICULTY: parseInt(process.env.OTP_POW_DIFFICULTY || '18', 10), // leading zero BITS
+  OTP_POW_SUSPICION_THRESHOLD: parseInt(process.env.OTP_POW_SUSPICION_THRESHOLD || '3', 10),
+  OTP_POW_CHALLENGE_TTL_MS: parseInt(process.env.OTP_POW_CHALLENGE_TTL_MS || '180000', 10), // 3 min
+
   // Resolved, frozen OTP dev-bypass decision (see _otpDevBypass above). Always
   // false in production. verifyOtp() must gate the "000000" bypass on THIS only.
   OTP_DEV_BYPASS: _otpDevBypass,

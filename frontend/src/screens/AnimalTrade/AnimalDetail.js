@@ -1,8 +1,9 @@
 import React, { useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, Linking, Alert, Image, Animated, Dimensions,
+  SafeAreaView, Alert, Image, Animated, Dimensions,
 } from 'react-native';
+import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SHADOWS } from '../../constants/colors';
@@ -96,9 +97,9 @@ export default function AnimalDetail({ route, navigation }) {
   const heroScale = scrollY.interpolate({ inputRange: [-60, 0, HERO_H], outputRange: [1.2, 1, 0.88], extrapolate: 'clamp' });
 
   const handleCall = () => {
-    Linking.openURL(`tel:${listing.sellerPhone}`).catch(() =>
-      Alert.alert(t('product.error'), t('animalDetail.phoneError'))
-    );
+    safeOpenURL(`tel:${sanitizePhone(listing.sellerPhone)}`).then((ok) => {
+      if (!ok) Alert.alert(t('product.error'), t('animalDetail.phoneError'));
+    });
   };
 
   const handleChat = () => {

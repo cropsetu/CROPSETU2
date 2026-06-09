@@ -24,7 +24,6 @@ src/middleware/
 src/config/db.js
 src/config/redis.js
 src/config/cloudinary.js
-src/config/sslPinning.js
 src/services/ai.chat.service.js
 src/services/ai.predict.service.js
 src/services/claude.service.js

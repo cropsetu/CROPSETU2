@@ -23,12 +23,33 @@ import prisma from '../config/db.js';
 import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, sendServerError, paginationMeta } from '../utils/response.js';
 import { stripHtml, deepStripHtml } from '../utils/encrypt.js';
-import { createPaymentOrder, verifyPaymentSignature } from '../services/payment.service.js';
+import { createPaymentOrder, verifyPaymentSignature, fetchPaymentOrder } from '../services/payment.service.js';
 import { auditOrderStatusChange, auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
 
 const router = Router();
 router.param('id', uuidParamGuard);        // product / order / seller-product ids
 router.param('productId', uuidParamGuard); // cart item product id
+
+// ── Authoritative pricing helpers ─────────────────────────────────────────────
+// Cart totals are ALWAYS recomputed server-side from the DB product price — the
+// client's number is never trusted as the source of truth. When the client also
+// sends the total it displayed (`expectedTotal`), assertClientTotalMatches
+// REJECTS the checkout if that number disagrees with the server computation.
+// This defends against a tampered client trying to understate the total, and
+// also surfaces price/stock drift since the cart was last viewed. Compared in
+// integer paise to avoid floating-point drift.
+const toPaise = (amount) => Math.round(Number(amount) * 100);
+const cartTotal = (cartItems) => cartItems.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+
+function assertClientTotalMatches(expectedTotal, authoritativeTotal) {
+  if (expectedTotal === undefined || expectedTotal === null) return;
+  if (toPaise(expectedTotal) !== toPaise(authoritativeTotal)) {
+    throw Object.assign(
+      new Error('Cart total has changed. Please review your cart and try again.'),
+      { statusCode: 400, expose: true },
+    );
+  }
+}
 
 // ── Listing cache namespaces + short TTLs ─────────────────────────────────────
 // Public catalogue reads are identical across users, so we cache them in Redis
@@ -137,7 +158,7 @@ router.get('/cart', authenticate, async (req, res) => {
     where: { userId: req.user.id },
     include: { product: { include: { category: { select: { name: true } } } } },
   });
-  const total = items.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+  const total = cartTotal(items);
   return sendSuccess(res, { items, total });
 });
 
@@ -211,10 +232,12 @@ router.post(
     // Accept either a saved address id OR an inline address object
     body('deliveryAddressId').optional().isString(),
     body('deliveryAddress').optional().isObject(),
+    // Optional client-displayed total — server recomputes and rejects on mismatch.
+    body('expectedTotal').optional().isFloat({ min: 0 }),
   ],
   validate,
   async (req, res) => {
-    let { deliveryAddress, deliveryAddressId, paymentMethod = 'cod', notes } = req.body;
+    let { deliveryAddress, deliveryAddressId, paymentMethod = 'cod', notes, expectedTotal } = req.body;
 
     // Resolve address from saved address if id provided
     if (deliveryAddressId) {
@@ -274,7 +297,11 @@ router.post(
           }
         }
 
-        const totalAmount = cartItems.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+        const totalAmount = cartTotal(cartItems);
+
+        // Reject if the client's displayed total disagrees with the server's
+        // authoritative recomputation (tampered client / stale price).
+        assertClientTotalMatches(expectedTotal, totalAmount);
 
         const o = await tx.order.create({
           data: {
@@ -398,18 +425,28 @@ router.post(
     body('paymentMethod').isIn(['upi', 'card']).withMessage('paymentMethod must be upi or card'),
     body('deliveryAddressId').optional().isString(),
     body('deliveryAddress').optional().isObject(),
+    body('expectedTotal').optional().isFloat({ min: 0 }),
   ],
   validate,
   async (req, res) => {
     try {
+      const { expectedTotal } = req.body;
+
       const cartItems = await prisma.cartItem.findMany({
         where: { userId: req.user.id },
         include: { product: true },
       });
       if (!cartItems.length) return sendError(res, 'Cart is empty', 400);
 
-      const totalAmount = cartItems.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
-      const amountInPaise = Math.round(totalAmount * 100);
+      const totalAmount = cartTotal(cartItems);
+
+      // Authorize the SERVER total, not the client's. Reject before creating the
+      // payment order if the client's displayed total disagrees.
+      if (expectedTotal !== undefined && toPaise(expectedTotal) !== toPaise(totalAmount)) {
+        return sendError(res, 'Cart total has changed. Please review your cart and try again.', 400);
+      }
+
+      const amountInPaise = toPaise(totalAmount);
 
       const razorpayOrder = await createPaymentOrder(amountInPaise, 'INR', `cart_${req.user.id}`);
 
@@ -438,12 +475,13 @@ router.post(
     body('razorpaySignature').notEmpty(),
     body('deliveryAddressId').optional().isString(),
     body('deliveryAddress').optional().isObject(),
+    body('expectedTotal').optional().isFloat({ min: 0 }),
   ],
   validate,
   async (req, res) => {
     const {
       razorpayOrderId, razorpayPaymentId, razorpaySignature,
-      deliveryAddress: rawAddress, deliveryAddressId,
+      deliveryAddress: rawAddress, deliveryAddressId, expectedTotal,
     } = req.body;
 
     // Verify Razorpay signature (HMAC SHA256)
@@ -470,6 +508,10 @@ router.post(
     deliveryAddress = deepStripHtml(deliveryAddress);
 
     try {
+      // Authoritative record of what was actually authorized/captured at /initiate.
+      // Fetched OUTSIDE the txn (external call); bound to the cart total inside it.
+      const paymentOrder = await fetchPaymentOrder(razorpayOrderId);
+
       const order = await prisma.$transaction(async (tx) => {
         const cartItems = await tx.cartItem.findMany({
           where: { userId: req.user.id },
@@ -489,7 +531,34 @@ router.post(
           }
         }
 
-        const totalAmount = cartItems.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+        const totalAmount = cartTotal(cartItems);
+
+        // Optional client-side total check (defense in depth).
+        assertClientTotalMatches(expectedTotal, totalAmount);
+
+        // CRITICAL: bind the amount that was actually authorized/paid to the
+        // freshly recomputed cart total. Without this, a client can initiate +
+        // pay for a cheap cart, then add expensive items before confirming — the
+        // signature would still verify (it only covers orderId|paymentId), and a
+        // fully-paid order would be created for far more than was paid. Skipped
+        // only in mock mode (dev, no real funds). Compared in integer paise.
+        if (!paymentOrder.mock) {
+          // The payment must belong to THIS user's initiated checkout (the
+          // receipt was set to `cart_<userId>` at /initiate) — blocks replaying
+          // another user's payment id.
+          if (paymentOrder.receipt !== `cart_${req.user.id}`) {
+            throw Object.assign(
+              new Error('This payment does not match your cart.'),
+              { statusCode: 400, expose: true },
+            );
+          }
+          if (toPaise(totalAmount) !== Number(paymentOrder.amount)) {
+            throw Object.assign(
+              new Error('Paid amount does not match your cart total. Your cart may have changed — no order was created.'),
+              { statusCode: 400, expose: true },
+            );
+          }
+        }
 
         const o = await tx.order.create({
           data: {

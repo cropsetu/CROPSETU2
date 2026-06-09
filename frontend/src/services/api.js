@@ -5,6 +5,7 @@
  * Both share the same auth + refresh + safe-error interceptors.
  */
 import axios from 'axios';
+import { Buffer } from 'buffer';
 import { Platform } from 'react-native';
 import { setItem, getItem, deleteItem } from '../utils/storage';
 import { API_BASE_URL, STORAGE_KEYS } from '../constants/config';
@@ -49,6 +50,7 @@ export async function clearTokens() {
     deleteItem(STORAGE_KEYS.REFRESH_TOKEN),
     deleteItem(STORAGE_KEYS.USER_ID),
     deleteItem(STORAGE_KEYS.TOKEN_SAVED_AT),
+    deleteItem(STORAGE_KEYS.LAST_ACTIVE_AT),
   ]);
 }
 
@@ -183,19 +185,17 @@ function processQueue(error, token = null) {
   failedQueue = [];
 }
 
-async function refreshAndRetry(instance, original) {
+// Core refresh: POST /auth/refresh (web cookie / native body), persist the new
+// tokens, and resolve with the new access token. Dedupes concurrent callers via
+// the shared isRefreshing flag + failedQueue so only ONE network refresh runs at
+// a time — whether triggered by a 401 retry or a proactive expiry check.
+async function performRefresh() {
   if (isRefreshing) {
-    return new Promise((resolve, reject) => {
-      failedQueue.push({ resolve, reject });
-    }).then((token) => {
-      original.headers.Authorization = `Bearer ${token}`;
-      return instance(original);
-    });
+    // Wait for the in-flight refresh; resolve with its new access token.
+    return new Promise((resolve, reject) => failedQueue.push({ resolve, reject }));
   }
 
-  original._retry = true;
-  isRefreshing    = true;
-
+  isRefreshing = true;
   try {
     let data;
 
@@ -230,16 +230,68 @@ async function refreshAndRetry(instance, original) {
       userId:       IS_WEB ? undefined : await getUserId(),
     });
 
-    processQueue(null, data.data.accessToken);
-    original.headers.Authorization = `Bearer ${data.data.accessToken}`;
-    return instance(original);
+    const newToken = data.data.accessToken;
+    processQueue(null, newToken);
+    return newToken;
   } catch (err) {
     processQueue(err, null);
     await clearTokens();
-    return Promise.reject(Object.assign(err, { sessionExpired: true }));
+    throw Object.assign(err, { sessionExpired: true });
   } finally {
     isRefreshing = false;
   }
+}
+
+async function refreshAndRetry(instance, original) {
+  original._retry = true;
+  const token = await performRefresh();
+  original.headers.Authorization = `Bearer ${token}`;
+  return instance(original);
+}
+
+// ── Proactive token validity (for auth outside the axios interceptors) ───────
+// Refresh if the access token expires within this skew so callers never hand the
+// server a token that's about to die mid-handshake.
+const TOKEN_REFRESH_SKEW_MS = 30_000;
+
+// Decode a JWT's `exp` (ms epoch) WITHOUT verifying the signature — we only need
+// the expiry locally to decide whether to refresh. Returns null if undecodable.
+function getJwtExpMs(token) {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const exp = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'))?.exp;
+    return typeof exp === 'number' ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Return a usable access token, proactively refreshing it when it's missing,
+ * already expired, or about to expire within TOKEN_REFRESH_SKEW_MS. Used by
+ * clients that authenticate outside the axios interceptors (e.g. the socket
+ * wrapper) and would otherwise replay a dead token until the server rejects it.
+ * Resolves to null when there's no recoverable session.
+ */
+export async function getValidAccessToken() {
+  const token = await getAccessToken();
+
+  if (!token) {
+    // Web keeps the access token only in memory (lost on reload); recover via the
+    // httpOnly refresh cookie. Native with no token means no session.
+    if (IS_WEB) {
+      try { return await performRefresh(); } catch { return null; }
+    }
+    return null;
+  }
+
+  const expMs = getJwtExpMs(token);
+  if (expMs == null) return token;                      // non-JWT/unknown → let server validate
+  if (expMs - Date.now() > TOKEN_REFRESH_SKEW_MS) return token; // still comfortably valid
+
+  try { return await performRefresh(); } catch { return null; }
 }
 
 attachInterceptors(api);

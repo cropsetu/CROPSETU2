@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import api, { saveTokens } from '../../services/api';
 import { DISTRICT_LIST, getTalukas, BUSINESS_TYPES } from '../../constants/locations';
+import { isValidGst, isValidIfsc, isValidAadhaar, isValidPan } from '../../utils/validators';
 import LocationPicker from '../../components/LocationPicker';
 
 // ── Reusable form field wrapper ───────────────────────────────────────────────
@@ -154,22 +155,19 @@ export default function BusinessProfileScreen({ navigation }) {
     if (!form.taluka)          return flashError(t('sellerBizProfile.selectTalukaMsg',   'Please select a taluka'));
     if (!form.village.trim())  return flashError(t('sellerBizProfile.enterVillageMsg',   'Please enter your village'));
 
-    if (!form.gstOptOut && form.gstNumber.trim()) {
-      const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-      if (!gstRegex.test(form.gstNumber.trim().toUpperCase())) {
-        return flashError(t('sellerBizProfile.invalidGstMsg', 'Invalid GST format (e.g. 27ABCDE1234F1Z5)'));
-      }
+    if (!form.gstOptOut && form.gstNumber.trim() && !isValidGst(form.gstNumber)) {
+      return flashError(t('sellerBizProfile.invalidGstMsg', 'Invalid GST format (e.g. 27ABCDE1234F1Z5)'));
     }
 
-    if (form.bankIfsc.trim() && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(form.bankIfsc.trim().toUpperCase())) {
+    if (form.bankIfsc.trim() && !isValidIfsc(form.bankIfsc)) {
       return flashError(t('sellerBizProfile.invalidIfscMsg', 'Invalid IFSC (e.g. SBIN0012345)'));
     }
 
-    if (form.aadharNumber.trim() && !/^\d{12}$/.test(form.aadharNumber.trim())) {
+    if (form.aadharNumber.trim() && !isValidAadhaar(form.aadharNumber)) {
       return flashError(t('sellerBizProfile.invalidAadhaar', 'Aadhaar must be exactly 12 digits'));
     }
 
-    if (form.panNumber.trim() && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(form.panNumber.trim().toUpperCase())) {
+    if (form.panNumber.trim() && !isValidPan(form.panNumber)) {
       return flashError(t('sellerBizProfile.invalidPan', 'Invalid PAN format (e.g. ABCDE1234F)'));
     }
 

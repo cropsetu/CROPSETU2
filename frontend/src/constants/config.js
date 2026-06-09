@@ -52,6 +52,7 @@ export const STORAGE_KEYS = {
   REFRESH_TOKEN:  'fm_refresh_token',
   USER_ID:        'fm_user_id',
   TOKEN_SAVED_AT: 'fm_token_saved_at',
+  LAST_ACTIVE_AT: 'fm_last_active_at',
 };
 
 /**
@@ -59,3 +60,11 @@ export const STORAGE_KEYS = {
  * 30 days — matches the server-side refresh token expiry.
  */
 export const SESSION_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Inactivity window (ms): if the user is idle longer than this, the client
+ * proactively logs out instead of waiting for the next request to 401.
+ * 7 days — matches the server's SESSION_IDLE_TIMEOUT_DAYS (sliding refresh-token
+ * idle expiry), so the client logs out exactly when the server would reject.
+ */
+export const SESSION_IDLE_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;

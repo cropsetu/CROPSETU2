@@ -25,6 +25,7 @@ import { auditAuthEvent, AUTH_ACTIONS, maskPhone } from '../services/audit.servi
 import { assessLoginRisk, notifyRiskyLogin } from '../services/loginRisk.service.js';
 import { normalizeIndianMobile, indianMobileBody } from '../utils/phone.js';
 import { sendOtp, verifyOtp } from '../services/otp.service.js';
+import { otpPowGate } from '../services/proofOfWork.service.js';
 import { captureSignupConsent } from '../services/consent.service.js';
 import { reportSecurityEvent } from '../services/incident.service.js';
 import { denylistAccessToken } from '../services/tokenDenylist.service.js';
@@ -94,7 +95,8 @@ const otpVerifyPhoneLimiter = rateLimiter({
 // ── POST /send-otp ─────────────────────────────────────────────────────────────
 router.post(
   '/send-otp',
-  otpIpLimiter,
+  otpPowGate,       // proof-of-work challenge under suspicion (before the limiters,
+  otpIpLimiter,     // so a 428 challenge response never burns a rate-limit slot)
   otpPhoneLimiter,
   [
     indianMobileBody('phone'),

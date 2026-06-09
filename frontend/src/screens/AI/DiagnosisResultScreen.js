@@ -19,8 +19,9 @@
 import { useRef, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Dimensions, Animated, StatusBar, Alert, Image, Modal, Linking,
+  Dimensions, Animated, StatusBar, Alert, Image, Modal,
 } from 'react-native';
+import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
 import { Ionicons } from '@expo/vector-icons';
 import { Haptics } from '../../utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -1758,7 +1759,7 @@ ${(() => {
             {visitShop?.phone ? (
               <TouchableOpacity
                 style={D.visitCallBtn}
-                onPress={() => Linking.openURL(`tel:+91${visitShop.phone}`)}
+                onPress={() => safeOpenURL(`tel:+91${sanitizePhone(visitShop.phone)}`)}
                 activeOpacity={0.85}
               >
                 <Ionicons name="call" size={16} color={COLORS.white} />

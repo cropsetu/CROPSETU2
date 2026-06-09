@@ -1,9 +1,10 @@
 /**
  * MultiFarmContext — Server-synced multi-farm state.
- * Manages farms[], activeFarm, crop cycles. Caches to AsyncStorage for offline.
+ * Manages farms[], activeFarm, crop cycles. Caches to encrypted secure storage
+ * (Keychain/Keystore) for offline — farm names/locations never hit disk as plaintext.
  */
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecureJSON, setSecureJSON } from '../utils/secureCache';
 import { useAuth } from './AuthContext';
 import * as farmApi from '../services/farmApi';
 import { withWrite } from '../services/writeQueue';
@@ -23,8 +24,8 @@ export function MultiFarmProvider({ children }) {
     if (!isLoggedIn) { setFarms([]); setActiveFarmId(null); setLoading(false); return; }
     (async () => {
       try {
-        const cached = await AsyncStorage.getItem(CACHE_FARMS);
-        if (cached) { const f = JSON.parse(cached); setFarms(f); setActiveFarmId(user?.activeFarmId || f[0]?.id || null); }
+        const f = await getSecureJSON(CACHE_FARMS);
+        if (f) { setFarms(f); setActiveFarmId(user?.activeFarmId || f[0]?.id || null); }
       } catch {}
       setLoading(false);
       refresh();
@@ -36,7 +37,7 @@ export function MultiFarmProvider({ children }) {
     setSyncing(true);
     try {
       const data = await farmApi.listFarms();
-      if (data) { setFarms(data); await AsyncStorage.setItem(CACHE_FARMS, JSON.stringify(data)); }
+      if (data) { setFarms(data); await setSecureJSON(CACHE_FARMS, data); }
     } catch (e) { console.warn('[MultiFarm] refresh:', e.message); }
     finally { setSyncing(false); }
   }, [isLoggedIn]);

@@ -10,9 +10,10 @@ import { COLORS } from '../../constants/colors';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Image, Alert, Linking, ActivityIndicator, Dimensions,
+  Image, Alert, ActivityIndicator, Dimensions,
   StatusBar, Modal, TextInput, Animated,
 } from 'react-native';
+import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -410,7 +411,7 @@ export default function MachineryDetail({ route, navigation }) {
             <TouchableOpacity onPress={() => navigation.goBack()} style={D.navBtn}>
               <Ionicons name="arrow-back" size={22} color={COLORS.white} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => m.ownerPhone && Linking.openURL(`tel:${m.ownerPhone}`)} style={D.navBtn}>
+            <TouchableOpacity onPress={() => m.ownerPhone && safeOpenURL(`tel:${sanitizePhone(m.ownerPhone)}`)} style={D.navBtn}>
               <Ionicons name="call-outline" size={22} color={COLORS.white} />
             </TouchableOpacity>
           </View>
@@ -620,7 +621,7 @@ export default function MachineryDetail({ route, navigation }) {
                 </View>
                 <TouchableOpacity
                   style={D.callSmall}
-                  onPress={() => m.ownerPhone && Linking.openURL(`tel:${m.ownerPhone}`)}
+                  onPress={() => m.ownerPhone && safeOpenURL(`tel:${sanitizePhone(m.ownerPhone)}`)}
                 >
                   <Ionicons name="call" size={18} color={COLORS.primary} />
                 </TouchableOpacity>
@@ -644,7 +645,7 @@ export default function MachineryDetail({ route, navigation }) {
           <>
             <TouchableOpacity
               style={D.callBtn}
-              onPress={() => m.ownerPhone && Linking.openURL(`tel:${m.ownerPhone}`)}
+              onPress={() => m.ownerPhone && safeOpenURL(`tel:${sanitizePhone(m.ownerPhone)}`)}
             >
               <Ionicons name="call" size={20} color={COLORS.primary} />
               <Text style={D.callBtnTxt}>{t('rent.callOwner')}</Text>

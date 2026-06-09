@@ -227,6 +227,39 @@ describe('Order operations', () => {
     expect(res.body.data.totalAmount).toBeGreaterThan(0);
   });
 
+  const inlineAddress = {
+    type: 'home', name: 'Test', phone: '9876543210',
+    flat: '1A', street: 'Main St', city: 'Pune', state: 'MH', pincode: '411001',
+  };
+
+  test('201 — checkout when client expectedTotal matches server total', async () => {
+    // Seeded cart: 1 product @ 199.99 × qty 2 = 399.98 (server-authoritative).
+    const res = await request(app)
+      .post('/api/v1/agristore/orders')
+      .set(farmer.headers)
+      .send({ deliveryAddress: inlineAddress, paymentMethod: 'cod', expectedTotal: 399.98 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.totalAmount).toBeCloseTo(399.98, 2);
+  });
+
+  test('400 — checkout rejected when client total understates the server total', async () => {
+    // Tampered client claims a tiny total; server recomputes 399.98 and rejects.
+    const before = await prisma.order.count({ where: { userId: farmer.user.id } });
+
+    const res = await request(app)
+      .post('/api/v1/agristore/orders')
+      .set(farmer.headers)
+      .send({ deliveryAddress: inlineAddress, paymentMethod: 'cod', expectedTotal: 0.01 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/cart total has changed/i);
+
+    // No order was created from the rejected checkout (and the cart is untouched).
+    const after = await prisma.order.count({ where: { userId: farmer.user.id } });
+    expect(after).toBe(before);
+  });
+
   test('400 — checkout with empty cart', async () => {
     await prisma.cartItem.deleteMany({ where: { userId: farmer.user.id } });
 
