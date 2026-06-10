@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
@@ -38,6 +38,7 @@ from observability.logging import (
 from security.pii import install as _install_pii_filter
 _install_pii_filter()  # idempotent — must run AFTER setup_logging
 from config import API_HOST, API_PORT, DATABASE_URL
+from rate_limit import make_limiter
 from db_pool import get_shared_pool, close_shared_pool
 from services.http_clients import close_all as close_http_clients
 from routes.chat            import router as chat_router
@@ -64,7 +65,7 @@ def _rate_key(request: Request) -> str:
     return f"ip:{get_remote_address(request)}"
 
 
-limiter = Limiter(key_func=_rate_key, default_limits=["60/minute"])
+limiter = make_limiter(_rate_key, default_limits=["60/minute"])
 
 # ── Lifespan (replaces deprecated @app.on_event) ─────────────────────────────
 

@@ -25,6 +25,7 @@ import crypto from 'crypto';
 import axios from 'axios';
 import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
+import { razorpayBreaker, httpFailure } from '../resilience/breakers.js';
 
 const RAZORPAY_API = 'https://api.razorpay.com/v1';
 const isMock = !ENV.RAZORPAY_KEY_ID || !ENV.RAZORPAY_KEY_SECRET;
@@ -51,18 +52,23 @@ export async function createPaymentOrder(amountInPaise, currency = 'INR', receip
 
   const auth = Buffer.from(`${ENV.RAZORPAY_KEY_ID}:${ENV.RAZORPAY_KEY_SECRET}`).toString('base64');
 
-  const { data } = await axios.post(`${RAZORPAY_API}/orders`, {
-    amount: amountInPaise,
-    currency,
-    receipt,
-    payment_capture: 1, // auto-capture
-  }, {
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'application/json',
-    },
-    timeout: 10000,
-  });
+  // Breaker: if Razorpay is down, fail fast (503) rather than holding every
+  // checkout for 10s. 4xx (bad request) don't trip it — only 5xx/timeout/network.
+  const data = await razorpayBreaker().execute(async () => {
+    const res = await axios.post(`${RAZORPAY_API}/orders`, {
+      amount: amountInPaise,
+      currency,
+      receipt,
+      payment_capture: 1, // auto-capture
+    }, {
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 10000,
+    });
+    return res.data;
+  }, { isFailure: httpFailure });
 
   return data;
 }
@@ -84,10 +90,13 @@ export async function fetchPaymentOrder(orderId) {
 
   const auth = Buffer.from(`${ENV.RAZORPAY_KEY_ID}:${ENV.RAZORPAY_KEY_SECRET}`).toString('base64');
 
-  const { data } = await axios.get(`${RAZORPAY_API}/orders/${orderId}`, {
-    headers: { Authorization: `Basic ${auth}` },
-    timeout: 10000,
-  });
+  const data = await razorpayBreaker().execute(async () => {
+    const res = await axios.get(`${RAZORPAY_API}/orders/${orderId}`, {
+      headers: { Authorization: `Basic ${auth}` },
+      timeout: 10000,
+    });
+    return res.data;
+  }, { isFailure: httpFailure });
 
   return data; // { id, amount, amount_paid, currency, receipt, status, ... }
 }
@@ -134,15 +143,18 @@ export async function processRefund(paymentId, amountInPaise) {
 
   const auth = Buffer.from(`${ENV.RAZORPAY_KEY_ID}:${ENV.RAZORPAY_KEY_SECRET}`).toString('base64');
 
-  const { data } = await axios.post(`${RAZORPAY_API}/payments/${paymentId}/refund`, {
-    amount: amountInPaise,
-  }, {
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'application/json',
-    },
-    timeout: 10000,
-  });
+  const data = await razorpayBreaker().execute(async () => {
+    const res = await axios.post(`${RAZORPAY_API}/payments/${paymentId}/refund`, {
+      amount: amountInPaise,
+    }, {
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 10000,
+    });
+    return res.data;
+  }, { isFailure: httpFailure });
 
   return data;
 }

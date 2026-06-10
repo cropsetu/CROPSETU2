@@ -127,6 +127,15 @@ export const ENV = {
   DATABASE_URL: required('DATABASE_URL'),
   REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
 
+  // ── Job queue (BullMQ) ──────────────────────────────────────────────────────
+  // Offloads heavy side-effects (push/notification delivery, etc.) off the
+  // request path. Default ON. The in-process worker lets a single-service deploy
+  // process jobs without a separate worker; set QUEUE_INPROCESS_WORKER=false and
+  // run `npm run worker` to scale workers independently of the web tier.
+  QUEUE_ENABLED:           process.env.QUEUE_ENABLED !== 'false',
+  QUEUE_INPROCESS_WORKER:  process.env.QUEUE_INPROCESS_WORKER !== 'false',
+  QUEUE_CONCURRENCY:       parseInt(process.env.QUEUE_CONCURRENCY || '5', 10),
+
   JWT_SECRET: (() => {
     const secret = required('JWT_SECRET');
     // [FIX #9] Enforce minimum secret length for HS256 security
@@ -149,6 +158,10 @@ export const ENV = {
   // Max concurrent sessions (refresh-token lineages) per user. Logging in beyond
   // this evicts the oldest session. 0 = unlimited.
   MAX_CONCURRENT_SESSIONS: parseInt(process.env.MAX_CONCURRENT_SESSIONS || '5', 10),
+  // Max simultaneous Socket.IO connections per user PER INSTANCE (SCALE-5).
+  // Bounds WS handles so a reconnect-loop or abusive client can't exhaust the
+  // instance. Generous enough for phone + tablet + web + transient reconnects.
+  SOCKET_MAX_CONN_PER_USER: parseInt(process.env.SOCKET_MAX_CONN_PER_USER || '10', 10),
 
   MSG91_AUTH_KEY: process.env.MSG91_AUTH_KEY || '',
   MSG91_TEMPLATE_ID: process.env.MSG91_TEMPLATE_ID || '',

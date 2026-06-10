@@ -14,8 +14,13 @@
  *   gu-IN  pa-IN  bn-IN  ml-IN  or-IN  en-IN
  */
 import { ENV } from '../config/env.js';
+import { sarvamBreaker, httpFailure } from '../resilience/breakers.js';
 
 const BASE_URL = 'https://api.sarvam.ai';
+// These fetches previously had NO timeout — an unresponsive Sarvam could hang the
+// request indefinitely. AbortSignal.timeout cancels the socket; the breaker's
+// timeout is a backstop above it.
+const REQUEST_TIMEOUT_MS = 15_000;
 
 function getKey() {
   if (!ENV.SARVAM_API_KEY) throw new Error('SARVAM_API_KEY not set in .env');
@@ -86,23 +91,26 @@ export async function sarvamSTT(audioBuffer, fileName = 'audio.m4a', languageCod
     form.append('language_code', normaliseLangCode(languageCode));
   }
 
-  const res = await fetch(`${BASE_URL}/speech-to-text`, {
-    method:  'POST',
-    headers: { 'api-subscription-key': getKey() },
-    body:    form,
-  });
+  return sarvamBreaker().execute(async () => {
+    const res = await fetch(`${BASE_URL}/speech-to-text`, {
+      method:  'POST',
+      headers: { 'api-subscription-key': getKey() },
+      body:    form,
+      signal:  AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw Object.assign(new Error(`Sarvam STT failed (${res.status}): ${body}`), { status: res.status });
-  }
+    if (!res.ok) {
+      const body = await res.text();
+      throw Object.assign(new Error(`Sarvam STT failed (${res.status}): ${body}`), { status: res.status });
+    }
 
-  const json = await res.json();
-  // Response shape: { transcript, language_code, ... }
-  return {
-    transcript:   (json.transcript || '').trim(),
-    languageCode: json.language_code || languageCode || 'hi-IN',
-  };
+    const json = await res.json();
+    // Response shape: { transcript, language_code, ... }
+    return {
+      transcript:   (json.transcript || '').trim(),
+      languageCode: json.language_code || languageCode || 'hi-IN',
+    };
+  }, { isFailure: httpFailure });
 }
 
 // ── Text-to-Speech ────────────────────────────────────────────────────────────
@@ -130,24 +138,27 @@ export async function sarvamTTS(text, languageCode = 'hi-IN', speaker = null) {
     model:                 'bulbul:v3',
   };
 
-  const res = await fetch(`${BASE_URL}/text-to-speech`, {
-    method:  'POST',
-    headers: {
-      'api-subscription-key': getKey(),
-      'Content-Type':         'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  return sarvamBreaker().execute(async () => {
+    const res = await fetch(`${BASE_URL}/text-to-speech`, {
+      method:  'POST',
+      headers: {
+        'api-subscription-key': getKey(),
+        'Content-Type':         'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw Object.assign(new Error(`Sarvam TTS failed (${res.status}): ${err}`), { status: res.status });
-  }
+    if (!res.ok) {
+      const err = await res.text();
+      throw Object.assign(new Error(`Sarvam TTS failed (${res.status}): ${err}`), { status: res.status });
+    }
 
-  const json = await res.json();
-  // Response shape: { audios: ["<base64-wav>"], request_id: "..." }
-  const audio = Array.isArray(json.audios) ? json.audios[0] : '';
-  return { audio, mimeType: 'audio/wav' };
+    const json = await res.json();
+    // Response shape: { audios: ["<base64-wav>"], request_id: "..." }
+    const audio = Array.isArray(json.audios) ? json.audios[0] : '';
+    return { audio, mimeType: 'audio/wav' };
+  }, { isFailure: httpFailure });
 }
 
 // ── Translation ───────────────────────────────────────────────────────────────
@@ -171,22 +182,25 @@ export async function sarvamTranslate(text, sourceLang = 'en-IN', targetLang = '
     enable_preprocessing: false,
   };
 
-  const res = await fetch(`${BASE_URL}/translate`, {
-    method:  'POST',
-    headers: {
-      'api-subscription-key': getKey(),
-      'Content-Type':         'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  return sarvamBreaker().execute(async () => {
+    const res = await fetch(`${BASE_URL}/translate`, {
+      method:  'POST',
+      headers: {
+        'api-subscription-key': getKey(),
+        'Content-Type':         'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw Object.assign(new Error(`Sarvam Translate failed (${res.status}): ${err}`), { status: res.status });
-  }
+    if (!res.ok) {
+      const err = await res.text();
+      throw Object.assign(new Error(`Sarvam Translate failed (${res.status}): ${err}`), { status: res.status });
+    }
 
-  const json = await res.json();
-  return { translatedText: json.translated_text || '' };
+    const json = await res.json();
+    return { translatedText: json.translated_text || '' };
+  }, { isFailure: httpFailure });
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────

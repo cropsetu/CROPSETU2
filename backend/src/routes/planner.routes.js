@@ -14,11 +14,14 @@ import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 import { generatePlannerTasks, getCurrentSeason } from '../services/ai.chat.service.js';
+import { BoundedMap } from '../utils/boundedMap.js';
 import prisma from '../config/db.js';
 
-// Per-user cooldown for planner generate (min 60s between AI calls)
-const lastPlannerGen = new Map();
+// Per-user cooldown for planner generate (min 60s between AI calls).
+// Bounded (LRU + TTL) so it can't grow without limit as new users hit it — a
+// stale/evicted entry only ever costs one bypassed cooldown, which is harmless.
 const PLANNER_MIN_GAP_MS = 60 * 1000;
+const lastPlannerGen = new BoundedMap({ maxSize: 20_000, ttlMs: PLANNER_MIN_GAP_MS });
 
 const router = Router();
 router.param('id', uuidParamGuard); // reject non-UUID :id (task) with 400 before Prisma

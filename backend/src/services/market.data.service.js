@@ -31,6 +31,10 @@ function getGroq() {
 // ── 30-min cache (stampede-guarded: single-flight + jittered TTL) ──────────────
 const cache = new Map();
 const CACHE_TTL = 30 * 60 * 1000;
+// Hard cap on live keys so the cache can't grow without bound across many
+// commodity/state combinations under sustained miss traffic. Eviction is FIFO
+// (oldest insertion first), matching mandiPrice.service.js / weather.routes.js.
+const MAX_MEM_ENTRIES = 500;
 // ±10% TTL jitter. The startup seed (see server.js) populates ~50 commodity/state
 // keys within a few seconds; without jitter they'd all expire at the same instant
 // 30 min later and stampede in lockstep. Jitter spreads expiry over a window so
@@ -46,7 +50,13 @@ function cacheGet(k) {
   recordCacheHit('market');
   return e.data;
 }
-function cacheSet(k, data, ttl = CACHE_TTL) { cache.set(k, { data, exp: jitteredExp(ttl) }); }
+function cacheSet(k, data, ttl = CACHE_TTL) {
+  if (!cache.has(k) && cache.size >= MAX_MEM_ENTRIES) {
+    const oldest = cache.keys().next().value; // FIFO: drop the oldest insertion
+    cache.delete(oldest);
+  }
+  cache.set(k, { data, exp: jitteredExp(ttl) });
+}
 
 // ── Real historical price ranges (₹/quintal) used to ground the AI ────────────
 const PRICE_CONTEXT = {
