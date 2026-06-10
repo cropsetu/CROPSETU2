@@ -17,6 +17,8 @@ import { ENV } from '../config/env.js';
 import { getCurrentSeason } from './ai.chat.service.js';
 import { singleFlight } from '../utils/singleFlight.js';
 import { recordCacheHit, recordCacheMiss } from '../utils/cacheMetrics.js';
+import redis from '../config/redis.js';
+import logger from '../utils/logger.js';
 
 // ── Groq client ────────────────────────────────────────────────────────────────
 let _groq = null;
@@ -56,6 +58,40 @@ function cacheSet(k, data, ttl = CACHE_TTL) {
     cache.delete(oldest);
   }
   cache.set(k, { data, exp: jitteredExp(ttl) });
+}
+
+// ── L2: shared Redis cache (CACHE-6 / CACHE-10) ────────────────────────────────
+// The Map above is L1 — per process, lost on restart, so EACH instance pays its
+// own Groq call for the same commodity/state. Backing it with Redis makes the
+// per-commodity context shared across the fleet: the first instance to compute a
+// key populates Redis, and every other instance (and a restarted one) serves the
+// repeat lookup from cache within the TTL instead of refetching from Groq.
+// Fail-open: any Redis unavailability degrades to the L1-only behaviour, never
+// an error — the service always works.
+const REDIS_READY = () => redis?.status === 'ready';
+const RKEY = (k) => `market:${k}`;
+
+// Jittered TTL in whole seconds (±10%) so keys the fleet populated together (e.g.
+// the startup seed) don't all expire — and stampede Groq — at the same instant.
+function jitteredSec(ttlMs) {
+  const jitter = ttlMs * TTL_JITTER * (Math.random() * 2 - 1);
+  return Math.max(1, Math.round((ttlMs + jitter) / 1000));
+}
+
+async function redisGet(key) {
+  if (!REDIS_READY()) return null;
+  try {
+    const hit = await redis.get(RKEY(key));
+    if (hit) { recordCacheHit('market:redis'); return JSON.parse(hit); }
+    recordCacheMiss('market:redis');
+    return null;
+  } catch { return null; } // treat any read error as a miss
+}
+
+async function redisSet(key, data, ttlMs = CACHE_TTL) {
+  if (!REDIS_READY()) return;
+  try { await redis.set(RKEY(key), JSON.stringify(data), 'EX', jitteredSec(ttlMs)); }
+  catch (err) { logger.warn('[Market] Redis cache set failed for %s: %s', key, err.message); }
 }
 
 // ── Real historical price ranges (₹/quintal) used to ground the AI ────────────
@@ -203,6 +239,11 @@ export async function getMarketPrices(commodity = 'Tomato', state = 'Maharashtra
 
   // Single-flight: concurrent misses on this key coalesce into ONE Groq call.
   return singleFlight(`mkt:${key}`, async () => {
+    // L2 (shared Redis): another instance may already have this commodity's
+    // context cached. Serve it and warm L1 so subsequent local reads skip Redis.
+    const l2 = await redisGet(key);
+    if (l2) { cacheSet(key, l2); return { ...l2, fromCache: true }; }
+
     try {
       const client = getGroq();
       const completion = await client.chat.completions.create({
@@ -240,6 +281,7 @@ export async function getMarketPrices(commodity = 'Tomato', state = 'Maharashtra
       };
 
       cacheSet(key, result);
+      await redisSet(key, result, CACHE_TTL);
       return result;
     } catch (err) {
       // Don't cache the fallback — let the next request retry the real source.
@@ -288,6 +330,9 @@ Return ONLY this JSON:
 
   // Single-flight: concurrent misses on this key coalesce into ONE Groq call.
   return singleFlight(`mkt:${key}`, async () => {
+    const l2 = await redisGet(key);
+    if (l2) { cacheSet(key, l2); return { ...l2, fromCache: true }; }
+
     try {
       const client = getGroq();
       const completion = await client.chat.completions.create({
@@ -301,6 +346,7 @@ Return ONLY this JSON:
       const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
       const result = { commodity, state, ...parsed, generatedAt: new Date().toISOString() };
       cacheSet(key, result);
+      await redisSet(key, result, CACHE_TTL);
       return result;
     } catch (err) {
       console.error('[Market] prediction failed:', err.message);
@@ -368,6 +414,9 @@ Return ONLY valid JSON (no other text):
 
   // Single-flight: concurrent misses on this key coalesce into ONE Groq call.
   return singleFlight(`mkt:${key}`, async () => {
+    const l2 = await redisGet(key);
+    if (l2) { cacheSet(key, l2, EXT_TTL); return { ...l2, fromCache: true }; }
+
     try {
       const client = getGroq();
       const completion = await client.chat.completions.create({
@@ -388,6 +437,7 @@ Return ONLY valid JSON (no other text):
 
       const result = { commodity, state, period, periodMonths, ...parsed, generatedAt: new Date().toISOString() };
       cacheSet(key, result, EXT_TTL);
+      await redisSet(key, result, EXT_TTL);
       return result;
     } catch (err) {
       // Don't cache the fallback — let the next request retry the real source.

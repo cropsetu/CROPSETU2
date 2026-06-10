@@ -14,6 +14,7 @@ import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { callClaude } from '../services/claude.service.js';
 import { BoundedMap } from '../utils/boundedMap.js';
+import { equalsIgnoreCase } from '../utils/strMatch.js';
 import prisma from '../config/db.js';
 
 const router = Router();
@@ -33,7 +34,9 @@ router.get('/', authenticate, async (req, res) => {
   const where = { isActive: true };
   if (type)        where.type        = type;
   if (benefitType) where.benefitType = benefitType;
-  if (state)       where.OR = [{ state }, { state: null }]; // null = all-India
+  // Case-insensitive state match (+ null = all-India), consistent with the
+  // app-side eligibility filter and the rest of the app's location matching.
+  if (state)       where.OR = [{ state: { equals: state, mode: 'insensitive' } }, { state: null }];
 
   const schemes = await prisma.governmentScheme.findMany({
     where,
@@ -72,8 +75,10 @@ router.get('/eligible', authenticate, async (req, res) => {
   const eligible = allSchemes.filter(scheme => {
     const e = scheme.eligibility;
 
-    // State check: include all-India (state=null) + farmer's own state
-    if (scheme.state && scheme.state !== farmerState) return false;
+    // State check: include all-India (state=null) + farmer's own state.
+    // Fold case on both sides so this matches the DB layer's case-insensitive
+    // state matching ("Maharashtra" vs "maharashtra" must not drop a scheme).
+    if (scheme.state && !equalsIgnoreCase(scheme.state, farmerState)) return false;
 
     // Land size check
     if (e?.landSizeMaxAcres && landAcres && landAcres > e.landSizeMaxAcres) return false;

@@ -182,17 +182,18 @@ async function queryDB(commodity, state, district, withinDays = 90) {
   const rows = await prisma.mandiPrice.findMany({
     where, orderBy: { priceDate: 'desc' }, take: 300,
   });
-  // District query returned too few — fall back to full state-level, filter in memory
+  // District query returned too few. The first query already pushed the
+  // district filter into SQL (`district contains`), so `rows` IS the
+  // district-matching subset — no need to re-fetch the whole state and filter
+  // it in memory. If that subset is still usable, return it directly;
+  // otherwise broaden to state level (dropping the district where-clause) and
+  // let the DB return only those rows.
   if (rows.length < 5 && district) {
+    if (rows.length >= 3) return rows;
     delete where.district;
-    const stateRows = await prisma.mandiPrice.findMany({
+    return prisma.mandiPrice.findMany({
       where, orderBy: { priceDate: 'desc' }, take: 300,
     });
-    // Return district-filtered subset if possible, otherwise all state rows
-    const filtered = stateRows.filter(r =>
-      r.district?.toLowerCase().includes(district.toLowerCase())
-    );
-    return filtered.length >= 3 ? filtered : stateRows;
   }
   return rows;
 }

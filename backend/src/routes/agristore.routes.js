@@ -23,10 +23,12 @@ import prisma from '../config/db.js';
 import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, sendServerError, paginationMeta, parsePageSize } from '../utils/response.js';
 import { keysetPage } from '../utils/keyset.js';
+import { applyStockDeltas } from '../utils/stockBatch.js';
 import { D, toMinorUnits } from '../utils/money.js';
 import { stripHtml, deepStripHtml } from '../utils/encrypt.js';
 import { createPaymentOrder, verifyPaymentSignature, fetchPaymentOrder } from '../services/payment.service.js';
 import { auditOrderStatusChange, auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
+import { getSellerStats } from '../services/sellerStats.service.js';
 
 const router = Router();
 router.param('id', uuidParamGuard);        // product / order / seller-product ids
@@ -42,7 +44,27 @@ router.param('productId', uuidParamGuard); // cart item product id
 // integer paise to avoid floating-point drift.
 const toPaise = (amount) => toMinorUnits(amount, 100);
 // Sum line items exactly in Decimal (price is a Prisma.Decimal). Returns a Decimal.
+// Used where the line items are already loaded in memory (cart listing, checkout,
+// payment-verify — all of which need the rows for other reasons anyway).
 const cartTotal = (cartItems) => cartItems.reduce((sum, i) => sum.plus(D(i.product.price).times(i.quantity)), D(0));
+
+// Aggregate the cart total in a SINGLE SQL query — SUM(price * quantity) joined
+// across cart_items → products — for paths that need ONLY the total, not the
+// rows. Avoids shipping every line item + full product object back just to add
+// them up in memory. Postgres returns numeric SUM as a string; D() parses it
+// into an exact Decimal. COUNT lets callers detect an empty cart without a
+// second query. Mirrors cartTotal()'s arithmetic exactly (no isActive filter —
+// stock/availability is revalidated later inside the checkout transaction).
+async function cartTotalFromDB(userId) {
+  const [row] = await prisma.$queryRaw`
+    SELECT COUNT(*)::int AS count,
+           COALESCE(SUM(p.price * c.quantity), 0) AS total
+    FROM cart_items c
+    JOIN products p ON p.id = c."productId"
+    WHERE c."userId" = ${userId}
+  `;
+  return { count: row?.count ?? 0, total: D(row?.total ?? 0) };
+}
 
 function assertClientTotalMatches(expectedTotal, authoritativeTotal) {
   if (expectedTotal === undefined || expectedTotal === null) return;
@@ -330,13 +352,8 @@ router.post(
           include: { items: { include: { product: true } } },
         });
 
-        // Decrement stock
-        for (const item of cartItems) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { decrement: item.quantity } },
-          });
-        }
+        // Decrement stock for the whole cart in a single statement.
+        await applyStockDeltas(tx, cartItems.map((i) => ({ productId: i.productId, delta: -i.quantity })));
 
         // Clear cart
         await tx.cartItem.deleteMany({ where: { userId: req.user.id } });
@@ -413,18 +430,14 @@ router.put('/orders/:id/cancel', authenticate, async (req, res) => {
       data: { status: 'CANCELLED' },
     });
 
-    // Restore stock for each item
-    for (const item of order.items) {
-      await tx.product.update({
-        where: { id: item.productId },
-        data: { stock: { increment: item.quantity } },
-      });
-      // Also cancel each item's status
-      await tx.orderItem.update({
-        where: { id: item.id },
-        data: { status: 'CANCELLED' },
-      });
-    }
+    // Restore stock for the whole order in a single statement.
+    await applyStockDeltas(tx, order.items.map((item) => ({ productId: item.productId, delta: item.quantity })));
+
+    // Cancel every item of this order in one statement.
+    await tx.orderItem.updateMany({
+      where: { orderId: order.id },
+      data: { status: 'CANCELLED' },
+    });
 
     return updated;
   });
@@ -453,13 +466,10 @@ router.post(
     try {
       const { expectedTotal } = req.body;
 
-      const cartItems = await prisma.cartItem.findMany({
-        where: { userId: req.user.id },
-        include: { product: true },
-      });
-      if (!cartItems.length) return sendError(res, 'Cart is empty', 400);
-
-      const totalAmount = cartTotal(cartItems);
+      // We need only the authoritative total here (not the line items), so let
+      // the DB aggregate it in one query instead of fetching every cart row.
+      const { count, total: totalAmount } = await cartTotalFromDB(req.user.id);
+      if (!count) return sendError(res, 'Cart is empty', 400);
 
       // Authorize the SERVER total, not the client's. Reject before creating the
       // payment order if the client's displayed total disagrees.
@@ -608,12 +618,7 @@ router.post(
           include: { items: { include: { product: true } } },
         });
 
-        for (const item of cartItems) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { decrement: item.quantity } },
-          });
-        }
+        await applyStockDeltas(tx, cartItems.map((i) => ({ productId: i.productId, delta: -i.quantity })));
 
         await tx.cartItem.deleteMany({ where: { userId: req.user.id } });
         return o;
@@ -837,21 +842,12 @@ router.delete('/seller/products/:id', authenticate, requireRole('SELLER', 'VERIF
 });
 
 router.get('/seller/stats', authenticate, requireRole('SELLER', 'VERIFIED_FARMER', 'ADMIN'), async (req, res) => {
-  const [totalProducts, activeProducts, revenueAgg] = await Promise.all([
-    prisma.product.count({ where: { sellerId: req.user.id } }),
-    prisma.product.count({ where: { sellerId: req.user.id, isActive: true } }),
-    // Uses denormalised sellerId index — no join through products
-    prisma.orderItem.aggregate({
-      where: { sellerId: req.user.id },
-      _sum: { totalPrice: true, quantity: true },
-    }),
-  ]);
-  return sendSuccess(res, {
-    totalProducts,
-    activeProducts,
-    totalRevenue: revenueAgg._sum.totalPrice || 0,
-    totalSold:    revenueAgg._sum.quantity   || 0,
-  });
+  // Served from a precomputed cached rollup (CACHE-6) so this hot dashboard read
+  // doesn't re-run the ever-growing revenue aggregate on every load. Refreshed
+  // periodically by a leader-locked cron; falls back to a live compute when
+  // Redis is unavailable.
+  const stats = await getSellerStats(req.user.id);
+  return sendSuccess(res, stats);
 });
 
 // ── Seller: update order item status ─────────────────────────────────────────

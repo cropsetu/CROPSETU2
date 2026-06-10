@@ -14,6 +14,7 @@ import { seedDefaultFlags, initFlagInvalidationSubscriber, stopFlagInvalidationS
 import { warmAllCaches } from './services/cacheWarmer.service.js';
 import { checkCacheAlerts } from './utils/cacheMetrics.js';
 import { runRetentionSweep } from './services/retention.service.js';
+import { refreshActiveSellerStats } from './services/sellerStats.service.js';
 import { withLeaderLock } from './utils/leaderLock.js';
 import { startWorkers, stopWorkers } from './queue/worker.js';
 import { closeQueues } from './queue/jobQueue.js';
@@ -235,6 +236,19 @@ async function start() {
         });
       } catch (err) { logger.warn('[CacheMetrics] alert check failed: %s', err.message); }
     });
+
+    // ── Seller dashboard stats rollup refresh (CACHE-6) ─────────────────────
+    // Every 5 min, re-warm the precomputed seller-stats rollups for sellers who
+    // recently loaded their dashboard, so those reads keep hitting precomputed
+    // aggregates instead of re-running the ever-growing revenue SUM per load.
+    // Leader-locked so a single instance does the recompute fan-out per tick;
+    // refreshing slightly more often than the 10-min cache TTL keeps entries warm.
+    cron.schedule('*/5 * * * *', () => withLeaderLock('seller-stats-refresh', async () => {
+      try {
+        const result = await refreshActiveSellerStats();
+        if (result.refreshed) logger.info({ ...result }, '[SellerStats] rollup refresh complete');
+      } catch (err) { logger.warn('[SellerStats] rollup refresh failed: %s', err.message); }
+    }));
 
     // ── Data-retention sweep (DPDP minimisation) ────────────────────────────
     // Daily at 2:30 AM UTC — purge transient/log data past its retention window
