@@ -39,7 +39,8 @@ import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta } from '../utils/response.js';
 import { D } from '../utils/money.js';
-import { haversineKm, attachDistance } from '../utils/geo.js';
+import { geoPageIds } from '../utils/geo.js';
+import { Prisma } from '@prisma/client';
 import { stripHtml } from '../utils/encrypt.js';
 
 // [FIX] Validate GPS coordinates are within Earth bounds
@@ -88,19 +89,6 @@ function deriveBookedStatus(bookings, startOfToday) {
 const router = Router();
 router.param('id', uuidParamGuard); // machinery / labour / booking ids — reject non-UUIDs with 400
 
-/**
- * Build a bounding-box Prisma where clause for a geo-radius query.
- * Bounding box is a fast SQL pre-filter; Haversine post-filter trims the corners.
- */
-function boundingBox(lat, lng, radiusKm) {
-  const latDelta = radiusKm / 111;
-  const lngDelta = radiusKm / (111 * Math.cos(lat * Math.PI / 180));
-  return {
-    lat: { gte: lat - latDelta, lte: lat + latDelta },
-    lng: { gte: lng - lngDelta, lte: lng + lngDelta },
-  };
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // MACHINERY — list
 // ─────────────────────────────────────────────────────────────────────────────
@@ -131,10 +119,6 @@ router.get('/machinery', optionalAuth, async (req, res) => {
 
   const isDistanceQuery = userLat !== null && userLng !== null;
 
-  // [FIX #10] Cap distance queries to prevent OOM when fetching all records
-  const GEO_FETCH_CAP  = 500;  // geo-located listings fetched for in-memory distance sort
-  const NULL_COORD_CAP = 100;  // legacy listings without coordinates, shown last
-
   const listingSelect = {
     id: true, name: true, category: true, brand: true, horsePower: true,
     pricePerHour: true, pricePerDay: true, pricePerAcre: true,
@@ -151,27 +135,33 @@ router.get('/machinery', optionalAuth, async (req, res) => {
 
   let items, total;
   if (isDistanceQuery) {
-    // Bounding-box prefilter that USES the [lat, lng] index. We run a pure-AND
-    // range query for geo-located listings — wrapping it in `OR lat IS NULL`
-    // (to also surface legacy coordinate-less listings) would defeat the index
-    // and force a full scan, so those are fetched in a SEPARATE, also-indexed
-    // (`lat IS NULL`) query and appended. attachDistance then refines the box to
-    // a circle, keeps null-coord rows (shown last), and sorts by distance.
-    const box = boundingBox(userLat, userLng, radiusKm);
-    const orderBy = [{ rating: 'desc' }, { createdAt: 'desc' }];
-    const [located, nullCoord] = await Promise.all([
-      prisma.machineryListing.findMany({
-        where: { ...where, lat: box.lat, lng: box.lng },
-        orderBy, take: GEO_FETCH_CAP, select: listingSelect,
-      }),
-      prisma.machineryListing.findMany({
-        where: { ...where, lat: null },
-        orderBy, take: NULL_COORD_CAP, select: listingSelect,
-      }),
-    ]);
-    const sorted = attachDistance([...located, ...nullCoord], userLat, userLng, radiusKm);
-    total = sorted.length;
-    items = sorted.slice((page - 1) * limit, page * limit);
+    // Push the bounding box, Haversine circle, distance sort and LIMIT/OFFSET
+    // down to SQL so only THIS page's rows load (memory bounded by `limit`, not
+    // a 500-row buffer). geoPageIds returns the page's ordered ids; we then
+    // hydrate just those with the full select (incl. bookings).
+    const filters = [Prisma.sql`status = 'ACTIVE'`];
+    if (category && category !== 'all') filters.push(Prisma.sql`category = ${category}`);
+    if (district)              filters.push(Prisma.sql`district ILIKE '%' || ${district} || '%'`);
+    if (available === 'true')  filters.push(Prisma.sql`available = true`);
+    if (search) {
+      filters.push(Prisma.sql`(name ILIKE '%' || ${search} || '%'
+        OR brand ILIKE '%' || ${search} || '%'
+        OR description ILIKE '%' || ${search} || '%'
+        OR location ILIKE '%' || ${search} || '%')`);
+    }
+    const { ids, distById, total: geoTotal } = await geoPageIds(prisma, {
+      tableSql: Prisma.raw('"machinery_listings"'),
+      whereSql: Prisma.join(filters, ' AND '),
+      lat: userLat, lng: userLng, radiusKm,
+      offset: (page - 1) * limit, limit,
+    });
+    total = geoTotal;
+    const rows = ids.length
+      ? await prisma.machineryListing.findMany({ where: { id: { in: ids } }, select: listingSelect })
+      : [];
+    const byId = new Map(rows.map(r => [r.id, r]));
+    // Preserve the SQL distance ordering and attach distanceKm.
+    items = ids.map(id => ({ ...byId.get(id), distanceKm: distById.get(id) })).filter(r => r.id);
   } else {
     [items, total] = await Promise.all([
       prisma.machineryListing.findMany({
@@ -442,12 +432,6 @@ router.get('/labour', optionalAuth, async (req, res) => {
     ];
   }
 
-  if (userLat !== null && userLng !== null) {
-    const box   = boundingBox(userLat, userLng, radiusKm);
-    const geoOr = { OR: [{ lat: null }, { lat: box.lat, lng: box.lng }] };
-    where.AND   = where.AND ? [...where.AND, geoOr] : [geoOr];
-  }
-
   const isDistanceQuery = userLat !== null && userLng !== null;
 
   const SELECT = {
@@ -466,15 +450,30 @@ router.get('/labour', optionalAuth, async (req, res) => {
 
   let items, total;
   if (isDistanceQuery) {
-    const all = await prisma.labourListing.findMany({
-      where,
-      orderBy: [{ rating: 'desc' }, { createdAt: 'desc' }],
-      take: 500, // [FIX #10] Cap to prevent OOM
-      select: SELECT,
+    // Geo + circle + distance sort + pagination pushed to SQL — only this page's
+    // rows load (memory bounded by `limit`, not the old 500-row buffer).
+    const filters = [Prisma.sql`status = 'ACTIVE'`];
+    if (district)             filters.push(Prisma.sql`district ILIKE '%' || ${district} || '%'`);
+    if (available === 'true') filters.push(Prisma.sql`available = true`);
+    if (skill)                filters.push(Prisma.sql`${skill} = ANY(skills)`);
+    if (search) {
+      filters.push(Prisma.sql`(name ILIKE '%' || ${search} || '%'
+        OR leader ILIKE '%' || ${search} || '%'
+        OR description ILIKE '%' || ${search} || '%'
+        OR location ILIKE '%' || ${search} || '%')`);
+    }
+    const { ids, distById, total: geoTotal } = await geoPageIds(prisma, {
+      tableSql: Prisma.raw('"labour_listings"'),
+      whereSql: Prisma.join(filters, ' AND '),
+      lat: userLat, lng: userLng, radiusKm,
+      offset: (page - 1) * limit, limit,
     });
-    const sorted = attachDistance(all, userLat, userLng, radiusKm);
-    total = sorted.length;
-    items = sorted.slice((page - 1) * limit, page * limit);
+    total = geoTotal;
+    const rows = ids.length
+      ? await prisma.labourListing.findMany({ where: { id: { in: ids } }, select: SELECT })
+      : [];
+    const byId = new Map(rows.map(r => [r.id, r]));
+    items = ids.map(id => ({ ...byId.get(id), distanceKm: distById.get(id) })).filter(r => r.id);
   } else {
     [items, total] = await Promise.all([
       prisma.labourListing.findMany({

@@ -42,6 +42,14 @@ const CITY_MAP = {
   'Bhopal':       '42666',
 };
 
+// Built ONCE at module load (not per request): lowercase-name → id for O(1)
+// case-insensitive lookups. LOWER_ENTRIES is the same data as an array, used
+// only by the substring fallback so it never recomputes toLowerCase() per call.
+const LOWER_MAP = new Map(
+  Object.entries(CITY_MAP).map(([name, id]) => [name.toLowerCase(), id])
+);
+const LOWER_ENTRIES = [...LOWER_MAP.entries()];
+
 /**
  * Returns the IMD city ID for a city name (case-insensitive).
  * Returns null if not found.
@@ -52,13 +60,21 @@ export function getCityId(cityName) {
   if (!cityName) return null;
   const normalized = String(cityName).trim();
 
-  // Exact match first
+  // Exact match (O(1))
   if (CITY_MAP[normalized]) return CITY_MAP[normalized];
 
-  // Case-insensitive match
   const lower = normalized.toLowerCase();
-  const found = Object.entries(CITY_MAP).find(
-    ([k]) => k.toLowerCase() === lower || lower.includes(k.toLowerCase())
-  );
-  return found ? found[1] : null;
+
+  // Case-insensitive exact match (O(1))
+  const hit = LOWER_MAP.get(lower);
+  if (hit) return hit;
+
+  // Substring fallback — input contains a known city name (e.g. "Pune District").
+  // Inherently a scan, but only reached when both exact lookups miss, and it
+  // iterates precomputed lowercase keys in insertion order (matching the old
+  // Object.entries() order, so the chosen match is unchanged).
+  for (const [k, id] of LOWER_ENTRIES) {
+    if (lower.includes(k)) return id;
+  }
+  return null;
 }
