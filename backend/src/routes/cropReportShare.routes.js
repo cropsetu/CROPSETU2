@@ -1,16 +1,32 @@
 /**
  * Crop Report Share Routes — Farmer ↔ Krushi Kendra seller bridge.
  *
- * Farmer side
- *   GET  /api/v1/crop-reports/sellers/nearby?district=&taluka=&type=
- *   POST /api/v1/crop-reports/:reportId/share        { sellerId, message? }
- *   GET  /api/v1/crop-reports/:reportId/shares        — list shares for one report
- *   GET  /api/v1/crop-reports/me/shares               — all reports the farmer has shared
+ * A share is a triple (report, farmer who OWNS the report, seller it was sent
+ * to). The only parties to a share are that OWNER and that SHAREE — a crop
+ * report and its diagnosis must never be reachable by anyone else.
  *
- * Seller side
- *   GET  /api/v1/crop-reports/seller/inbox            — list shares received
- *   GET  /api/v1/crop-reports/seller/inbox/:shareId   — full report + share
- *   POST /api/v1/crop-reports/seller/inbox/:shareId/reply { reply, recommendedSku? }
+ * ── ACCESS MATRIX (enforced by each handler's WHERE clause) ──────────────────
+ * Legend: ✓ allowed · ✗ denied (404 — scoped query yields no row, no existence
+ * leak) · 401 unauthenticated · "self" = only ever sees rows where they are the
+ * farmer/seller, so cross-user access is structurally impossible.
+ *
+ *   Route                                  │ Owner │ Sharee │ Other authed │ Public
+ *   ───────────────────────────────────────┼───────┼────────┼──────────────┼───────
+ *   GET  /sellers/nearby                    │  ✓¹   │  ✓¹    │     ✓¹       │  401
+ *   POST /:reportId/share                   │  ✓²   │  ✗     │     ✗        │  401
+ *   GET  /:reportId/shares                  │  ✓²   │  ✗     │     ✗        │  401
+ *   GET  /me/shares                         │ self  │  —     │    self      │  401
+ *   GET  /seller/inbox                      │  —    │  self  │    self      │  401
+ *   GET  /seller/inbox/:shareId             │  ✗    │  ✓     │     ✗        │  401
+ *   POST /seller/inbox/:shareId/reply       │  ✗    │  ✓     │     ✗        │  401
+ *
+ *   ¹ Directory lookup — open to any authenticated user; returns no report data.
+ *   ² Owner is gated on owning the *report* (CropDiseaseReport.userId === me);
+ *     a report you don't own returns 404.
+ *
+ * Every per-resource handler MUST filter by the caller's id (userId/farmerId for
+ * the owner, sellerId for the sharee). The matrix above is verified cell-by-cell
+ * in tests/backend/api/cropReportShare.api.test.js — keep them in lock-step.
  */
 import { Router } from 'express';
 import { body } from 'express-validator';
@@ -246,6 +262,31 @@ async function resolveRecommendedProducts(productIds) {
   });
 }
 
+// ─── GET all shares the farmer has sent (history) ───────────────────────────
+// NOTE: must be registered BEFORE '/:reportId/shares' — otherwise Express
+// matches "/me/shares" as that param route with reportId="me", which the
+// uuidParamGuard then rejects with 400, making this endpoint unreachable.
+router.get('/me/shares', authenticate, async (req, res) => {
+  const page  = parseInt(req.query.page  || '1',  10);
+  const limit = parseInt(req.query.limit || '20', 10);
+
+  const [shares, total] = await Promise.all([
+    prisma.cropReportShare.findMany({
+      where:   { farmerId: req.user.id },
+      orderBy: { createdAt: 'desc' },
+      skip:    (page - 1) * limit,
+      take:    limit,
+      include: {
+        seller: { select: { id: true, name: true, businessType: true, village: true, taluka: true } },
+        report: { select: { id: true, cropType: true, primaryDisease: true, riskLevel: true } },
+      },
+    }),
+    prisma.cropReportShare.count({ where: { farmerId: req.user.id } }),
+  ]);
+
+  return sendSuccess(res, shares, 200, paginationMeta(total, page, limit));
+});
+
 // ─── GET shares for a single report (farmer view) ───────────────────────────
 router.get('/:reportId/shares', authenticate, async (req, res) => {
   const { reportId } = req.params;
@@ -275,28 +316,6 @@ router.get('/:reportId/shares', authenticate, async (req, res) => {
   );
 
   return sendSuccess(res, enriched);
-});
-
-// ─── GET all shares the farmer has sent (history) ───────────────────────────
-router.get('/me/shares', authenticate, async (req, res) => {
-  const page  = parseInt(req.query.page  || '1',  10);
-  const limit = parseInt(req.query.limit || '20', 10);
-
-  const [shares, total] = await Promise.all([
-    prisma.cropReportShare.findMany({
-      where:   { farmerId: req.user.id },
-      orderBy: { createdAt: 'desc' },
-      skip:    (page - 1) * limit,
-      take:    limit,
-      include: {
-        seller: { select: { id: true, name: true, businessType: true, village: true, taluka: true } },
-        report: { select: { id: true, cropType: true, primaryDisease: true, riskLevel: true } },
-      },
-    }),
-    prisma.cropReportShare.count({ where: { farmerId: req.user.id } }),
-  ]);
-
-  return sendSuccess(res, shares, 200, paginationMeta(total, page, limit));
 });
 
 // ─── GET seller's inbox ─────────────────────────────────────────────────────

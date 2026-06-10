@@ -603,6 +603,7 @@ model Post {
   city         String?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?      // soft-delete tombstone — non-null rows are hidden from all reads
   comments     Comment[]
   bookmarks    PostBookmark[]
   likes        PostLike[]
@@ -613,6 +614,7 @@ model Post {
   @@index([district])
   @@index([scope, district])
   @@index([createdAt])
+  @@index([deletedAt])
   // Trigram GIN — community search OR (title/description ILIKE).
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "posts_title_trgm")
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "posts_description_trgm")
@@ -1818,6 +1820,7 @@ enum ConsentPurpose {
   LOCATION // use of precise geolocation
   MARKETING // promotional / marketing communications
   GUARDIAN_CONSENT // DPDP §9 verifiable parental/guardian consent for a minor
+  SELLER_ONBOARDING // explicit opt-in to become a SELLER (role escalation + obligations)
 }
 
 enum GrowthStage {

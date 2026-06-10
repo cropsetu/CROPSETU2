@@ -414,6 +414,6 @@ describe('Booking cancellation', () => {
       .put(`/api/v1/rent/bookings/${bookRes.body.data.id}/cancel`)
       .set(stranger.headers);
 
-    expect(res.status).toBe(404); // findFirst scoped to userId
+    expect(res.status).toBe(403); // ownership guard: exists but not the caller's
   });
 });

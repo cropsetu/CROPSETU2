@@ -71,6 +71,10 @@ export const AUDIT_ACTIONS = {
   KYC_ACCESS:          'KYC_ACCESS',           // admin views another user's KYC documents (PII access)
   GROUP_MEMBER_REMOVE: 'GROUP_MEMBER_REMOVE',  // group admin removes a member
   CONSENT_CHANGE:      'CONSENT_CHANGE',       // DPDP consent grant/withdraw
+  // Soft-delete lifecycle — archiving hides a row from reads but keeps it in the
+  // DB, so the actor/timestamp must be captured here to stay accountable.
+  RESOURCE_ARCHIVE:    'RESOURCE_ARCHIVE',     // soft-delete/archive of a resource (listing, post, conversation, farm)
+  RESOURCE_RESTORE:    'RESOURCE_RESTORE',     // un-archive/restore of a previously soft-deleted resource
 };
 
 /**

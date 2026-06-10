@@ -83,6 +83,7 @@ function uploadScanImagesToCloudinary(images, userId) {
 // adds HMAC-SHA256 signatures over (ts, METHOD, path, body_hash). The contract
 // must stay in lock-step with fastapi/security/auth.py — change them together.
 import { callFastAPI } from '../utils/fastapi-signed.js';
+import { archiveResource } from '../services/softDelete.service.js';
 
 /**
  * Flatten a predictCropDisease() result (Node.js format) into the flat shape
@@ -866,10 +867,8 @@ router.delete('/voice/conversations/:id', authenticate, async (req, res) => {
     where: { id: req.params.id, userId: req.user.id },
   });
   if (!convo) return sendError(res, 'Voice conversation not found', 404);
-  await prisma.voiceConversation.update({
-    where: { id: convo.id },
-    data:  { isArchived: true },
-  });
+  // archiveResource records a RESOURCE_ARCHIVE audit event (actor + timestamp).
+  await archiveResource(req, 'VoiceConversation', convo.id);
   return sendSuccess(res, { archived: true });
 });
 
@@ -1504,10 +1503,17 @@ router.post('/scan/:sessionId/chat', authenticate, async (req, res) => {
   if (wait > 0) return sendError(res, `Please wait ${wait}s before sending another message.`, 429);
 
   try {
+    // Authorization: look the session up by id ALONE first so we can tell
+    // "doesn't exist" (404) apart from "exists but isn't yours" (403). Scoping
+    // the query to userId would hide the IDOR behind a 404; the ownership
+    // check below must run before we forward the message to FastAPI.
     const convo = await prisma.aIConversation.findFirst({
-      where: { id: req.params.sessionId, userId: req.user.id, isScanSession: true },
+      where:  { id: req.params.sessionId, isScanSession: true },
+      select: { id: true, userId: true, language: true, messageCount: true },
     });
     if (!convo) return sendError(res, 'Scan session not found', 404);
+    if (convo.userId !== req.user.id)
+      return sendError(res, 'You do not have access to this scan session', 403);
 
     const history = await prisma.aIMessage.findMany({
       where:   { conversationId: convo.id },
@@ -1730,10 +1736,8 @@ router.delete('/conversations/:id', authenticate, async (req, res) => {
   });
   if (!convo) return sendError(res, 'Conversation not found', 404);
 
-  await prisma.aIConversation.update({
-    where: { id: convo.id },
-    data:  { isArchived: true },
-  });
+  // archiveResource records a RESOURCE_ARCHIVE audit event (actor + timestamp).
+  await archiveResource(req, 'AIConversation', convo.id);
   return sendSuccess(res, { archived: true });
 });
 

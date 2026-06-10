@@ -26,6 +26,7 @@ import {
 } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 import { haversineKm } from '../utils/geo.js';
+import { archiveResource } from '../services/softDelete.service.js';
 
 const router = Router();
 router.param('id', uuidParamGuard);     // animal listing id
@@ -381,10 +382,8 @@ router.delete('/:id', authenticate, async (req, res) => {
       return sendForbidden(res);
     }
 
-    await prisma.animalListing.update({
-      where: { id: listing.id },
-      data: { status: 'INACTIVE' },
-    });
+    // archiveResource flips status→INACTIVE and records a RESOURCE_ARCHIVE event.
+    await archiveResource(req, 'AnimalListing', listing.id);
 
     console.log('[animals DELETE] soft-deleted', listing.id);
     return sendSuccess(res, { deleted: true });
