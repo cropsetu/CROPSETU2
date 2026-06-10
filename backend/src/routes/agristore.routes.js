@@ -21,7 +21,9 @@ import { maxLen } from '../middleware/textLength.js';
 import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
 import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
-import { sendSuccess, sendCreated, sendError, sendNotFound, sendServerError, paginationMeta } from '../utils/response.js';
+import { sendSuccess, sendCreated, sendError, sendNotFound, sendServerError, paginationMeta, parsePageSize } from '../utils/response.js';
+import { keysetPage } from '../utils/keyset.js';
+import { D, toMinorUnits } from '../utils/money.js';
 import { stripHtml, deepStripHtml } from '../utils/encrypt.js';
 import { createPaymentOrder, verifyPaymentSignature, fetchPaymentOrder } from '../services/payment.service.js';
 import { auditOrderStatusChange, auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
@@ -38,8 +40,9 @@ router.param('productId', uuidParamGuard); // cart item product id
 // This defends against a tampered client trying to understate the total, and
 // also surfaces price/stock drift since the cart was last viewed. Compared in
 // integer paise to avoid floating-point drift.
-const toPaise = (amount) => Math.round(Number(amount) * 100);
-const cartTotal = (cartItems) => cartItems.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+const toPaise = (amount) => toMinorUnits(amount, 100);
+// Sum line items exactly in Decimal (price is a Prisma.Decimal). Returns a Decimal.
+const cartTotal = (cartItems) => cartItems.reduce((sum, i) => sum.plus(D(i.product.price).times(i.quantity)), D(0));
 
 function assertClientTotalMatches(expectedTotal, authoritativeTotal) {
   if (expectedTotal === undefined || expectedTotal === null) return;
@@ -285,10 +288,14 @@ router.post(
         }
 
         // Validate stock INSIDE the transaction so concurrent checkouts
-        // see consistent stock values.
+        // see consistent stock values. Batch-fetch all products in one query
+        // (constant query count regardless of cart size) and validate in memory.
+        const freshProducts = await tx.product.findMany({
+          where: { id: { in: cartItems.map((i) => i.productId) } },
+        });
+        const freshById = new Map(freshProducts.map((p) => [p.id, p]));
         for (const item of cartItems) {
-          // Re-read product with fresh data inside the transaction
-          const freshProduct = await tx.product.findUnique({ where: { id: item.productId } });
+          const freshProduct = freshById.get(item.productId);
           if (!freshProduct || !freshProduct.isActive) {
             throw Object.assign(new Error(`Product "${item.product.name}" is no longer available`), { statusCode: 400, expose: true });
           }
@@ -316,7 +323,7 @@ router.post(
                 sellerId:   i.product.sellerId || null,
                 quantity:   i.quantity,
                 unitPrice:  i.product.price,
-                totalPrice: i.product.price * i.quantity,
+                totalPrice: D(i.product.price).times(i.quantity),
               })),
             },
           },
@@ -347,13 +354,27 @@ router.post(
 );
 
 router.get('/orders', authenticate, async (req, res) => {
-  const page  = parseInt(req.query.page  || '1', 10);
-  const limit = parseInt(req.query.limit || '10', 10);
+  const limit = parsePageSize(req.query.limit, 10, 50);
+  const include = { items: { include: { product: { select: { name: true, images: true } } } } };
 
+  // Keyset pagination (flat deep-page latency): used when the client sends a
+  // cursor, or on the first page when it opts in with ?paginate=cursor. Rides
+  // the [userId, createdAt] index. Falls back to legacy offset otherwise so
+  // existing page-based clients keep working.
+  if (req.query.cursor !== undefined || req.query.paginate === 'cursor') {
+    const { items, nextCursor, hasMore } = await keysetPage(prisma, {
+      table: 'orders', filterColumn: 'userId', filterValue: req.user.id,
+      cursor: req.query.cursor, limit,
+      hydrate: (ids) => prisma.order.findMany({ where: { id: { in: ids } }, include }),
+    });
+    return sendSuccess(res, items, 200, { limit, nextCursor, hasMore });
+  }
+
+  const page = Math.max(parseInt(req.query.page || '1', 10) || 1, 1);
   const [orders, total] = await Promise.all([
     prisma.order.findMany({
       where: { userId: req.user.id },
-      include: { items: { include: { product: { select: { name: true, images: true } } } } },
+      include,
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * limit,
       take: limit,
@@ -521,8 +542,14 @@ router.post(
           throw Object.assign(new Error('Cart is empty'), { statusCode: 400, expose: true });
         }
 
+        // Batch-fetch all products in one query (constant query count
+        // regardless of cart size) and validate stock in memory.
+        const freshProducts = await tx.product.findMany({
+          where: { id: { in: cartItems.map((i) => i.productId) } },
+        });
+        const freshById = new Map(freshProducts.map((p) => [p.id, p]));
         for (const item of cartItems) {
-          const freshProduct = await tx.product.findUnique({ where: { id: item.productId } });
+          const freshProduct = freshById.get(item.productId);
           if (!freshProduct || !freshProduct.isActive) {
             throw Object.assign(new Error(`Product "${item.product.name}" unavailable`), { statusCode: 400, expose: true });
           }
@@ -574,7 +601,7 @@ router.post(
                 sellerId: i.product.sellerId || null,
                 quantity: i.quantity,
                 unitPrice: i.product.price,
-                totalPrice: i.product.price * i.quantity,
+                totalPrice: D(i.product.price).times(i.quantity),
               })),
             },
           },
@@ -692,12 +719,24 @@ router.post(
 );
 
 router.get('/seller/products', authenticate, requireRole('SELLER', 'VERIFIED_FARMER', 'ADMIN'), async (req, res) => {
-  const page  = parseInt(req.query.page  || '1', 10);
-  const limit = parseInt(req.query.limit || '20', 10);
+  const limit = parsePageSize(req.query.limit, 20, 50);
+  const include = { category: { select: { id: true, name: true, icon: true, color: true } } };
+
+  // Keyset pagination (rides the [sellerId, createdAt] index) — see /orders.
+  if (req.query.cursor !== undefined || req.query.paginate === 'cursor') {
+    const { items, nextCursor, hasMore } = await keysetPage(prisma, {
+      table: 'products', filterColumn: 'sellerId', filterValue: req.user.id,
+      cursor: req.query.cursor, limit,
+      hydrate: (ids) => prisma.product.findMany({ where: { id: { in: ids } }, include }),
+    });
+    return sendSuccess(res, items, 200, { limit, nextCursor, hasMore });
+  }
+
+  const page = Math.max(parseInt(req.query.page || '1', 10) || 1, 1);
   const [products, total] = await Promise.all([
     prisma.product.findMany({
       where: { sellerId: req.user.id },
-      include: { category: { select: { id: true, name: true, icon: true, color: true } } },
+      include,
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * limit,
       take: limit,

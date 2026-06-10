@@ -2,6 +2,7 @@
  * Farm Service — CRUD for multi-farm management.
  */
 import prisma from '../config/db.js';
+import { D } from '../utils/money.js';
 
 export function acresToHectares(a) { return a ? Math.round(a * 0.4047 * 1000) / 1000 : null; }
 export function acresToGunta(a) { return a ? Math.round(a * 40 * 100) / 100 : null; }
@@ -145,24 +146,25 @@ export async function getFarmFinancialSummary(farmerId, farmId, { season, year }
     orderBy: { sowingDate: 'desc' },
   });
 
+  // Sum money columns (Decimal) exactly — plain += would string-concatenate.
   const totals = cycles.reduce((acc, c) => {
-    const cost = (c.totalInputCostInr || 0) + (c.laborCostInr || 0) + (c.machineryCostInr || 0) + (c.otherCostInr || 0);
-    acc.grossIncome += c.grossIncomeInr || 0;
-    acc.totalCost += cost;
-    acc.netProfit += c.netProfitInr || 0;
+    const cost = D(c.totalInputCostInr).plus(c.laborCostInr).plus(c.machineryCostInr).plus(c.otherCostInr);
+    acc.grossIncome = acc.grossIncome.plus(D(c.grossIncomeInr));
+    acc.totalCost = acc.totalCost.plus(cost);
+    acc.netProfit = acc.netProfit.plus(D(c.netProfitInr));
     acc.areaSum += c.areaAllocatedAcres || 0;
     return acc;
-  }, { grossIncome: 0, totalCost: 0, netProfit: 0, areaSum: 0 });
+  }, { grossIncome: D(0), totalCost: D(0), netProfit: D(0), areaSum: 0 });
 
-  const profitPerAcre = totals.areaSum > 0 ? Math.round((totals.netProfit / totals.areaSum) * 100) / 100 : 0;
+  const profitPerAcre = totals.areaSum > 0 ? totals.netProfit.div(totals.areaSum).toDecimalPlaces(2) : 0;
 
   return {
     season: season || 'YTD',
     year: yr,
     totals: {
-      grossIncomeInr: Math.round(totals.grossIncome * 100) / 100,
-      totalCostInr: Math.round(totals.totalCost * 100) / 100,
-      netProfitInr: Math.round(totals.netProfit * 100) / 100,
+      grossIncomeInr: totals.grossIncome.toDecimalPlaces(2),
+      totalCostInr: totals.totalCost.toDecimalPlaces(2),
+      netProfitInr: totals.netProfit.toDecimalPlaces(2),
       profitPerAcreInr: profitPerAcre,
       totalAreaAcres: Math.round(totals.areaSum * 100) / 100,
       cycleCount: cycles.length,

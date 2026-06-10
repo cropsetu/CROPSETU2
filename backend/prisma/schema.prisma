@@ -1,10 +1,15 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // postgresqlExtensions: lets the schema declare pg_trgm so trigram GIN indexes
+  // (which accelerate ILIKE '%term%' substring search) are managed by Prisma and
+  // not dropped by `prisma db push`.
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pg_trgm]
 }
 
 model User {
@@ -175,23 +180,23 @@ model OtpSession {
 }
 
 model RefreshToken {
-  id        String    @id @default(uuid())
-  token     String    @unique
-  userId    String
+  id               String    @id @default(uuid())
+  token            String    @unique
+  userId           String
   // Rotation lineage: every token minted by rotating a predecessor shares its
   // familyId. Detecting reuse of a rotated token lets us revoke the whole family.
-  familyId  String?
+  familyId         String?
   // Set when this token is rotated (used to mint a successor). A non-null value
   // means the token is spent — presenting it again is reuse.
-  rotatedAt DateTime?
+  rotatedAt        DateTime?
   // When the SESSION (lineage) began — preserved across rotations so the server
   // can enforce an absolute session timeout regardless of refresh activity.
   sessionStartedAt DateTime?
   // Idle timeout: a token is only valid until expiresAt; each rotation slides it
   // forward, so a session that goes idle past the window can no longer refresh.
-  expiresAt DateTime
-  createdAt DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([familyId])
@@ -240,8 +245,8 @@ model Product {
   nameHi          String?
   nameMr          String?
   description     String?
-  price           Float
-  mrp             Float?
+  price           Decimal     @db.Decimal(12, 2)
+  mrp             Decimal?    @db.Decimal(12, 2)
   unit            String      @default("kg")
   stock           Int         @default(0)
   images          String[]
@@ -279,6 +284,12 @@ model Product {
   @@index([isActive, isFeatured])
   @@index([isActive, rating])
   @@index([createdAt])
+  // Seller's product list: where sellerId + ORDER BY createdAt DESC.
+  @@index([sellerId, createdAt(sort: Desc)])
+  // Trigram GIN indexes accelerate the catalogue search (name/description
+  // ILIKE '%term%'), which a btree cannot serve due to the leading wildcard.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_name_trgm")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_description_trgm")
   @@map("products")
 }
 
@@ -323,7 +334,7 @@ model Order {
   id              String      @id @default(uuid())
   userId          String
   status          OrderStatus @default(PENDING)
-  totalAmount     Float
+  totalAmount     Decimal     @db.Decimal(12, 2)
   deliveryAddress Json
   paymentMethod   String      @default("cod")
   paymentStatus   String      @default("pending")
@@ -337,6 +348,8 @@ model Order {
   @@index([userId, status])
   @@index([status])
   @@index([createdAt])
+  // Order history: where userId + ORDER BY createdAt DESC (paginated).
+  @@index([userId, createdAt(sort: Desc)])
   @@map("orders")
 }
 
@@ -345,8 +358,8 @@ model OrderItem {
   orderId    String
   productId  String
   quantity   Int
-  unitPrice  Float
-  totalPrice Float
+  unitPrice  Decimal @db.Decimal(12, 2)
+  totalPrice Decimal @db.Decimal(12, 2)
   sellerId   String?
   // [FIX #4/#13] Per-item status for multi-seller orders. Each seller controls
   // only their own items' status. The overall Order.status is derived from all items.
@@ -372,6 +385,9 @@ model Review {
 
   @@unique([userId, productId])
   @@index([productId])
+  // Buyer review history: WHERE userId = ?. A dedicated single-column index for
+  // the by-user lookup (narrower than the [userId, productId] unique).
+  @@index([userId])
   @@map("reviews")
 }
 
@@ -383,7 +399,7 @@ model AnimalListing {
   age            String
   gender         AnimalGender
   weight         String
-  price          Float
+  price          Decimal       @db.Decimal(12, 2)
   milkYield      String?
   description    String?
   images         String[]
@@ -403,6 +419,13 @@ model AnimalListing {
   @@index([animal])
   @@index([status])
   @@index([createdAt])
+  // Seller's listings: where sellerId (+ status inequality) + ORDER BY createdAt DESC.
+  @@index([sellerId, createdAt(sort: Desc)])
+  // Trigram GIN — accelerates search OR (animal/breed/sellerLocation ILIKE).
+  // All three OR'd columns are indexed so the planner can BitmapOr them.
+  @@index([animal(ops: raw("gin_trgm_ops"))], type: Gin, map: "animal_listings_animal_trgm")
+  @@index([breed(ops: raw("gin_trgm_ops"))], type: Gin, map: "animal_listings_breed_trgm")
+  @@index([sellerLocation(ops: raw("gin_trgm_ops"))], type: Gin, map: "animal_listings_sellerLocation_trgm")
   @@map("animal_listings")
 }
 
@@ -445,8 +468,8 @@ model MachineryListing {
   name          String
   category      String
   description   String?
-  pricePerDay   Float
-  pricePerHour  Float?
+  pricePerDay   Decimal       @db.Decimal(12, 2)
+  pricePerHour  Decimal?      @db.Decimal(12, 2)
   images        String[]
   location      String
   district      String
@@ -467,7 +490,7 @@ model MachineryListing {
   mileageHours  Int?
   ownerName     String?
   ownerPhone    String?
-  pricePerAcre  Float?
+  pricePerAcre  Decimal?      @db.Decimal(12, 2)
   rating        Float         @default(0)
   ratingCount   Int           @default(0)
   videos        String[]
@@ -480,6 +503,11 @@ model MachineryListing {
   @@index([status])
   @@index([status, category])
   @@index([lat, lng])
+  // Trigram GIN — search OR (name/brand/description/location ILIKE).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "machinery_listings_name_trgm")
+  @@index([brand(ops: raw("gin_trgm_ops"))], type: Gin, map: "machinery_listings_brand_trgm")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "machinery_listings_description_trgm")
+  @@index([location(ops: raw("gin_trgm_ops"))], type: Gin, map: "machinery_listings_location_trgm")
   @@map("machinery_listings")
 }
 
@@ -488,7 +516,7 @@ model LabourListing {
   providerId    String
   name          String
   skills        String[]
-  pricePerDay   Float
+  pricePerDay   Decimal       @db.Decimal(12, 2)
   groupSize     Int           @default(1)
   experience    String?
   languages     String[]
@@ -509,7 +537,7 @@ model LabourListing {
   leader        String?
   lng           Float?
   phone         String?
-  pricePerHour  Float?
+  pricePerHour  Decimal?      @db.Decimal(12, 2)
   rating        Float         @default(0)
   ratingCount   Int           @default(0)
   videos        String[]
@@ -520,6 +548,11 @@ model LabourListing {
   @@index([district])
   @@index([status])
   @@index([lat, lng])
+  // Trigram GIN — search OR (name/leader/description/location ILIKE).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "labour_listings_name_trgm")
+  @@index([leader(ops: raw("gin_trgm_ops"))], type: Gin, map: "labour_listings_leader_trgm")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "labour_listings_description_trgm")
+  @@index([location(ops: raw("gin_trgm_ops"))], type: Gin, map: "labour_listings_location_trgm")
   @@map("labour_listings")
 }
 
@@ -531,7 +564,7 @@ model Booking {
   startDate          DateTime
   endDate            DateTime
   days               Int
-  totalAmount        Float
+  totalAmount        Decimal           @db.Decimal(12, 2)
   status             BookingStatus     @default(PENDING)
   notes              String?
   createdAt          DateTime          @default(now())
@@ -548,6 +581,8 @@ model Booking {
   @@index([labourListingId])
   @@index([startDate, endDate])
   @@index([createdAt])
+  // My-bookings (no status filter): where userId + ORDER BY createdAt DESC.
+  @@index([userId, createdAt(sort: Desc)])
   @@map("bookings")
 }
 
@@ -578,6 +613,9 @@ model Post {
   @@index([district])
   @@index([scope, district])
   @@index([createdAt])
+  // Trigram GIN — community search OR (title/description ILIKE).
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "posts_title_trgm")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "posts_description_trgm")
   @@map("posts")
 }
 
@@ -660,6 +698,8 @@ model Group {
 
   @@index([district])
   @@index([createdById])
+  // Trigram GIN — group discovery search (name ILIKE '%term%').
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "groups_name_trgm")
   @@map("groups")
 }
 
@@ -768,22 +808,22 @@ model CropDiseaseReport {
 }
 
 model CropReportShare {
-  id             String            @id @default(uuid())
-  reportId       String
-  farmerId       String
-  sellerId       String
-  message        String?
-  sellerReply    String?
+  id                    String            @id @default(uuid())
+  reportId              String
+  farmerId              String
+  sellerId              String
+  message               String?
+  sellerReply           String?
   recommendedSku        String?
   recommendedProductIds String[]          @default([])
   available             Boolean           @default(false)
-  status         ShareStatus       @default(PENDING)
-  readAt         DateTime?
-  repliedAt      DateTime?
-  createdAt      DateTime          @default(now())
-  report         CropDiseaseReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  farmer         User              @relation("CropReportSharesByFarmer", fields: [farmerId], references: [id], onDelete: Cascade)
-  seller         User              @relation("CropReportSharesToSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  status                ShareStatus       @default(PENDING)
+  readAt                DateTime?
+  repliedAt             DateTime?
+  createdAt             DateTime          @default(now())
+  report                CropDiseaseReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  farmer                User              @relation("CropReportSharesByFarmer", fields: [farmerId], references: [id], onDelete: Cascade)
+  seller                User              @relation("CropReportSharesToSeller", fields: [sellerId], references: [id], onDelete: Cascade)
 
   @@index([sellerId, createdAt])
   @@index([sellerId, status])
@@ -892,7 +932,7 @@ model GovernmentScheme {
   documentsReq    String[]
   applicationUrl  String?
   helpline        String?
-  benefitAmount   Float?
+  benefitAmount   Decimal?            @db.Decimal(14, 2)
   benefitType     String
   deadline        String?
   isActive        Boolean             @default(true)
@@ -1032,10 +1072,10 @@ model MSPRate {
   commodityHi          String?
   season               String
   year                 String
-  mspPrice             Float
-  previousYearMSP      Float?
+  mspPrice             Decimal   @db.Decimal(12, 2)
+  previousYearMSP      Decimal?  @db.Decimal(12, 2)
   increasePercent      Float?
-  bonusIfAny           Float?
+  bonusIfAny           Decimal?  @db.Decimal(12, 2)
   procurementAgency    String?
   procurementStartDate DateTime?
   procurementEndDate   DateTime?
@@ -1055,9 +1095,9 @@ model MandiPrice {
   market      String
   district    String
   state       String
-  minPrice    Float
-  maxPrice    Float
-  modalPrice  Float
+  minPrice    Decimal  @db.Decimal(12, 2)
+  maxPrice    Decimal  @db.Decimal(12, 2)
+  modalPrice  Decimal  @db.Decimal(12, 2)
   arrivalQty  Float?
   priceDate   DateTime
   source      String   @default("data.gov.in")
@@ -1066,6 +1106,16 @@ model MandiPrice {
 
   @@index([commodity, state, district])
   @@index([commodity, priceDate(sort: Desc)])
+  // Every read path prefilters by a date window (priceDate >= since) and sorts
+  // newest-first, while commodity/state/district use ILIKE `contains` (not
+  // btree-usable). So the date column is the only indexable predicate for the
+  // dominant commodity+state queries — this index lets Postgres range-scan the
+  // window and satisfy ORDER BY priceDate DESC instead of a full table scan
+  // that degrades as the table grows. (DS-3)
+  @@index([priceDate(sort: Desc)])
+  // /nearby filters `market IN (...)` (equality) within a date window and sorts
+  // by (market, priceDate). Composite serves both the lookup and the ordering.
+  @@index([market, priceDate(sort: Desc)])
   @@index([expiresAt])
   @@map("mandi_prices")
 }
@@ -1113,7 +1163,7 @@ model PriceAlert {
   userId             String
   commodity          String
   market             String?
-  targetPrice        Float
+  targetPrice        Decimal   @db.Decimal(12, 2)
   condition          String
   isActive           Boolean   @default(true)
   triggeredAt        DateTime?
@@ -1292,9 +1342,9 @@ model AIUsage {
   scanCount      Int      @default(0)
   chatCount      Int      @default(0)
   totalTokens    Int      @default(0)
-  totalCostUsd   Float    @default(0)
+  totalCostUsd   Decimal  @default(0) @db.Decimal(14, 6)
   monthlyTokens  Int      @default(0)
-  monthlyCostUsd Float    @default(0)
+  monthlyCostUsd Decimal  @default(0) @db.Decimal(14, 6)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1331,7 +1381,7 @@ model AICreditTransaction {
   description  String?
   aiModel      String?
   tokensUsed   Int?
-  costUsd      Float?
+  costUsd      Decimal? @db.Decimal(14, 6)
   metadata     Json?
   createdAt    DateTime @default(now())
   credit       AICredit @relation(fields: [creditId], references: [id], onDelete: Cascade)
@@ -1372,8 +1422,8 @@ model FarmCropCycle {
   seedBrand            String?
   seedSource           String?
   seedQuantityKg       Float?
-  seedCostPerKgInr     Float?
-  seedTotalCostInr     Float?
+  seedCostPerKgInr     Decimal? @db.Decimal(12, 2)
+  seedTotalCostInr     Decimal? @db.Decimal(14, 2)
   seedTreatment        String?
   seedTreatmentProduct String?
   seedPurchaseDate     DateTime?
@@ -1389,10 +1439,10 @@ model FarmCropCycle {
   // activities: land-prep/sowing/scout/weeding/pruning etc. {id,type,date,title,notes,photoUrl?,voiceUrl?,fields}
   // labor/expense/income logs carry {id,date,...,amountInr} — computeFinancials() sums these,
   // falling back to the scalar labor/other cost columns below when the arrays are empty.
-  activities   Json @default("[]")
-  laborLogs    Json @default("[]")
-  expenseLogs  Json @default("[]")
-  incomeLogs   Json @default("[]")
+  activities  Json @default("[]")
+  laborLogs   Json @default("[]")
+  expenseLogs Json @default("[]")
+  incomeLogs  Json @default("[]")
 
   // Harvest
   harvestYieldKg        Float?
@@ -1403,21 +1453,21 @@ model FarmCropCycle {
 
   // Sale
   saleSoldQuantityKg  Float?
-  salePricePerKgInr   Float?
-  saleTotalRevenueInr Float?
+  salePricePerKgInr   Decimal? @db.Decimal(12, 2)
+  saleTotalRevenueInr Decimal? @db.Decimal(14, 2)
   saleBuyerType       String?
   saleBuyerName       String?
   saleDate            DateTime?
   saleMandiName       String?
 
   // Financials
-  totalInputCostInr Float?
-  laborCostInr      Float?
-  machineryCostInr  Float?
-  otherCostInr      Float?
-  grossIncomeInr    Float?
-  netProfitInr      Float?
-  profitPerAcreInr  Float?
+  totalInputCostInr Decimal? @db.Decimal(14, 2)
+  laborCostInr      Decimal? @db.Decimal(14, 2)
+  machineryCostInr  Decimal? @db.Decimal(14, 2)
+  otherCostInr      Decimal? @db.Decimal(14, 2)
+  grossIncomeInr    Decimal? @db.Decimal(14, 2)
+  netProfitInr      Decimal? @db.Decimal(14, 2)
+  profitPerAcreInr  Decimal? @db.Decimal(14, 2)
 
   status    CycleStatus @default(ACTIVE)
   notes     String?
@@ -1546,7 +1596,7 @@ model FarmerPrediction {
   actionItems    String[]
   modelUsed      String?
   confidence     Float?
-  costInr        Float?
+  costInr        Decimal? @db.Decimal(12, 4)
   latencyMs      Int?
   validUntil     DateTime?
   isStale        Boolean        @default(false)
@@ -1857,6 +1907,9 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([action])
   @@index([createdAt])
+  // Login-risk lookback (runs every login on a high-volume table):
+  // where userId + action + createdAt >= since, ORDER BY createdAt DESC.
+  @@index([userId, action, createdAt(sort: Desc)])
   @@map("audit_logs")
 }
 

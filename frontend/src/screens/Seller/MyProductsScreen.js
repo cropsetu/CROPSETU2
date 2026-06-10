@@ -83,45 +83,49 @@ export default function MyProductsScreen({ navigation }) {
   const [products,   setProducts]   = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [page,       setPage]       = useState(1);
+  const [cursor,     setCursor]     = useState(null);  // server-issued next-page cursor; null = first page
   const [hasMore,    setHasMore]    = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const load = useCallback(async (pageNum = 1, replace = true) => {
+  // Keyset (cursor) pagination: first page opts in with `paginate=cursor`, then
+  // each page passes the server's `nextCursor`. Flat deep-page latency.
+  const load = useCallback(async (cur = null, replace = true) => {
     try {
-      const { data } = await api.get(`/agristore/seller/products?page=${pageNum}&limit=20`);
+      const qs = cur ? `cursor=${encodeURIComponent(cur)}&limit=20` : 'paginate=cursor&limit=20';
+      const { data } = await api.get(`/agristore/seller/products?${qs}`);
       const list = data.data || [];
+      const meta = data.meta || {};
       if (replace) {
         setProducts(list);
       } else {
         setProducts((prev) => [...prev, ...list]);
       }
-      setHasMore(list.length === 20);
-      setPage(pageNum);
+      setHasMore(Boolean(meta.nextCursor));
+      setCursor(meta.nextCursor || null);
     } catch (e) {
       console.warn('MyProducts load:', e.message);
     }
   }, []);
 
   useEffect(() => {
-    load(1, true).finally(() => setLoading(false));
+    load(null, true).finally(() => setLoading(false));
 
     const unsubscribe = navigation.addListener('focus', () => {
-      load(1, true);
+      load(null, true);
     });
     return unsubscribe;
   }, [load, navigation]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await load(1, true);
+    await load(null, true);
     setRefreshing(false);
   };
 
   const onLoadMore = async () => {
-    if (!hasMore || loadingMore) return;
+    if (!hasMore || loadingMore || !cursor) return;
     setLoadingMore(true);
-    await load(page + 1, false);
+    await load(cursor, false);
     setLoadingMore(false);
   };
 

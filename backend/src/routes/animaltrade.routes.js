@@ -22,7 +22,7 @@ import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import { createUploader, uploadFiles } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
 import {
-  sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta,
+  sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta, parsePageSize,
 } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 import { haversineKm } from '../utils/geo.js';
@@ -449,8 +449,8 @@ router.get('/chats/:chatId/messages', authenticate, async (req, res) => {
     if (error === 'notfound')  return sendNotFound(res, 'Chat');
     if (error === 'forbidden') return sendForbidden(res);
 
-    const page  = Math.max(parseInt(req.query.page  || '1', 10),  1);
-    const limit = Math.min(parseInt(req.query.limit || '50', 10), 100);
+    const page  = Math.max(parseInt(req.query.page  || '1', 10),  1) || 1;
+    const limit = parsePageSize(req.query.limit, 50, 100); // bound page size (also NaN-safe)
 
     const messages = await prisma.chatMessage.findMany({
       where: { chatId: chat.id },

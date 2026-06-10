@@ -77,31 +77,41 @@ export default function MyOrdersScreen({ navigation }) {
   const [orders,    setOrders]    = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [page,      setPage]      = useState(1);
+  const [cursor,    setCursor]    = useState(null);  // server-issued next-page cursor; null = first page
   const [hasMore,   setHasMore]   = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error,     setError]     = useState(null);
 
-  const fetchOrders = useCallback(async (p = 1, refresh = false) => {
+  // Keyset (cursor) pagination: the first page opts in with `paginate=cursor`,
+  // and each subsequent page passes the server-issued `nextCursor`. Deep pages
+  // stay as fast as the first (no offset scan).
+  const fetchOrders = useCallback(async (cur = null, refresh = false) => {
     try {
-      if (p === 1) setError(null);
-      const { data } = await api.get(`/agristore/orders?page=${p}&limit=10`);
+      if (!cur) setError(null);
+      const qs = cur ? `cursor=${encodeURIComponent(cur)}&limit=10` : 'paginate=cursor&limit=10';
+      const { data } = await api.get(`/agristore/orders?${qs}`);
       const items = data.data || [];
       const meta  = data.meta || {};
-      setOrders((prev) => refresh || p === 1 ? items : [...prev, ...items]);
-      setHasMore(p < (meta.totalPages || 1));
-      setPage(p);
+      setOrders((prev) => (refresh || !cur) ? items : [...prev, ...items]);
+      setHasMore(Boolean(meta.nextCursor));
+      setCursor(meta.nextCursor || null);
     } catch (e) {
       setError(e?.response?.data?.error?.message || 'Failed to load orders');
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   }, []);
 
-  useEffect(() => { fetchOrders(1); }, [fetchOrders]);
+  useEffect(() => { fetchOrders(null); }, [fetchOrders]);
 
-  const handleRefresh = () => { setRefreshing(true); fetchOrders(1, true); };
-  const handleLoadMore = () => { if (hasMore && !loading) fetchOrders(page + 1); };
+  const handleRefresh = () => { setRefreshing(true); fetchOrders(null, true); };
+  const handleLoadMore = () => {
+    if (!hasMore || loading || loadingMore || !cursor) return;
+    setLoadingMore(true);
+    fetchOrders(cursor);
+  };
 
   if (loading && orders.length === 0) {
     return (

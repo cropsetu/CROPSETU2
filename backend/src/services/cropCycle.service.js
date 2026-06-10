@@ -3,6 +3,7 @@
  */
 import prisma from '../config/db.js';
 import { generateForCycle } from './farmPrediction.service.js';
+import { D, sumD } from '../utils/money.js';
 
 // Fire-and-forget AI insight refresh — never blocks the write response.
 function refreshInsights(cycleId, farmerId) {
@@ -17,7 +18,8 @@ const ACTIVITY_TYPES = [
 ];
 
 const arr = (a) => (Array.isArray(a) ? a : []);
-const sumAmt = (a) => arr(a).reduce((s, x) => s + (Number(x?.amountInr) || 0), 0);
+// Sum {amountInr} log entries exactly (returns a Decimal).
+const sumAmt = (a) => sumD(a, (x) => x?.amountInr);
 
 /**
  * Live financials. Labour/other costs come from the itemised laborLogs/
@@ -26,17 +28,23 @@ const sumAmt = (a) => arr(a).reduce((s, x) => s + (Number(x?.amountInr) || 0), 0
  * = sale revenue + any extra incomeLogs.
  */
 export function computeFinancials(cycle) {
-  const seedCost = cycle.seedTotalCostInr || 0;
-  const fertCost = arr(cycle.fertilizersUsed).reduce((s, f) => s + (f.costInr || 0), 0);
-  const pestCost = arr(cycle.pesticidesUsed).reduce((s, p) => s + (p.costInr || 0), 0);
-  const laborCost = arr(cycle.laborLogs).length ? sumAmt(cycle.laborLogs) : (cycle.laborCostInr || 0);
-  const otherCost = arr(cycle.expenseLogs).length ? sumAmt(cycle.expenseLogs) : (cycle.otherCostInr || 0);
-  const machineryCost = cycle.machineryCostInr || 0;
-  const totalInput = seedCost + fertCost + pestCost + laborCost + machineryCost + otherCost;
-  const gross = (cycle.saleTotalRevenueInr || 0) + sumAmt(cycle.incomeLogs);
-  const net = gross - totalInput;
-  const area = cycle.areaAllocatedAcres || 1;
-  return { totalInputCostInr: totalInput, grossIncomeInr: gross, netProfitInr: net, profitPerAcreInr: Math.round((net / area) * 100) / 100 };
+  // All money math in Decimal — plain +/* would concatenate or drift (see money.js).
+  const seedCost = D(cycle.seedTotalCostInr);
+  const fertCost = sumD(cycle.fertilizersUsed, (f) => f.costInr);
+  const pestCost = sumD(cycle.pesticidesUsed, (p) => p.costInr);
+  const laborCost = arr(cycle.laborLogs).length ? sumAmt(cycle.laborLogs) : D(cycle.laborCostInr);
+  const otherCost = arr(cycle.expenseLogs).length ? sumAmt(cycle.expenseLogs) : D(cycle.otherCostInr);
+  const machineryCost = D(cycle.machineryCostInr);
+  const totalInput = seedCost.plus(fertCost).plus(pestCost).plus(laborCost).plus(machineryCost).plus(otherCost);
+  const gross = D(cycle.saleTotalRevenueInr).plus(sumAmt(cycle.incomeLogs));
+  const net = gross.minus(totalInput);
+  const area = D(cycle.areaAllocatedAcres || 1);
+  return {
+    totalInputCostInr: totalInput.toDecimalPlaces(2),
+    grossIncomeInr:    gross.toDecimalPlaces(2),
+    netProfitInr:      net.toDecimalPlaces(2),
+    profitPerAcreInr:  net.div(area).toDecimalPlaces(2),
+  };
 }
 
 export async function createCropCycle(farmerId, farmId, data) {
@@ -216,7 +224,7 @@ export async function recordHarvest(cycleId, farmerId, data) {
 export async function recordSale(cycleId, farmerId, data) {
   const qty = parseFloat(data.soldQuantityKg), price = parseFloat(data.pricePerKgInr);
   const updated = await prisma.farmCropCycle.update({ where: { id: cycleId, farmerId }, data: {
-    saleSoldQuantityKg: qty, salePricePerKgInr: price, saleTotalRevenueInr: Math.round(qty * price * 100) / 100,
+    saleSoldQuantityKg: qty, salePricePerKgInr: price, saleTotalRevenueInr: D(qty).times(D(price)).toDecimalPlaces(2),
     saleBuyerType: data.buyerType, saleBuyerName: data.buyerName, saleDate: data.saleDate ? new Date(data.saleDate) : new Date(), saleMandiName: data.mandiName,
   }});
   refreshInsights(cycleId, farmerId);
@@ -237,14 +245,14 @@ export async function getCycleFinancials(cycleId) {
   const fin = computeFinancials(cycle);
   const ferts = arr(cycle.fertilizersUsed);
   const pests = arr(cycle.pesticidesUsed);
-  const seedCost = cycle.seedTotalCostInr || 0;
-  const fertilizerCost = ferts.reduce((s, f) => s + (f.costInr || 0), 0);
-  const pesticideCost = pests.reduce((s, p) => s + (p.costInr || 0), 0);
-  const laborCost = arr(cycle.laborLogs).length ? sumAmt(cycle.laborLogs) : (cycle.laborCostInr || 0);
-  const machineryCost = cycle.machineryCostInr || 0;
-  const otherCost = arr(cycle.expenseLogs).length ? sumAmt(cycle.expenseLogs) : (cycle.otherCostInr || 0);
-  const area = cycle.areaAllocatedAcres || 1;
-  const round2 = (n) => Math.round(n * 100) / 100;
+  const seedCost = D(cycle.seedTotalCostInr);
+  const fertilizerCost = sumD(ferts, (f) => f.costInr);
+  const pesticideCost = sumD(pests, (p) => p.costInr);
+  const laborCost = arr(cycle.laborLogs).length ? sumAmt(cycle.laborLogs) : D(cycle.laborCostInr);
+  const machineryCost = D(cycle.machineryCostInr);
+  const otherCost = arr(cycle.expenseLogs).length ? sumAmt(cycle.expenseLogs) : D(cycle.otherCostInr);
+  const area = D(cycle.areaAllocatedAcres || 1);
+  const totalInput = D(fin.totalInputCostInr);
 
   return {
     ...fin,
@@ -255,13 +263,13 @@ export async function getCycleFinancials(cycleId) {
     machineryCost,
     otherCost,
     revenue: fin.grossIncomeInr,
-    // Per-acre economics + return on input cost
+    // Per-acre economics + return on input cost (all exact Decimal math)
     perAcre: {
-      costPerAcre: round2(fin.totalInputCostInr / area),
-      revenuePerAcre: round2(fin.grossIncomeInr / area),
+      costPerAcre: totalInput.div(area).toDecimalPlaces(2),
+      revenuePerAcre: D(fin.grossIncomeInr).div(area).toDecimalPlaces(2),
       profitPerAcre: fin.profitPerAcreInr,
     },
-    roiPct: fin.totalInputCostInr > 0 ? round2((fin.netProfitInr / fin.totalInputCostInr) * 100) : null,
+    roiPct: totalInput.gt(0) ? D(fin.netProfitInr).div(totalInput).times(100).toDecimalPlaces(2) : null,
     // Breakdown for the donut chart (matches cosmic chart colours; >0 only)
     costBreakdown: [
       { label: 'Seed', value: seedCost, color: '#65A30D' },
@@ -270,6 +278,6 @@ export async function getCycleFinancials(cycleId) {
       { label: 'Labour', value: laborCost, color: '#0288D1' },
       { label: 'Machinery', value: machineryCost, color: '#6D4C41' },
       { label: 'Other', value: otherCost, color: '#78716C' },
-    ].filter(c => c.value > 0),
+    ].filter(c => c.value.gt(0)),
   };
 }

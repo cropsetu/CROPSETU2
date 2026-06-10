@@ -11,7 +11,7 @@ import { authenticate } from '../middleware/auth.js';
 import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
 import prisma from '../config/db.js';
-import { sendSuccess, sendCreated, sendError, sendNotFound } from '../utils/response.js';
+import { sendSuccess, sendCreated, sendError, sendNotFound, parsePageSize } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 
 const router = Router();
@@ -90,7 +90,7 @@ router.get('/conversations', authenticate, async (req, res) => {
 
 // ── Get messages with a user ──────────────────────────────────────────────────
 router.get('/:userId', authenticate, async (req, res) => {
-  const limit = parseInt(req.query.limit || '50', 10);
+  const limit = parsePageSize(req.query.limit, 50, 100); // bound page size: avoid unbounded thread fetch
   const cursor = req.query.cursor;
 
   const partner = await prisma.user.findUnique({

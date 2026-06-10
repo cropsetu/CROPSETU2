@@ -11,6 +11,10 @@ import assert from 'node:assert/strict';
 
 import { computeFinancials } from '../services/cropCycle.service.js';
 
+// computeFinancials returns exact Prisma.Decimal values (money is stored as
+// DECIMAL); coerce to Number for numeric assertions.
+const n = (d) => Number(d);
+
 test('legacy cycle (scalar costs, no log arrays) totals correctly', () => {
   const fin = computeFinancials({
     areaAllocatedAcres: 2,
@@ -22,10 +26,10 @@ test('legacy cycle (scalar costs, no log arrays) totals correctly', () => {
     otherCostInr: 200,
     saleTotalRevenueInr: 6000,
   });
-  assert.equal(fin.totalInputCostInr, 4000); // 1000+500+300+1200+800+200
-  assert.equal(fin.grossIncomeInr, 6000);
-  assert.equal(fin.netProfitInr, 2000);
-  assert.equal(fin.profitPerAcreInr, 1000);
+  assert.equal(n(fin.totalInputCostInr), 4000); // 1000+500+300+1200+800+200
+  assert.equal(n(fin.grossIncomeInr), 6000);
+  assert.equal(n(fin.netProfitInr), 2000);
+  assert.equal(n(fin.profitPerAcreInr), 1000);
 });
 
 test('itemised laborLogs/expenseLogs override scalar columns', () => {
@@ -38,7 +42,7 @@ test('itemised laborLogs/expenseLogs override scalar columns', () => {
     expenseLogs: [{ amountInr: 250 }],
     saleTotalRevenueInr: 0,
   });
-  assert.equal(fin.totalInputCostInr, 1250); // 1000 labour + 250 expense
+  assert.equal(n(fin.totalInputCostInr), 1250); // 1000 labour + 250 expense
 });
 
 test('incomeLogs add to sale revenue for gross income', () => {
@@ -47,6 +51,6 @@ test('incomeLogs add to sale revenue for gross income', () => {
     saleTotalRevenueInr: 5000,
     incomeLogs: [{ amountInr: 1500 }, { amountInr: 500 }],
   });
-  assert.equal(fin.grossIncomeInr, 7000);
-  assert.equal(fin.netProfitInr, 7000);
+  assert.equal(n(fin.grossIncomeInr), 7000);
+  assert.equal(n(fin.netProfitInr), 7000);
 });
