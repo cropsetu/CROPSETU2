@@ -21,7 +21,7 @@ import { auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
 import { validate } from '../middleware/validate.js';
 import { createUploader, uploadFiles } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
-import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, paginationMeta } from '../utils/response.js';
+import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, paginationMeta, parsePageSize } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 
@@ -264,7 +264,7 @@ router.get('/:id/messages', authenticate, async (req, res) => {
   });
   if (!isMember) return sendForbidden(res, 'Not a member of this group');
 
-  const limit = parseInt(req.query.limit || '50', 10);
+  const limit = parsePageSize(req.query.limit, 50, 100); // bound page size: avoid unbounded thread fetch
   const cursor = req.query.cursor; // message ID for pagination
 
   const messages = await prisma.groupMessage.findMany({

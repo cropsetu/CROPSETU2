@@ -38,6 +38,7 @@ import { maxLen } from '../middleware/textLength.js';
 import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta } from '../utils/response.js';
+import { D } from '../utils/money.js';
 import { haversineKm, attachDistance } from '../utils/geo.js';
 import { stripHtml } from '../utils/encrypt.js';
 
@@ -128,42 +129,47 @@ router.get('/machinery', optionalAuth, async (req, res) => {
     ];
   }
 
-  // Bounding-box pre-filter when user location provided.
-  // Always include listings with null coordinates so existing data is never hidden.
-  if (userLat !== null && userLng !== null) {
-    const box    = boundingBox(userLat, userLng, radiusKm);
-    const geoOr  = { OR: [{ lat: null }, { lat: box.lat, lng: box.lng }] };
-    where.AND    = where.AND ? [...where.AND, geoOr] : [geoOr];
-  }
-
-  // For distance-sorted queries we can't paginate purely in SQL, so we fetch
-  // all matching (within bbox), sort by distance, then slice.
   const isDistanceQuery = userLat !== null && userLng !== null;
 
   // [FIX #10] Cap distance queries to prevent OOM when fetching all records
-  const GEO_FETCH_CAP = 500;
+  const GEO_FETCH_CAP  = 500;  // geo-located listings fetched for in-memory distance sort
+  const NULL_COORD_CAP = 100;  // legacy listings without coordinates, shown last
+
+  const listingSelect = {
+    id: true, name: true, category: true, brand: true, horsePower: true,
+    pricePerHour: true, pricePerDay: true, pricePerAcre: true,
+    images: true, videos: true, location: true, district: true,
+    available: true, availableFrom: true, availableTo: true,
+    rating: true, ratingCount: true, ageYears: true, mileageHours: true,
+    features: true, ownerName: true, lat: true, lng: true,
+    owner: { select: { id: true, name: true, avatar: true } },
+    bookings: {
+      where: { status: { in: ['CONFIRMED', 'ACTIVE'] }, endDate: { gte: startOfToday } },
+      select: { startDate: true, endDate: true },
+    },
+  };
 
   let items, total;
   if (isDistanceQuery) {
-    const all = await prisma.machineryListing.findMany({
-      where,
-      orderBy: [{ rating: 'desc' }, { createdAt: 'desc' }],
-      take: GEO_FETCH_CAP,
-      select: {
-        id: true, name: true, category: true, brand: true, horsePower: true,
-        pricePerHour: true, pricePerDay: true, pricePerAcre: true,
-        images: true, videos: true, location: true, district: true,
-        available: true, availableFrom: true, availableTo: true,
-        rating: true, ratingCount: true, ageYears: true, mileageHours: true,
-        features: true, ownerName: true, lat: true, lng: true,
-        owner: { select: { id: true, name: true, avatar: true } },
-        bookings: {
-          where: { status: { in: ['CONFIRMED', 'ACTIVE'] }, endDate: { gte: startOfToday } },
-          select: { startDate: true, endDate: true },
-        },
-      },
-    });
-    const sorted = attachDistance(all, userLat, userLng, radiusKm);
+    // Bounding-box prefilter that USES the [lat, lng] index. We run a pure-AND
+    // range query for geo-located listings — wrapping it in `OR lat IS NULL`
+    // (to also surface legacy coordinate-less listings) would defeat the index
+    // and force a full scan, so those are fetched in a SEPARATE, also-indexed
+    // (`lat IS NULL`) query and appended. attachDistance then refines the box to
+    // a circle, keeps null-coord rows (shown last), and sorts by distance.
+    const box = boundingBox(userLat, userLng, radiusKm);
+    const orderBy = [{ rating: 'desc' }, { createdAt: 'desc' }];
+    const [located, nullCoord] = await Promise.all([
+      prisma.machineryListing.findMany({
+        where: { ...where, lat: box.lat, lng: box.lng },
+        orderBy, take: GEO_FETCH_CAP, select: listingSelect,
+      }),
+      prisma.machineryListing.findMany({
+        where: { ...where, lat: null },
+        orderBy, take: NULL_COORD_CAP, select: listingSelect,
+      }),
+    ]);
+    const sorted = attachDistance([...located, ...nullCoord], userLat, userLng, radiusKm);
     total = sorted.length;
     items = sorted.slice((page - 1) * limit, page * limit);
   } else {
@@ -173,19 +179,7 @@ router.get('/machinery', optionalAuth, async (req, res) => {
         orderBy: [{ rating: 'desc' }, { createdAt: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
-        select: {
-          id: true, name: true, category: true, brand: true, horsePower: true,
-          pricePerHour: true, pricePerDay: true, pricePerAcre: true,
-          images: true, videos: true, location: true, district: true,
-          available: true, availableFrom: true, availableTo: true,
-          rating: true, ratingCount: true, ageYears: true, mileageHours: true,
-          features: true, ownerName: true, lat: true, lng: true,
-          owner: { select: { id: true, name: true, avatar: true } },
-          bookings: {
-            where: { status: { in: ['CONFIRMED', 'ACTIVE'] }, endDate: { gte: startOfToday } },
-            select: { startDate: true, endDate: true },
-          },
-        },
+        select: listingSelect,
       }),
       prisma.machineryListing.count({ where }),
     ]);
@@ -940,8 +934,8 @@ router.post(
             throw Object.assign(new Error('Machinery is already booked for these dates'), { statusCode: 409, expose: true });
           }
 
-          // [FIX #6] Server-calculate totalAmount from listing price
-          serverAmount = parseInt(days) * listing.pricePerDay;
+          // [FIX #6] Server-calculate totalAmount from listing price (exact Decimal)
+          serverAmount = D(listing.pricePerDay).times(parseInt(days)).toDecimalPlaces(2);
         }
 
         if (labourListingId) {
@@ -966,9 +960,9 @@ router.post(
             throw Object.assign(new Error('Worker is already booked for these dates'), { statusCode: 409, expose: true });
           }
 
-          // [FIX #6] Server-calculate totalAmount from listing price
+          // [FIX #6] Server-calculate totalAmount from listing price (exact Decimal)
           const wc = workerCount != null ? parseInt(workerCount) : 1;
-          serverAmount = parseInt(days) * listing.pricePerDay * wc;
+          serverAmount = D(listing.pricePerDay).times(parseInt(days)).times(wc).toDecimalPlaces(2);
         }
 
         return tx.booking.create({
