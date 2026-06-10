@@ -174,6 +174,10 @@ export default function BusinessProfileScreen({ navigation }) {
     setSaving(true);
     try {
       const payload = {
+        // Submitting this seller-onboarding form is the explicit opt-in that
+        // authorises a FARMER→SELLER promotion. The backend records it as a
+        // SELLER_ONBOARDING consent record and only then flips the role.
+        sellerConsent:  true,
         businessType:   form.businessType,
         district:       form.district,
         taluka:         form.taluka,

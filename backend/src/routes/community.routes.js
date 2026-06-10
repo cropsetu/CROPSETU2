@@ -3,6 +3,7 @@
  * GET  /api/v1/community/posts          ?category&search&page&limit
  * GET  /api/v1/community/posts/:id
  * POST /api/v1/community/posts          (auth, multipart)
+ * DELETE /api/v1/community/posts/:id    (auth) — soft-delete; owner or ADMIN (moderator)
  * POST /api/v1/community/posts/:id/like (auth) — toggle
  * POST /api/v1/community/posts/:id/bookmark (auth) — toggle
  * GET  /api/v1/community/posts/:id/comments
@@ -21,6 +22,7 @@ import {
 } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 import { sanitizeSearch } from '../utils/sanitizeSearch.js';
+import { archiveResource } from '../services/softDelete.service.js';
 
 const router = Router();
 router.param('id', uuidParamGuard); // reject non-UUID :id with 400 before Prisma
@@ -41,7 +43,7 @@ router.get(
     const { category, scope, district, city } = req.query;
     const search = sanitizeSearch(req.query.search); // strip LIKE wildcards / cap length
 
-    const where = {};
+    const where = { deletedAt: null }; // hide soft-deleted posts from the feed
     if (category && category !== 'all') where.category = category;
     if (search) {
       where.OR = [
@@ -103,8 +105,8 @@ router.get(
 );
 
 router.get('/posts/:id', optionalAuth, async (req, res) => {
-  const post = await prisma.post.findUnique({
-    where: { id: req.params.id },
+  const post = await prisma.post.findFirst({
+    where: { id: req.params.id, deletedAt: null },
     include: {
       author: { select: { id: true, name: true, avatar: true } },
       ...(req.user && {
@@ -158,9 +160,30 @@ router.post(
   }
 );
 
+// ── Delete (soft) ─────────────────────────────────────────────────────────────
+// Owner or moderator (ADMIN) only — mirrors DELETE /comments/:id. Soft-delete
+// sets a tombstone so the row (and its likes/comments) survives for moderation
+// and audit; every read filters deletedAt: null so it disappears from the app.
+router.delete('/posts/:id', authenticate, async (req, res) => {
+  const post = await prisma.post.findUnique({
+    where:  { id: req.params.id },
+    select: { id: true, authorId: true, deletedAt: true },
+  });
+  if (!post || post.deletedAt) return sendNotFound(res, 'Post');
+  if (post.authorId !== req.user.id && req.user.role !== 'ADMIN') return sendForbidden(res);
+
+  // archiveResource sets the deletedAt tombstone and records a RESOURCE_ARCHIVE
+  // audit event (actor + timestamp) — moderator/owner removals stay accountable.
+  await archiveResource(req, 'Post', post.id, {
+    metadata: { byModerator: post.authorId !== req.user.id },
+  });
+
+  return sendSuccess(res, { deleted: true });
+});
+
 // ── Like toggle ───────────────────────────────────────────────────────────────
 router.post('/posts/:id/like', authenticate, async (req, res) => {
-  const post = await prisma.post.findUnique({ where: { id: req.params.id } });
+  const post = await prisma.post.findFirst({ where: { id: req.params.id, deletedAt: null } });
   if (!post) return sendNotFound(res, 'Post');
 
   const existing = await prisma.postLike.findUnique({
@@ -187,9 +210,10 @@ router.get('/saved', authenticate, async (req, res) => {
   const page  = parseInt(req.query.page  || '1', 10);
   const limit = parseInt(req.query.limit || '20', 10);
 
+  const savedWhere = { userId: req.user.id, post: { deletedAt: null } }; // skip bookmarks of removed posts
   const [bookmarks, total] = await Promise.all([
     prisma.postBookmark.findMany({
-      where: { userId: req.user.id },
+      where: savedWhere,
       include: {
         post: {
           include: { author: { select: { id: true, name: true, avatar: true } } },
@@ -199,7 +223,7 @@ router.get('/saved', authenticate, async (req, res) => {
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.postBookmark.count({ where: { userId: req.user.id } }),
+    prisma.postBookmark.count({ where: savedWhere }),
   ]);
 
   const posts = bookmarks.map((b) => ({ ...b.post, bookmarked: true }));
@@ -208,7 +232,7 @@ router.get('/saved', authenticate, async (req, res) => {
 
 // ── Bookmark toggle ───────────────────────────────────────────────────────────
 router.post('/posts/:id/bookmark', authenticate, async (req, res) => {
-  const post = await prisma.post.findUnique({ where: { id: req.params.id } });
+  const post = await prisma.post.findFirst({ where: { id: req.params.id, deletedAt: null } });
   if (!post) return sendNotFound(res, 'Post');
 
   const existing = await prisma.postBookmark.findUnique({
@@ -249,8 +273,23 @@ router.post(
   ],
   validate,
   async (req, res) => {
-    const post = await prisma.post.findUnique({ where: { id: req.params.id } });
+    const post = await prisma.post.findFirst({ where: { id: req.params.id, deletedAt: null } });
     if (!post) return sendNotFound(res, 'Post');
+
+    // When replying, the parent must be a comment ON THIS POST. Without this
+    // check a parentId from another post would graft the reply onto an
+    // unrelated thread (the FK only guarantees the parent exists, not that it
+    // belongs here).
+    const parentId = req.body.parentId || null;
+    if (parentId) {
+      const parent = await prisma.comment.findUnique({
+        where:  { id: parentId },
+        select: { postId: true },
+      });
+      if (!parent || parent.postId !== post.id) {
+        return sendError(res, 'Parent comment does not belong to this post', 400);
+      }
+    }
 
     const comment = await prisma.$transaction(async (tx) => {
       const c = await tx.comment.create({
@@ -258,7 +297,7 @@ router.post(
           postId: post.id,
           authorId: req.user.id,
           text: stripHtml(req.body.text),
-          parentId: req.body.parentId || null,
+          parentId,
         },
         include: { author: { select: { id: true, name: true, avatar: true } } },
       });

@@ -171,9 +171,9 @@ describe('IDOR protection', () => {
     if (bookRes.status === 201) {
       const res = await request(app)
         .put(`/api/v1/rent/bookings/${bookRes.body.data.id}/cancel`)
-        .set(admin.headers); // Different user
+        .set(admin.headers); // Different user — neither renter nor listing owner
 
-      expect(res.status).toBe(404); // Scoped to userId
+      expect(res.status).toBe(403); // ownership guard: not a party to this booking
     }
   });
 

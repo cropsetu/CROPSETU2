@@ -19,6 +19,7 @@ export const CONSENT_PURPOSES = {
   LOCATION:         'LOCATION',
   MARKETING:        'MARKETING',
   GUARDIAN_CONSENT: 'GUARDIAN_CONSENT',
+  SELLER_ONBOARDING: 'SELLER_ONBOARDING',
 };
 
 // DPDP §9(3): no targeted advertising or behavioural tracking of children.
@@ -45,6 +46,8 @@ export const CONSENT_PURPOSE_INFO = {
     description: 'You agree to receive promotional offers and product updates.' },
   GUARDIAN_CONSENT: { required: false, label: 'Parental / guardian consent',
     description: 'A parent or legal guardian consents to the processing of a minor’s personal data (DPDP Act §9).' },
+  SELLER_ONBOARDING: { required: false, label: 'Become a seller',
+    description: 'You opt in to a seller account, accepting the seller terms, capabilities and obligations (e.g. listing products, fulfilling orders).' },
 };
 
 // Consents captured (granted) the moment a user registers. These are the lawful

@@ -47,6 +47,7 @@ import { auditPiiUpdate, auditLog, auditAction, AUDIT_ACTIONS } from '../service
 import { verifyOtp } from '../services/otp.service.js';
 import { eraseUserAccount } from '../services/erasure.service.js';
 import { signAccessToken, createRefreshToken, enforceSessionLimit } from '../utils/jwt.js';
+import { CONSENT_PURPOSES, CONSENT_POLICY_VERSION } from '../constants/consent.js';
 
 const router = Router();
 router.param('userId', uuidParamGuard); // :userId (admin KYC lookup) — reject non-UUIDs with 400
@@ -207,6 +208,9 @@ router.put(
       'individual_farmer', 'farmer_group', 'fpc', 'cooperative', 'agri_business',
       'krushi_kendra', 'fertilizer_dealer', 'pesticide_dealer', 'seed_supplier', 'agri_input_shop',
     ]),
+    // Explicit opt-in to become a SELLER. Required before any FARMER→SELLER
+    // promotion; setting businessType alone never escalates the role.
+    body('sellerConsent').optional().isBoolean(),
     // [H2] GST format validated server-side, not just length
     body('gstNumber').optional().trim()
       .custom((val, { req: r }) => {
@@ -287,14 +291,15 @@ router.put(
         userData.isMinor     = dateOfBirth === null ? false : isMinorDob(dateOfBirth);
       }
       if (businessType !== undefined) userData.businessType = businessType;
-      // Auto-upgrade role to SELLER when a businessType is set on a FARMER account.
-      // The role lives in the JWT, so we also re-issue fresh tokens at the end of
-      // this handler when this flip happens (otherwise the next request would
-      // still see the old FARMER role).
-      // [DPDP §9] Never auto-upgrade a minor to SELLER. (Seller financial flows
-      // are also blocked by the blockMinors middleware on those routes.)
-      const roleFlipped = businessType && req.user.role === 'FARMER' && userData.isMinor !== true;
-      if (roleFlipped) userData.role = 'SELLER';
+      // FARMER → SELLER promotion is now CONSENT-GATED, not a side-effect of
+      // setting businessType. The caller must explicitly opt in via
+      // `sellerConsent: true`; the actual role flip + a SELLER_ONBOARDING
+      // ConsentRecord are then written atomically inside the transaction below
+      // (so the role only ever changes alongside recorded consent — DPDP §5).
+      // The role lives in the JWT, so fresh tokens are re-issued at the end of
+      // this handler when the flip happens. [DPDP §9] A minor is never promoted.
+      const sellerConsent = req.body.sellerConsent === true || req.body.sellerConsent === 'true';
+      const wantsSeller   = sellerConsent && req.user.role === 'FARMER';
       if (resolvedGstOptOut !== undefined) userData.gstOptOut = resolvedGstOptOut;
       // [M4] Use the already-resolved boolean, not the raw body string.
       // [C2] GST is a financial identifier — encrypt at rest. The empty
@@ -322,11 +327,36 @@ router.put(
           include: { sellerProfile: true },
         });
 
+        // Decide the FARMER → SELLER promotion against AUTHORITATIVE state:
+        // this request's dob if it was just set, otherwise the stored flag, so
+        // a previously-recorded minor can't slip through by omitting dob here.
+        // [DPDP §9] Minors are never promoted. The flip and its consent proof
+        // are committed together — the role can't change without the record.
+        const effectiveMinor = userData.isMinor !== undefined ? userData.isMinor : user.isMinor;
+        const promoteToSeller = wantsSeller && user.role === 'FARMER' && effectiveMinor !== true;
+        if (promoteToSeller) userData.role = 'SELLER';
+
         if (Object.keys(userData).length) {
           user = await tx.user.update({
             where: { id: req.user.id },
             data: userData,
             include: { sellerProfile: true },
+          });
+        }
+
+        if (promoteToSeller) {
+          // DPDP §5 proof of the explicit opt-in, atomic with the role change.
+          await tx.consentRecord.create({
+            data: {
+              userId:        req.user.id,
+              purpose:       CONSENT_PURPOSES.SELLER_ONBOARDING,
+              granted:       true,
+              policyVersion: CONSENT_POLICY_VERSION,
+              method:        'seller_onboarding',
+              ip:            clientIp(req),
+              userAgent:     req.headers['user-agent'] || null,
+              metadata:      JSON.stringify({ businessType: user.businessType || null }),
+            },
           });
         }
 
@@ -367,8 +397,10 @@ router.put(
 
       // If we flipped FARMER → SELLER above, re-issue tokens so the new role
       // is reflected in the JWT immediately (no logout/login round-trip).
+      // req.user.role is the pre-update role, so this is true only on a real flip.
+      const didPromote = req.user.role === 'FARMER' && updatedUser.role === 'SELLER';
       let tokens = null;
-      if (roleFlipped && updatedUser.role === 'SELLER') {
+      if (didPromote) {
         const accessToken  = signAccessToken({ sub: updatedUser.id, role: updatedUser.role, tokenVersion: updatedUser.tokenVersion });
         const refreshToken = await createRefreshToken(updatedUser.id);
         await enforceSessionLimit(updatedUser.id); // cap concurrent sessions

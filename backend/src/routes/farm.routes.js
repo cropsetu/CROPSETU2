@@ -10,6 +10,7 @@ import { idempotency } from '../middleware/idempotency.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound } from '../utils/response.js';
 import logger from '../utils/logger.js';
 import { createFarm, listFarms, getFarmDetail, updateFarm, deleteFarm, setActiveFarm, getFarmInsights, getFarmFinancialSummary } from '../services/farm.service.js';
+import { auditArchiveEvent } from '../services/softDelete.service.js';
 
 const router = Router();
 router.use(authenticate);
@@ -67,7 +68,13 @@ router.patch('/:farmId', writeLimit, idemFarm, [param('farmId').isUUID(), ...far
 });
 
 router.delete('/:farmId', writeLimit, idemFarm, [param('farmId').isUUID()], validate, async (req, res) => {
-  try { await deleteFarm(req.params.farmId, req.user.id); return sendSuccess(res, { deleted: true }); }
+  // deleteFarm soft-deletes inside a transaction (isActive:false + active-farm
+  // reassignment), so we record the audit event here once it has succeeded.
+  try {
+    await deleteFarm(req.params.farmId, req.user.id);
+    auditArchiveEvent(req, { mode: 'archive', entity: 'Farm', entityId: req.params.farmId });
+    return sendSuccess(res, { deleted: true });
+  }
   catch (e) { logger.error({ err: e }, '[Farm] delete'); return sendError(res, 'Failed', 500); }
 });
 

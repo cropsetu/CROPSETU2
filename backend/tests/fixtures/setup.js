@@ -116,6 +116,37 @@ export async function createTestMachinery(ownerId, overrides = {}) {
   });
 }
 
+/**
+ * Create a crop disease report owned by `userId`. Provides the non-nullable
+ * columns; override any of them for specific assertions.
+ */
+export async function createTestCropReport(userId, overrides = {}) {
+  return prisma.cropDiseaseReport.create({
+    data: {
+      userId,
+      pincode:         '411001',
+      cropType:        'Tomato',
+      growthStage:     'flowering',
+      overallRisk:     45,
+      riskLevel:       'MODERATE',
+      primaryDisease:  'Early Blight',
+      confidenceScore: 0.9,
+      fullReport:      {},
+      ...overrides,
+    },
+  });
+}
+
+/**
+ * Create a crop-report share linking a report, its owner (farmerId) and a
+ * recipient seller (sellerId).
+ */
+export async function createTestCropShare(reportId, farmerId, sellerId, overrides = {}) {
+  return prisma.cropReportShare.create({
+    data: { reportId, farmerId, sellerId, ...overrides },
+  });
+}
+
 // ── Cleanup ──────────────────────────────────────────────────────────────────
 /**
  * Delete all test data. Call in afterAll().
@@ -129,6 +160,9 @@ export async function cleanupTestData() {
   await prisma.$transaction([
     prisma.auditLog.deleteMany(),
     prisma.notification.deleteMany(),
+    // Crop-report shares reference reports → delete shares first, then reports.
+    prisma.cropReportShare.deleteMany(),
+    prisma.cropDiseaseReport.deleteMany(),
     prisma.booking.deleteMany(),
     prisma.review.deleteMany(),
     prisma.orderItem.deleteMany(),

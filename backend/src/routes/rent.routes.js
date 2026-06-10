@@ -42,6 +42,7 @@ import { D } from '../utils/money.js';
 import { geoPageIds } from '../utils/geo.js';
 import { Prisma } from '@prisma/client';
 import { stripHtml } from '../utils/encrypt.js';
+import { archiveResource } from '../services/softDelete.service.js';
 
 // [FIX] Validate GPS coordinates are within Earth bounds
 function validateCoords(lat, lng) {
@@ -397,10 +398,8 @@ router.delete('/machinery/:id', authenticate, async (req, res) => {
   if (!listing) return sendNotFound(res, 'Listing not found');
   if (listing.ownerId !== req.user.id) return sendForbidden(res, 'Not your listing');
 
-  await prisma.machineryListing.update({
-    where: { id: req.params.id },
-    data:  { status: 'INACTIVE' },
-  });
+  // archiveResource flips status→INACTIVE and records a RESOURCE_ARCHIVE event.
+  await archiveResource(req, 'MachineryListing', listing.id);
   return sendSuccess(res, { message: 'Listing removed' });
 });
 
@@ -694,12 +693,38 @@ router.delete('/labour/:id', authenticate, async (req, res) => {
   if (!listing) return sendNotFound(res, 'Listing not found');
   if (listing.providerId !== req.user.id) return sendForbidden(res, 'Not your listing');
 
-  await prisma.labourListing.update({
-    where: { id: req.params.id },
-    data:  { status: 'INACTIVE' },
-  });
+  // archiveResource flips status→INACTIVE and records a RESOURCE_ARCHIVE event.
+  await archiveResource(req, 'LabourListing', listing.id);
   return sendSuccess(res, { message: 'Listing removed' });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOOKINGS — ownership guard
+// ─────────────────────────────────────────────────────────────────────────────
+// Single source of truth for "who may touch this booking", so every per-booking
+// read/mutation authorizes the same way (no IDOR via inconsistent checks). The
+// only parties to a booking are the RENTER (booking.userId) and the LISTING
+// OWNER (machinery.ownerId / labour.providerId) — bookings are private to them.
+//
+// Returns null when the booking does not exist (caller responds 404). Otherwise
+// returns the booking plus the caller's relationship flags. Callers decide which
+// flag authorizes their specific action and respond 403 when none apply.
+async function loadBookingForCaller(bookingId, user) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      machineryListing: true,
+      labourListing:    true,
+    },
+  });
+  if (!booking) return null;
+
+  const isRenter = booking.userId === user.id;
+  const isOwner  = booking.machineryListing?.ownerId    === user.id
+                || booking.labourListing?.providerId === user.id;
+
+  return { booking, isRenter, isOwner };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BOOKINGS — received (owner sees requests on their listings)
@@ -758,18 +783,11 @@ router.get('/bookings/received/pending-count', authenticate, async (req, res) =>
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.put('/bookings/:id/approve', authenticate, async (req, res) => {
-  const booking = await prisma.booking.findUnique({
-    where: { id: req.params.id },
-    include: {
-      machineryListing: { select: { ownerId: true, name: true } },
-      labourListing:    { select: { providerId: true, name: true } },
-    },
-  });
-  if (!booking) return sendNotFound(res, 'Booking not found');
-
-  const isOwner = booking.machineryListing?.ownerId    === req.user.id
-               || booking.labourListing?.providerId === req.user.id;
-  if (!isOwner) return sendForbidden(res, 'Not your listing');
+  const ctx = await loadBookingForCaller(req.params.id, req.user);
+  if (!ctx) return sendNotFound(res, 'Booking not found');
+  // Approving is the listing owner's action — not the renter's.
+  if (!ctx.isOwner) return sendForbidden(res, 'Not your listing');
+  const { booking } = ctx;
 
   if (booking.status !== 'PENDING')
     return sendError(res, 'Only pending bookings can be approved', 400);
@@ -799,18 +817,11 @@ router.put('/bookings/:id/approve', authenticate, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.put('/bookings/:id/reject', authenticate, async (req, res) => {
-  const booking = await prisma.booking.findUnique({
-    where: { id: req.params.id },
-    include: {
-      machineryListing: { select: { ownerId: true, name: true } },
-      labourListing:    { select: { providerId: true, name: true } },
-    },
-  });
-  if (!booking) return sendNotFound(res, 'Booking not found');
-
-  const isOwner = booking.machineryListing?.ownerId    === req.user.id
-               || booking.labourListing?.providerId === req.user.id;
-  if (!isOwner) return sendForbidden(res, 'Not your listing');
+  const ctx = await loadBookingForCaller(req.params.id, req.user);
+  if (!ctx) return sendNotFound(res, 'Booking not found');
+  // Rejecting is the listing owner's action — not the renter's.
+  if (!ctx.isOwner) return sendForbidden(res, 'Not your listing');
+  const { booking } = ctx;
 
   if (booking.status !== 'PENDING')
     return sendError(res, 'Only pending bookings can be rejected', 400);
@@ -1019,15 +1030,14 @@ router.post(
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.get('/bookings/:id', authenticate, async (req, res) => {
-  const booking = await prisma.booking.findFirst({
-    where: { id: req.params.id, userId: req.user.id },
-    include: {
-      machineryListing: true,
-      labourListing:    true,
-    },
-  });
-  if (!booking) return sendNotFound(res, 'Booking not found');
-  return sendSuccess(res, booking);
+  const ctx = await loadBookingForCaller(req.params.id, req.user);
+  if (!ctx) return sendNotFound(res, 'Booking not found');
+  // Both parties to the booking may view it: the renter and the listing owner.
+  // Anyone else is forbidden — prevents IDOR on booking detail.
+  if (!ctx.isRenter && !ctx.isOwner) {
+    return sendForbidden(res, 'You are not authorized to view this booking');
+  }
+  return sendSuccess(res, ctx.booking);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1035,10 +1045,14 @@ router.get('/bookings/:id', authenticate, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.put('/bookings/:id/cancel', authenticate, async (req, res) => {
-  const booking = await prisma.booking.findFirst({
-    where: { id: req.params.id, userId: req.user.id },
-  });
-  if (!booking) return sendNotFound(res, 'Booking not found');
+  const ctx = await loadBookingForCaller(req.params.id, req.user);
+  if (!ctx) return sendNotFound(res, 'Booking not found');
+  // Cancelling is the renter's action. The listing owner declines via /reject,
+  // so they are not authorized here.
+  if (!ctx.isRenter) {
+    return sendForbidden(res, 'You are not authorized to cancel this booking');
+  }
+  const { booking } = ctx;
   if (['COMPLETED', 'CANCELLED'].includes(booking.status)) {
     return sendError(res, `Cannot cancel a ${booking.status.toLowerCase()} booking`, 400);
   }
