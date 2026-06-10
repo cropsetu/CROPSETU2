@@ -117,6 +117,7 @@ model User {
   activeFarm               Farm?                @relation("ActiveFarm", fields: [activeFarmId], references: [id], onDelete: SetNull)
   voiceSessions            VoiceSession[]
   voiceConversations       VoiceConversation[]
+  deviceLinks              DeviceAccountLink[]
 
   @@index([phone])
   @@index([district])
@@ -1798,6 +1799,13 @@ enum IncidentStatus {
   CLOSED
 }
 
+// Moderation lifecycle for flagged content (FRAUD-5 → REV-5 admin queue).
+enum ModerationStatus {
+  PENDING // awaiting moderator review
+  APPROVED // reviewed → content is legitimate (cleared)
+  REJECTED // reviewed → content removed / hidden
+}
+
 enum IncidentCategory {
   DATA_BREACH // confirmed unauthorized access/disclosure of personal data
   UNAUTHORIZED_ACCESS // access attempt/violation without confirmed data loss
@@ -1808,6 +1816,7 @@ enum IncidentCategory {
   VULNERABILITY // discovered weakness (not yet exploited)
   PHISHING // social-engineering against users/staff
   SYSTEM_COMPROMISE // server/infrastructure compromise
+  FRAUD // fraud/abuse signals: refund-chargeback abuse, velocity-limit blocks, etc. (FRAUD-1/FRAUD-2)
   OTHER
 }
 
@@ -1914,6 +1923,54 @@ model AuditLog {
   // where userId + action + createdAt >= since, ORDER BY createdAt DESC.
   @@index([userId, action, createdAt(sort: Desc)])
   @@map("audit_logs")
+}
+
+// ── Content moderation queue — fake-review / fake-listing signals (FRAUD-5) ──
+// Suspicious reviews/listings (burst, duplication, new-account heuristics) are
+// routed here for human moderation (REV-5 admin queue) rather than auto-removed.
+// One flag row per content item; re-assessment upserts the reasons/score.
+model ContentFlag {
+  id           String           @id @default(uuid())
+  entityType   String // 'Review' | 'Product'
+  entityId     String
+  authorId     String? // user/seller who created the content
+  reasons      String[] // ['burst','duplicate','new_account']
+  score        Int              @default(0)
+  status       ModerationStatus @default(PENDING)
+  metadata     String? // JSON extra context
+  reviewedById String?
+  reviewedAt   DateTime?
+  resolution   String? // moderator note on resolve
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([entityType, entityId]) // one flag per item; re-assessment upserts
+  @@index([status, createdAt]) // moderation queue: pending, newest first
+  @@map("content_flags")
+}
+
+// ── Device ↔ account links — multi-account detection (FRAUD-3) ────────────────
+// One row per (device, account) pair, observed at login/order. A single device
+// fingerprint backing many DISTINCT accounts is the multi-account signal that
+// surfaces to review. `fingerprint` is a hashed STRONG device id (the client's
+// X-Device-Id) — NOT the coarse User-Agent fingerprint used for velocity
+// bucketing, since thousands of users share a UA and would link spuriously.
+// Rows age out by lastSeenAt so dormant links don't keep an actor "linked".
+model DeviceAccountLink {
+  id          String   @id @default(uuid())
+  fingerprint String
+  userId      String
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  seenCount   Int      @default(1)
+  lastIp      String?
+  lastContext String? // 'login' | 'order' — where the device was last observed
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([fingerprint, userId])
+  @@index([fingerprint, lastSeenAt]) // count distinct accounts per device in a window
+  @@index([userId])
+  @@map("device_account_links")
 }
 
 // ── Consent records — DPDP Act §5 lawful-basis proof ─────────────────────────

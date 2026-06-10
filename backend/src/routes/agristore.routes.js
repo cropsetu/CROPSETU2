@@ -29,6 +29,13 @@ import { stripHtml, deepStripHtml } from '../utils/encrypt.js';
 import { createPaymentOrder, verifyPaymentSignature, fetchPaymentOrder } from '../services/payment.service.js';
 import { auditOrderStatusChange, auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
 import { getSellerStats } from '../services/sellerStats.service.js';
+import { velocityGuard } from '../middleware/velocityLimit.js';
+import { VELOCITY_ACTIONS } from '../services/velocity.service.js';
+import { refundAbuseGuard } from '../middleware/refundAbuseGuard.js';
+import { recordDeviceLink, strongDeviceId } from '../services/deviceLink.service.js';
+import { flagReviewIfSuspicious, flagListingIfSuspicious } from '../services/contentFraud.service.js';
+import { raisePaymentTamperAlarm } from '../services/paymentTamper.service.js';
+import { ENV } from '../config/env.js';
 
 const router = Router();
 router.param('id', uuidParamGuard);        // product / order / seller-product ids
@@ -71,7 +78,9 @@ function assertClientTotalMatches(expectedTotal, authoritativeTotal) {
   if (toPaise(expectedTotal) !== toPaise(authoritativeTotal)) {
     throw Object.assign(
       new Error('Cart total has changed. Please review your cart and try again.'),
-      { statusCode: 400, expose: true },
+      // `tamper` lets the confirm flow (FRAUD-6) raise an alarm on a client/server
+      // amount mismatch; harmless on other callers, which don't read it.
+      { statusCode: 400, expose: true, tamper: { kind: 'client_total_mismatch', expectedPaise: toPaise(expectedTotal), actualPaise: toPaise(authoritativeTotal) } },
     );
   }
 }
@@ -249,9 +258,14 @@ router.delete('/cart/:productId', authenticate, async (req, res) => {
 });
 
 // ── Orders ────────────────────────────────────────────────────────────────────
+// velocityGuard(ORDER): FRAUD-1 — block/flag runaway checkout velocity per
+// user/device/IP. Guards the two endpoints that actually PLACE an order (this
+// COD path + /orders/confirm for online); /orders/initiate is intentionally not
+// counted so a single online purchase (initiate→confirm) isn't double-counted.
 router.post(
   '/orders',
   authenticate,
+  velocityGuard(VELOCITY_ACTIONS.ORDER),
   [
     body('paymentMethod').optional().isIn(['cod', 'upi', 'card']),
     // Accept either a saved address id OR an inline address object
@@ -363,6 +377,12 @@ router.post(
         isolationLevel: 'Serializable',
       });
 
+      // FRAUD-3: record device→account link for multi-account detection (no-op
+      // without an X-Device-Id header). Fire-and-forget — never delays checkout.
+      if (ENV.DEVICE_FINGERPRINT_ENABLED) {
+        recordDeviceLink({ userId: req.user.id, fingerprint: strongDeviceId(req), ip: req.ip, context: 'order' }).catch(() => {});
+      }
+
       return sendCreated(res, order);
     } catch (err) {
       return sendServerError(res, err, 'Checkout failed. Please try again.');
@@ -412,7 +432,14 @@ router.get('/orders/:id', authenticate, async (req, res) => {
 });
 
 // ── [FIX #15] Buyer order cancellation ───────────────────────────────────────
-router.put('/orders/:id/cancel', authenticate, async (req, res) => {
+// Two complementary fraud layers run before the handler:
+//   • velocityGuard(REFUND) — FRAUD-1: short-window cancel/refund BURST per
+//     user/device/IP (temporary block).
+//   • refundAbuseGuard()    — FRAUD-2: SERIAL refund abuse over the account's
+//     order history (restricts repeat offenders, flags for review).
+// Both target cancellation, the buyer-initiated reversal that exists today; real
+// Razorpay refunds, when wired, reuse the same guards.
+router.put('/orders/:id/cancel', authenticate, velocityGuard(VELOCITY_ACTIONS.REFUND), refundAbuseGuard(), async (req, res) => {
   const order = await prisma.order.findFirst({
     where: { id: req.params.id, userId: req.user.id },
     include: { items: true },
@@ -500,6 +527,7 @@ router.post(
 router.post(
   '/orders/confirm',
   authenticate,
+  velocityGuard(VELOCITY_ACTIONS.ORDER), // FRAUD-1: count the completed online order
   [
     body('razorpayOrderId').notEmpty(),
     body('razorpayPaymentId').notEmpty(),
@@ -586,13 +614,13 @@ router.post(
           if (paymentOrder.receipt !== `cart_${req.user.id}`) {
             throw Object.assign(
               new Error('This payment does not match your cart.'),
-              { statusCode: 400, expose: true },
+              { statusCode: 400, expose: true, tamper: { kind: 'receipt_mismatch', expectedPaise: toPaise(totalAmount), actualPaise: Number(paymentOrder.amount) } },
             );
           }
           if (toPaise(totalAmount) !== Number(paymentOrder.amount)) {
             throw Object.assign(
               new Error('Paid amount does not match your cart total. Your cart may have changed — no order was created.'),
-              { statusCode: 400, expose: true },
+              { statusCode: 400, expose: true, tamper: { kind: 'paid_amount_mismatch', expectedPaise: toPaise(totalAmount), actualPaise: Number(paymentOrder.amount) } },
             );
           }
         }
@@ -624,8 +652,28 @@ router.post(
         return o;
       }, { isolationLevel: 'Serializable' });
 
+      // FRAUD-3: record device→account link for multi-account detection (no-op
+      // without an X-Device-Id header). Fire-and-forget — never delays checkout.
+      if (ENV.DEVICE_FINGERPRINT_ENABLED) {
+        recordDeviceLink({ userId: req.user.id, fingerprint: strongDeviceId(req), ip: req.ip, context: 'order' }).catch(() => {});
+      }
+
       return sendCreated(res, order);
     } catch (err) {
+      // FRAUD-6: a payment-amount mismatch already aborted the txn (blocking
+      // confirmation). Raise the tamper alarm HERE — outside/after the rolled-back
+      // txn so the audit + incident persist. Fire-and-forget; never alters the
+      // blocking response the buyer receives.
+      if (err?.tamper && ENV.PAYMENT_TAMPER_ALARM_ENABLED) {
+        raisePaymentTamperAlarm({
+          userId: req.user.id,
+          ...err.tamper,
+          orderRef: razorpayOrderId,
+          paymentRef: razorpayPaymentId,
+          ip: req.ip,
+          requestId: req.id,
+        }).catch(() => {});
+      }
       return sendServerError(res, err, 'Order confirmation failed. Please try again.');
     }
   }
@@ -719,6 +767,14 @@ router.post(
       include: { category: { select: { id: true, name: true, icon: true, color: true } } },
     });
     await bumpListingVersion(NS_PRODUCTS); // new listing → invalidate product caches
+
+    // FRAUD-5: score the new listing (burst/duplicate/new-account) and route it
+    // to the moderation queue if suspicious. Fire-and-forget — never delays or
+    // blocks the create (suspicious listings are reviewed, not auto-removed).
+    if (ENV.CONTENT_FRAUD_ENABLED) {
+      flagListingIfSuspicious({ productId: product.id, sellerId: req.user.id, name: product.name }).catch(() => {});
+    }
+
     return sendCreated(res, product);
   }
 );
@@ -980,6 +1036,14 @@ router.post(
 
     // The product's avg rating changed — it orders the listing, so invalidate.
     await bumpListingVersion(NS_PRODUCTS);
+
+    // FRAUD-5: score the new review (burst/duplicate/new-account) and route it to
+    // the moderation queue if suspicious. Fire-and-forget; review stays visible
+    // until a moderator acts.
+    if (ENV.CONTENT_FRAUD_ENABLED) {
+      flagReviewIfSuspicious({ reviewId: review.id, userId: req.user.id, comment: safeComment }).catch(() => {});
+    }
+
     return sendCreated(res, review);
   }
 );

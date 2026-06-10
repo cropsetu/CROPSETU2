@@ -76,6 +76,75 @@ function resolveActiveEncryptionKeyId(extraKeys) {
 const _extraEncryptionKeys = parseExtraEncryptionKeys();
 const _activeEncryptionKeyId = resolveActiveEncryptionKeyId(_extraEncryptionKeys);
 
+// ── Fraud velocity limits (FRAUD-1) ──────────────────────────────────────────
+// Per sensitive action, sliding-window velocity is tracked across the user /
+// device / IP dimensions and compared to two thresholds:
+//   • FLAG  — record a fraud signal (audit, and an incident on the block tier)
+//             but ALLOW the action through.
+//   • LIMIT — block the action (429) AND flag it. Only enforced when BLOCK=true
+//             and LIMIT > 0; a rule with LIMIT=0 / BLOCK=false is flag-only.
+// The decision uses the WORST (highest-count) dimension, so abuse from one IP
+// spread across many fresh accounts is caught even though each user count is low.
+// Defaults are deliberately generous (a normal farmer never approaches them) so
+// flags mean something. Tune any value without code via the matching env var:
+//   VELOCITY_<ACTION>_WINDOW_SEC | _FLAG | _LIMIT | _BLOCK   (ACTION = ORDER|REFUND|LOGIN)
+function _velocityRule(prefix, defaults) {
+  const num = (suffix, dflt) => {
+    const v = parseInt(process.env[`VELOCITY_${prefix}_${suffix}`], 10);
+    return Number.isFinite(v) && v >= 0 ? v : dflt;
+  };
+  const blk = process.env[`VELOCITY_${prefix}_BLOCK`];
+  return {
+    windowSec: num('WINDOW_SEC', defaults.windowSec),
+    flag:      num('FLAG', defaults.flag),
+    limit:     num('LIMIT', defaults.limit),
+    block:     blk != null ? blk === 'true' : defaults.block,
+  };
+}
+
+// ── Refund / chargeback abuse (FRAUD-2 / COMP-5) ─────────────────────────────
+// Account-level serial-abuse detection over ORDER HISTORY (the DB), distinct
+// from the short-window velocity layer (FRAUD-1): on each refund/cancel attempt
+// the user's refund RATE (refunds ÷ orders over the lookback window) is compared
+// to two tiers, each gated by a MINIMUM refund count so a tiny sample (e.g. 1
+// order, 1 cancel = 100%) can't false-positive:
+//   • FLAG     — record a fraud signal for review, allow the action.
+//   • RESTRICT — block the refund/cancel (403) AND flag for review.
+// The window means abuse ages out over time (self-healing) without manual unflag.
+// Tune any value without code via the matching env var.
+function parseRefundAbuseRule() {
+  const num = (key, dflt) => {
+    const v = parseInt(process.env[key], 10);
+    return Number.isFinite(v) && v >= 0 ? v : dflt;
+  };
+  const rate = (key, dflt) => {
+    const v = parseFloat(process.env[key]);
+    return Number.isFinite(v) && v >= 0 && v <= 1 ? v : dflt;
+  };
+  return {
+    lookbackDays:  num('REFUND_ABUSE_LOOKBACK_DAYS', 90),
+    flagCount:     num('REFUND_ABUSE_FLAG_COUNT', 3),
+    flagRate:      rate('REFUND_ABUSE_FLAG_RATE', 0.5),
+    restrictCount: num('REFUND_ABUSE_RESTRICT_COUNT', 5),
+    restrictRate:  rate('REFUND_ABUSE_RESTRICT_RATE', 0.7),
+  };
+}
+
+function parseVelocityRules() {
+  return {
+    // Placed orders (COD checkout + online confirm) — block runaway checkout velocity.
+    order:  _velocityRule('ORDER',  { windowSec: 3600,  flag: 6, limit: 12, block: true }),
+    // Buyer-initiated reversals (order cancellation today; real refunds reuse this
+    // when wired). Longer window — refund abuse plays out over a day, not an hour.
+    refund: _velocityRule('REFUND', { windowSec: 86400, flag: 3, limit: 6,  block: true }),
+    // Successful logins — flag-only. The OTP send/verify limits + lockout already
+    // cap login *attempts* per number; this catches many successful logins to
+    // DIFFERENT accounts from one device/IP (account farming / credential reuse),
+    // which should surface for review but must never block a user who proved OTP.
+    login:  _velocityRule('LOGIN',  { windowSec: 3600,  flag: 8, limit: 0,  block: false }),
+  };
+}
+
 // ── OTP development bypass (auth bypass — NEVER in production) ────────────────
 // Accepting the fixed OTP "000000" to skip real verification is strictly a
 // non-production convenience (local dev + automated tests with no SMS provider).
@@ -333,6 +402,88 @@ export const ENV = {
   // Resolved, frozen OTP dev-bypass decision (see _otpDevBypass above). Always
   // false in production. verifyOtp() must gate the "000000" bypass on THIS only.
   OTP_DEV_BYPASS: _otpDevBypass,
+
+  // ── Fraud velocity limits (FRAUD-1) ─────────────────────────────────────────
+  // Master switch for the velocity risk layer (see parseVelocityRules above and
+  // services/velocity.service.js). On by default in dev/prod; auto-OFF under the
+  // test runner (the API suites fire many orders/logins from one loopback IP and
+  // would otherwise trip it) — force on with VELOCITY_ENABLED=true.
+  VELOCITY_ENABLED: process.env.VELOCITY_ENABLED != null
+    ? process.env.VELOCITY_ENABLED === 'true'
+    : process.env.NODE_ENV !== 'test',
+  VELOCITY_RULES: parseVelocityRules(),
+
+  // ── Refund / chargeback abuse (FRAUD-2 / COMP-5) ────────────────────────────
+  // Master switch for the account-level refund-abuse layer (see
+  // parseRefundAbuseRule above and services/refundAbuse.service.js). On by default
+  // in dev/prod; auto-OFF under the test runner (the order/cancel API suites
+  // create + cancel many orders for one user and would otherwise trip it) —
+  // force on with REFUND_ABUSE_ENABLED=true.
+  REFUND_ABUSE_ENABLED: process.env.REFUND_ABUSE_ENABLED != null
+    ? process.env.REFUND_ABUSE_ENABLED === 'true'
+    : process.env.NODE_ENV !== 'test',
+  REFUND_ABUSE: parseRefundAbuseRule(),
+
+  // ── Device fingerprinting & multi-account detection (FRAUD-3) ───────────────
+  // Persist (device, account) links at login/order; when one strong device id
+  // (the client's X-Device-Id) backs ≥ FLAG_ACCOUNTS distinct accounts within the
+  // lookback window, surface the linked cluster for review (flag-only, never
+  // blocks). On by default in dev/prod; auto-OFF under the test runner.
+  DEVICE_FINGERPRINT_ENABLED: process.env.DEVICE_FINGERPRINT_ENABLED != null
+    ? process.env.DEVICE_FINGERPRINT_ENABLED === 'true'
+    : process.env.NODE_ENV !== 'test',
+  DEVICE_LINK: {
+    lookbackDays: (() => { const v = parseInt(process.env.DEVICE_LINK_LOOKBACK_DAYS, 10); return Number.isFinite(v) && v > 0 ? v : 30; })(),
+    flagAccounts: (() => { const v = parseInt(process.env.DEVICE_LINK_FLAG_ACCOUNTS, 10); return Number.isFinite(v) && v >= 2 ? v : 3; })(),
+  },
+
+  // ── Geo-anomaly login detection (FRAUD-4) ───────────────────────────────────
+  // Score each login on geo/IP anomalies (impossible travel + new country) using
+  // the auth-audit history (AUTH-18), and alert + signal step-up on a hit. IP→geo
+  // is resolved OFFLINE (optional geoip-lite — no IP ever leaves the server, DPDP-
+  // safe); inert until that lib is installed. On by default in dev/prod; auto-OFF
+  // under the test runner.
+  //   • maxSpeedKmh — implied travel speed between consecutive logins above which
+  //     it's "impossible" (≈ jet cruise; >900 km/h is implausible ground travel).
+  //   • minKm       — minimum hop distance before impossible-travel applies, so
+  //     coarse IP-geo jitter within a region doesn't false-positive.
+  GEO_ANOMALY_ENABLED: process.env.GEO_ANOMALY_ENABLED != null
+    ? process.env.GEO_ANOMALY_ENABLED === 'true'
+    : process.env.NODE_ENV !== 'test',
+  GEO_ANOMALY: {
+    maxSpeedKmh:    (() => { const v = parseInt(process.env.GEO_ANOMALY_MAX_SPEED_KMH, 10); return Number.isFinite(v) && v > 0 ? v : 900; })(),
+    minKm:          (() => { const v = parseInt(process.env.GEO_ANOMALY_MIN_KM, 10); return Number.isFinite(v) && v >= 0 ? v : 500; })(),
+    lookbackDays:   (() => { const v = parseInt(process.env.GEO_ANOMALY_LOOKBACK_DAYS, 10); return Number.isFinite(v) && v > 0 ? v : 90; })(),
+    lookbackLogins: (() => { const v = parseInt(process.env.GEO_ANOMALY_LOOKBACK_LOGINS, 10); return Number.isFinite(v) && v > 0 ? v : 20; })(),
+  },
+
+  // ── Fake-review / fake-listing signals (FRAUD-5) ────────────────────────────
+  // Heuristics on new reviews/listings — burst (many in a short window),
+  // duplication (same normalized text re-posted), and author account age — score
+  // the item; at/above flagScore it routes to the moderation queue (REV-5) for
+  // human review (it is NOT auto-removed). Weights: burst/duplicate = 2,
+  // new_account = 1 (so a lone new account never flags; it only amplifies).
+  // On by default in dev/prod; auto-OFF under the test runner.
+  CONTENT_FRAUD_ENABLED: process.env.CONTENT_FRAUD_ENABLED != null
+    ? process.env.CONTENT_FRAUD_ENABLED === 'true'
+    : process.env.NODE_ENV !== 'test',
+  CONTENT_FRAUD: {
+    burstWindowMin:   (() => { const v = parseInt(process.env.CONTENT_FRAUD_BURST_WINDOW_MIN, 10); return Number.isFinite(v) && v > 0 ? v : 60; })(),
+    reviewBurstCount: (() => { const v = parseInt(process.env.CONTENT_FRAUD_REVIEW_BURST_COUNT, 10); return Number.isFinite(v) && v >= 2 ? v : 5; })(),
+    listingBurstCount:(() => { const v = parseInt(process.env.CONTENT_FRAUD_LISTING_BURST_COUNT, 10); return Number.isFinite(v) && v >= 2 ? v : 5; })(),
+    newAccountDays:   (() => { const v = parseInt(process.env.CONTENT_FRAUD_NEW_ACCOUNT_DAYS, 10); return Number.isFinite(v) && v >= 0 ? v : 3; })(),
+    flagScore:        (() => { const v = parseInt(process.env.CONTENT_FRAUD_FLAG_SCORE, 10); return Number.isFinite(v) && v > 0 ? v : 2; })(),
+  },
+
+  // ── Payment-amount tamper alarms (FRAUD-6) ──────────────────────────────────
+  // The checkout-confirm flow already BLOCKS when the paid/authorized amount (or
+  // a client-sent total, or the payment's owner) disagrees with the authoritative
+  // order amount (PAY-3 verification). This switch controls the ALARM raised on
+  // such a block — an audit row + a deduped FRAUD incident — so tamper attempts
+  // don't go unnoticed. On by default in dev/prod; auto-OFF under the test runner.
+  PAYMENT_TAMPER_ALARM_ENABLED: process.env.PAYMENT_TAMPER_ALARM_ENABLED != null
+    ? process.env.PAYMENT_TAMPER_ALARM_ENABLED === 'true'
+    : process.env.NODE_ENV !== 'test',
 
   IS_DEV: process.env.NODE_ENV !== 'production',
 };

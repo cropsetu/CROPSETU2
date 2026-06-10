@@ -75,6 +75,26 @@ export const AUDIT_ACTIONS = {
   // DB, so the actor/timestamp must be captured here to stay accountable.
   RESOURCE_ARCHIVE:    'RESOURCE_ARCHIVE',     // soft-delete/archive of a resource (listing, post, conversation, farm)
   RESOURCE_RESTORE:    'RESOURCE_RESTORE',     // un-archive/restore of a previously soft-deleted resource
+  // Fraud velocity (FRAUD-1) — a sensitive action (order/refund/login) crossed a
+  // per-user/device/IP velocity threshold. FLAG = allowed-but-recorded signal;
+  // BLOCK = the action was rejected (limit tier).
+  FRAUD_VELOCITY_FLAG:  'FRAUD_VELOCITY_FLAG',
+  FRAUD_VELOCITY_BLOCK: 'FRAUD_VELOCITY_BLOCK',
+  // Refund/chargeback abuse (FRAUD-2 / COMP-5) — a serial-abuse pattern over the
+  // user's order history. FLAG = allowed-but-recorded; RESTRICT = the account is
+  // blocked from new refunds/cancellations (restrict tier).
+  FRAUD_REFUND_ABUSE_FLAG:     'FRAUD_REFUND_ABUSE_FLAG',
+  FRAUD_REFUND_ABUSE_RESTRICT: 'FRAUD_REFUND_ABUSE_RESTRICT',
+  // Multi-account detection (FRAUD-3) — one device fingerprint linked to several
+  // distinct accounts; the cluster is surfaced for review (flag-only).
+  FRAUD_MULTI_ACCOUNT_FLAG: 'FRAUD_MULTI_ACCOUNT_FLAG',
+  // Fake content (FRAUD-5) — a review/listing was routed to the moderation queue
+  // by burst/duplication/account-age heuristics.
+  FRAUD_CONTENT_FLAG: 'FRAUD_CONTENT_FLAG',
+  // Payment-amount tamper (FRAUD-6) — the confirmed/paid amount (or a client-sent
+  // total, or the payment's owner) disagreed with the authoritative order amount
+  // at checkout confirmation; the confirmation was blocked.
+  FRAUD_PAYMENT_TAMPER: 'FRAUD_PAYMENT_TAMPER',
 };
 
 /**
@@ -142,8 +162,9 @@ export async function auditOrderStatusChange(req, orderId, oldStatus, newStatus)
 // Structured action names for authentication events (the "outcome" is encoded
 // in the name; an explicit `outcome` is also added to metadata for clarity).
 export const AUTH_ACTIONS = {
-  LOGIN:         'AUTH_LOGIN',
-  LOGIN_RISKY:   'AUTH_LOGIN_RISKY', // successful login flagged by risk signals (new device / IP)
+  LOGIN:            'AUTH_LOGIN',
+  LOGIN_RISKY:      'AUTH_LOGIN_RISKY', // successful login flagged by risk signals (new device / IP)
+  LOGIN_GEO_ANOMALY:'AUTH_LOGIN_GEO_ANOMALY', // login flagged by geo anomaly (impossible travel / new country) — FRAUD-4
   LOGOUT:        'AUTH_LOGOUT',
   OTP_FAILURE:   'AUTH_OTP_FAILURE',
   OTP_LOCKOUT:   'AUTH_OTP_LOCKOUT',
