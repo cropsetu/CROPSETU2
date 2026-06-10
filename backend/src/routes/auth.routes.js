@@ -23,6 +23,11 @@ import {
 import { generateCsrfToken } from '../middleware/csrf.js';
 import { auditAuthEvent, AUTH_ACTIONS, maskPhone } from '../services/audit.service.js';
 import { assessLoginRisk, notifyRiskyLogin } from '../services/loginRisk.service.js';
+import { recordVelocity, deviceFingerprint, VELOCITY_ACTIONS } from '../services/velocity.service.js';
+import { flagVelocity } from '../middleware/velocityLimit.js';
+import { recordDeviceLink, strongDeviceId } from '../services/deviceLink.service.js';
+import { assessLoginGeoAnomaly, flagGeoAnomaly } from '../services/geoAnomaly.service.js';
+import { resolveIpGeo } from '../services/geoIp.service.js';
 import { normalizeIndianMobile, indianMobileBody } from '../utils/phone.js';
 import { sendOtp, verifyOtp } from '../services/otp.service.js';
 import { otpPowGate } from '../services/proofOfWork.service.js';
@@ -183,8 +188,27 @@ router.post(
         ? { risky: false, signals: [], notify: false }
         : await assessLoginRisk({ userId: user.id, ip: req.ip, userAgent });
 
+      // ── Geo-anomaly login detection (FRAUD-4) ─────────────────────────────
+      // Score this login's location against the account's login history (this
+      // audit trail — AUTH-18). MUST run BEFORE writing this login's AUTH_LOGIN
+      // row so the "previous" login is genuinely the prior one. For a brand-new
+      // account there's no history — just resolve geo to seed the baseline. The
+      // resolved geo rides in the LOGIN audit metadata so the NEXT login can
+      // compare against it. Fails open (never blocks login). `stepUp` is surfaced
+      // to the client when the strong signal (impossible travel) fires.
+      let stepUp = false;
+      let geo = { anomalous: false, reasons: [], currGeo: null };
+      if (ENV.GEO_ANOMALY_ENABLED) {
+        try {
+          geo = result.isNewUser
+            ? { anomalous: false, reasons: [], currGeo: await resolveIpGeo(req.ip) }
+            : await assessLoginGeoAnomaly({ userId: user.id, ip: req.ip, at: Date.now() });
+        } catch { /* fail open — geo scoring must never break login */ }
+      }
+
       await auditAuthEvent(user.id, AUTH_ACTIONS.LOGIN, req.ip, {
         outcome: 'success', isNewUser: result.isNewUser, userAgent,
+        ...(geo.currGeo ? { geo: { country: geo.currGeo.country, lat: geo.currGeo.lat, lng: geo.currGeo.lng } } : {}),
       });
 
       if (risk.risky) {
@@ -196,10 +220,47 @@ router.post(
         if (risk.notify) notifyRiskyLogin(user.id, risk.signals).catch(() => {});
       }
 
+      if (geo.anomalous) {
+        // Forensic flag + owner alert + deduped FRAUD incident; request client
+        // step-up on the strong (impossible-travel) signal.
+        await auditAuthEvent(user.id, AUTH_ACTIONS.LOGIN_GEO_ANOMALY, req.ip, {
+          reasons: geo.reasons, impliedSpeedKmh: geo.impliedSpeedKmh, distanceKm: geo.distanceKm,
+          country: geo.currGeo?.country,
+        });
+        flagGeoAnomaly(user.id, geo, { ip: req.ip }).catch(() => {});
+        if (geo.action === 'step_up') stepUp = true;
+      }
+
+      // ── Login velocity (FRAUD-1) ──────────────────────────────────────────
+      // Flag-only: many successful logins to DIFFERENT accounts from one
+      // device/IP (account farming / credential reuse) surface for review. The
+      // OTP limits + lockout already cap per-number attempts, so we never block a
+      // user who proved the OTP. recordVelocity fails open; guard against any
+      // surprise so login can never break.
+      if (ENV.VELOCITY_ENABLED) {
+        try {
+          const velocity = await recordVelocity({
+            action: VELOCITY_ACTIONS.LOGIN,
+            identities: { user: user.id, device: deviceFingerprint(req), ip: req.ip },
+          });
+          if (velocity.flagged) flagVelocity(req, VELOCITY_ACTIONS.LOGIN, velocity, { actorId: user.id }).catch(() => {});
+        } catch { /* never break login on a fraud-scoring glitch */ }
+      }
+
+      // ── Device link / multi-account detection (FRAUD-3) ───────────────────
+      // Record this device→account observation; flags clusters where one device
+      // backs many accounts. Fire-and-forget, fail-safe (no-op without X-Device-Id).
+      if (ENV.DEVICE_FINGERPRINT_ENABLED) {
+        recordDeviceLink({ userId: user.id, fingerprint: strongDeviceId(req), ip: req.ip, context: 'login' })
+          .catch(() => {});
+      }
+
       // Don't leak the internal tokenVersion in the API response.
       const { tokenVersion: _tv, ...safeUser } = user;
 
       const body = { accessToken, isNewUser: result.isNewUser, user: safeUser };
+      // FRAUD-4: ask the client to step up (re-confirm) on a geo-anomalous login.
+      if (stepUp) body.stepUp = true;
       if (wantsCookieAuth(req)) {
         // Web: refresh token lives only in the httpOnly cookie, never in JS.
         setRefreshCookie(res, refreshToken);
