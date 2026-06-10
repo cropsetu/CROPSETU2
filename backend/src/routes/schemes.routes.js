@@ -13,14 +13,17 @@ import { authenticate } from '../middleware/auth.js';
 import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { callClaude } from '../services/claude.service.js';
+import { BoundedMap } from '../utils/boundedMap.js';
 import prisma from '../config/db.js';
 
 const router = Router();
 router.param('id', uuidParamGuard); // reject non-UUID :id (scheme) with 400 before Prisma
 
 // ── Per-user cooldown for AI scheme Q&A (max 1 every 10 s) ───────────────────
-const lastSchemeAsk = new Map();
+// Bounded (LRU + TTL) so the per-user map can't leak as new users hit it; an
+// evicted entry only forfeits one cooldown window, which is harmless.
 const SCHEME_ASK_GAP_MS = 10_000;
+const lastSchemeAsk = new BoundedMap({ maxSize: 20_000, ttlMs: SCHEME_ASK_GAP_MS });
 
 // ── GET /api/v1/schemes ───────────────────────────────────────────────────────
 // Query params: type=central|state, state=Maharashtra, benefitType=cash|subsidy|etc.

@@ -2,6 +2,12 @@
  * Push notification helper — Expo push delivery + DB Notification row.
  *
  * sendPushToUser({ userId, type, title, body, data })
+ *   Enqueues delivery onto the notifications queue and returns immediately, so
+ *   callers (including request handlers) never wait on the DB insert + Expo HTTP
+ *   round-trip. A worker runs deliverUserNotification() with retries. If the
+ *   queue is unavailable it falls back to delivering inline (unchanged behaviour).
+ *
+ * deliverUserNotification({ userId, type, title, body, data })  — the actual work:
  *   1. Inserts a row in the Notification table (in-app inbox / unread badge).
  *   2. Looks up all PushToken rows for the user and sends an Expo push.
  *
@@ -10,10 +16,19 @@
 import { Expo } from 'expo-server-sdk';
 import prisma from '../config/db.js';
 import logger from '../utils/logger.js';
+import { enqueue, QUEUE_NAMES } from '../queue/jobQueue.js';
 
 const expo = new Expo();
 
-export async function sendPushToUser({ userId, type, title, body, data = {} }) {
+/**
+ * Offload notification delivery to the queue (heavy-work offload, SCALE).
+ * Same signature as before so existing callers need no change.
+ */
+export async function sendPushToUser(payload) {
+  return enqueue(QUEUE_NAMES.NOTIFICATIONS, 'user-notification', payload);
+}
+
+export async function deliverUserNotification({ userId, type, title, body, data = {} }) {
   // 1. Persist in-app notification row (fire-and-forget but awaited so caller
   //    can still treat the inbox as durable)
   prisma.notification.create({

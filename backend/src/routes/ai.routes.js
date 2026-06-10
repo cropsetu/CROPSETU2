@@ -175,14 +175,19 @@ router.param('id', uuidParamGuard);
 router.param('sessionId', uuidParamGuard);
 
 // ── Per-user caches ───────────────────────────────────────────────────────────
-const alertCache   = new Map();
-const ALERT_TTL_MS = 30 * 60 * 1000;
+const alertCache       = new Map();
+const ALERT_TTL_MS     = 30 * 60 * 1000;
+const ALERT_MAX_ENTRIES = 50_000; // hard cap so a burst of unique users can't OOM us
 function alertCacheGet(uid) {
   const e = alertCache.get(uid);
   if (!e || Date.now() > e.expiresAt) { alertCache.delete(uid); return null; }
   return e.data;
 }
 function alertCacheSet(uid, data) {
+  if (!alertCache.has(uid) && alertCache.size >= ALERT_MAX_ENTRIES) {
+    const oldest = alertCache.keys().next().value; // FIFO eviction; periodic sweep handles TTL
+    alertCache.delete(oldest);
+  }
   alertCache.set(uid, { data, expiresAt: Date.now() + ALERT_TTL_MS });
 }
 

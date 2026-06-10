@@ -69,12 +69,20 @@ export function leadingZeroBits(hex) {
 }
 
 // ── Single-use marker ──────────────────────────────────────────────────────────
+// In-memory fallback for when Redis is down. Hard-bounded so a high solve rate
+// can't grow it without limit: prune expired first, then FIFO-evict the oldest
+// if still over cap (expired-only pruning leaks when entries are all live).
 const _usedMem = new Map(); // challenge -> expiry ms
+const MEM_MAX_ENTRIES = 10000;
 
 function memMarkUsed(challenge) {
   const now = Date.now();
-  if (_usedMem.size > 10000) {
+  if (_usedMem.size >= MEM_MAX_ENTRIES) {
     for (const [k, exp] of _usedMem) if (exp <= now) _usedMem.delete(k);
+    while (_usedMem.size >= MEM_MAX_ENTRIES) {
+      const oldest = _usedMem.keys().next().value; // FIFO eviction
+      _usedMem.delete(oldest);
+    }
   }
   if ((_usedMem.get(challenge) || 0) > now) return false; // already used
   _usedMem.set(challenge, now + _config.ttlMs);
@@ -128,16 +136,24 @@ export async function verifySolution(sol, scope) {
 }
 
 // ── Per-IP send counter (sliding window) used to decide "suspicion" ─────────────
+// In-memory fallback (Redis preferred). Bounded two ways so a flood of unique
+// IPs can't leak: keys whose window has fully aged out are dropped, and the key
+// count is FIFO-capped.
 let _seq = 0;
 const _hitsMem = new Map(); // key -> sorted timestamps
 
 function memPeek(key, now) {
   const cutoff = now - _config.windowMs;
   const hits = (_hitsMem.get(key) || []).filter((ts) => ts > cutoff);
-  _hitsMem.set(key, hits);
+  if (hits.length === 0) _hitsMem.delete(key); // reap idle IPs instead of leaking empties
+  else _hitsMem.set(key, hits);
   return hits.length;
 }
 function memRecord(key, now) {
+  if (!_hitsMem.has(key) && _hitsMem.size >= MEM_MAX_ENTRIES) {
+    const oldest = _hitsMem.keys().next().value; // FIFO eviction under sustained load
+    _hitsMem.delete(oldest);
+  }
   const hits = _hitsMem.get(key) || [];
   hits.push(now);
   _hitsMem.set(key, hits);

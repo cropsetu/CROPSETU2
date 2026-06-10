@@ -19,7 +19,6 @@ import base64
 import logging
 from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import JSONResponse
-from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from agents.registry import normalize_tier
@@ -27,6 +26,7 @@ from jobs.queue import enqueue_diagnosis, get_job_status, lookup_job_for_key, bi
 from security.auth import verify_signed_request
 from security.spend import check_under_cap
 from services import idempotency
+from rate_limit import make_limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Scan"])
@@ -80,7 +80,7 @@ def _scan_key(request: Request) -> str:
     return f"u:{uid}" if uid else f"ip:{get_remote_address(request)}"
 
 
-_scan_limiter = Limiter(key_func=_scan_key)
+_scan_limiter = make_limiter(_scan_key)
 
 
 @router.post(

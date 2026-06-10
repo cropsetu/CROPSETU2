@@ -16,6 +16,7 @@
 import crypto from 'crypto';
 import { ENV } from '../config/env.js';
 import logger from './logger.js';
+import { fastapiBreaker, httpFailure } from '../resilience/breakers.js';
 
 const AI_BACKEND     = ENV.AI_BACKEND_URL || 'http://localhost:8001';
 const SHARED_SECRET  = ENV.AI_SHARED_SECRET || '';
@@ -55,46 +56,52 @@ export async function postSignedJSON(path, body, options = {}) {
   const rawBody = Buffer.from(JSON.stringify(body || {}), 'utf-8');
   const { ts, signature } = _sign('POST', path, rawBody);
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const resp = await fetch(`${AI_BACKEND}${path}`, {
-      method:  'POST',
-      headers: {
-        'Content-Type':    'application/json',
-        'X-Sig-Timestamp': ts,
-        'X-Sig-Signature': signature,
-        ...(userId         ? { 'x-user-id':       userId }         : {}),
-        ...(requestId      ? { 'x-request-id':    requestId }      : {}),
-        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
-      },
-      body:   rawBody,
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
+  // Circuit breaker: when FastAPI is repeatedly failing, short-circuit instead of
+  // queueing more 90s calls behind a dead dependency. 4xx (e.g. 402 spend-cap)
+  // are healthy-but-rejected and don't trip it (see httpFailure). Breaker timeout
+  // is a backstop above the AbortController below.
+  return fastapiBreaker().execute(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(`${AI_BACKEND}${path}`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':    'application/json',
+          'X-Sig-Timestamp': ts,
+          'X-Sig-Signature': signature,
+          ...(userId         ? { 'x-user-id':       userId }         : {}),
+          ...(requestId      ? { 'x-request-id':    requestId }      : {}),
+          ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+        },
+        body:   rawBody,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
 
-    if (!resp.ok) {
-      const errBody = await resp.json().catch(() => ({ detail: `FastAPI ${resp.status}` }));
-      // Surface FastAPI's structured 402 detail (cap_usd, resets_at_utc, etc.)
-      const err = new Error(
-        typeof errBody.detail === 'string'
-          ? errBody.detail
-          : (errBody.detail?.code || `AI backend returned ${resp.status}`)
-      );
-      err.status = resp.status;
-      err.detail = errBody.detail;
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({ detail: `FastAPI ${resp.status}` }));
+        // Surface FastAPI's structured 402 detail (cap_usd, resets_at_utc, etc.)
+        const err = new Error(
+          typeof errBody.detail === 'string'
+            ? errBody.detail
+            : (errBody.detail?.code || `AI backend returned ${resp.status}`)
+        );
+        err.status = resp.status;
+        err.detail = errBody.detail;
+        throw err;
+      }
+      return await resp.json();
+    } catch (err) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') {
+        const timeoutErr = new Error(`FastAPI ${path} timed out after ${timeoutMs}ms`);
+        timeoutErr.status = 504;
+        throw timeoutErr;
+      }
       throw err;
     }
-    return await resp.json();
-  } catch (err) {
-    clearTimeout(timer);
-    if (err.name === 'AbortError') {
-      const timeoutErr = new Error(`FastAPI ${path} timed out after ${timeoutMs}ms`);
-      timeoutErr.status = 504;
-      throw timeoutErr;
-    }
-    throw err;
-  }
+  }, { isFailure: httpFailure, timeoutMs: timeoutMs + 5_000 });
 }
 
 /**
@@ -109,41 +116,43 @@ export async function getSigned(path, options = {}) {
 
   const { ts, signature } = _sign('GET', path, Buffer.alloc(0));
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const resp = await fetch(`${AI_BACKEND}${path}`, {
-      method:  'GET',
-      headers: {
-        'X-Sig-Timestamp': ts,
-        'X-Sig-Signature': signature,
-        ...(userId    ? { 'x-user-id':    userId }    : {}),
-        ...(requestId ? { 'x-request-id': requestId } : {}),
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!resp.ok) {
-      const errBody = await resp.json().catch(() => ({ detail: `FastAPI ${resp.status}` }));
-      const err = new Error(
-        typeof errBody.detail === 'string'
-          ? errBody.detail
-          : (errBody.detail?.code || `AI backend returned ${resp.status}`)
-      );
-      err.status = resp.status;
-      err.detail = errBody.detail;
+  return fastapiBreaker().execute(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(`${AI_BACKEND}${path}`, {
+        method:  'GET',
+        headers: {
+          'X-Sig-Timestamp': ts,
+          'X-Sig-Signature': signature,
+          ...(userId    ? { 'x-user-id':    userId }    : {}),
+          ...(requestId ? { 'x-request-id': requestId } : {}),
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({ detail: `FastAPI ${resp.status}` }));
+        const err = new Error(
+          typeof errBody.detail === 'string'
+            ? errBody.detail
+            : (errBody.detail?.code || `AI backend returned ${resp.status}`)
+        );
+        err.status = resp.status;
+        err.detail = errBody.detail;
+        throw err;
+      }
+      return await resp.json();
+    } catch (err) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') {
+        const timeoutErr = new Error(`FastAPI ${path} timed out after ${timeoutMs}ms`);
+        timeoutErr.status = 504;
+        throw timeoutErr;
+      }
       throw err;
     }
-    return await resp.json();
-  } catch (err) {
-    clearTimeout(timer);
-    if (err.name === 'AbortError') {
-      const timeoutErr = new Error(`FastAPI ${path} timed out after ${timeoutMs}ms`);
-      timeoutErr.status = 504;
-      throw timeoutErr;
-    }
-    throw err;
-  }
+  }, { isFailure: httpFailure, timeoutMs: timeoutMs + 5_000 });
 }
 
 /**

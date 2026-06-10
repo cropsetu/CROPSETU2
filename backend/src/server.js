@@ -14,6 +14,10 @@ import { seedDefaultFlags, initFlagInvalidationSubscriber, stopFlagInvalidationS
 import { warmAllCaches } from './services/cacheWarmer.service.js';
 import { checkCacheAlerts } from './utils/cacheMetrics.js';
 import { runRetentionSweep } from './services/retention.service.js';
+import { withLeaderLock } from './utils/leaderLock.js';
+import { startWorkers, stopWorkers } from './queue/worker.js';
+import { closeQueues } from './queue/jobQueue.js';
+import { closeProducerConnection } from './queue/connection.js';
 import logger from './utils/logger.js';
 
 // ── Startup config validation ─────────────────────────────────────────────────
@@ -32,6 +36,10 @@ for (const [key, feature] of OPTIONAL_KEYS) {
 }
 
 const httpServer = http.createServer(app);
+
+// In-process BullMQ workers (started after listen; closed on shutdown). Empty
+// when QUEUE_INPROCESS_WORKER=false — jobs are then handled by `npm run worker`.
+let inProcessWorkers = [];
 
 // ── HTTP server timeouts ──────────────────────────────────────────────────────
 // Default Node has no timeout (0) which lets Slowloris and stuck downstreams
@@ -111,6 +119,14 @@ async function start() {
       logger.info('[Server] Environment: %s', ENV.NODE_ENV);
     });
 
+    // ── Job queue workers (in-process) ──────────────────────────────────────
+    // Process queued heavy work (notification delivery, etc.) in this process so
+    // a single-service deploy needs no extra infra. Disable with
+    // QUEUE_INPROCESS_WORKER=false and run `npm run worker` to scale separately.
+    if (ENV.QUEUE_ENABLED && ENV.QUEUE_INPROCESS_WORKER) {
+      inProcessWorkers = startWorkers();
+    }
+
     // ── Cache warming ───────────────────────────────────────────────────────
     // Preload the hottest mandi-price keys so the first post-deploy user hits a
     // warm cache instead of paying the cold Groq latency. Fired right after
@@ -140,39 +156,45 @@ async function start() {
     }
 
     // ── Startup auto-seed: if mandi_prices table is empty, seed top combos ──
+    // Leader-locked so that when several instances boot against an empty DB only
+    // ONE fires the seed sync triggers (others would each fan out 50 requests to
+    // FastAPI on the same empty table). Short TTL — this is a one-shot boot job.
     const mandiCount = await prisma.mandiPrice.count().catch(() => 0);
     if (mandiCount === 0) {
-      logger.info('[AgriPredict] DB empty — seeding top commodity/state combos at startup');
-      const SEED_COMBOS = [
-        ...['Tomato','Onion','Potato'].flatMap(c =>
-          ['Maharashtra','Madhya Pradesh','Karnataka','Andhra Pradesh','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
-        ),
-        ...['Wheat','Bajra'].flatMap(c =>
-          ['Punjab','Haryana','Uttar Pradesh','Rajasthan','Madhya Pradesh'].map(s => ({ commodity: c, state: s }))
-        ),
-        ...['Soyabean','Cotton'].flatMap(c =>
-          ['Maharashtra','Madhya Pradesh','Gujarat','Rajasthan','Telangana'].map(s => ({ commodity: c, state: s }))
-        ),
-        ...['Rice'].flatMap(c =>
-          ['West Bengal','Andhra Pradesh','Tamil Nadu','Punjab','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
-        ),
-        ...['Maize','Gram','Arhar/Tur'].flatMap(c =>
-          ['Karnataka','Madhya Pradesh','Maharashtra','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
-        ),
-      ];
-      // Fire in parallel batches of 10 (avoid overwhelming FastAPI with 50+ concurrent requests)
-      const BATCH_SIZE = 10;
-      for (let i = 0; i < SEED_COMBOS.length; i += BATCH_SIZE) {
-        const batch = SEED_COMBOS.slice(i, i + BATCH_SIZE);
-        await Promise.allSettled(batch.map(({ commodity, state }) => triggerMandiSync(commodity, state, 5)));
-      }
-      logger.info('[AgriPredict] Startup seed: %d sync jobs queued', SEED_COMBOS.length);
+      await withLeaderLock('mandi-startup-seed', async () => {
+        logger.info('[AgriPredict] DB empty — seeding top commodity/state combos at startup');
+        const SEED_COMBOS = [
+          ...['Tomato','Onion','Potato'].flatMap(c =>
+            ['Maharashtra','Madhya Pradesh','Karnataka','Andhra Pradesh','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
+          ),
+          ...['Wheat','Bajra'].flatMap(c =>
+            ['Punjab','Haryana','Uttar Pradesh','Rajasthan','Madhya Pradesh'].map(s => ({ commodity: c, state: s }))
+          ),
+          ...['Soyabean','Cotton'].flatMap(c =>
+            ['Maharashtra','Madhya Pradesh','Gujarat','Rajasthan','Telangana'].map(s => ({ commodity: c, state: s }))
+          ),
+          ...['Rice'].flatMap(c =>
+            ['West Bengal','Andhra Pradesh','Tamil Nadu','Punjab','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
+          ),
+          ...['Maize','Gram','Arhar/Tur'].flatMap(c =>
+            ['Karnataka','Madhya Pradesh','Maharashtra','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
+          ),
+        ];
+        // Fire in parallel batches of 10 (avoid overwhelming FastAPI with 50+ concurrent requests)
+        const BATCH_SIZE = 10;
+        for (let i = 0; i < SEED_COMBOS.length; i += BATCH_SIZE) {
+          const batch = SEED_COMBOS.slice(i, i + BATCH_SIZE);
+          await Promise.allSettled(batch.map(({ commodity, state }) => triggerMandiSync(commodity, state, 5)));
+        }
+        logger.info('[AgriPredict] Startup seed: %d sync jobs queued', SEED_COMBOS.length);
+      }, { ttlMs: 10 * 60 * 1000 });
     } else {
       logger.info('[AgriPredict] DB has %d mandi price records — skipping startup seed', mandiCount);
     }
 
-    // Daily at 6:00 AM IST (00:30 UTC) — refresh all 15 agricultural states × top 5 crops
-    cron.schedule('30 0 * * *', async () => {
+    // Daily at 6:00 AM IST (00:30 UTC) — refresh all 15 agricultural states × top 5 crops.
+    // Leader-locked: only one instance fans the ~75 sync triggers out to FastAPI per day.
+    cron.schedule('30 0 * * *', () => withLeaderLock('mandi-daily-sync', async () => {
       logger.info('[AgriPredict] Daily sync started → FastAPI');
       const DAILY_COMBOS = [
         ...['Tomato','Onion','Potato','Wheat','Soyabean'].flatMap(c =>
@@ -188,16 +210,17 @@ async function start() {
         await Promise.allSettled(batch.map(({ commodity, state }) => triggerMandiSync(commodity, state, 2)));
       }
       logger.info('[AgriPredict] Daily sync: %d triggers sent to FastAPI', DAILY_COMBOS.length);
-    });
+    }));
 
-    // 1st of every month at 1:00 AM UTC — purge expired prediction caches
-    cron.schedule('0 1 1 * *', async () => {
+    // 1st of every month at 1:00 AM UTC — purge expired prediction caches.
+    // Leader-locked so a single instance issues the DELETE (others would race the same rows).
+    cron.schedule('0 1 1 * *', () => withLeaderLock('prediction-cache-purge', async () => {
       logger.info('[AgriPredict] Monthly cache expiry check');
       const expired = await prisma.predictionCache.deleteMany({
         where: { expiresAt: { lt: new Date() } },
       });
       logger.info('[AgriPredict] Deleted %d expired prediction caches', expired.count);
-    });
+    }));
 
     // ── Cache observability alerting ────────────────────────────────────────
     // Every 5 min, evaluate the windowed cache hit rate + Redis memory and emit a
@@ -217,14 +240,16 @@ async function start() {
     // Daily at 2:30 AM UTC — purge transient/log data past its retention window
     // (OTP sessions, expired tokens, old notifications, voice transcripts, AI
     // usage logs, aged audit logs). See constants/retention.js for the policy.
-    cron.schedule('30 2 * * *', async () => {
+    // Leader-locked so a single instance runs the cross-table purge per day
+    // (the deletes are idempotent, but coordinating avoids N instances racing them).
+    cron.schedule('30 2 * * *', () => withLeaderLock('retention-sweep', async () => {
       try {
         const purged = await runRetentionSweep();
         logger.info({ purged }, '[Retention] Daily sweep complete');
       } catch (err) {
         logger.error({ err }, '[Retention] Daily sweep failed');
       }
-    });
+    }));
 
     httpServer.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
@@ -251,6 +276,10 @@ async function shutdown(signal) {
   }, 10_000).unref();
 
   httpServer.close(async () => {
+    // Drain in-flight jobs and close queue connections before the shared client.
+    await stopWorkers(inProcessWorkers);
+    await closeQueues();
+    await closeProducerConnection();
     beginRedisShutdown(); // suppress the close/end outage alert for this intentional quit
     await Promise.allSettled([
       stopFlagInvalidationSubscriber(),

@@ -28,6 +28,14 @@
  */
 import { verifyAccessToken } from '../utils/jwt.js';
 import prisma from '../config/db.js';
+import { ENV } from '../config/env.js';
+import logger from '../utils/logger.js';
+import { createConnectionLimiter, onLimited } from './socketRateLimit.js';
+import { ConnectionRegistry } from './connectionLimiter.js';
+
+// Per-user socket cap (SCALE-5). One registry per process; entries are dropped
+// as users' last sockets disconnect, so it stays bounded.
+const connections = new ConnectionRegistry({ maxPerUser: ENV.SOCKET_MAX_CONN_PER_USER });
 
 export function registerChatSocket(io) {
   // ── Auth middleware ─────────────────────────────────────────────────────────
@@ -46,6 +54,22 @@ export function registerChatSocket(io) {
   io.on('connection', async (socket) => {
     const userId = socket.userId;
 
+    // Connection cap (SCALE-5): refuse a new socket once this user is at the
+    // per-instance limit, BEFORE joining rooms / marking online / wiring events.
+    // The socket was not tracked, so disconnecting it leaves no residue.
+    if (!connections.tryAdd(userId, socket.id)) {
+      logger.warn('[Socket] user %s at connection cap (%d) — refusing socket %s',
+        userId, connections.maxPerUser, socket.id);
+      socket.emit('error', { message: 'Connection limit reached. Close another session and try again.' });
+      socket.disconnect(true);
+      return;
+    }
+
+    // Per-connection rate limiting (SCALE-9): throttle burst emitters so a single
+    // client can't flood DB writes / broadcast fan-out. `allow(category)` returns
+    // false once this socket exceeds its token-bucket budget for that category.
+    const allow = createConnectionLimiter();
+
     // Auto-join personal room for DMs
     socket.join(`user:${userId}`);
 
@@ -58,7 +82,7 @@ export function registerChatSocket(io) {
     io.emit('user_online', { userId });
 
     // ── Animal Trade Chat ──────────────────────────────────────────────────────
-    socket.on('join_chat', async ({ chatId }) => {
+    onLimited(socket, allow, 'join_chat', 'join', async ({ chatId }) => {
       if (!chatId) return;
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, OR: [{ sellerId: userId }, { buyerId: userId }] },
@@ -71,7 +95,7 @@ export function registerChatSocket(io) {
       socket.emit('chat_history', messages);
     });
 
-    socket.on('send_message', async ({ chatId, text }) => {
+    onLimited(socket, allow, 'send_message', 'message', async ({ chatId, text }) => {
       if (!chatId || !text?.trim()) return;
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, OR: [{ sellerId: userId }, { buyerId: userId }] },
@@ -91,7 +115,7 @@ export function registerChatSocket(io) {
       io.to(`user:${chat.sellerId}`).emit('new_message', payload);
     });
 
-    socket.on('mark_read', async ({ chatId }) => {
+    onLimited(socket, allow, 'mark_read', 'read', async ({ chatId }) => {
       if (!chatId) return;
       await prisma.chatMessage.updateMany({
         where: { chatId, readAt: null, NOT: { senderId: userId } },
@@ -101,7 +125,7 @@ export function registerChatSocket(io) {
     });
 
     // ── Group Chat ──────────────────────────────────────────────────────────────
-    socket.on('join_group', async ({ groupId }) => {
+    onLimited(socket, allow, 'join_group', 'join', async ({ groupId }) => {
       if (!groupId) return;
       const member = await prisma.groupMember.findUnique({
         where: { groupId_userId: { groupId, userId } },
@@ -117,11 +141,11 @@ export function registerChatSocket(io) {
       socket.emit('group_history', messages.reverse());
     });
 
-    socket.on('leave_group_room', ({ groupId }) => {
+    onLimited(socket, allow, 'leave_group_room', 'join', ({ groupId }) => {
       socket.leave(`group:${groupId}`);
     });
 
-    socket.on('group_message', async ({ groupId, text, imageUrl }) => {
+    onLimited(socket, allow, 'group_message', 'message', async ({ groupId, text, imageUrl }) => {
       if (!groupId || (!text?.trim() && !imageUrl)) return;
       const member = await prisma.groupMember.findUnique({
         where: { groupId_userId: { groupId, userId } },
@@ -146,13 +170,13 @@ export function registerChatSocket(io) {
       io.to(`group:${groupId}`).emit('group_new_message', { ...message, sender });
     });
 
-    socket.on('group_typing', ({ groupId, isTyping }) => {
+    onLimited(socket, allow, 'group_typing', 'typing', ({ groupId, isTyping }) => {
       if (!groupId) return;
       socket.to(`group:${groupId}`).emit('group_typing_update', { groupId, userId, isTyping });
     });
 
     // ── Direct Messages ─────────────────────────────────────────────────────────
-    socket.on('dm_send', async ({ receiverId, text, imageUrl }) => {
+    onLimited(socket, allow, 'dm_send', 'message', async ({ receiverId, text, imageUrl }) => {
       if (!receiverId || (!text?.trim() && !imageUrl)) return;
       if (receiverId === userId) return;
 
@@ -169,12 +193,12 @@ export function registerChatSocket(io) {
       socket.emit('dm_new_message', { ...message, sender });
     });
 
-    socket.on('dm_typing', ({ receiverId, isTyping }) => {
+    onLimited(socket, allow, 'dm_typing', 'typing', ({ receiverId, isTyping }) => {
       if (!receiverId) return;
       io.to(`user:${receiverId}`).emit('dm_typing_update', { senderId: userId, isTyping });
     });
 
-    socket.on('dm_read', async ({ senderId: msgSenderId }) => {
+    onLimited(socket, allow, 'dm_read', 'read', async ({ senderId: msgSenderId }) => {
       if (!msgSenderId) return;
       await prisma.directMessage.updateMany({
         where: { senderId: msgSenderId, receiverId: userId, readAt: null },
@@ -185,11 +209,17 @@ export function registerChatSocket(io) {
 
     // ── Disconnect ──────────────────────────────────────────────────────────────
     socket.on('disconnect', async () => {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { isOnline: false, lastSeenAt: new Date() },
-      }).catch(() => {});
-      io.emit('user_offline', { userId, lastSeenAt: new Date() });
+      // Always release the tracked handle first so the per-user count can't drift.
+      connections.remove(userId, socket.id);
+      // Only flip presence to offline once the user's LAST socket is gone —
+      // otherwise closing one of several tabs would mark them offline everywhere.
+      if (connections.countFor(userId) === 0) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { isOnline: false, lastSeenAt: new Date() },
+        }).catch(() => {});
+        io.emit('user_offline', { userId, lastSeenAt: new Date() });
+      }
     });
   });
 }

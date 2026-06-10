@@ -83,6 +83,17 @@ MAX_DIAGNOSIS_RETRIES = 3
 DATA_GOV_API_KEY: str = os.environ.get("DATA_GOV_API_KEY", "")
 DATABASE_URL:     str = os.environ.get("DATABASE_URL", "")
 
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+# SlowAPI defaults to per-process in-memory counters, so in a multi-instance
+# deployment each instance keeps its own bucket and the effective limit is N× too
+# loose. Point the limiter at Redis so the sliding window is SHARED across the
+# fleet — the limit is then actually enforced in production at scale. Defaults to
+# REDIS_URL when set (prod), else empty → in-memory (dev/test, unchanged).
+RATE_LIMIT_STORAGE_URI: str = (
+    os.environ.get("RATE_LIMIT_STORAGE_URI")
+    or os.environ.get("REDIS_URL", "")
+).strip()
+
 # ── Service ───────────────────────────────────────────────────────────────────
 API_HOST = os.environ.get("CROPGUARD_HOST", "0.0.0.0")
 API_PORT = int(os.environ.get("CROPGUARD_PORT", "8001"))
