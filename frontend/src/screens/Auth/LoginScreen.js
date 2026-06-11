@@ -1,88 +1,103 @@
-import React, { useState, useRef, useEffect } from 'react';
+// ─────────────────────────────────────────────────────────────────────────────
+// LoginScreen · "KhetAI-style" phone + OTP auth (rebranded → CropSetu)
+// ─────────────────────────────────────────────────────────────────────────────
+// A faithful rebuild of the supplied mock: a soft field-green canvas with a
+// decorative "neural leaf", an AI-verification pill, a 2-step progress bar,
+// serif-italic display headings, bilingual (English + हिन्दी) microcopy, a white
+// phone pill with a +91 country chip, six circular OTP cells, and a single green
+// CTA. All of the real auth wiring (send/verify/resend, cooldown, dev-OTP
+// autofill, friendly errors) is preserved from the previous screen.
+//
+// To rename the app, change APP_NAME below — it is the only brand string.
+// ─────────────────────────────────────────────────────────────────────────────
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Image,
+  Pressable,
   StyleSheet,
-  SafeAreaView,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Image,
-  Animated,
   Modal,
   ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
-import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Sparkles,
+  Phone,
+  MessageSquare,
+  ShieldCheck,
+  Wifi,
+  Check,
+} from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
-import { useLanguage } from '../../context/LanguageContext';
 import { OTP_RESEND_COOLDOWN_SEC } from '../../constants/config';
 import { isValidPhone, isValidOtp } from '../../utils/validators';
 import { s, vs, fs, ms } from '../../utils/responsive';
+// Shared brand surface (palette, serif face, neural leaf, pill) — one source of
+// truth for the login + account-profile screens. See components/ui/brandKit.js.
+import { BRAND as C, SERIF, NeuralLeaf, BrandPill as Pill } from '../../components/ui/brandKit';
+
+// ── Brand (change these two lines to rename / re-logo the app) ───────────────
+const APP_NAME = 'CropSetu';
+const LOGO = require('../../../assets/cropsetu-logo.png');
 
 const STEPS = { PHONE: 'phone', OTP: 'otp' };
-const APP_LOGO = require('../../../assets/icon.png');
 
-// Deep crop-green field — dominant 60% backdrop the light card floats on.
-const FIELD_GRADIENT = [COLORS.primary, COLORS.primaryDark2, COLORS.greenDeep];
-
+// ─────────────────────────────────────────────────────────────────────────────
 export default function LoginScreen() {
   const { sendOtp, verifyOtp } = useAuth();
-  const { t } = useLanguage();
 
-  const [step,    setStep]    = useState(STEPS.PHONE);
-  const [phone,   setPhone]   = useState('');
-  const [otp,     setOtp]     = useState('');
+  const [step, setStep] = useState(STEPS.PHONE);
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [resendIn, setResendIn] = useState(0);
-  const [legal,    setLegal]    = useState(null);   // 'terms' | 'privacy' | null
-  const [focused,  setFocused]  = useState(null);    // 'phone' | 'otp' | null
+  const [legal, setLegal] = useState(null); // 'terms' | 'privacy' | null
 
-  const otpRef    = useRef(null);
-  const fadeAnim  = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
+  const otpRef = useRef(null);
 
-  // ── Step transition animation ─────────────────────────────────────────────
+  // Focus the OTP field shortly after the step transition settles.
   useEffect(() => {
-    fadeAnim.setValue(0);
-    slideAnim.setValue(20);
-    Animated.parallel([
-      Animated.timing(fadeAnim,  { toValue: 1, duration: 280, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 280, useNativeDriver: true }),
-    ]).start();
-    if (step === STEPS.OTP) {
-      const t = setTimeout(() => otpRef.current?.focus(), 320);
-      return () => clearTimeout(t);
-    }
+    if (step !== STEPS.OTP) return undefined;
+    const id = setTimeout(() => otpRef.current?.focus(), 320);
+    return () => clearTimeout(id);
   }, [step]);
 
-  // ── Resend countdown ──────────────────────────────────────────────────────
+  // Resend cooldown ticker.
   useEffect(() => {
-    if (resendIn <= 0) return;
+    if (resendIn <= 0) return undefined;
     const id = setInterval(() => setResendIn((n) => Math.max(0, n - 1)), 1000);
     return () => clearInterval(id);
   }, [resendIn]);
 
-  // Clear inline error when the user edits an input.
-  useEffect(() => { if (errorMsg) setErrorMsg(null); }, [phone, otp]);
+  // Forgiving: clear any inline error the moment the user edits a field.
+  useEffect(() => { if (errorMsg) setErrorMsg(null); }, [phone, otp]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Step 1: send OTP ──────────────────────────────────────────────────────
-  async function handleSendOtp({ isResend = false } = {}) {
-    // Client-side rate-limit guard: never fire while a request is in flight or
-    // during the resend cooldown. Enforcing it HERE (not just on the button's
-    // disabled prop) covers every entry point — the Send button, the Resend
-    // link, and the keyboard "done" (onSubmitEditing) — so the cooldown can't be
-    // bypassed by navigating back to the phone step or pressing return. The
-    // server limits remain authoritative (AUTH-1); this just curbs local spam.
+  // mm:ss for the resend countdown.
+  const clock = useMemo(() => {
+    const m = Math.floor(resendIn / 60);
+    const sec = String(resendIn % 60).padStart(2, '0');
+    return `${m}:${sec}`;
+  }, [resendIn]);
+
+  // ── Step 1 → send OTP ──────────────────────────────────────────────────────
+  const handleSendOtp = useCallback(async ({ isResend = false } = {}) => {
+    // Local rate-limit guard — also enforced server-side. Covers the Send button,
+    // the Resend link, and the keyboard "done" path so the cooldown can't be
+    // bypassed by navigating back to the phone step.
     if (loading || resendIn > 0) return;
 
     if (!isValidPhone(phone)) {
-      setErrorMsg(t('login.invalidPhoneMsg'));
+      setErrorMsg('Please enter a valid 10-digit mobile number.');
       return;
     }
     setLoading(true);
@@ -91,724 +106,735 @@ export default function LoginScreen() {
       const result = await sendOtp(phone);
       if (!isResend) setStep(STEPS.OTP);
       setResendIn(OTP_RESEND_COOLDOWN_SEC);
-      // Demo mode: when MSG91 is not configured the server returns the OTP so
-      // the demo user can sign in without an SMS. Auto-fill it for them.
+      // Demo mode: when SMS is not configured the server echoes the OTP so the
+      // demo user can sign in without a real text. Auto-fill it for them.
       const devOtp = result?.data?.devOtp ?? result?.devOtp;
       if (devOtp) setOtp(devOtp);
     } catch (err) {
-      // If the server rate-limited the request, honour its Retry-After so the
-      // local cooldown matches the authoritative server window.
       const retryAfter = Number(err?.response?.headers?.['retry-after']);
       if (Number.isFinite(retryAfter) && retryAfter > 0) {
-        setResendIn(Math.min(Math.ceil(retryAfter), 300)); // cap to a sane max
+        setResendIn(Math.min(Math.ceil(retryAfter), 300));
       }
-      setErrorMsg(err.userMessage || err.response?.data?.error?.message || t('login.otpError'));
+      setErrorMsg(
+        err.userMessage ||
+        err.response?.data?.error?.message ||
+        "We couldn't send the code. Please try again.",
+      );
     } finally {
       setLoading(false);
     }
-  }
+  }, [loading, resendIn, phone, sendOtp]);
 
-  // ── Step 2: verify OTP ────────────────────────────────────────────────────
-  async function handleVerifyOtp() {
+  // ── Step 2 → verify OTP ────────────────────────────────────────────────────
+  const handleVerifyOtp = useCallback(async () => {
     if (!isValidOtp(otp)) {
-      setErrorMsg(t('login.invalidOtpMsg'));
+      setErrorMsg('That code looks incomplete. Enter all 6 digits.');
       return;
     }
     setLoading(true);
     setErrorMsg(null);
     try {
       await verifyOtp(phone, otp);
-      // RootNavigator handles routing on success.
+      // RootNavigator routes onward on success.
     } catch (err) {
-      setErrorMsg(err.userMessage || err.response?.data?.error?.message || t('login.verifyError'));
+      setErrorMsg(
+        err.userMessage ||
+        err.response?.data?.error?.message ||
+        'That code is incorrect. Please check and try again.',
+      );
     } finally {
       setLoading(false);
     }
-  }
+  }, [otp, phone, verifyOtp]);
 
-  function goBackToPhone() {
+  const goBackToPhone = useCallback(() => {
     setStep(STEPS.PHONE);
     setOtp('');
     setErrorMsg(null);
-    setFocused(null);
-  }
+  }, []);
 
-  const isPhoneStep = step === STEPS.PHONE;
+  const isPhone = step === STEPS.PHONE;
+  const grouped = phone.length > 5 ? `${phone.slice(0, 5)} ${phone.slice(5)}` : phone;
 
   return (
     <View style={sty.root}>
+      <StatusBar style="dark" />
+
+      {/* Soft field-green canvas */}
       <LinearGradient
-        colors={FIELD_GRADIENT}
-        start={{ x: 0.1, y: 0 }}
-        end={{ x: 0.9, y: 1 }}
+        colors={[C.bgTop, C.bgMid, C.bgBot]}
+        start={{ x: 0.2, y: 0 }}
+        end={{ x: 0.8, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView style={sty.safe}>
+      {/* Decorative "neural leaf", behind everything */}
+      <NeuralLeaf />
+
+      <SafeAreaView style={sty.safe} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={sty.inner}
+          style={sty.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
+          {/* ── Top bar: back · wordmark · (online) ── */}
+          <View style={sty.topBar}>
+            {isPhone ? (
+              // No back affordance on the first step — it has nowhere to go.
+              <View style={sty.topSide} />
+            ) : (
+              <Pressable
+                onPress={goBackToPhone}
+                style={({ pressed }) => [sty.backBtn, pressed && sty.pressed]}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+              >
+                <ArrowLeft size={ms(20)} color={C.green} strokeWidth={2.4} />
+              </Pressable>
+            )}
+
+            <View style={sty.wordmark}>
+              <Image source={LOGO} style={sty.wordmarkLogo} resizeMode="cover" />
+              <Text style={sty.wordmarkTxt} maxFontSizeMultiplier={1.3}>{APP_NAME}</Text>
+            </View>
+
+            <View style={sty.topRight}>
+              {isPhone ? null : (
+                <View style={sty.onlinePill}>
+                  <Wifi size={ms(13)} color={C.green} strokeWidth={2.4} />
+                  <Text style={sty.onlineTxt}>Online</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
           <ScrollView
-            contentContainerStyle={sty.scrollBody}
+            contentContainerStyle={sty.scroll}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             bounces={false}
           >
-            {/* ── Brand: frosted logo badge → app name → tagline ── */}
-            <View style={sty.logoArea}>
-              <View style={sty.logoShadow}>
-                <BlurView intensity={40} tint="light" style={sty.logoBadge}>
-                  <Image source={APP_LOGO} style={sty.logoImg} resizeMode="contain" />
-                </BlurView>
+            {/* Phone step keeps its pill above the progress bar; OTP step does not. */}
+            {isPhone ? (
+              <Pill icon={Sparkles} label="Secure AI verification" style={sty.topPill} />
+            ) : null}
+
+            {/* ── 2-step progress ── */}
+            <ProgressBar step={isPhone ? 1 : 2} total={2} />
+
+            {/* ── Icon badge (+ AI pill on the OTP step) ── */}
+            <View style={sty.badgeRow}>
+              <View style={sty.iconBadge}>
+                {isPhone
+                  ? <Phone size={ms(26)} color={C.white} strokeWidth={2.2} fill={C.white} />
+                  : <MessageSquare size={ms(26)} color={C.white} strokeWidth={2.2} />}
               </View>
-              <Text style={sty.appName}>{t('appName')}</Text>
-              <Text style={sty.tagline}>{t('login.tagline')}</Text>
+              {isPhone ? null : <Pill icon={Sparkles} label="AI auto-read" style={sty.badgePill} />}
             </View>
 
-            {/* ── One elevated card per step ── */}
-            <Animated.View
-              style={[
-                sty.card,
-                { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-              ]}
-            >
-              {/* Two-step progress dots */}
-              <View style={sty.steps} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                <View style={[sty.stepDot, sty.stepDotActive]} />
-                <View style={[sty.stepBar, !isPhoneStep && sty.stepBarActive]} />
-                <View style={[sty.stepDot, !isPhoneStep && sty.stepDotActive]} />
+            {/* ── Display heading (serif italic, two lines) ── */}
+            {isPhone ? (
+              <Text style={sty.heading} maxFontSizeMultiplier={1.3}>
+                <Text style={sty.headingDark}>What's your{'\n'}</Text>
+                <Text style={sty.headingGreen}>mobile number?</Text>
+              </Text>
+            ) : (
+              <Text style={sty.heading} maxFontSizeMultiplier={1.3}>
+                <Text style={sty.headingDark}>Enter the{'\n'}</Text>
+                <Text style={sty.headingGreen}>6-digit code</Text>
+              </Text>
+            )}
+
+            {/* ── Sub copy ── */}
+            {isPhone ? (
+              <>
+                <Text style={sty.subtitle} maxFontSizeMultiplier={1.4}>
+                  We'll send a 6-digit OTP on your number to verify it's really you.
+                </Text>
+                <Text style={[sty.subtitle, sty.subtitleHi]} maxFontSizeMultiplier={1.4}>
+                  आपका मोबाइल नंबर क्या है?
+                </Text>
+              </>
+            ) : (
+              <View style={sty.sentRow}>
+                <Text style={sty.sentTxt} maxFontSizeMultiplier={1.4}>
+                  Sent to <Text style={sty.sentPhone}>+91 {grouped}</Text>
+                </Text>
+                <Pressable onPress={goBackToPhone} hitSlop={8} accessibilityRole="button">
+                  <Text style={sty.changeTxt}>Change</Text>
+                </Pressable>
               </View>
+            )}
 
-              {isPhoneStep ? (
-                <>
-                  <View style={sty.headerIcon}>
-                    <Ionicons name="call" size={ms(22)} color={COLORS.primary} />
+            {/* ── Inline error (paired icon + plain copy) ── */}
+            {errorMsg ? (
+              <View style={sty.errorBox} accessibilityLiveRegion="assertive">
+                <Text style={sty.errorTxt}>{errorMsg}</Text>
+              </View>
+            ) : null}
+
+            {/* ── Form body ── */}
+            {isPhone ? (
+              <View style={sty.body}>
+                <Text style={sty.fieldLabel}>MOBILE NUMBER</Text>
+
+                <View style={sty.phonePill}>
+                  <View style={sty.chip}>
+                    <Text style={sty.flag} allowFontScaling={false}>🇮🇳</Text>
+                    <Text style={sty.chipTxt}>+91</Text>
                   </View>
-                  <Text style={sty.cardTitle}>{t('login.enterPhone')}</Text>
-                  <Text style={sty.cardSub}>{t('login.otpWillSend')}</Text>
-
-                  {errorMsg ? (
-                    <View style={sty.errorBox} accessibilityLiveRegion="polite">
-                      <Ionicons name="alert-circle" size={ms(16)} color={COLORS.error} />
-                      <Text style={sty.errorTxt}>{errorMsg}</Text>
-                    </View>
-                  ) : null}
-
-                  <View style={[sty.phoneRow, focused === 'phone' && sty.fieldFocused]}>
-                    <View style={sty.countryCode}>
-                      <Text style={sty.flag}>🇮🇳</Text>
-                      <Text style={sty.countryTxt}>+91</Text>
-                    </View>
-                    <View style={sty.divider} />
-                    <TextInput
-                      style={sty.phoneInput}
-                      placeholder={t('login.phonePlaceholder')}
-                      placeholderTextColor={COLORS.textLight}
-                      keyboardType="phone-pad"
-                      maxLength={10}
-                      value={phone}
-                      onChangeText={(v) => setPhone(v.replace(/\D/g, ''))}
-                      onFocus={() => setFocused('phone')}
-                      onBlur={() => setFocused(null)}
-                      returnKeyType="done"
-                      onSubmitEditing={handleSendOtp}
-                      autoFocus
-                    />
-                  </View>
-
-                  <PrimaryButton
-                    label={resendIn > 0 ? `${t('login.sendOtp')} (${resendIn}s)` : t('login.sendOtp')}
-                    loading={loading}
-                    disabled={loading || phone.length !== 10 || resendIn > 0}
-                    onPress={handleSendOtp}
-                    trailingIcon="arrow-forward"
-                  />
-
-                  <View style={sty.trustRow}>
-                    <Ionicons name="shield-checkmark" size={ms(14)} color={COLORS.primaryMedium} />
-                    <Text style={sty.trustTxt}>{t('login.secureNote')}</Text>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <TouchableOpacity
-                    onPress={goBackToPhone}
-                    style={sty.backBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('login.changeNumber')}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="chevron-back" size={ms(20)} color={COLORS.primary} />
-                    <Text style={sty.backTxt}>+91 {phone}</Text>
-                  </TouchableOpacity>
-
-                  <View style={sty.headerIcon}>
-                    <Ionicons name="chatbubble-ellipses" size={ms(22)} color={COLORS.primary} />
-                  </View>
-                  <Text style={sty.cardTitle}>{t('login.enterOtp')}</Text>
-                  <Text style={sty.cardSub}>{t('login.otpSentTo', { phone })}</Text>
-
-                  {errorMsg ? (
-                    <View style={sty.errorBox} accessibilityLiveRegion="polite">
-                      <Ionicons name="alert-circle" size={ms(16)} color={COLORS.error} />
-                      <Text style={sty.errorTxt}>{errorMsg}</Text>
-                    </View>
-                  ) : null}
-
                   <TextInput
-                    ref={otpRef}
-                    style={[sty.otpInput, focused === 'otp' && sty.otpInputFocused]}
-                    placeholder={t('login.otpPlaceholder')}
-                    placeholderTextColor={COLORS.textLight}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    value={otp}
-                    onChangeText={(v) => setOtp(v.replace(/\D/g, ''))}
-                    onFocus={() => setFocused('otp')}
-                    onBlur={() => setFocused(null)}
-                    textContentType="oneTimeCode"
-                    autoComplete="sms-otp"
-                    importantForAutofill="yes"
-                    selectionColor={COLORS.primary}
+                    style={sty.phoneInput}
+                    placeholder="98765 43210"
+                    placeholderTextColor={C.textHint}
+                    keyboardType="phone-pad"
+                    maxLength={11}
+                    value={grouped}
+                    onChangeText={(v) => setPhone(v.replace(/\D/g, '').slice(0, 10))}
                     returnKeyType="done"
-                    onSubmitEditing={handleVerifyOtp}
+                    onSubmitEditing={handleSendOtp}
+                    autoFocus
+                    accessibilityLabel="Mobile number, country code plus 91"
                   />
+                </View>
 
-                  <PrimaryButton
-                    label={t('login.verifyLogin')}
-                    loading={loading}
-                    disabled={loading || otp.length !== 6}
-                    onPress={handleVerifyOtp}
-                    trailingIcon="checkmark"
-                  />
+                {/* Trust pill */}
+                <View style={sty.trustPill}>
+                  <ShieldCheck size={ms(16)} color={C.green} strokeWidth={2.3} />
+                  <Text style={sty.trustTxt}>Your number stays private. Never shared or sold.</Text>
+                </View>
 
-                  <View style={sty.resendRow}>
-                    <Text style={sty.resendPrompt}>{t('login.didntGetCode')}</Text>
-                    <TouchableOpacity
+                <CTAButton
+                  label="Send OTP / OTP भेजें"
+                  loading={loading}
+                  disabled={phone.length !== 10 || resendIn > 0}
+                  suffix={resendIn > 0 ? ` (${resendIn}s)` : ''}
+                  onPress={() => handleSendOtp()}
+                  Icon={ArrowRight}
+                />
+              </View>
+            ) : (
+              <View style={sty.body}>
+                <OtpCells
+                  ref={otpRef}
+                  value={otp}
+                  onChange={(v) => setOtp(v.replace(/\D/g, '').slice(0, 6))}
+                  onComplete={handleVerifyOtp}
+                />
+
+                {/* Resend — countdown then an active link */}
+                <View style={sty.resendRow}>
+                  {resendIn > 0 ? (
+                    <Text style={sty.resendTxt} accessibilityLiveRegion="polite">
+                      Resend OTP in <Text style={sty.resendClock}>{clock}</Text>
+                    </Text>
+                  ) : (
+                    <Pressable
                       onPress={() => handleSendOtp({ isResend: true })}
-                      style={sty.resendBtn}
-                      disabled={loading || resendIn > 0}
+                      disabled={loading}
+                      hitSlop={10}
                       accessibilityRole="button"
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Text style={[sty.resendTxt, (resendIn > 0 || loading) && sty.resendTxtDisabled]}>
-                        {resendIn > 0 ? `${t('login.resendOtp')} (${resendIn}s)` : t('login.resendOtp')}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
-            </Animated.View>
+                      <Text style={[sty.resendLink, loading && sty.resendDisabled]}>Resend OTP</Text>
+                    </Pressable>
+                  )}
+                </View>
+
+                <CTAButton
+                  label="Verify OTP"
+                  loading={loading}
+                  disabled={otp.length !== 6}
+                  onPress={handleVerifyOtp}
+                  Icon={Check}
+                />
+
+                <Text style={sty.helper}>
+                  Didn't get the code? Check your SMS inbox or try again in a moment.
+                </Text>
+              </View>
+            )}
 
             {/* ── Legal footer ── */}
-            <View style={sty.footerWrap}>
-              <Text style={sty.footer}>{t('login.agreePrefix')}</Text>
-              <View style={sty.footerLinksRow}>
-                <TouchableOpacity
-                  onPress={() => setLegal('terms')}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="link"
-                  accessibilityLabel={t('login.termsOfUse')}
-                >
-                  <Text style={sty.footerLink}>{t('login.termsOfUse')}</Text>
-                </TouchableOpacity>
-                <Text style={sty.footer}> {t('login.andConnector')} </Text>
-                <TouchableOpacity
-                  onPress={() => setLegal('privacy')}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="link"
-                  accessibilityLabel={t('login.privacyPolicy')}
-                >
-                  <Text style={sty.footerLink}>{t('login.privacyPolicy')}</Text>
-                </TouchableOpacity>
-              </View>
+            <View style={sty.footer}>
+              <Text style={sty.footerTxt}>
+                By continuing, you agree to our{' '}
+                <Text style={sty.footerLink} onPress={() => setLegal('terms')}>Terms of Use</Text>
+                {' '}and{' '}
+                <Text style={sty.footerLink} onPress={() => setLegal('privacy')}>Privacy Policy</Text>
+              </Text>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      <LegalModal type={legal} onClose={() => setLegal(null)} t={t} />
+      <LegalModal type={legal} onClose={() => setLegal(null)} />
     </View>
   );
 }
 
-// ── Legal content modal (Terms of Use / Privacy Policy) ─────────────────────────
-// Placeholder copy — replace LEGAL_CONTENT with your reviewed legal text, or
-// swap the modal for a WebView/Linking call once the pages are hosted online.
-const LEGAL_CONTENT = {
+// NeuralLeaf + Pill now come from the shared brandKit (imported above).
+
+// ── 2-step progress bar with "Step X of N" label ─────────────────────────────
+function ProgressBar({ step, total }) {
+  return (
+    <View style={sty.progressRow}>
+      <View style={sty.progressTrack}>
+        {Array.from({ length: total }).map((_, i) => (
+          <View key={i} style={[sty.progressSeg, i < step && sty.progressSegOn]} />
+        ))}
+      </View>
+      <Text style={sty.progressLabel}>Step {step} of {total}</Text>
+    </View>
+  );
+}
+
+// ── Single green CTA (gradient when enabled, muted when disabled) ─────────────
+function CTAButton({ label, suffix = '', loading, disabled, onPress, Icon }) {
+  const off = disabled || loading;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={off}
+      style={({ pressed }) => [sty.cta, pressed && !off && sty.ctaPressed]}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!off, busy: !!loading }}
+    >
+      <LinearGradient
+        colors={off ? [C.greenMutedA, C.greenMutedB] : [C.greenBright, C.greenInk]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={sty.ctaFill}
+      >
+        {loading ? (
+          <ActivityIndicator color={C.white} />
+        ) : (
+          <>
+            <Text style={sty.ctaTxt} maxFontSizeMultiplier={1.3}>{label}{suffix}</Text>
+            {Icon ? (
+              <View style={sty.ctaIcon}>
+                <Icon size={ms(18)} color={C.white} strokeWidth={2.6} />
+              </View>
+            ) : null}
+          </>
+        )}
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Six circular OTP cells backed by ONE hidden input — gives paste, SMS-autofill,
+// auto-advance and backspace for free. The circles are pure presentation.
+// ─────────────────────────────────────────────────────────────────────────────
+const OtpCells = React.forwardRef(function OtpCells({ value, onChange, onComplete }, ref) {
+  const cells = Array.from({ length: 6 }, (_, i) => value[i] ?? '');
+  const activeIndex = Math.min(value.length, 5);
+
+  const handleChange = (text) => {
+    const digits = text.replace(/\D/g, '').slice(0, 6);
+    onChange?.(digits);
+    if (digits.length === 6) onComplete?.();
+  };
+
+  return (
+    <View style={sty.otpRow}>
+      {cells.map((digit, i) => {
+        const active = i === activeIndex && value.length < 6;
+        return (
+          <View
+            key={i}
+            style={[sty.otpCell, digit !== '' && sty.otpCellFilled, active && sty.otpCellActive]}
+          >
+            <Text style={sty.otpDigit}>{digit}</Text>
+          </View>
+        );
+      })}
+      <TextInput
+        ref={ref}
+        value={value}
+        onChangeText={handleChange}
+        keyboardType="number-pad"
+        inputMode="numeric"
+        maxLength={6}
+        textContentType="oneTimeCode"
+        autoComplete="sms-otp"
+        importantForAutofill="yes"
+        caretHidden
+        selectionColor="transparent"
+        style={sty.otpHiddenInput}
+        accessibilityLabel="One-time password, 6 digits"
+      />
+    </View>
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Legal content (Terms / Privacy) — replace bodies with your reviewed copy.
+// ─────────────────────────────────────────────────────────────────────────────
+const LEGAL = {
   terms: {
     title: 'Terms of Use',
     body: `Last updated: June 2026
 
-Welcome to CropSetu. By creating an account and using this app, you agree to these Terms of Use.
+Welcome to ${APP_NAME}. By creating an account and using this app, you agree to these Terms of Use.
 
 1. Use of the service
-CropSetu provides farming tools, marketplace listings, and advisory features. You agree to use them lawfully and to provide accurate information.
+${APP_NAME} provides farming tools, marketplace listings, and advisory features. You agree to use them lawfully and to provide accurate information.
 
 2. Your account
 You are responsible for activity under your account and for keeping your phone number and login secure.
 
 3. Listings and transactions
-Rentals, sales, and bookings made through CropSetu are agreements between users. CropSetu is not a party to those agreements and does not guarantee any listing, price, or outcome.
+Rentals, sales, and bookings made through ${APP_NAME} are agreements between users. ${APP_NAME} is not a party to those agreements.
 
 4. Advisory content
-AI and informational content is provided for guidance only and is not a substitute for professional agronomic, financial, or legal advice.
+AI and informational content is provided for guidance only and is not a substitute for professional advice.
 
-5. Changes
-We may update these terms from time to time. Continued use of the app means you accept the updated terms.
-
-Contact us at support@cropsetu.app for any questions about these terms.`,
+Contact support@cropsetu.app for any questions about these terms.`,
   },
   privacy: {
     title: 'Privacy Policy',
     body: `Last updated: June 2026
 
-This Privacy Policy explains how CropSetu collects, uses, and protects your information.
+This Privacy Policy explains how ${APP_NAME} collects, uses, and protects your information.
 
 1. Information we collect
-We collect your phone number for login, profile details you provide, farm and crop data you enter, and approximate location when you enable it.
+Your phone number for login, profile details you provide, farm and crop data you enter, and approximate location when enabled.
 
 2. How we use it
-We use your information to operate the app, show nearby listings, personalise advisory content, and improve the service.
+To operate the app, show nearby listings, personalise advisory content, and improve the service.
 
 3. Sharing
 We do not sell your personal data. Limited information may be shared with other users only as needed to complete a listing, booking, or chat you initiate.
 
-4. Security
-We use industry-standard measures to protect your data. No method of transmission is fully secure, so we cannot guarantee absolute security.
+4. Your choices
+You may edit or delete your profile and farm data, and disable location sharing, at any time from settings.
 
-5. Your choices
-You may edit or delete your profile and farm data, and disable location sharing, at any time from the app settings.
-
-Contact us at support@cropsetu.app for any privacy questions or data requests.`,
+Contact support@cropsetu.app for any privacy questions or data requests.`,
   },
 };
 
-function LegalModal({ type, onClose, t }) {
-  const content = type ? LEGAL_CONTENT[type] : null;
-  const title = type === 'terms' ? t('login.termsOfUse') : t('login.privacyPolicy');
+function LegalModal({ type, onClose }) {
+  const content = type ? LEGAL[type] : null;
   return (
-    <Modal
-      visible={!!type}
-      animationType="slide"
-      transparent
-      onRequestClose={onClose}
-    >
+    <Modal visible={!!type} animationType="slide" transparent onRequestClose={onClose}>
       <View style={sty.modalOverlay}>
         <View style={sty.modalCard}>
           <View style={sty.modalGrabber} />
-          <View style={sty.modalHeader}>
-            <Text style={sty.modalTitle} numberOfLines={1}>{title}</Text>
-            <TouchableOpacity
-              onPress={onClose}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityRole="button"
-              accessibilityLabel={t('login.legalClose')}
-            >
-              <Ionicons name="close" size={ms(24)} color={COLORS.textDark} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView
-            style={sty.modalScroll}
-            contentContainerStyle={{ paddingBottom: vs(16) }}
-            showsVerticalScrollIndicator
-          >
+          <Text style={sty.modalTitle}>{content?.title}</Text>
+          <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingBottom: vs(12) }}>
             <Text style={sty.modalBody}>{content?.body}</Text>
           </ScrollView>
-          <TouchableOpacity style={sty.modalCloseBtn} onPress={onClose} activeOpacity={0.85}>
-            <Text style={sty.modalCloseTxt}>{t('login.legalClose')}</Text>
-          </TouchableOpacity>
+          <Pressable style={sty.modalClose} onPress={onClose} accessibilityRole="button">
+            <Text style={sty.modalCloseTxt}>Close</Text>
+          </Pressable>
         </View>
       </View>
     </Modal>
   );
 }
 
-// ── Reusable primary button — the single harvest-orange focal action ────────────
-function PrimaryButton({ label, onPress, loading, disabled, trailingIcon }) {
-  return (
-    <TouchableOpacity
-      style={[sty.btn, disabled && sty.btnDisabled]}
-      onPress={onPress}
-      disabled={disabled}
-      activeOpacity={0.85}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled: !!disabled, busy: !!loading }}
-    >
-      {loading ? (
-        <ActivityIndicator color={COLORS.white} />
-      ) : (
-        <>
-          <Text style={sty.btnTxt}>{label}</Text>
-          {trailingIcon ? (
-            <Ionicons name={trailingIcon} size={ms(18)} color={COLORS.white} style={sty.btnIcon} />
-          ) : null}
-        </>
-      )}
-    </TouchableOpacity>
-  );
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
 const sty = StyleSheet.create({
-  root:  { flex: 1, backgroundColor: COLORS.primary },
-  safe:  { flex: 1 },
-  inner: { flex: 1 },
-  scrollBody: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: s(24),
-    paddingVertical:   vs(32),
-  },
+  root: { flex: 1, backgroundColor: C.bgTop },
+  flex: { flex: 1 },
+  safe: { flex: 1 },
 
-  // ── Brand / logo area ────────────────────────────────────────────────────────
-  logoArea: { alignItems: 'center', marginBottom: vs(32) },
-  logoShadow: {
-    borderRadius: ms(28),
-    marginBottom: vs(16),
-    ...SHADOWS.large,
-  },
-  logoBadge: {
-    width: ms(96),
-    height: ms(96),
-    borderRadius: ms(28),
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.55)',
-    backgroundColor: 'rgba(255,255,255,0.18)',
-  },
-  logoImg: {
-    width: ms(80),
-    height: ms(80),
-    borderRadius: ms(20),
-  },
-  appName: {
-    fontSize: fs(34),
-    fontWeight: TYPE.weight.black,
-    color: COLORS.textWhite,
-    letterSpacing: -0.7,
-  },
-  tagline: {
-    fontSize: fs(TYPE.size.sm),
-    color: COLORS.greenWash,
-    marginTop: vs(6),
-    textAlign: 'center',
-    lineHeight: fs(19),
-    maxWidth: s(290),
-  },
-
-  // ── Card ─────────────────────────────────────────────────────────────────────
-  card: {
-    backgroundColor: COLORS.surface,
-    borderRadius: s(24),
-    padding: s(24),
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.65)',
-    ...SHADOWS.large,
-  },
-
-  // ── Two-step progress indicator ──────────────────────────────────────────────
-  steps: {
+  // ── Top bar ──
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'center',
-    marginBottom: vs(18),
+    justifyContent: 'space-between',
+    paddingHorizontal: s(20),
+    paddingTop: vs(6),
+    minHeight: vs(52),
   },
-  stepDot: {
-    width: s(8),
-    height: s(8),
-    borderRadius: s(4),
-    backgroundColor: COLORS.borderGreen,
-  },
-  stepDotActive: { backgroundColor: COLORS.primary },
-  stepBar: {
-    width: s(28),
-    height: 2,
-    marginHorizontal: s(6),
-    borderRadius: 1,
-    backgroundColor: COLORS.borderGreen,
-  },
-  stepBarActive: { backgroundColor: COLORS.primary },
-
-  // ── Icon-led header ──────────────────────────────────────────────────────────
-  headerIcon: {
-    width: ms(44),
-    height: ms(44),
-    borderRadius: ms(22),
-    backgroundColor: COLORS.primaryPale,
-    justifyContent: 'center',
+  backBtn: {
+    width: ms(42),
+    height: ms(42),
+    borderRadius: ms(21),
+    backgroundColor: C.white,
     alignItems: 'center',
-    marginBottom: vs(12),
+    justifyContent: 'center',
+    shadowColor: C.shadowGreen,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  cardTitle: {
-    fontSize: fs(22),
-    fontWeight: TYPE.weight.black,
-    color: COLORS.textDark,
-    marginBottom: vs(6),
+  pressed: { opacity: 0.7 },
+  topSide: { width: ms(42) },
+  wordmark: { flexDirection: 'row', alignItems: 'center', gap: s(8) },
+  wordmarkLogo: { width: ms(26), height: ms(26), borderRadius: ms(7) },
+  wordmarkTxt: {
+    fontSize: fs(19),
+    fontWeight: '800',
+    color: C.greenDeep,
     letterSpacing: -0.2,
   },
-  cardSub: {
-    fontSize: fs(TYPE.size.sm),
-    color: COLORS.textMedium,
-    marginBottom: vs(18),
-    lineHeight: fs(20),
+  topRight: { minWidth: ms(42), alignItems: 'flex-end' },
+  onlinePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+    backgroundColor: C.white,
+    paddingHorizontal: s(11),
+    paddingVertical: vs(6),
+    borderRadius: 999,
+    shadowColor: C.shadowGreen,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  onlineTxt: { fontSize: fs(12), fontWeight: '700', color: C.green },
+
+  // ── Scroll body ──
+  scroll: {
+    flexGrow: 1,
+    paddingHorizontal: s(24),
+    paddingTop: vs(10),
+    paddingBottom: vs(28),
   },
 
-  // ── Inline error banner ──────────────────────────────────────────────────────
+  // ── Pills ──
+  // Margin overrides passed to the shared <Pill> (BrandPill) in the hero.
+  topPill: { marginTop: vs(8), marginBottom: vs(16) },
+  badgePill: { marginLeft: s(12) },
+
+  // ── Progress ──
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: s(12) },
+  progressTrack: { flex: 1, flexDirection: 'row', gap: s(8) },
+  progressSeg: {
+    flex: 1,
+    height: vs(6),
+    borderRadius: 999,
+    backgroundColor: C.progressOff,
+  },
+  progressSegOn: { backgroundColor: C.greenDeep },
+  progressLabel: { fontSize: fs(13), fontWeight: '600', color: C.greenDeep },
+
+  // ── Icon badge row ──
+  badgeRow: { flexDirection: 'row', alignItems: 'center', marginTop: vs(26) },
+  iconBadge: {
+    width: ms(60),
+    height: ms(60),
+    borderRadius: ms(20),
+    backgroundColor: C.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: C.greenDeep,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+
+  // ── Heading ──
+  heading: { marginTop: vs(18) },
+  headingDark: {
+    fontFamily: SERIF,
+    fontStyle: 'italic',
+    fontWeight: '700',
+    fontSize: fs(38),
+    lineHeight: fs(44),
+    color: C.headingDark,
+  },
+  headingGreen: {
+    fontFamily: SERIF,
+    fontStyle: 'italic',
+    fontWeight: '700',
+    fontSize: fs(38),
+    lineHeight: fs(44),
+    color: C.headingGreen,
+  },
+
+  // ── Sub copy ──
+  subtitle: {
+    fontSize: fs(15.5),
+    lineHeight: fs(23),
+    color: C.textBody,
+    marginTop: vs(14),
+  },
+  subtitleHi: { marginTop: vs(4) },
+
+  sentRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: s(8), marginTop: vs(12) },
+  sentTxt: { fontSize: fs(15.5), color: C.textBody },
+  sentPhone: { fontWeight: '800', color: C.headingDark },
+  changeTxt: { fontSize: fs(15.5), fontWeight: '700', color: C.green },
+
+  // ── Error ──
   errorBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: s(8),
-    backgroundColor: COLORS.errorLight,
-    borderColor: COLORS.redPale200,
+    backgroundColor: C.errorBg,
+    borderColor: C.errorBorder,
     borderWidth: 1,
-    borderRadius: s(12),
+    borderRadius: 14,
+    paddingHorizontal: s(14),
+    paddingVertical: vs(10),
+    marginTop: vs(16),
+  },
+  errorTxt: { color: C.errorInk, fontSize: fs(13.5), lineHeight: fs(19) },
+
+  // ── Form body ──
+  body: { marginTop: vs(22) },
+  fieldLabel: {
+    fontSize: fs(12.5),
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: C.label,
+    marginBottom: vs(10),
+  },
+
+  // Phone pill
+  phonePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.white,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: C.inputBorder,
+    paddingLeft: s(8),
+    paddingRight: s(8),
+    minHeight: vs(64),
+    shadowColor: C.shadowGreen,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(6),
+    backgroundColor: C.chipBg,
+    borderRadius: 16,
     paddingHorizontal: s(12),
     paddingVertical: vs(10),
-    marginBottom: vs(14),
-  },
-  errorTxt: {
-    flex: 1,
-    color: COLORS.errorDark,
-    fontSize: fs(13),
-    lineHeight: fs(18),
-  },
-
-  // ── Phone input ──────────────────────────────────────────────────────────────
-  phoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: COLORS.borderGreen,
-    borderRadius: s(16),
-    backgroundColor: COLORS.primarySoft,
-    marginBottom: vs(18),
-    paddingLeft: s(12),
-  },
-  // Shared focus ring for both fields.
-  fieldFocused: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.white,
-    ...SHADOWS.greenGlow,
-  },
-  countryCode: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: vs(14),
-    gap: s(6),
   },
   flag: { fontSize: fs(18) },
-  countryTxt: {
-    fontSize: fs(TYPE.size.md),
-    fontWeight: TYPE.weight.bold,
-    color: COLORS.textDark,
-  },
-  divider: {
-    width: 1,
-    height: vs(26),
-    backgroundColor: COLORS.borderGreen,
-    marginHorizontal: s(10),
-  },
+  chipTxt: { fontSize: fs(16), fontWeight: '800', color: C.headingDark },
   phoneInput: {
     flex: 1,
-    paddingVertical: vs(15),
-    paddingRight: s(14),
-    fontSize: fs(TYPE.size.md),
-    fontWeight: TYPE.weight.semibold,
-    color: COLORS.textDark,
-    letterSpacing: 0.5,
-  },
-
-  // ── OTP input — large & legible for outdoor / low-literacy use ───────────────
-  otpInput: {
-    width: '100%',
-    borderWidth: 1.5,
-    borderColor: COLORS.borderGreen,
-    borderRadius: RADIUS.lg,
     paddingHorizontal: s(14),
-    paddingVertical: vs(18),
-    fontSize: fs(28),
-    fontWeight: TYPE.weight.bold,
-    color: COLORS.nearBlack,
-    backgroundColor: COLORS.primarySoft,
-    marginBottom: vs(18),
-    textAlign: 'center',
-    letterSpacing: s(10),
-  },
-  otpInputFocused: {
-    borderColor: COLORS.primary,
-    borderWidth: 2,
-    backgroundColor: COLORS.white,
-    ...SHADOWS.greenGlow,
+    paddingVertical: vs(14),
+    fontSize: fs(20),
+    fontWeight: '600',
+    letterSpacing: 1,
+    color: C.headingDark,
   },
 
-  // ── Primary CTA (10% accent — harvest orange) ────────────────────────────────
-  btn: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.cta,
-    borderRadius: RADIUS.full,
-    paddingVertical: vs(16),
-    minHeight: vs(54),
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...SHADOWS.orangeGlow,
-  },
-  btnDisabled: {
-    backgroundColor: COLORS.ctaLight,
-    opacity: 0.6,
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  btnTxt: {
-    color: COLORS.white,
-    fontSize: fs(TYPE.size.md),
-    fontWeight: TYPE.weight.bold,
-    letterSpacing: 0.2,
-  },
-  btnIcon: { marginLeft: s(8) },
-
-  // ── Trust microcopy (phone step) ─────────────────────────────────────────────
-  trustRow: {
+  // Trust pill
+  trustPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: s(6),
+    gap: s(8),
+    backgroundColor: C.pill,
+    borderRadius: 16,
+    paddingHorizontal: s(14),
+    paddingVertical: vs(12),
     marginTop: vs(16),
   },
-  trustTxt: {
-    color: COLORS.textMedium,
-    fontSize: fs(TYPE.size.xs),
-    fontWeight: TYPE.weight.medium,
-  },
+  trustTxt: { flex: 1, fontSize: fs(13.5), fontWeight: '600', color: C.greenDeep },
 
-  // ── Back / resend ────────────────────────────────────────────────────────────
-  backBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginBottom: vs(14),
-    paddingVertical: vs(6),
-    paddingHorizontal: s(10),
-    marginLeft: -s(4),
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.primaryPale,
-    minHeight: 36,
+  // ── CTA ──
+  cta: {
+    marginTop: vs(22),
+    borderRadius: 22,
+    overflow: 'hidden',
+    shadowColor: C.greenInk,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    elevation: 5,
   },
-  backTxt: {
-    color: COLORS.primary,
-    fontSize: fs(TYPE.size.sm),
-    fontWeight: TYPE.weight.bold,
-    marginLeft: s(2),
-  },
-  resendRow: {
+  ctaPressed: { opacity: 0.9 },
+  ctaFill: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexWrap: 'wrap',
-    marginTop: vs(16),
+    minHeight: vs(60),
+    paddingHorizontal: s(20),
   },
-  resendPrompt: {
-    color: COLORS.textMedium,
-    fontSize: fs(TYPE.size.sm),
-  },
-  resendBtn: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: s(6),
-  },
-  resendTxt: {
-    color: COLORS.primary,
-    fontSize: fs(TYPE.size.sm),
-    fontWeight: TYPE.weight.bold,
-  },
-  resendTxtDisabled: {
-    color: COLORS.textLight,
-  },
-
-  // ── Footer ───────────────────────────────────────────────────────────────────
-  footerWrap: {
-    alignItems: 'center',
-    marginTop: vs(28),
-  },
-  footer: {
-    textAlign: 'center',
-    color: COLORS.mintBorder,
-    fontSize: fs(11),
-    lineHeight: fs(16),
-  },
-  footerLinksRow: {
-    flexDirection: 'row',
+  ctaTxt: { color: C.white, fontSize: fs(18), fontWeight: '700', letterSpacing: 0.2 },
+  ctaIcon: {
+    position: 'absolute',
+    right: s(16),
+    width: ms(34),
+    height: ms(34),
+    borderRadius: ms(17),
+    backgroundColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
-    flexWrap: 'wrap',
-    marginTop: vs(2),
-  },
-  footerLink: {
-    color: COLORS.white,
-    fontSize: fs(11),
-    lineHeight: fs(16),
-    fontWeight: TYPE.weight.bold,
-    textDecorationLine: 'underline',
   },
 
-  // ── Legal modal ────────────────────────────────────────────────────────────────
-  modalOverlay: {
+  // ── OTP ──
+  otpRow: { flexDirection: 'row', gap: s(10), position: 'relative' },
+  otpCell: {
     flex: 1,
-    backgroundColor: COLORS.overlay,
-    justifyContent: 'flex-end',
+    aspectRatio: 1,
+    borderRadius: 999,
+    backgroundColor: C.white,
+    borderWidth: 1.5,
+    borderColor: C.inputBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: C.shadowGreen,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    elevation: 2,
   },
+  otpCellFilled: { borderColor: C.green },
+  otpCellActive: { borderColor: C.green, borderWidth: 2 },
+  otpDigit: { fontSize: fs(24), fontWeight: '800', color: C.headingDark },
+  otpHiddenInput: {
+    ...StyleSheet.absoluteFillObject,
+    color: 'transparent',
+    fontSize: 1,
+    textAlign: 'center',
+  },
+
+  // ── Resend / helper ──
+  resendRow: { alignItems: 'center', justifyContent: 'center', marginTop: vs(26), minHeight: vs(28) },
+  resendTxt: { fontSize: fs(15), color: C.textBody },
+  resendClock: { fontWeight: '800', color: C.headingDark },
+  resendLink: { fontSize: fs(15), fontWeight: '700', color: C.green },
+  resendDisabled: { color: C.textHint },
+  helper: {
+    fontSize: fs(13.5),
+    lineHeight: fs(19),
+    color: C.textBody,
+    textAlign: 'center',
+    marginTop: vs(18),
+    paddingHorizontal: s(16),
+  },
+
+  // ── Footer ──
+  footer: { marginTop: vs(24), alignItems: 'center', paddingHorizontal: s(8) },
+  footerTxt: { fontSize: fs(12), lineHeight: fs(18), color: C.textBody, textAlign: 'center' },
+  footerLink: { fontWeight: '700', color: C.green, textDecorationLine: 'underline' },
+
+  // ── Legal modal ──
+  modalOverlay: { flex: 1, backgroundColor: C.overlay, justifyContent: 'flex-end' },
   modalCard: {
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: s(24),
-    borderTopRightRadius: s(24),
+    backgroundColor: C.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     paddingHorizontal: s(20),
     paddingTop: vs(12),
     paddingBottom: vs(20),
     maxHeight: '82%',
   },
-  modalGrabber: {
-    alignSelf: 'center',
-    width: s(40),
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.border,
-    marginBottom: vs(12),
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: vs(12),
-  },
-  modalTitle: {
-    flex: 1,
-    fontSize: fs(20),
-    fontWeight: TYPE.weight.black,
-    color: COLORS.textDark,
-    letterSpacing: -0.2,
-  },
-  modalScroll: {
-    flexGrow: 0,
-  },
-  modalBody: {
-    fontSize: fs(13),
-    lineHeight: fs(20),
-    color: COLORS.textMedium,
-  },
-  modalCloseBtn: {
+  modalGrabber: { alignSelf: 'center', width: s(40), height: 4, borderRadius: 2, backgroundColor: C.borderMed, marginBottom: vs(14) },
+  modalTitle: { fontSize: fs(20), fontWeight: '800', color: C.headingDark, marginBottom: vs(12) },
+  modalBody: { fontSize: fs(13.5), lineHeight: fs(20), color: C.textBody },
+  modalClose: {
     marginTop: vs(14),
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.full,
-    paddingVertical: vs(14),
+    backgroundColor: C.green,
+    borderRadius: 999,
+    minHeight: vs(50),
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: vs(48),
   },
-  modalCloseTxt: {
-    color: COLORS.white,
-    fontSize: fs(TYPE.size.base),
-    fontWeight: TYPE.weight.bold,
-  },
+  modalCloseTxt: { color: C.white, fontSize: fs(15), fontWeight: '700' },
 });

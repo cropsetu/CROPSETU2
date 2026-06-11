@@ -17,31 +17,13 @@ import { compressImage } from '../../utils/mediaCompressor';
 import { EntrySlide, D } from '../../components/ui/ImmersiveKit';
 import { COLORS } from '../../constants/colors';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
-import Svg, { Circle, Defs, RadialGradient as SvgRadialGradient, Stop, Path } from 'react-native-svg';
+import { MapPin, Pencil, Sprout, Store } from 'lucide-react-native';
+import {
+  BRAND as C, SERIF, NeuralLeaf, BrandPill, CANVAS, CARD_SHADOW, withAlpha,
+} from '../../components/ui/brandKit';
 
-function HeroBgDecoration() {
-  return (
-    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden' }}>
-      <Svg width="100%" height="100%" style={{ position: 'absolute' }}>
-        <Defs>
-          <SvgRadialGradient id="glow1" cx="80%" cy="20%" r="50%">
-            <Stop offset="0%" stopColor="#fff" stopOpacity="0.12" />
-            <Stop offset="100%" stopColor="#fff" stopOpacity="0" />
-          </SvgRadialGradient>
-          <SvgRadialGradient id="glow2" cx="20%" cy="80%" r="40%">
-            <Stop offset="0%" stopColor="#fff" stopOpacity="0.08" />
-            <Stop offset="100%" stopColor="#fff" stopOpacity="0" />
-          </SvgRadialGradient>
-        </Defs>
-        <Circle cx="85%" cy="15%" r="80" fill="url(#glow1)" />
-        <Circle cx="15%" cy="85%" r="60" fill="url(#glow2)" />
-        <Circle cx="50%" cy="50%" r="120" fill="rgba(255,255,255,0.03)" />
-        <Path d="M0,120 Q60,80 120,120 T240,120" stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none" />
-        <Path d="M40,60 Q100,20 160,60 T280,60" stroke="rgba(255,255,255,0.04)" strokeWidth="1" fill="none" />
-      </Svg>
-    </View>
-  );
-}
+// The hero now sits on the shared brand canvas (soft field-green + NeuralLeaf),
+// so the old dark-hero white-glow decoration is no longer needed.
 
 function SectionCard({ children, style, delay = 0 }) {
   return (
@@ -192,7 +174,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
             activeOpacity={0.85}
           >
             <LinearGradient
-              colors={[COLORS.primary, COLORS.primaryMedium]}
+              colors={[C.greenBright, C.greenInk]}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
               style={S.saveBtnGrad}
             >
@@ -352,6 +334,15 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <AnimatedScreen style={[S.root]}>
+      {/* Soft field-green canvas + decorative neural leaf (shared brand surface) */}
+      <LinearGradient
+        colors={CANVAS}
+        start={{ x: 0.2, y: 0 }}
+        end={{ x: 0.8, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <NeuralLeaf />
+
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
@@ -361,13 +352,7 @@ export default function ProfileScreen({ navigation }) {
         )}
       >
         <Animated.View style={{ transform: [{ perspective: 1200 }, { scale: heroScale }], opacity: heroOpacity }}>
-          <LinearGradient
-            colors={[COLORS.primary, COLORS.primaryMedium || '#21865A']}
-            start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-            style={S.hero}
-          >
-            <HeroBgDecoration />
-
+          <View style={S.hero}>
             <View style={S.heroContent}>
               <TouchableOpacity style={S.avatarWrap} onPress={handlePhotoPress} activeOpacity={0.8}>
                 <View style={S.avatarRing}>
@@ -378,7 +363,7 @@ export default function ProfileScreen({ navigation }) {
                     />
                   ) : (
                     <LinearGradient
-                      colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.15)']}
+                      colors={[C.greenBright, C.greenInk]}
                       style={S.avatar}
                     >
                       <Text style={S.avatarTxt}>{initials}</Text>
@@ -392,13 +377,20 @@ export default function ProfileScreen({ navigation }) {
                 </View>
               </TouchableOpacity>
 
-              <Text style={S.heroName}>{user?.name || 'Farmer'}</Text>
+              <BrandPill
+                icon={isSeller ? Store : Sprout}
+                label={isSeller ? t('profile.sellerBadge', 'Seller') : t('profile.farmerBadge', 'Farmer')}
+                style={S.heroPillCenter}
+              />
+
+              <Text style={S.heroName} maxFontSizeMultiplier={1.3}>{user?.name || t('profile.defaultName', 'Farmer')}</Text>
               {user?.phone && <Text style={S.heroPhone}>{user.phone}</Text>}
               {(user?.city || user?.district) && (
-                <View style={S.locRow}>
-                  <Ionicons name="location" size={12} color="rgba(255,255,255,0.85)" />
-                  <Text style={S.heroLoc}>{[user?.city, user?.district].filter(Boolean).join(', ')}</Text>
-                </View>
+                <BrandPill
+                  icon={MapPin}
+                  label={[user?.city, user?.district].filter(Boolean).join(', ')}
+                  style={S.heroPillCenter}
+                />
               )}
               {user?.statusQuote ? (
                 <View style={S.quoteWrap}>
@@ -407,8 +399,8 @@ export default function ProfileScreen({ navigation }) {
               ) : null}
 
               <View style={S.heroActions}>
-                <TouchableOpacity style={S.editBtn} onPress={() => setShowEditModal(true)} activeOpacity={0.75}>
-                  <Ionicons name="create-outline" size={14} color={COLORS.white} />
+                <TouchableOpacity style={S.editBtn} onPress={() => setShowEditModal(true)} activeOpacity={0.8}>
+                  <Pencil size={14} color={C.white} strokeWidth={2.4} />
                   <Text style={S.editBtnTxt}>{t('editProfile')}</Text>
                 </TouchableOpacity>
                 <Text style={S.memberSince}>
@@ -416,7 +408,7 @@ export default function ProfileScreen({ navigation }) {
                 </Text>
               </View>
             </View>
-          </LinearGradient>
+          </View>
         </Animated.View>
 
         <View style={S.body}>
@@ -500,7 +492,7 @@ export default function ProfileScreen({ navigation }) {
           <EntrySlide delay={360} fromY={16}>
             <TouchableOpacity activeOpacity={0.85} onPress={() => navigation.navigate('AIAssistant', { screen: 'Scheme' })}>
               <LinearGradient
-                colors={[COLORS.primary, COLORS.primaryMedium, COLORS.primaryLight]}
+                colors={[C.greenBright, C.greenInk]}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                 style={S.schemeBanner}
               >
@@ -689,24 +681,22 @@ export default function ProfileScreen({ navigation }) {
 }
 
 const S = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F1F3F6' },
+  root: { flex: 1, backgroundColor: C.bgTop },
 
+  // Hero now sits on the soft field-green canvas (no dark gradient block).
   hero: {
-    paddingTop: Platform.OS === 'android' ? 52 : 52,
-    paddingBottom: 30, paddingHorizontal: 24, overflow: 'hidden',
-    borderBottomLeftRadius: 24, borderBottomRightRadius: 24,
+    paddingTop: 52,
+    paddingBottom: 22, paddingHorizontal: 24,
   },
-  heroContent: {
-    alignItems: 'center', position: 'relative', zIndex: 1,
-  },
+  heroContent: { alignItems: 'center' },
 
   avatarWrap: { position: 'relative', marginBottom: 14 },
   avatarRing: {
     width: 96, height: 96, borderRadius: 48,
-    borderWidth: 3, borderColor: 'rgba(255,255,255,0.5)',
+    borderWidth: 4, borderColor: C.white, backgroundColor: C.white,
     overflow: 'hidden',
-    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }, elevation: 8,
+    shadowColor: C.shadowGreen, shadowOpacity: 0.20, shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 }, elevation: 8,
   },
   avatar: {
     width: '100%', height: '100%',
@@ -717,98 +707,97 @@ const S = StyleSheet.create({
   cameraBtn: {
     position: 'absolute', bottom: 2, right: 2,
     width: 28, height: 28, borderRadius: 14,
-    backgroundColor: COLORS.primary,
+    backgroundColor: C.green,
     justifyContent: 'center', alignItems: 'center',
     borderWidth: 2.5, borderColor: COLORS.white,
-    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4,
+    shadowColor: C.shadowGreen, shadowOpacity: 0.25, shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 }, elevation: 4,
   },
 
+  // Centres a BrandPill within the centred hero column.
+  heroPillCenter: { alignSelf: 'center', marginBottom: 8, maxWidth: '92%' },
+
   heroName: {
-    fontSize: 22, fontWeight: '900', color: COLORS.white,
-    textAlign: 'center', marginBottom: 4,
-    textShadowColor: 'rgba(0,0,0,0.2)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3,
+    fontFamily: SERIF, fontWeight: '700',
+    fontSize: 26, lineHeight: 32, color: C.headingDark,
+    textAlign: 'center', marginTop: 2, marginBottom: 4,
   },
   heroPhone: {
-    fontSize: 14, color: 'rgba(255,255,255,0.9)', fontWeight: '500',
-    marginBottom: 6, textAlign: 'center',
+    fontSize: 14, color: C.textBody, fontWeight: '500',
+    marginBottom: 8, textAlign: 'center',
   },
-  locRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6,
-    backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 12,
-    paddingHorizontal: 10, paddingVertical: 4,
-  },
-  heroLoc: { fontSize: 12, color: 'rgba(255,255,255,0.9)', fontWeight: '500' },
   quoteWrap: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 6,
-    marginBottom: 4, marginTop: 2,
+    backgroundColor: C.pill,
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 7,
+    marginBottom: 2, marginTop: 2, maxWidth: '90%',
   },
-  heroQuote: { fontSize: 12, color: 'rgba(255,255,255,0.85)', fontStyle: 'italic', textAlign: 'center' },
+  heroQuote: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 13, color: C.greenDeep, textAlign: 'center' },
   heroActions: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    width: '100%', marginTop: 14,
+    width: '100%', marginTop: 16,
   },
   editBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: C.green,
+    borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9,
+    shadowColor: C.shadowGreen, shadowOpacity: 0.20, shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 }, elevation: 3,
   },
   editBtnTxt: { fontSize: 13, fontWeight: '700', color: COLORS.white },
-  memberSince: { fontSize: 12, color: 'rgba(255,255,255,0.65)', fontStyle: 'italic' },
+  memberSince: { fontSize: 12, color: C.textHint, fontStyle: 'italic' },
 
-  body: { paddingHorizontal: 16, marginTop: -12 },
+  body: { paddingHorizontal: 16, marginTop: 6 },
 
   statsCard: {
-    flexDirection: 'row', backgroundColor: COLORS.white,
+    flexDirection: 'row', backgroundColor: C.white,
     borderRadius: 20, paddingVertical: 20, paddingHorizontal: 8,
-    shadowColor: COLORS.primary, shadowOpacity: 0.08, shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 }, elevation: 4,
+    borderWidth: 1, borderColor: C.inputBorder,
     marginBottom: 16,
+    ...CARD_SHADOW,
   },
   statCell: { flex: 1, alignItems: 'center', gap: 6 },
-  statCellBorder: { borderRightWidth: 1, borderRightColor: 'rgba(0,0,0,0.06)' },
+  statCellBorder: { borderRightWidth: 1, borderRightColor: withAlpha(C.green, 0.10) },
   statIcon: {
     width: 44, height: 44, borderRadius: 14,
     justifyContent: 'center', alignItems: 'center', marginBottom: 2,
   },
-  statValue: { fontSize: 22, fontWeight: '900', color: D.text },
-  statLabel: { fontSize: 11, color: D.textDim, fontWeight: '600' },
+  statValue: { fontSize: 22, fontWeight: '900', color: C.headingDark },
+  statLabel: { fontSize: 11, color: C.textBody, fontWeight: '600' },
 
   sectionCard: {
-    backgroundColor: COLORS.white, borderRadius: 14,
+    backgroundColor: C.white, borderRadius: 18,
     paddingHorizontal: 14, paddingTop: 14, paddingBottom: 4,
     marginBottom: 12,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 }, elevation: 2,
+    borderWidth: 1, borderColor: C.inputBorder,
+    shadowColor: C.shadowGreen, shadowOpacity: 0.06, shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 }, elevation: 2,
   },
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginBottom: 6, paddingBottom: 10,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)',
+    borderBottomWidth: 1, borderBottomColor: withAlpha(C.green, 0.08),
   },
   sectionIconWrap: {
     width: 26, height: 26, borderRadius: 8,
     justifyContent: 'center', alignItems: 'center',
   },
   sectionTitle: {
-    fontSize: 12.5, fontWeight: '800', color: D.textDim,
+    fontSize: 12.5, fontWeight: '800', color: C.greenDeep,
     letterSpacing: 0.6, textTransform: 'uppercase',
   },
 
   rowItem: {
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 13,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)',
+    borderBottomWidth: 1, borderBottomColor: withAlpha(C.green, 0.07),
     gap: 14,
   },
   rowIcon: {
     width: 38, height: 38, borderRadius: 19,
     justifyContent: 'center', alignItems: 'center',
   },
-  rowLabel: { fontSize: 14.5, fontWeight: '600', color: D.text },
-  rowSubtitle: { fontSize: 12, color: D.textDim, marginTop: 2 },
+  rowLabel: { fontSize: 14.5, fontWeight: '600', color: C.headingDark },
+  rowSubtitle: { fontSize: 12, color: C.textBody, marginTop: 2 },
 
   quickGrid: { flexDirection: 'row', paddingBottom: 4 },
   quickTile: {
@@ -819,14 +808,14 @@ const S = StyleSheet.create({
     width: 52, height: 52, borderRadius: 16,
     justifyContent: 'center', alignItems: 'center',
   },
-  quickLabel: { fontSize: 11, fontWeight: '600', color: D.textDim, textAlign: 'center', lineHeight: 15 },
+  quickLabel: { fontSize: 11, fontWeight: '600', color: C.textBody, textAlign: 'center', lineHeight: 15 },
 
   schemeBanner: {
     flexDirection: 'row', alignItems: 'center',
     gap: 14, paddingHorizontal: 20, paddingVertical: 18,
     borderRadius: 20, marginBottom: 14,
-    shadowColor: COLORS.primary, shadowOpacity: 0.15, shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }, elevation: 4,
+    shadowColor: C.shadowGreen, shadowOpacity: 0.20, shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 }, elevation: 4,
   },
   schemeIconWrap: {
     width: 44, height: 44, borderRadius: 14,
@@ -840,8 +829,8 @@ const S = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     gap: 14, paddingHorizontal: 20, paddingVertical: 18,
     borderRadius: 20, marginBottom: 14,
-    shadowColor: '#E65100', shadowOpacity: 0.15, shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }, elevation: 4,
+    shadowColor: COLORS.cta, shadowOpacity: 0.18, shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 }, elevation: 4,
   },
   sellerIconWrap: {
     width: 44, height: 44, borderRadius: 14,
@@ -858,56 +847,56 @@ const S = StyleSheet.create({
 
   logoutBtn: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.white, borderRadius: 20,
+    backgroundColor: C.white, borderRadius: 20,
     paddingHorizontal: 16, paddingVertical: 16,
     gap: 12, marginBottom: 8,
-    borderWidth: 1.5, borderColor: D.red + '15',
+    borderWidth: 1.5, borderColor: withAlpha(D.red, 0.15),
     shadowColor: D.red, shadowOpacity: 0.06, shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 }, elevation: 1,
   },
   logoutIconWrap: {
     width: 40, height: 40, borderRadius: 12,
-    backgroundColor: D.red + '10',
+    backgroundColor: withAlpha(D.red, 0.10),
     justifyContent: 'center', alignItems: 'center',
   },
   logoutLabel: { flex: 1, fontSize: 15, fontWeight: '700', color: D.red },
 
-  version: { textAlign: 'center', fontSize: 12, color: D.textFaint, marginTop: 12, marginBottom: 8 },
+  version: { textAlign: 'center', fontSize: 12, color: C.textHint, marginTop: 12, marginBottom: 8 },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: C.overlay, justifyContent: 'flex-end' },
 
   // Centered confirmation popup (logout, etc.)
   confirmBackdrop: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    flex: 1, backgroundColor: C.overlay,
     justifyContent: 'center', alignItems: 'center', padding: 32,
   },
   confirmCard: {
     width: '100%', maxWidth: 360,
-    backgroundColor: COLORS.white, borderRadius: 24,
+    backgroundColor: C.white, borderRadius: 24,
     paddingHorizontal: 24, paddingTop: 24, paddingBottom: 20,
     alignItems: 'center',
-    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 24,
+    shadowColor: C.shadowGreen, shadowOpacity: 0.18, shadowRadius: 24,
     shadowOffset: { width: 0, height: 8 }, elevation: 12,
   },
   confirmIconWrap: {
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: D.red + '12',
+    backgroundColor: withAlpha(D.red, 0.12),
     justifyContent: 'center', alignItems: 'center', marginBottom: 14,
   },
-  confirmTitle: { fontSize: 19, fontWeight: '800', color: D.text, marginBottom: 6, textAlign: 'center' },
-  confirmMsg: { fontSize: 14, color: D.textDim, textAlign: 'center', lineHeight: 20, marginBottom: 22 },
+  confirmTitle: { fontSize: 19, fontWeight: '800', color: C.headingDark, marginBottom: 6, textAlign: 'center' },
+  confirmMsg: { fontSize: 14, color: C.textBody, textAlign: 'center', lineHeight: 20, marginBottom: 22 },
   confirmBtnRow: { flexDirection: 'row', gap: 12, width: '100%' },
   confirmBtn: {
     flex: 1, paddingVertical: 14, borderRadius: 14,
     justifyContent: 'center', alignItems: 'center',
   },
-  confirmCancel: { backgroundColor: '#F1F3F0' },
-  confirmCancelTxt: { fontSize: 15, fontWeight: '700', color: D.text },
+  confirmCancel: { backgroundColor: C.chipBg },
+  confirmCancelTxt: { fontSize: 15, fontWeight: '700', color: C.headingDark },
   confirmDanger: { backgroundColor: D.red },
   confirmDangerTxt: { fontSize: 15, fontWeight: '800', color: COLORS.white },
-  editKav: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  editKav: { flex: 1, backgroundColor: C.overlay, justifyContent: 'flex-end' },
   editSheet: {
-    backgroundColor: COLORS.white,
+    backgroundColor: C.white,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     paddingHorizontal: 22, paddingTop: 12,
     paddingBottom: Platform.OS === 'ios' ? 36 : 22,
@@ -916,47 +905,47 @@ const S = StyleSheet.create({
   editHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   editScroll: { flexGrow: 0 },
   sheetHandle: {
-    width: 40, height: 4, backgroundColor: COLORS.slateLight,
+    width: 40, height: 4, backgroundColor: C.borderMed,
     borderRadius: 2, alignSelf: 'center', marginBottom: 14,
   },
-  sheetTitle: { fontSize: 19, fontWeight: '800', color: D.text },
+  sheetTitle: { fontSize: 19, fontWeight: '800', color: C.headingDark },
   fieldGroup: { marginBottom: 14 },
-  fieldLabel: { fontSize: 12.5, fontWeight: '700', color: D.textDim, marginBottom: 6, marginLeft: 2 },
+  fieldLabel: { fontSize: 12.5, fontWeight: '700', color: C.textBody, marginBottom: 6, marginLeft: 2 },
   fieldRow: {
     flexDirection: 'row', alignItems: 'center',
-    borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.06)',
+    borderWidth: 1.5, borderColor: C.inputBorder,
     borderRadius: 14, paddingHorizontal: 12, paddingVertical: 12,
-    backgroundColor: '#F8FAF7',
+    backgroundColor: C.inputBg,
     gap: 10,
   },
   fieldIconWrap: {
     width: 32, height: 32, borderRadius: 10,
     justifyContent: 'center', alignItems: 'center',
   },
-  fieldInput: { flex: 1, fontSize: 15, color: D.text, padding: 0 },
+  fieldInput: { flex: 1, fontSize: 15, color: C.headingDark, padding: 0 },
   saveBtn: { borderRadius: 16, overflow: 'hidden', marginTop: 12 },
   saveBtnGrad: { paddingVertical: 16, alignItems: 'center', borderRadius: 16 },
   saveBtnTxt: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
 
   langSheet: {
-    backgroundColor: COLORS.white,
+    backgroundColor: C.white,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     padding: 20, paddingBottom: 40,
   },
   langOption: {
     flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16,
     borderRadius: 14, marginBottom: 10,
-    backgroundColor: '#F8FAF7', borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.06)',
+    backgroundColor: C.inputBg, borderWidth: 1.5, borderColor: C.inputBorder,
   },
 
   stateSheet: {
-    backgroundColor: COLORS.white,
+    backgroundColor: C.white,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     padding: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 24,
     maxHeight: '85%',
   },
   regionHeader: {
-    fontSize: 11, fontWeight: '700', color: D.textDim,
+    fontSize: 11, fontWeight: '700', color: C.textBody,
     letterSpacing: 0.8, textTransform: 'uppercase',
     paddingHorizontal: 4, paddingTop: 14, paddingBottom: 6,
   },
@@ -964,13 +953,13 @@ const S = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 14, paddingVertical: 12,
     borderRadius: 14, marginBottom: 6,
-    backgroundColor: '#F8FAF7', borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.06)',
+    backgroundColor: C.inputBg, borderWidth: 1.5, borderColor: C.inputBorder,
   },
-  stateName: { fontSize: 15, fontWeight: '600', color: D.text },
-  stateNative: { fontSize: 12, color: D.textFaint, marginTop: 1 },
+  stateName: { fontSize: 15, fontWeight: '600', color: C.headingDark },
+  stateNative: { fontSize: 12, color: C.textHint, marginTop: 1 },
   stateLangBadge: {
-    fontSize: 11, fontWeight: '700', color: D.textFaint,
-    backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: 6,
+    fontSize: 11, fontWeight: '700', color: C.textBody,
+    backgroundColor: withAlpha(C.green, 0.06), borderRadius: 6,
     paddingHorizontal: 7, paddingVertical: 3,
   },
 });

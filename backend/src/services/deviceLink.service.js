@@ -21,13 +21,13 @@
  *
  * Overlaps COMP-10 (device fingerprinting into risk scoring).
  */
-import crypto from 'crypto';
-import prisma from '../config/db.js';
-import redis from '../config/redis.js';
-import { ENV } from '../config/env.js';
-import logger from '../utils/logger.js';
-import { auditLog, AUDIT_ACTIONS } from './audit.service.js';
-import { reportSecurityEvent } from './incident.service.js';
+import crypto from "crypto";
+import prisma from "../config/db.js";
+import redis from "../config/redis.js";
+import { ENV } from "../config/env.js";
+import logger from "../utils/logger.js";
+import { auditLog, AUDIT_ACTIONS } from "./audit.service.js";
+import { reportSecurityEvent } from "./incident.service.js";
 
 // How many accounts we list on a flagged cluster (bounds the query + payload).
 const MAX_LINKED_ACCOUNTS = 100;
@@ -42,33 +42,51 @@ const INCIDENT_DEDUPE_TTL_SEC = 24 * 60 * 60;
  * physical device yields the same id in both features.
  */
 export function strongDeviceId(req) {
-  const raw = req?.headers?.['x-device-id'];
-  const id = typeof raw === 'string' ? raw.trim().slice(0, 256) : '';
+  const raw = req?.headers?.["x-device-id"];
+  const id = typeof raw === "string" ? raw.trim().slice(0, 256) : "";
   if (!id) return null;
-  return crypto.createHash('sha256').update(id).digest('hex').slice(0, 24);
+  return crypto.createHash("sha256").update(id).digest("hex").slice(0, 24);
 }
 
 /** Redis SET-NX dedupe so one device raises at most one incident per window. */
 async function reserveIncidentSlot(fingerprint) {
-  if (redis?.status !== 'ready') return false;
+  if (redis?.status !== "ready") return false;
   try {
-    const r = await redis.set(`fraud:devicelink:inc:${fingerprint}`, '1', 'EX', INCIDENT_DEDUPE_TTL_SEC, 'NX');
-    return r === 'OK';
+    const r = await redis.set(
+      `fraud:devicelink:inc:${fingerprint}`,
+      "1",
+      "EX",
+      INCIDENT_DEDUPE_TTL_SEC,
+      "NX",
+    );
+    return r === "OK";
   } catch (err) {
-    logger.warn('[DeviceLink] incident dedupe failed: %s', err.message);
+    logger.warn("[DeviceLink] incident dedupe failed: %s", err.message);
     return false;
   }
 }
 
 /** Audit + (deduped) incident for a flagged multi-account cluster. Never throws. */
-async function flagMultiAccount({ fingerprint, linkedUserIds, accountCount, context, ip }) {
+async function flagMultiAccount({
+  fingerprint,
+  linkedUserIds,
+  accountCount,
+  context,
+  ip,
+}) {
   try {
-    const metadata = { fingerprint, accountCount, linkedUserIds, context, lookbackDays: ENV.DEVICE_LINK.lookbackDays };
+    const metadata = {
+      fingerprint,
+      accountCount,
+      linkedUserIds,
+      context,
+      lookbackDays: ENV.DEVICE_LINK.lookbackDays,
+    };
 
     await auditLog({
-      userId: 'system',
+      userId: "system",
       action: AUDIT_ACTIONS.FRAUD_MULTI_ACCOUNT_FLAG,
-      entity: 'Device',
+      entity: "Device",
       entityId: fingerprint,
       ip: ip || null,
       metadata,
@@ -77,19 +95,19 @@ async function flagMultiAccount({ fingerprint, linkedUserIds, accountCount, cont
     // Deduped so a busy shared device doesn't reopen the same incident hourly.
     if (await reserveIncidentSlot(fingerprint)) {
       await reportSecurityEvent({
-        title: 'Multiple accounts linked to one device',
+        title: "Multiple accounts linked to one device",
         description:
           `${accountCount} distinct accounts share one device within ` +
           `${ENV.DEVICE_LINK.lookbackDays} days (observed at ${context}). Possible single ` +
           `actor running multiple accounts — linked accounts routed for review.`,
-        category: 'FRAUD',
-        severity: 'MEDIUM',
+        category: "FRAUD",
+        severity: "MEDIUM",
         affectedUserIds: linkedUserIds,
         metadata,
       });
     }
   } catch (err) {
-    logger.warn('[DeviceLink] flag side effects failed: %s', err.message);
+    logger.warn("[DeviceLink] flag side effects failed: %s", err.message);
   }
 }
 
@@ -105,35 +123,57 @@ async function flagMultiAccount({ fingerprint, linkedUserIds, accountCount, cont
  * @param {string}  p.context     — 'login' | 'order'
  * @returns {Promise<{fingerprint:string, accountCount:number, linkedUserIds:string[], flagged:boolean}|null>}
  */
-export async function recordDeviceLink({ userId, fingerprint, ip = null, context }) {
+export async function recordDeviceLink({
+  userId,
+  fingerprint,
+  ip = null,
+  context,
+}) {
   if (!userId || !fingerprint) return null; // no strong device id → don't link
 
   try {
     const now = new Date();
     // Upsert the (device, account) link — bump recency/usage on repeat sightings.
     await prisma.deviceAccountLink.upsert({
-      where:  { fingerprint_userId: { fingerprint, userId } },
+      where: { fingerprint_userId: { fingerprint, userId } },
       create: { fingerprint, userId, lastIp: ip, lastContext: context },
-      update: { lastSeenAt: now, seenCount: { increment: 1 }, lastIp: ip, lastContext: context },
+      update: {
+        lastSeenAt: now,
+        seenCount: { increment: 1 },
+        lastIp: ip,
+        lastContext: context,
+      },
     });
 
     // Distinct accounts on this device within the window. The @@unique(fingerprint,
     // userId) means one row per account, so the row set IS the distinct accounts.
-    const since = new Date(Date.now() - ENV.DEVICE_LINK.lookbackDays * 24 * 60 * 60 * 1000);
+    const since = new Date(
+      Date.now() - ENV.DEVICE_LINK.lookbackDays * 24 * 60 * 60 * 1000,
+    );
     const rows = await prisma.deviceAccountLink.findMany({
-      where:  { fingerprint, lastSeenAt: { gte: since } },
+      where: { fingerprint, lastSeenAt: { gte: since } },
       select: { userId: true },
-      take:   MAX_LINKED_ACCOUNTS,
+      take: MAX_LINKED_ACCOUNTS,
     });
     const linkedUserIds = rows.map((r) => r.userId);
     const accountCount = linkedUserIds.length;
     const flagged = accountCount >= ENV.DEVICE_LINK.flagAccounts;
 
-    if (flagged) await flagMultiAccount({ fingerprint, linkedUserIds, accountCount, context, ip });
+    if (flagged)
+      await flagMultiAccount({
+        fingerprint,
+        linkedUserIds,
+        accountCount,
+        context,
+        ip,
+      });
 
     return { fingerprint, accountCount, linkedUserIds, flagged };
   } catch (err) {
-    logger.warn('[DeviceLink] record failed (treating as no-op): %s', err.message);
+    logger.warn(
+      "[DeviceLink] record failed (treating as no-op): %s",
+      err.message,
+    );
     return null;
   }
 }
@@ -149,36 +189,59 @@ export async function recordDeviceLink({ userId, fingerprint, ip = null, context
  * @param {number} [opts.limit]
  * @returns {Promise<Array<{fingerprint:string, accountCount:number, accounts:Array<{userId:string,lastSeenAt:Date,seenCount:number,lastContext:?string}>}>>}
  */
-export async function listDeviceClusters({ minAccounts, lookbackDays, limit } = {}) {
+export async function listDeviceClusters({
+  minAccounts,
+  lookbackDays,
+  limit,
+} = {}) {
   try {
-    const min  = Number.isFinite(minAccounts) && minAccounts >= 2 ? minAccounts : ENV.DEVICE_LINK.flagAccounts;
-    const days = Number.isFinite(lookbackDays) && lookbackDays > 0 ? lookbackDays : ENV.DEVICE_LINK.lookbackDays;
-    const take = Math.min(Number.isFinite(limit) && limit > 0 ? limit : 50, 200);
+    const min =
+      Number.isFinite(minAccounts) && minAccounts >= 2
+        ? minAccounts
+        : ENV.DEVICE_LINK.flagAccounts;
+    const days =
+      Number.isFinite(lookbackDays) && lookbackDays > 0
+        ? lookbackDays
+        : ENV.DEVICE_LINK.lookbackDays;
+    const take = Math.min(
+      Number.isFinite(limit) && limit > 0 ? limit : 50,
+      200,
+    );
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     // Fingerprints with ≥ min distinct accounts in the window (one row per account).
     const groups = await prisma.deviceAccountLink.groupBy({
-      by: ['fingerprint'],
+      by: ["fingerprint"],
       where: { lastSeenAt: { gte: since } },
       _count: { userId: true },
       having: { userId: { _count: { gte: min } } },
-      orderBy: { _count: { userId: 'desc' } },
+      orderBy: { _count: { userId: "desc" } },
       take,
     });
     if (!groups.length) return [];
 
     const fingerprints = groups.map((g) => g.fingerprint);
     const links = await prisma.deviceAccountLink.findMany({
-      where:  { fingerprint: { in: fingerprints }, lastSeenAt: { gte: since } },
-      select: { fingerprint: true, userId: true, lastSeenAt: true, seenCount: true, lastContext: true },
-      orderBy: { lastSeenAt: 'desc' },
+      where: { fingerprint: { in: fingerprints }, lastSeenAt: { gte: since } },
+      select: {
+        fingerprint: true,
+        userId: true,
+        lastSeenAt: true,
+        seenCount: true,
+        lastContext: true,
+      },
+      orderBy: { lastSeenAt: "desc" },
     });
 
     const byFingerprint = new Map();
     for (const l of links) {
-      if (!byFingerprint.has(l.fingerprint)) byFingerprint.set(l.fingerprint, []);
+      if (!byFingerprint.has(l.fingerprint))
+        byFingerprint.set(l.fingerprint, []);
       byFingerprint.get(l.fingerprint).push({
-        userId: l.userId, lastSeenAt: l.lastSeenAt, seenCount: l.seenCount, lastContext: l.lastContext,
+        userId: l.userId,
+        lastSeenAt: l.lastSeenAt,
+        seenCount: l.seenCount,
+        lastContext: l.lastContext,
       });
     }
 
@@ -188,7 +251,7 @@ export async function listDeviceClusters({ minAccounts, lookbackDays, limit } = 
       accounts: byFingerprint.get(g.fingerprint) || [],
     }));
   } catch (err) {
-    logger.warn('[DeviceLink] listDeviceClusters failed: %s', err.message);
+    logger.warn("[DeviceLink] listDeviceClusters failed: %s", err.message);
     return [];
   }
 }
