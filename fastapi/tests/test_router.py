@@ -1,6 +1,6 @@
 """
 Tests for agents/registry.py and agents/router.py — the LLM tier toggle
-+ chain resolution + fallback dispatch logic.
++ chain resolution + fallback dispatch logic. CropSetu is Gemini-only.
 """
 import asyncio
 import os
@@ -11,12 +11,9 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-# Ensure at least one API key is "set" so the catalog doesn't filter
-# everything out at import time. We never actually call out — the tests
-# stub the runner.
+# Ensure the Gemini key is "set" so the catalog doesn't filter everything out at
+# import time. We never actually call out — the tests stub the runner.
 os.environ.setdefault("GEMINI_API_KEY", "test")
-os.environ.setdefault("GROQ_API_KEY",   "test")
-os.environ.setdefault("ANTHROPIC_API_KEY", "test")
 
 # Force the modules to re-read env (they may have loaded earlier under
 # pytest with missing keys).
@@ -62,10 +59,6 @@ def test_resolve_chain_diagnose_fast_includes_vision_model():
 
 
 def test_resolve_chain_diagnose_best_is_vision_capable():
-    # The Best chain's exact composition depends on operator key + quota
-    # availability (Pro requires paid Gemini billing; Sonnet 4.6 is too slow
-    # for the mobile timeout). What MUST hold: every model in the diagnose
-    # chain supports vision.
     from agents.registry import MODEL_CATALOG
     chain = resolve_chain("diagnose", "best")
     assert len(chain) > 0
@@ -73,12 +66,52 @@ def test_resolve_chain_diagnose_best_is_vision_capable():
         assert "vision" in MODEL_CATALOG[m]["capabilities"], f"{m} missing vision"
 
 
+def test_primary_chains_are_gemini_only():
+    # Every PRIMARY chain stays Gemini-only post-consolidation. The ENSEMBLE is
+    # the one stage allowed a cross-vendor voter (OpenAI) — covered separately.
+    for stage in ("diagnose", "treatment", "chat", "alert"):
+        for tier in ("fast", "best"):
+            for m in resolve_chain(stage, tier):
+                assert m.startswith("gemini-"), f"{stage}/{tier} has non-gemini model {m}"
+
+
+# ── OpenAI ensemble voter (cross-vendor) ────────────────────────────────────
+
+def _openai_model_id():
+    """The single OpenAI catalog id (override-robust — honours OPENAI_DIAGNOSE_MODEL)."""
+    from agents.registry import MODEL_CATALOG, provider_of
+    ids = [m for m in MODEL_CATALOG if provider_of(m) == "openai"]
+    assert len(ids) == 1, f"expected exactly one OpenAI catalog entry, got {ids}"
+    return ids[0]
+
+
+def test_openai_provider_registered():
+    from agents.registry import provider_of
+    assert provider_of(_openai_model_id()) == "openai"
+
+
+def test_ensemble_includes_openai_voter_when_keyed(monkeypatch):
+    from agents.registry import MODEL_CATALOG
+    oid = _openai_model_id()
+    monkeypatch.setitem(MODEL_CATALOG[oid], "api_key", "sk-test")
+    chain = resolve_chain("ensemble", "best")
+    assert oid in chain, "OpenAI voter should join the ensemble when its key is set"
+    assert any(m.startswith("gemini-") for m in chain), "Gemini voters stay alongside it"
+
+
+def test_ensemble_drops_openai_voter_without_key(monkeypatch):
+    # No key → the cross-vendor voter is silently dropped; pipeline stays Gemini.
+    from agents.registry import MODEL_CATALOG
+    oid = _openai_model_id()
+    monkeypatch.setitem(MODEL_CATALOG[oid], "api_key", "")
+    chain = resolve_chain("ensemble", "best")
+    assert oid not in chain
+    assert chain and all(m.startswith("gemini-") for m in chain)
+
+
 def test_resolve_chain_treatment_does_not_require_vision():
     chain = resolve_chain("treatment", "fast")
     assert len(chain) > 0
-    # Treatment doesn't require vision — any text-or-vision model is fine.
-    # Operator key state can swap Groq llama in/out of the chain (see registry
-    # comment); what matters is the chain has at least one usable model.
     from agents.registry import MODEL_CATALOG
     for m in chain:
         caps = MODEL_CATALOG[m]["capabilities"]
@@ -106,15 +139,15 @@ def test_resolve_chain_filters_unknown_models(monkeypatch):
 
 
 def test_resolve_chain_filters_missing_keys(monkeypatch):
-    # If a model's API key is empty, it must be silently dropped.
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
-    importlib.reload(config)
-    importlib.reload(registry_mod)
-    chain = registry_mod.resolve_chain("diagnose", "best")
-    # Claude entries should be absent now
-    assert "claude-sonnet-4-6" not in chain
-    # But gemini ones survive
-    assert any(m.startswith("gemini") for m in chain)
+    # If a model's API key is empty, it must be silently dropped. We mutate the
+    # catalog entry directly (monkeypatch restores it) rather than reloading the
+    # module, so we don't clobber the shared Gemini key for other tests.
+    from agents.registry import MODEL_CATALOG
+    monkeypatch.setenv("DIAGNOSE_BEST_CHAIN", "gemini-2.5-pro,gemini-2.5-flash")
+    monkeypatch.setitem(MODEL_CATALOG["gemini-2.5-pro"], "api_key", "")
+    chain = resolve_chain("diagnose", "best")
+    assert "gemini-2.5-pro" not in chain      # dropped — no key
+    assert "gemini-2.5-flash" in chain         # survives
 
 
 # ── _is_transient ───────────────────────────────────────────────────────────
@@ -124,8 +157,6 @@ def test_transient_timeout_classified():
 
 
 def test_transient_429_classified():
-    # httpx.HTTPStatusError requires Request/Response args — easier to
-    # construct a fake with the expected status_code attribute.
     class FakeStatusError(Exception):
         def __init__(self, code):
             self.status_code = code
@@ -147,7 +178,7 @@ def test_transient_rate_limit_message_detected():
     assert _is_transient(RuntimeError("Gemini rate-limited after 3 retries")) is True
 
 
-# ── _run_chain — fallback behaviour ─────────────────────────────────────────
+# ── _run_chain — fallback behaviour (Gemini Pro → Flash) ────────────────────
 
 class _BoomTransient(Exception):
     """Mimics a 429 — has status_code attribute."""
@@ -156,11 +187,8 @@ class _BoomTransient(Exception):
 
 
 def test_run_chain_falls_back_on_transient(monkeypatch):
-    # Force a deterministic 2-model chain
-    monkeypatch.setenv("DIAGNOSE_FAST_CHAIN", "gemini-2.5-flash,claude-sonnet-4-6")
-    importlib.reload(config)
-    importlib.reload(registry_mod)
-    importlib.reload(router_mod)
+    # Force a deterministic 2-model Gemini chain
+    monkeypatch.setenv("DIAGNOSE_FAST_CHAIN", "gemini-2.5-pro,gemini-2.5-flash")
 
     calls = []
 
@@ -175,16 +203,13 @@ def test_run_chain_falls_back_on_transient(monkeypatch):
         stage="diagnose", tier="fast", runner=fake_runner,
     ))
     assert text == "ok-text"
-    assert model == "claude-sonnet-4-6"
+    assert model == "gemini-2.5-flash"
     assert len(calls) == 2
     assert tok["total_tokens"] == 15
 
 
 def test_run_chain_reraises_after_full_exhaustion(monkeypatch):
-    monkeypatch.setenv("DIAGNOSE_FAST_CHAIN", "gemini-2.5-flash,claude-sonnet-4-6")
-    importlib.reload(config)
-    importlib.reload(registry_mod)
-    importlib.reload(router_mod)
+    monkeypatch.setenv("DIAGNOSE_FAST_CHAIN", "gemini-2.5-pro,gemini-2.5-flash")
 
     async def all_fail(model_id):
         raise _BoomTransient()
@@ -198,10 +223,7 @@ def test_run_chain_reraises_after_full_exhaustion(monkeypatch):
 
 
 def test_run_chain_does_not_fallback_on_permanent_error(monkeypatch):
-    monkeypatch.setenv("DIAGNOSE_FAST_CHAIN", "gemini-2.5-flash,claude-sonnet-4-6")
-    importlib.reload(config)
-    importlib.reload(registry_mod)
-    importlib.reload(router_mod)
+    monkeypatch.setenv("DIAGNOSE_FAST_CHAIN", "gemini-2.5-pro,gemini-2.5-flash")
 
     calls = []
     async def fail(model_id):
@@ -218,15 +240,12 @@ def test_run_chain_does_not_fallback_on_permanent_error(monkeypatch):
 
 def test_run_chain_empty_response_triggers_fallback(monkeypatch):
     """A model returning '' should be treated as failure, not silently accepted."""
-    monkeypatch.setenv("DIAGNOSE_FAST_CHAIN", "gemini-2.5-flash,claude-sonnet-4-6")
-    importlib.reload(config)
-    importlib.reload(registry_mod)
-    importlib.reload(router_mod)
+    monkeypatch.setenv("DIAGNOSE_FAST_CHAIN", "gemini-2.5-pro,gemini-2.5-flash")
 
     calls = []
     async def runner(model_id):
         calls.append(model_id)
-        if model_id == "gemini-2.5-flash":
+        if model_id == "gemini-2.5-pro":
             return ("", {"input_tokens": 0, "output_tokens": 0,
                          "total_tokens": 0, "cost_usd": 0, "model": model_id})
         return ("ok", {"input_tokens": 5, "output_tokens": 10,
@@ -236,5 +255,5 @@ def test_run_chain_empty_response_triggers_fallback(monkeypatch):
         stage="diagnose", tier="fast", runner=runner,
     ))
     assert text == "ok"
-    assert model == "claude-sonnet-4-6"
+    assert model == "gemini-2.5-flash"
     assert len(calls) == 2

@@ -1,15 +1,13 @@
 /**
  * AI Credit Service — Future-proof credit-based AI access system
  *
- * Credit costs per AI feature:
+ * Credit costs per AI feature (Gemini-only; legacy provider keys kept for
+ * back-compat with historical ledger rows):
  *   Rule-based (pest/weather):  0 credits  (free, no LLM)
- *   Haiku enhancement:          1 credit   (~500 tokens, ~$0.002)
- *   Chat message (Groq):        1 credit   (free model, nominal cost)
- *   Chat message (Claude):      2 credits  (~1000 tokens)
+ *   Chat message (Gemini):      1 credit   (text Q&A, scales with tokens)
  *   Crop scan (Gemini):         3 credits  (~2000 tokens + vision)
- *   Crop scan (Claude):         5 credits  (~3000 tokens + vision)
- *   Pest prediction (Sonnet):   5 credits  (~3000 tokens, agentic loop)
- *   Voice chat:                 2 credits  (STT + TTS + LLM)
+ *   Voice chat:                 2 credits  (Sarvam STT + Gemini reply + Sarvam TTS)
+ *   TTS (Sarvam):               1 credit
  *
  * Free tier: 100 credits/month (auto-refill on 1st of month)
  * Credits never expire (purchased ones). Free credits refill monthly.
@@ -27,21 +25,27 @@ const MIN_CREDITS_PER_CALL = ENV.AI_MIN_CREDITS_PER_CALL || 1;
 // ── Credit cost table ────────────────────────────────────────────────────────
 // These are now the per-feature MINIMUM (floor). Actual debit scales with tokens.
 export const CREDIT_COSTS = {
-  // Feature name → credits consumed
+  // Feature name → credits consumed (floor; actual scales with tokens)
   ai_scan_gemini:     3,
-  ai_scan_claude:     5,
-  ai_chat_groq:       1,
-  ai_chat_claude:     2,
+  ai_chat_gemini:     1,   // text chat (Gemini Flash)
   ai_pest_rule:       0,   // free — no LLM used
-  ai_pest_haiku:      1,   // Haiku enhancement
-  ai_pest_sonnet:     5,   // Full agentic loop
-  ai_voice:           2,
+  ai_pest_gemini:     1,   // Gemini pest enhancement
+  ai_voice:           2,   // Sarvam STT + Gemini reply + Sarvam TTS
+  ai_tts:             1,   // Sarvam text-to-speech
   ai_translate:       1,
   ai_planner:         1,
   ai_soil:            1,
   ai_soil_ocr:        3,   // Soil Health Card OCR (vision call — parity with scan)
   ai_calendar:        2,
   ai_irrigation:      1,
+
+  // ── Legacy keys (pre-Gemini consolidation) — retained so old ledger rows and
+  //    any in-flight callers still resolve a floor. Do not use in new code.
+  ai_scan_claude:     5,
+  ai_chat_groq:       1,
+  ai_chat_claude:     2,
+  ai_pest_haiku:      1,
+  ai_pest_sonnet:     5,
 };
 
 // ── Universal token → credit meter ───────────────────────────────────────────
@@ -138,6 +142,9 @@ export async function checkCredits(userId, featureType) {
     return { allowed: true, balance: credit.balance, cost, shortfall: 0 };
   }
 
+  // PAY-11: surface rejected attempts so the audit trail covers denials, not
+  // just successful debits.
+  console.warn('[AICredit] REJECTED user=%s feature=%s need=%d have=%d', userId, featureType, cost, credit.balance);
   return {
     allowed: false,
     balance: credit.balance,
@@ -231,6 +238,8 @@ export async function reserveCredits(userId, featureType) {
   });
   if (res.count === 0) {
     const c = await prisma.aICredit.findUnique({ where: { userId } });
+    // PAY-11: log the denied reservation for the audit trail.
+    console.warn('[AICredit] RESERVE REJECTED user=%s feature=%s need=%d have=%d', userId, featureType, estimate, c?.balance ?? 0);
     return { ok: false, reserved: 0, holdId: null, balance: c?.balance ?? 0,
              message: `Insufficient credits. Need ${estimate}, have ${c?.balance ?? 0}.` };
   }

@@ -25,7 +25,11 @@ const DEFAULT_TIMEOUT_MS = 90_000;
 function _sign(method, path, bodyBuffer) {
   const ts       = Math.floor(Date.now() / 1000).toString();
   const bodyHash = crypto.createHash('sha256').update(bodyBuffer || Buffer.alloc(0)).digest('hex');
-  const message  = `${ts}.${method.toUpperCase()}.${path}.${bodyHash}`;
+  // Sign over the PATH ONLY (no query string). FastAPI verifies with
+  // request.url.path, which excludes the query — so a signed GET carrying a
+  // ?query would otherwise mismatch and 401. Keep both sides path-only.
+  const cleanPath = String(path).split('?')[0];
+  const message  = `${ts}.${method.toUpperCase()}.${cleanPath}.${bodyHash}`;
   const signature = crypto
     .createHmac('sha256', SHARED_SECRET)
     .update(message)
@@ -82,13 +86,17 @@ export async function postSignedJSON(path, body, options = {}) {
       if (!resp.ok) {
         const errBody = await resp.json().catch(() => ({ detail: `FastAPI ${resp.status}` }));
         // Surface FastAPI's structured 402 detail (cap_usd, resets_at_utc, etc.)
+        // FastAPI routes are inconsistent: HTTPException uses `detail`, while
+        // some JSONResponse handlers (chat) use `error`. Fall back across both
+        // so the real upstream reason isn't lost as a generic status string.
+        const detail = errBody.detail ?? errBody.error;
         const err = new Error(
-          typeof errBody.detail === 'string'
-            ? errBody.detail
-            : (errBody.detail?.code || `AI backend returned ${resp.status}`)
+          typeof detail === 'string'
+            ? detail
+            : (detail?.message || detail?.code || errBody.error || `AI backend returned ${resp.status}`)
         );
         err.status = resp.status;
-        err.detail = errBody.detail;
+        err.detail = detail;
         throw err;
       }
       return await resp.json();
@@ -133,13 +141,17 @@ export async function getSigned(path, options = {}) {
       clearTimeout(timer);
       if (!resp.ok) {
         const errBody = await resp.json().catch(() => ({ detail: `FastAPI ${resp.status}` }));
+        // FastAPI routes are inconsistent: HTTPException uses `detail`, while
+        // some JSONResponse handlers (chat) use `error`. Fall back across both
+        // so the real upstream reason isn't lost as a generic status string.
+        const detail = errBody.detail ?? errBody.error;
         const err = new Error(
-          typeof errBody.detail === 'string'
-            ? errBody.detail
-            : (errBody.detail?.code || `AI backend returned ${resp.status}`)
+          typeof detail === 'string'
+            ? detail
+            : (detail?.message || detail?.code || errBody.error || `AI backend returned ${resp.status}`)
         );
         err.status = resp.status;
-        err.detail = errBody.detail;
+        err.detail = detail;
         throw err;
       }
       return await resp.json();

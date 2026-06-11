@@ -1,13 +1,14 @@
 /**
  * OnboardingProfileScreen — Screen 2/2: Farm profile setup.
- * White background, single scrollable form with profile photo, name,
- * location, farm details, and crops. Syncs all fields to user profile.
+ * KhetAI theme: forest-green gradient surface, themed section cards, single-green
+ * selection (soil / irrigation / crops), Fraunces + Plus Jakarta Sans, gradient
+ * CTA, entrance motion. Logic unchanged — only UI.
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Image,
+  Platform, Image, Animated, Easing,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,9 +24,11 @@ import { useLanguage } from '../../context/LanguageContext';
 import { completeOnboarding, skipOnboarding } from '../../services/farmApi';
 import { compressImage } from '../../utils/mediaCompressor';
 import api from '../../services/api';
-import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
+import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 import { s, vs, fs, ms } from '../../utils/responsive';
 import { webScreenContainer, useAbsoluteBarScrollStyle } from '../../utils/webScrollFix';
+
+const PLACEHOLDER = 'rgba(87,104,90,0.5)';
 
 const SOILS = [
   { key: 'BLACK_COTTON', label: 'Black Cotton', tKey: 'crops.soilBlack', sk: 'black', bg: ['#3E3631', '#1A1512'] },
@@ -38,11 +41,11 @@ const SOILS = [
 ];
 
 const IRRS = [
-  { key: 'DRIP', label: 'Drip', tKey: 'crops.irrDrip', ik: 'drip', color: '#2196F3', bg: '#E3F2FD' },
-  { key: 'SPRINKLER', label: 'Sprinkler', tKey: 'crops.irrSprinkler', ik: 'sprinkler', color: '#00BCD4', bg: '#E0F7FA' },
-  { key: 'FLOOD', label: 'Flood', tKey: 'crops.irrFlood', ik: 'flood', color: '#4CAF50', bg: '#E8F5E9' },
-  { key: 'RAINFED', label: 'Rainfed', tKey: 'crops.irrRainfed', ik: 'rainfed', color: '#FF9800', bg: '#FFF3E0' },
-  { key: 'MIXED', label: 'Mixed', tKey: 'crops.irrMixed', ik: null, color: '#9C27B0', bg: '#F3E5F5' },
+  { key: 'DRIP', label: 'Drip', tKey: 'crops.irrDrip', ik: 'drip' },
+  { key: 'SPRINKLER', label: 'Sprinkler', tKey: 'crops.irrSprinkler', ik: 'sprinkler' },
+  { key: 'FLOOD', label: 'Flood', tKey: 'crops.irrFlood', ik: 'flood' },
+  { key: 'RAINFED', label: 'Rainfed', tKey: 'crops.irrRainfed', ik: 'rainfed' },
+  { key: 'MIXED', label: 'Mixed', tKey: 'crops.irrMixed', ik: null },
 ];
 
 const CROPS = [
@@ -52,10 +55,30 @@ const CROPS = [
   'Brinjal', 'Okra', 'Cauliflower', 'Cabbage', 'Sunflower', 'Ginger',
 ];
 
+// Reusable themed section icon (green accent square)
+function SectionIcon({ name }) {
+  return (
+    <View style={sty.sectionIcon}>
+      <Ionicons name={name} size={16} color={KHET.primary} />
+    </View>
+  );
+}
+
+// Entrance fade-in-up wrapper (staggered)
+function Rise({ delay = 0, children, style }) {
+  const a = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(a, { toValue: 1, duration: 420, delay, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+  }, []);
+  const translateY = a.interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
+  return <Animated.View style={[style, { opacity: a, transform: [{ translateY }] }]}>{children}</Animated.View>;
+}
+
 export default function OnboardingProfileScreen({ navigation }) {
   const { t } = useLanguage();
   const { updateUser } = useAuth();
   const scrollStyle = useAbsoluteBarScrollStyle();
+  const scrollRef = useRef(null);
 
   // Profile photo
   const [avatarUri, setAvatarUri] = useState(null);
@@ -93,6 +116,17 @@ export default function OnboardingProfileScreen({ navigation }) {
     const n = new Set(p); n.has(crop) ? n.delete(crop) : n.add(crop); return n;
   });
 
+  // ── "Other" — crops typed manually by the user ────────────────────────────
+  const [customCrop, setCustomCrop] = useState('');
+  const [showCustom, setShowCustom] = useState(false);
+  const customCrops = Array.from(selectedCrops).filter((c) => !CROPS.includes(c));
+  const addCustomCrop = () => {
+    const name = customCrop.trim();
+    if (!name) return;
+    setSelectedCrops((p) => new Set(p).add(name));
+    setCustomCrop('');
+  };
+
   // ── Profile Photo ─────────────────────────────────────────────────────────
   const handlePickPhoto = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -107,7 +141,6 @@ export default function OnboardingProfileScreen({ navigation }) {
     if (result.canceled) return;
 
     const asset = result.assets[0];
-    // Validate using MIME type — Android gallery URIs often lack a file extension
     const mime = (asset.mimeType || asset.type || '').toLowerCase();
     const ext  = (asset.uri.split('.').pop() || '').toLowerCase();
     const isValidType = ['jpg', 'jpeg', 'png', 'webp'].includes(ext)
@@ -165,7 +198,6 @@ export default function OnboardingProfileScreen({ navigation }) {
         irrigationType: irrigation || 'RAINFED',
         cropTypes: Array.from(selectedCrops),
       });
-      // Sync ALL profile fields so Profile tab shows them immediately
       updateUser({
         name: result.user?.name,
         onboardingStep: 'COMPLETE',
@@ -201,9 +233,11 @@ export default function OnboardingProfileScreen({ navigation }) {
   const initials = firstName ? firstName[0].toUpperCase() : '?';
 
   return (
-    <View style={[sty.container, webScreenContainer]}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, minHeight: 0 }}>
+    <LinearGradient colors={KHET.gradSurface} start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 1 }} style={[sty.container, webScreenContainer]}>
+      <View style={[sty.blob, { backgroundColor: KHET.primaryGlow, top: -90, right: -90 }]} pointerEvents="none" />
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1, minHeight: 0 }}>
         <ScrollView
+          ref={scrollRef}
           style={scrollStyle}
           contentContainerStyle={sty.scroll}
           keyboardShouldPersistTaps="handled"
@@ -212,8 +246,8 @@ export default function OnboardingProfileScreen({ navigation }) {
 
           {/* ── Header with back ─────────────────────────────────────────── */}
           <View style={sty.headerRow}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={sty.backBtn} activeOpacity={0.7}>
-              <Ionicons name="arrow-back" size={20} color={COLORS.textDark} />
+            <TouchableOpacity onPress={() => navigation.goBack()} style={sty.backBtn} activeOpacity={0.8}>
+              <Ionicons name="arrow-back" size={18} color={KHET.foreground} />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
               <Text style={sty.headerTitle}>{t('onboarding.profileTitle')}</Text>
@@ -223,12 +257,13 @@ export default function OnboardingProfileScreen({ navigation }) {
 
           {/* Progress bar */}
           <View style={sty.progressBar}>
-            <View style={[sty.progressFill, { width: `${Math.max(8, (filledSections / 4) * 100)}%` }]} />
+            <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+              style={[sty.progressFill, { width: `${Math.max(8, (filledSections / 4) * 100)}%` }]} />
           </View>
 
           {/* ── Profile Photo ────────────────────────────────────────────── */}
-          <View style={sty.photoSection}>
-            <TouchableOpacity style={sty.avatarWrap} onPress={handlePickPhoto} activeOpacity={0.8}>
+          <Rise delay={40} style={sty.photoSection}>
+            <TouchableOpacity style={sty.avatarWrap} onPress={handlePickPhoto} activeOpacity={0.85}>
               {avatarUri ? (
                 <Image source={{ uri: avatarUri }} style={sty.avatarImg} />
               ) : (
@@ -236,138 +271,97 @@ export default function OnboardingProfileScreen({ navigation }) {
                   <Text style={sty.avatarInitial}>{initials}</Text>
                 </View>
               )}
-              <View style={sty.cameraBtn}>
+              <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sty.cameraBtn}>
                 {uploadingPhoto
                   ? <ActivityIndicator size="small" color="#FFF" />
                   : <Ionicons name="camera" size={14} color="#FFF" />}
-              </View>
+              </LinearGradient>
             </TouchableOpacity>
             <Text style={sty.photoHint}>{t('onboarding.tapAddPhoto')}</Text>
-          </View>
+          </Rise>
 
           {/* ── 1. Your Name ─────────────────────────────────────────────── */}
-          <View style={sty.section}>
+          <Rise delay={90} style={sty.section}>
             <View style={sty.sectionHeader}>
-              <View style={[sty.sectionIcon, { backgroundColor: '#E3F2FD' }]}>
-                <Ionicons name="person-outline" size={16} color="#1976D2" />
-              </View>
+              <SectionIcon name="person-outline" />
               <Text style={sty.sectionTitle}>{t('onboarding.yourName')}</Text>
               <Text style={sty.required}>*</Text>
             </View>
             <View style={sty.row}>
               <View style={{ flex: 1 }}>
-                <TextInput
-                  style={sty.input}
-                  value={firstName}
-                  onChangeText={setFirstName}
-                  placeholder={t('onboarding.firstName')}
-                  placeholderTextColor={COLORS.textLight}
-                  maxLength={50}
-                />
+                <TextInput style={sty.input} value={firstName} onChangeText={setFirstName}
+                  placeholder={t('onboarding.firstName')} placeholderTextColor={PLACEHOLDER} maxLength={50} />
               </View>
               <View style={{ flex: 1 }}>
-                <TextInput
-                  style={sty.input}
-                  value={lastName}
-                  onChangeText={setLastName}
-                  placeholder={t('onboarding.lastName')}
-                  placeholderTextColor={COLORS.textLight}
-                  maxLength={50}
-                />
+                <TextInput style={sty.input} value={lastName} onChangeText={setLastName}
+                  placeholder={t('onboarding.lastName')} placeholderTextColor={PLACEHOLDER} maxLength={50} />
               </View>
             </View>
-          </View>
+          </Rise>
 
           {/* ── 2. Farm Location ──────────────────────────────────────────── */}
-          <View style={sty.section}>
+          <Rise delay={140} style={sty.section}>
             <View style={sty.sectionHeader}>
-              <View style={[sty.sectionIcon, { backgroundColor: '#E8F5E9' }]}>
-                <Ionicons name="location-outline" size={16} color="#388E3C" />
-              </View>
+              <SectionIcon name="location-outline" />
               <Text style={sty.sectionTitle}>{t('farmProfile.farmLocation')}</Text>
               <Text style={sty.required}>*</Text>
             </View>
 
             <Text style={sty.fieldLabel}>{t('farmProfile.selectState')}</Text>
-            <LocationPicker
-              title={t('farmProfile.selectState')}
-              items={STATE_LIST}
-              selected={state}
+            <LocationPicker title={t('farmProfile.selectState')} items={STATE_LIST} selected={state}
               onSelect={v => { setState(v); setDistrict(''); setTaluka(''); }}
-              placeholder={t('farmProfile.selectStatePlaceholder')}
-            />
+              placeholder={t('farmProfile.selectStatePlaceholder')} />
 
             <Text style={sty.fieldLabel}>{t('onboarding.selectDistrict')} *</Text>
-            <LocationPicker
-              title={t('onboarding.selectDistrict')}
-              items={getDistrictsForState(state)}
-              selected={district}
+            <LocationPicker title={t('onboarding.selectDistrict')} items={getDistrictsForState(state)} selected={district}
               onSelect={v => { setDistrict(v); setTaluka(''); }}
-              placeholder={t('onboarding.selectDistrictPlaceholder')}
-              disabled={!state}
-            />
+              placeholder={t('onboarding.selectDistrictPlaceholder')} disabled={!state} />
 
             <Text style={sty.fieldLabel}>{t('farmProfile.taluka')}</Text>
             {state === 'Maharashtra' ? (
-              <LocationPicker
-                title={t('onboarding.selectTaluka')}
-                items={getTalukas(district)}
-                selected={taluka}
-                onSelect={setTaluka}
-                placeholder={t('onboarding.selectTalukaPlaceholder')}
-                disabled={!district}
-              />
+              <LocationPicker title={t('onboarding.selectTaluka')} items={getTalukas(district)} selected={taluka}
+                onSelect={setTaluka} placeholder={t('onboarding.selectTalukaPlaceholder')} disabled={!district} />
             ) : (
-              <TextInput style={sty.input} value={taluka} onChangeText={setTaluka} placeholder={t('onboarding.talukaPlaceholder')} placeholderTextColor={COLORS.textLight} />
+              <TextInput style={sty.input} value={taluka} onChangeText={setTaluka}
+                placeholder={t('onboarding.talukaPlaceholder')} placeholderTextColor={PLACEHOLDER} />
             )}
 
             <View style={sty.row}>
               <View style={{ flex: 1 }}>
                 <Text style={sty.fieldLabel}>{t('farmProfile.village')}</Text>
-                <TextInput style={sty.input} value={village} onChangeText={setVillage} placeholder={t('onboarding.enterVillage')} placeholderTextColor={COLORS.textLight} />
+                <TextInput style={sty.input} value={village} onChangeText={setVillage}
+                  placeholder={t('onboarding.enterVillage')} placeholderTextColor={PLACEHOLDER} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={sty.fieldLabel}>{t('farmProfile.pincode')}</Text>
-                <TextInput style={sty.input} value={pincode} onChangeText={setPincode} placeholder={t('onboarding.pincodePlaceholder')} keyboardType="numeric" maxLength={6} placeholderTextColor={COLORS.textLight} />
+                <TextInput style={sty.input} value={pincode} onChangeText={setPincode}
+                  placeholder={t('onboarding.pincodePlaceholder')} keyboardType="numeric" maxLength={6} placeholderTextColor={PLACEHOLDER} />
               </View>
             </View>
 
-            <TouchableOpacity style={sty.gpsBtn} onPress={captureGPS} disabled={gpsLoading}>
-              <Ionicons name={lat ? 'checkmark-circle' : 'navigate-outline'} size={16} color={lat ? '#4CAF50' : COLORS.primary} />
+            <TouchableOpacity style={sty.gpsBtn} onPress={captureGPS} disabled={gpsLoading} activeOpacity={0.8}>
+              <Ionicons name={lat ? 'checkmark-circle' : 'navigate-outline'} size={16} color={KHET.primary} />
               <Text style={sty.gpsTxt}>
                 {gpsLoading ? 'Getting location...' : lat ? `GPS captured (${lat.toFixed(4)}, ${lng.toFixed(4)})` : 'Auto-detect from GPS'}
               </Text>
             </TouchableOpacity>
-          </View>
+          </Rise>
 
           {/* ── 3. Farm Details ───────────────────────────────────────────── */}
-          <View style={sty.section}>
+          <Rise delay={190} style={sty.section}>
             <View style={sty.sectionHeader}>
-              <View style={[sty.sectionIcon, { backgroundColor: '#FFF3E0' }]}>
-                <Ionicons name="earth-outline" size={16} color="#E65100" />
-              </View>
+              <SectionIcon name="leaf-outline" />
               <Text style={sty.sectionTitle}>{t('farmDetails')}</Text>
             </View>
 
             <Text style={sty.fieldLabel}>{t('farmProfile.farmName')}</Text>
-            <TextInput
-              style={sty.input}
-              value={farmName}
-              onChangeText={setFarmName}
-              placeholder={`${firstName.trim() || 'My'}'s Farm`}
-              placeholderTextColor={COLORS.textLight}
-              maxLength={60}
-            />
+            <TextInput style={sty.input} value={farmName} onChangeText={setFarmName}
+              placeholder={`${firstName.trim() || 'My'}'s Farm`} placeholderTextColor={PLACEHOLDER} maxLength={60} />
 
             <Text style={[sty.fieldLabel, { marginTop: vs(14) }]}>Total Land (acres)</Text>
-            <TextInput
-              style={[sty.input, { textAlign: 'center', fontSize: fs(18), fontWeight: '700' }]}
-              value={landSize}
-              onChangeText={setLandSize}
-              placeholder={t('farmProfile.landSizePlaceholder')}
-              keyboardType="decimal-pad"
-              placeholderTextColor={COLORS.textLight}
-            />
+            <TextInput style={[sty.input, { textAlign: 'center', fontSize: fs(18), fontFamily: KFONT.sansBold }]}
+              value={landSize} onChangeText={setLandSize}
+              placeholder={t('farmProfile.landSizePlaceholder')} keyboardType="decimal-pad" placeholderTextColor={PLACEHOLDER} />
 
             <Text style={[sty.fieldLabel, { marginTop: vs(14) }]}>{t('farmProfile.soilType')}</Text>
             <View style={sty.soilGrid}>
@@ -379,7 +373,7 @@ export default function OnboardingProfileScreen({ navigation }) {
                       {soil.sk ? <SoilIcon type={soil.sk} size={24} /> : <Ionicons name="help-circle-outline" size={22} color="#FFF" />}
                       {sel && <View style={sty.soilCheck}><Ionicons name="checkmark" size={10} color="#FFF" /></View>}
                     </LinearGradient>
-                    <Text style={[sty.soilLabel, sel && { color: COLORS.primary, fontWeight: '700' }]}>{t(soil.tKey, soil.label)}</Text>
+                    <Text style={[sty.soilLabel, sel && sty.soilLabelSel]}>{t(soil.tKey, soil.label)}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -390,24 +384,22 @@ export default function OnboardingProfileScreen({ navigation }) {
               {IRRS.map(irr => {
                 const sel = irrigation === irr.key;
                 return (
-                  <TouchableOpacity key={irr.key} style={[sty.irrChip, sel && { borderColor: irr.color, backgroundColor: irr.bg }]} onPress={() => setIrrigation(irr.key)} activeOpacity={0.7}>
-                    <View style={[sty.irrIconSmall, { backgroundColor: irr.bg }]}>
-                      {irr.ik ? <IrrigationIcon type={irr.ik} size={20} /> : <Ionicons name="options-outline" size={16} color={irr.color} />}
+                  <TouchableOpacity key={irr.key} style={[sty.irrChip, sel && sty.irrChipSel]} onPress={() => setIrrigation(irr.key)} activeOpacity={0.8}>
+                    <View style={[sty.irrIconSmall, sel && sty.irrIconSmallSel]}>
+                      {irr.ik ? <IrrigationIcon type={irr.ik} size={20} /> : <Ionicons name="options-outline" size={16} color={KHET.primary} />}
                     </View>
-                    <Text style={[sty.irrLabel, sel && { color: irr.color, fontWeight: '700' }]}>{t(irr.tKey, irr.label)}</Text>
-                    {sel && <Ionicons name="checkmark-circle" size={14} color={irr.color} />}
+                    <Text style={[sty.irrLabel, sel && sty.irrLabelSel]}>{t(irr.tKey, irr.label)}</Text>
+                    {sel && <Ionicons name="checkmark-circle" size={14} color={KHET.primary} />}
                   </TouchableOpacity>
                 );
               })}
             </View>
-          </View>
+          </Rise>
 
           {/* ── 4. Crops ──────────────────────────────────────────────────── */}
-          <View style={sty.section}>
+          <Rise delay={240} style={sty.section}>
             <View style={sty.sectionHeader}>
-              <View style={[sty.sectionIcon, { backgroundColor: '#E8F5E9' }]}>
-                <Ionicons name="leaf-outline" size={16} color="#2E7D32" />
-              </View>
+              <SectionIcon name="nutrition-outline" />
               <Text style={sty.sectionTitle}>{t('onboarding.cropsTitle')}</Text>
               {selectedCrops.size > 0 && (
                 <View style={sty.cropBadge}><Text style={sty.cropBadgeText}>{selectedCrops.size}</Text></View>
@@ -417,15 +409,61 @@ export default function OnboardingProfileScreen({ navigation }) {
               {CROPS.map(crop => {
                 const sel = selectedCrops.has(crop);
                 return (
-                  <TouchableOpacity key={crop} style={[sty.cropCard, sel && sty.cropCardSel]} onPress={() => toggleCrop(crop)} activeOpacity={0.7}>
+                  <TouchableOpacity key={crop} style={[sty.cropCard, sel && sty.cropCardSel]} onPress={() => toggleCrop(crop)} activeOpacity={0.8}>
                     <CropIcon crop={crop} size={28} />
-                    <Text style={[sty.cropName, sel && { color: COLORS.primary, fontWeight: '700' }]} numberOfLines={1}>{t('crops.' + crop.toLowerCase(), crop)}</Text>
-                    {sel && <Ionicons name="checkmark-circle" size={12} color={COLORS.primary} style={{ position: 'absolute', top: 2, right: 2 }} />}
+                    <Text style={[sty.cropName, sel && sty.cropNameSel]} numberOfLines={1}>{t('crops.' + crop.toLowerCase(), crop)}</Text>
+                    {sel && <Ionicons name="checkmark-circle" size={13} color={KHET.primary} style={{ position: 'absolute', top: 3, right: 3 }} />}
                   </TouchableOpacity>
                 );
               })}
+
+              {/* "Other" — add a crop manually */}
+              <TouchableOpacity style={[sty.cropCard, showCustom && sty.cropCardSel]} onPress={() => setShowCustom(v => !v)} activeOpacity={0.8}>
+                <View style={sty.otherIcon}>
+                  <Ionicons name="add" size={20} color={KHET.primary} />
+                </View>
+                <Text style={[sty.cropName, showCustom && sty.cropNameSel]} numberOfLines={1}>{t('common.other', 'Other')}</Text>
+              </TouchableOpacity>
             </View>
-          </View>
+
+            {/* Manual crop entry */}
+            {showCustom && (
+              <View style={sty.customRow}>
+                <TextInput
+                  style={sty.customInput}
+                  value={customCrop}
+                  onChangeText={setCustomCrop}
+                  placeholder={t('onboarding.typeCropName', 'Type crop name')}
+                  placeholderTextColor={PLACEHOLDER}
+                  onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250)}
+                  onSubmitEditing={addCustomCrop}
+                  returnKeyType="done"
+                  maxLength={30}
+                  autoFocus
+                />
+                <TouchableOpacity
+                  style={[sty.customAddBtn, !customCrop.trim() && { opacity: 0.5 }]}
+                  onPress={addCustomCrop} disabled={!customCrop.trim()} activeOpacity={0.85}
+                >
+                  <Ionicons name="add" size={22} color={KHET.primaryForeground} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Custom crops the user added */}
+            {customCrops.length > 0 && (
+              <View style={sty.customChips}>
+                {customCrops.map(c => (
+                  <View key={c} style={sty.customChip}>
+                    <Text style={sty.customChipTxt}>{c}</Text>
+                    <TouchableOpacity onPress={() => toggleCrop(c)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}>
+                      <Ionicons name="close-circle" size={16} color={KHET.primary} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+          </Rise>
 
           <View style={{ height: vs(180) }} />
         </ScrollView>
@@ -433,156 +471,174 @@ export default function OnboardingProfileScreen({ navigation }) {
 
       {/* ── Fixed Bottom Bar ──────────────────────────────────────────── */}
       <View style={sty.bottomBar}>
-        <TouchableOpacity style={sty.skipBtn} onPress={handleSkip} disabled={saving} activeOpacity={0.7}>
+        <TouchableOpacity style={sty.skipBtn} onPress={handleSkip} disabled={saving} activeOpacity={0.8}>
           <Text style={sty.skipTxt}>{t('onboarding.skip')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[sty.submitBtn, !canSubmit && { opacity: 0.45 }]}
+          style={[sty.submitBtn, !canSubmit && { opacity: 0.55 }]}
           onPress={handleComplete}
           disabled={saving || !canSubmit}
-          activeOpacity={0.8}
+          activeOpacity={0.9}
         >
-          <LinearGradient
-            colors={canSubmit ? [COLORS.primary, COLORS.primaryMedium || '#21865A'] : ['#CCC', '#AAA']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={sty.submitGrad}
-          >
+          <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sty.submitGrad}>
             {saving ? <ActivityIndicator color="#FFF" /> : (
               <>
-                <Text style={sty.submitTxt}>
-                  {canSubmit ? 'Complete Setup' : 'Fill name & district'}
-                </Text>
-                {canSubmit && <Ionicons name="checkmark-circle" size={18} color="#FFF" />}
+                <Text style={sty.submitTxt}>{canSubmit ? 'Complete Setup' : 'Fill name & district'}</Text>
+                {canSubmit && (
+                  <View style={sty.submitArrow}><Ionicons name="checkmark" size={16} color={KHET.primaryForeground} /></View>
+                )}
               </>
             )}
           </LinearGradient>
         </TouchableOpacity>
       </View>
-    </View>
+    </LinearGradient>
   );
 }
 
 const sty = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  container: { flex: 1, backgroundColor: KHET.background },
   scroll: { paddingHorizontal: s(20), paddingTop: vs(54) },
+  blob: { position: 'absolute', width: s(260), height: s(260), borderRadius: s(130), opacity: 0.16 },
 
   // Header
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: s(12), marginBottom: vs(12) },
   backBtn: {
-    width: s(40), height: s(40), borderRadius: s(12),
-    backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center',
+    width: s(40), height: s(40), borderRadius: s(20),
+    backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 1, borderColor: KHET.border,
+    justifyContent: 'center', alignItems: 'center', ...KSHADOW.soft,
   },
-  headerTitle: { fontSize: fs(20), fontWeight: TYPE.weight.black || '900', color: COLORS.textDark },
-  headerSub: { fontSize: fs(12), color: COLORS.textMedium, marginTop: vs(2) },
+  headerTitle: { fontSize: fs(24), fontFamily: KFONT.display, color: KHET.foreground, letterSpacing: -0.4 },
+  headerSub: { fontSize: fs(12), color: KHET.mutedForeground, marginTop: vs(2), fontFamily: KFONT.sans },
 
   // Progress
-  progressBar: { height: 5, borderRadius: 3, backgroundColor: '#F0F0F0', overflow: 'hidden', marginBottom: vs(20) },
-  progressFill: { height: '100%', borderRadius: 3, backgroundColor: COLORS.primary },
+  progressBar: { height: 5, borderRadius: 3, backgroundColor: KHET.border, overflow: 'hidden', marginBottom: vs(20) },
+  progressFill: { height: '100%', borderRadius: 3 },
 
   // Photo
   photoSection: { alignItems: 'center', marginBottom: vs(20) },
   avatarWrap: { position: 'relative' },
-  avatarImg: { width: ms(90), height: ms(90), borderRadius: ms(30), backgroundColor: '#F0F0F0' },
+  avatarImg: { width: ms(90), height: ms(90), borderRadius: ms(30), backgroundColor: KHET.muted },
   avatarPlaceholder: {
     width: ms(90), height: ms(90), borderRadius: ms(30),
-    backgroundColor: COLORS.primary + '15', justifyContent: 'center', alignItems: 'center',
-    borderWidth: 2, borderColor: COLORS.primary + '30', borderStyle: 'dashed',
+    backgroundColor: KHET.accent, justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: 'rgba(0,95,33,0.25)', borderStyle: 'dashed',
   },
-  avatarInitial: { fontSize: fs(32), fontWeight: '800', color: COLORS.primary },
+  avatarInitial: { fontSize: fs(32), fontFamily: KFONT.displaySemi, color: KHET.primary },
   cameraBtn: {
     position: 'absolute', bottom: 0, right: 0,
     width: ms(30), height: ms(30), borderRadius: ms(15),
-    backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center',
+    justifyContent: 'center', alignItems: 'center',
     borderWidth: 2, borderColor: '#FFFFFF',
   },
-  photoHint: { fontSize: fs(12), color: COLORS.textLight, marginTop: vs(8) },
+  photoHint: { fontSize: fs(12), color: KHET.mutedForeground, marginTop: vs(8), fontFamily: KFONT.sans },
 
   // Sections
   section: {
-    backgroundColor: '#FFFFFF', borderRadius: s(16),
+    backgroundColor: KHET.card, borderRadius: s(18),
     padding: s(16), marginBottom: vs(12),
-    borderWidth: 1, borderColor: '#F0F0F0',
-    ...SHADOWS.small,
+    borderWidth: 1, borderColor: KHET.border, ...KSHADOW.soft,
   },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: s(8), marginBottom: vs(12) },
   sectionIcon: {
-    width: s(30), height: s(30), borderRadius: s(8),
-    justifyContent: 'center', alignItems: 'center',
+    width: s(30), height: s(30), borderRadius: s(10),
+    backgroundColor: KHET.accent, justifyContent: 'center', alignItems: 'center',
   },
-  sectionTitle: { fontSize: fs(16), fontWeight: TYPE.weight.bold || '700', color: COLORS.textDark, flex: 1 },
-  required: { fontSize: fs(14), color: COLORS.error || '#EF4444', fontWeight: '700' },
+  sectionTitle: { fontSize: fs(16), fontFamily: KFONT.sansBold, color: KHET.foreground, flex: 1 },
+  required: { fontSize: fs(14), color: KHET.destructive, fontFamily: KFONT.sansBold },
 
   // Inputs
   row: { flexDirection: 'row', gap: s(10) },
   input: {
-    borderWidth: 1.5, borderColor: '#E8E8E8', borderRadius: s(12),
+    borderWidth: 1.5, borderColor: KHET.border, borderRadius: s(12),
     paddingHorizontal: s(14), paddingVertical: vs(12),
-    fontSize: fs(15), color: COLORS.textDark, backgroundColor: '#FAFAFA',
+    fontSize: fs(15), color: KHET.foreground, backgroundColor: KHET.input, fontFamily: KFONT.sans,
   },
-  fieldLabel: { fontSize: fs(13), fontWeight: '600', color: COLORS.textBody || '#44403C', marginBottom: vs(6), marginTop: vs(8) },
+  fieldLabel: { fontSize: fs(12), fontFamily: KFONT.sansSemi, color: KHET.mutedForeground, marginBottom: vs(6), marginTop: vs(8), letterSpacing: 0.2 },
 
   // GPS
   gpsBtn: {
     flexDirection: 'row', alignItems: 'center', gap: s(8),
-    marginTop: vs(12), paddingVertical: vs(10), paddingHorizontal: s(12),
-    borderWidth: 1.5, borderColor: COLORS.primary + '25', borderRadius: s(12),
-    borderStyle: 'dashed', backgroundColor: COLORS.primary + '04',
+    marginTop: vs(12), paddingVertical: vs(11), paddingHorizontal: s(12),
+    borderWidth: 1.5, borderColor: 'rgba(0,95,33,0.25)', borderRadius: s(12),
+    borderStyle: 'dashed', backgroundColor: 'rgba(201,242,192,0.4)',
   },
-  gpsTxt: { fontSize: fs(13), color: COLORS.primary, fontWeight: '600' },
+  gpsTxt: { fontSize: fs(13), color: KHET.primary, fontFamily: KFONT.sansSemi },
 
   // Soil grid
   soilGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: s(8) },
   soilCard: { width: '13%', alignItems: 'center' },
   soilSquare: {
-    width: '100%', aspectRatio: 1, borderRadius: 10,
+    width: '100%', aspectRatio: 1, borderRadius: 12,
     justifyContent: 'center', alignItems: 'center',
     borderWidth: 2, borderColor: 'transparent',
   },
-  soilSquareSel: { borderColor: '#FFF', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3 },
-  soilCheck: { position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: 8, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
-  soilLabel: { fontSize: fs(8), color: '#666', marginTop: vs(2), textAlign: 'center' },
+  soilSquareSel: { borderColor: KHET.primary, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3 },
+  soilCheck: { position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: 8, backgroundColor: KHET.primary, justifyContent: 'center', alignItems: 'center' },
+  soilLabel: { fontSize: fs(8), color: KHET.mutedForeground, marginTop: vs(2), textAlign: 'center', fontFamily: KFONT.sans },
+  soilLabelSel: { color: KHET.primary, fontFamily: KFONT.sansBold },
 
   // Irrigation chips
   irrRow: { flexDirection: 'row', flexWrap: 'wrap', gap: s(8) },
   irrChip: {
     flexDirection: 'row', alignItems: 'center', gap: s(6),
     paddingVertical: vs(8), paddingHorizontal: s(10),
-    borderRadius: s(12), borderWidth: 1.5, borderColor: '#E8E8E8', backgroundColor: '#FAFAFA',
+    borderRadius: s(12), borderWidth: 1.5, borderColor: KHET.border, backgroundColor: KHET.card,
   },
-  irrIconSmall: { width: s(28), height: s(28), borderRadius: s(8), justifyContent: 'center', alignItems: 'center' },
-  irrLabel: { fontSize: fs(12), fontWeight: '600', color: '#555' },
+  irrChipSel: { borderColor: KHET.primary, borderWidth: 2, backgroundColor: KHET.accent },
+  irrIconSmall: { width: s(28), height: s(28), borderRadius: s(8), backgroundColor: KHET.secondary, justifyContent: 'center', alignItems: 'center' },
+  irrIconSmallSel: { backgroundColor: 'rgba(255,255,255,0.65)' },
+  irrLabel: { fontSize: fs(12), fontFamily: KFONT.sansSemi, color: KHET.mutedForeground },
+  irrLabelSel: { color: KHET.primary, fontFamily: KFONT.sansBold },
 
   // Crops
-  cropBadge: { backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: s(8), paddingVertical: vs(2) },
-  cropBadgeText: { color: '#FFF', fontSize: fs(11), fontWeight: '700' },
+  cropBadge: { backgroundColor: KHET.primary, borderRadius: 10, paddingHorizontal: s(8), paddingVertical: vs(2) },
+  cropBadgeText: { color: '#FFF', fontSize: fs(11), fontFamily: KFONT.sansBold },
   cropGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: s(6) },
   cropCard: {
-    width: '22%', backgroundColor: '#FAFAFA', borderRadius: 10,
+    width: '22%', backgroundColor: KHET.card, borderRadius: 12,
     padding: s(6), alignItems: 'center',
-    borderWidth: 1.5, borderColor: '#E8E8E8', position: 'relative',
+    borderWidth: 1.5, borderColor: KHET.border, position: 'relative',
   },
-  cropCardSel: { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '06' },
-  cropName: { fontSize: fs(9), color: '#444', textAlign: 'center', marginTop: vs(2) },
+  cropCardSel: { borderColor: KHET.primary, borderWidth: 2, backgroundColor: KHET.accent },
+  cropName: { fontSize: fs(9), color: KHET.mutedForeground, textAlign: 'center', marginTop: vs(2), fontFamily: KFONT.sans },
+  cropNameSel: { color: KHET.primary, fontFamily: KFONT.sansBold },
+  otherIcon: { width: s(28), height: s(28), borderRadius: s(8), backgroundColor: KHET.accent, justifyContent: 'center', alignItems: 'center' },
+
+  // Custom ("Other") crop entry
+  customRow: { flexDirection: 'row', alignItems: 'center', gap: s(8), marginTop: vs(12) },
+  customInput: {
+    flex: 1, borderWidth: 1.5, borderColor: KHET.border, borderRadius: s(12),
+    paddingHorizontal: s(14), paddingVertical: vs(11),
+    fontSize: fs(14), color: KHET.foreground, backgroundColor: KHET.input, fontFamily: KFONT.sans,
+  },
+  customAddBtn: { width: s(46), height: s(46), borderRadius: s(12), backgroundColor: KHET.primary, justifyContent: 'center', alignItems: 'center', ...KSHADOW.soft },
+  customChips: { flexDirection: 'row', flexWrap: 'wrap', gap: s(8), marginTop: vs(12) },
+  customChip: {
+    flexDirection: 'row', alignItems: 'center', gap: s(6),
+    paddingVertical: vs(6), paddingHorizontal: s(10),
+    borderRadius: 999, borderWidth: 1.5, borderColor: KHET.primary, backgroundColor: KHET.accent,
+  },
+  customChipTxt: { fontSize: fs(13), fontFamily: KFONT.sansSemi, color: KHET.primary },
 
   // Bottom bar
   bottomBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     flexDirection: 'row', gap: s(10),
     paddingHorizontal: s(20), paddingTop: vs(12), paddingBottom: vs(34),
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1, borderTopColor: '#F0F0F0',
-    ...SHADOWS.medium,
+    backgroundColor: KHET.card,
+    borderTopWidth: 1, borderTopColor: KHET.border, ...KSHADOW.soft,
   },
   skipBtn: {
     paddingVertical: vs(14), paddingHorizontal: s(18),
-    borderRadius: RADIUS.full || 28,
-    borderWidth: 1.5, borderColor: '#E0E0E0', justifyContent: 'center',
+    borderRadius: 999, borderWidth: 1.5, borderColor: KHET.border, justifyContent: 'center',
   },
-  skipTxt: { fontSize: fs(14), color: COLORS.textMedium, fontWeight: '600' },
-  submitBtn: { flex: 1, borderRadius: RADIUS.full || 28, overflow: 'hidden' },
+  skipTxt: { fontSize: fs(14), color: KHET.mutedForeground, fontFamily: KFONT.sansSemi },
+  submitBtn: { flex: 1, borderRadius: 18, overflow: 'hidden' },
   submitGrad: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: s(8), paddingVertical: vs(14), ...SHADOWS.greenGlow,
+    gap: s(8), paddingVertical: vs(15), ...KSHADOW.elegant,
   },
-  submitTxt: { color: '#FFF', fontSize: fs(15), fontWeight: TYPE.weight.bold || '700' },
+  submitTxt: { color: KHET.primaryForeground, fontSize: fs(15), fontFamily: KFONT.sansSemi },
+  submitArrow: { width: s(26), height: s(26), borderRadius: s(13), backgroundColor: 'rgba(255,255,255,0.18)', justifyContent: 'center', alignItems: 'center' },
 });

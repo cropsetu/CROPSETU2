@@ -19,9 +19,9 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from config import ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY
+from config import GEMINI_API_KEY, OPENAI_API_KEY, OPENAI_DIAGNOSE_MODEL
 
-Provider = Literal["gemini", "groq", "anthropic"]
+Provider = Literal["gemini", "openai"]
 Stage    = Literal["diagnose", "treatment", "report", "ensemble", "chat", "alert", "pest"]
 Tier     = Literal["fast", "best"]
 
@@ -46,30 +46,16 @@ MODEL_CATALOG: dict[str, dict] = {
         "display":      "Gemini 2.5 Pro",
         "tier_hint":    "best",
     },
-    "llama-3.3-70b-versatile": {
-        "provider":     "groq",
-        "capabilities": {"json"},
-        "api_key":      GROQ_API_KEY,
-        "display":      "Llama 3.3 70B (Groq)",
-        "tier_hint":    "fast",
-    },
-    "claude-sonnet-4-6": {
-        "provider":     "anthropic",
-        "capabilities": {"vision", "json", "long_ctx"},
-        "api_key":      ANTHROPIC_API_KEY,
-        "display":      "Claude Sonnet 4.6",
-        "tier_hint":    "best",
-    },
-    "claude-haiku-4-5-20251001": {
-        "provider":     "anthropic",
-        # Haiku 4.5 supports vision; the previous "json only" tagging
-        # excluded it from diagnose chains. With the new keys' Gemini Pro
-        # quota=0 and Sonnet being too slow for our 8K-char system prompt,
-        # Haiku is the fast vision fallback we need.
+    # OpenAI cross-vendor voter for the crop-disease ENSEMBLE only (not a primary
+    # chain). resolve_chain() drops this entry automatically when OPENAI_API_KEY
+    # is unset, so the pipeline stays Gemini-only without a key. Keyed by the
+    # configured model id so OPENAI_DIAGNOSE_MODEL can swap in e.g. gpt-4o-mini.
+    OPENAI_DIAGNOSE_MODEL: {
+        "provider":     "openai",
         "capabilities": {"vision", "json"},
-        "api_key":      ANTHROPIC_API_KEY,
-        "display":      "Claude Haiku 4.5",
-        "tier_hint":    "fast",
+        "api_key":      OPENAI_API_KEY,
+        "display":      f"OpenAI {OPENAI_DIAGNOSE_MODEL}",
+        "tier_hint":    "best",
     },
 }
 
@@ -77,24 +63,25 @@ MODEL_CATALOG: dict[str, dict] = {
 # ── Default tier → stage → fallback chain ────────────────────────────────────
 # Each chain is (primary, *fallbacks). The router walks left-to-right on
 # 429 / 5xx / timeout / parse-fail. Env vars override any chain (see below).
+# CropSetu is Gemini-first. Every primary chain uses Gemini Flash (fast) and
+# Gemini Pro (best/accuracy); "fallback" within a chain means Pro → Flash
+# (capacity fallback within the same provider). The ONE cross-vendor entry is
+# the OpenAI voter in the ENSEMBLE chain (parallel votes, not a fallback).
 STAGE_TIER_CHAINS: dict[Stage, dict[Tier, list[str]]] = {
     "diagnose": {
         # NOTE: the production diagnose stage uses FLAT single-model dispatch
-        # (AI_CROP_DIAGNOSE_MODEL) with NO cross-model fallback by design — a
-        # provider outage returns a clear "service unavailable" rather than a
-        # weaker model's guess (silent fallback makes quality impossible to
-        # maintain). This chain is retained ONLY as a seed for ensemble member
-        # selection (ensemble_agent.select) when the ensemble chain is empty.
-        "fast": ["gemini-2.5-flash", "claude-haiku-4-5-20251001"],
-        "best": ["gemini-2.5-flash", "claude-haiku-4-5-20251001"],
+        # (AI_CROP_DIAGNOSE_MODEL) with NO fallback by design — a provider
+        # outage returns a clear "service unavailable" rather than a weaker
+        # model's guess. This chain is retained ONLY as a seed for ensemble
+        # member selection (ensemble_agent.select) when the ensemble chain is empty.
+        "fast": ["gemini-2.5-flash"],
+        "best": ["gemini-2.5-pro", "gemini-2.5-flash"],
     },
     "treatment": {
-        # Gemini Flash first — same reasoning as the diagnose chain: Flash
-        # produces the full structured treatment JSON in 5-10s vs Haiku's
-        # 30-60s for the same prompt. Haiku stays as the cross-provider
-        # fallback. Once Groq is reauthorised, put llama back at position 0.
-        "fast": ["gemini-2.5-flash", "claude-haiku-4-5-20251001"],
-        "best": ["gemini-2.5-flash", "claude-haiku-4-5-20251001"],
+        # Flash produces the full structured treatment JSON in 5-10s; Pro is the
+        # higher-accuracy option on the Best tier with Flash as capacity fallback.
+        "fast": ["gemini-2.5-flash"],
+        "best": ["gemini-2.5-pro", "gemini-2.5-flash"],
     },
     # Report is template-only today; chain kept empty so callers can detect
     # "no LLM step" cleanly. Switch to a model id here if you ever want
@@ -103,38 +90,31 @@ STAGE_TIER_CHAINS: dict[Stage, dict[Tier, list[str]]] = {
         "fast": [],
         "best": [],
     },
-    # Ensemble stage: fired by ensemble_agent.run_parallel() when the
-    # cascade gate (orchestrator) decides the cheap pass is uncertain.
-    # Unlike other stages, the chain is NOT a fallback chain — every
-    # entry runs concurrently and votes (see agents/ensemble_agent.py).
-    # Tier is ignored for ensemble (always "best").
+    # Ensemble stage: fired by ensemble_agent.run_parallel() when the cascade
+    # gate (orchestrator) decides the cheap pass is uncertain. Unlike other
+    # stages, the chain is NOT a fallback chain — every entry runs concurrently
+    # and votes (see agents/ensemble_agent.py). Tier is ignored (always "best").
     #
-    # Why Gemini Pro + Claude Sonnet (2 voters, not the spec's 3):
-    #   Adding GPT-4o requires an OpenAI provider in services/http_clients.py
-    #   + a call_openai_vision() in llm_utils.py + a "openai" branch in
-    #   router._call_one_vision. Until that lands, this 2-voter chain (plus
-    #   the primary cheap-pass result the orchestrator splices in) gives
-    #   the reconciler 3 votes, which is the spec's minimum.
-    #
-    # TODO: extend MODEL_CATALOG with gpt-4o once the OpenAI provider is wired.
+    # Two Gemini voters of different size (Pro + Flash) PLUS a cross-vendor
+    # OpenAI voter (GPT-4o, only when OPENAI_API_KEY is set — resolve_chain drops
+    # it otherwise) give the reconciler real model-diversity; combined with the
+    # primary cheap-pass result the orchestrator splices in, it sees ≥3-4 votes.
     "ensemble": {
-        "fast": ["gemini-2.5-pro", "claude-sonnet-4-6"],
-        "best": ["gemini-2.5-pro", "claude-sonnet-4-6"],
+        "fast": ["gemini-2.5-pro", "gemini-2.5-flash", OPENAI_DIAGNOSE_MODEL],
+        "best": ["gemini-2.5-pro", "gemini-2.5-flash", OPENAI_DIAGNOSE_MODEL],
     },
     # ── FarmMind chat (text-only Q&A with farm context) ────────────────────
-    # Used by services/chat_service.py. Groq Llama is preferred (free tier
-    # 30 RPM, fast) with Gemini Flash as fallback and Claude Haiku as the
-    # last resort. Best tier swaps to Sonnet for nuanced advisory answers.
+    # Used by services/chat_service.py. Flash for speed; Pro on the Best tier
+    # for nuanced advisory answers, Flash as capacity fallback.
     "chat": {
-        "fast": ["llama-3.3-70b-versatile", "gemini-2.5-flash", "claude-haiku-4-5-20251001"],
-        "best": ["claude-sonnet-4-6", "gemini-2.5-pro", "llama-3.3-70b-versatile"],
+        "fast": ["gemini-2.5-flash"],
+        "best": ["gemini-2.5-pro", "gemini-2.5-flash"],
     },
     # ── Smart farm alerts (structured JSON list of 4-6 alerts) ─────────────
-    # Used by services/alert_service.py. Same providers as chat but tuned
-    # for JSON output (lower temperature, smaller max_tokens).
+    # Used by services/alert_service.py. Same models as chat, tuned for JSON.
     "alert": {
-        "fast": ["llama-3.3-70b-versatile", "gemini-2.5-flash", "claude-haiku-4-5-20251001"],
-        "best": ["gemini-2.5-pro", "claude-sonnet-4-6", "llama-3.3-70b-versatile"],
+        "fast": ["gemini-2.5-flash"],
+        "best": ["gemini-2.5-pro", "gemini-2.5-flash"],
     },
 }
 

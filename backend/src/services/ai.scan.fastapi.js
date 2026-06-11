@@ -28,11 +28,13 @@ const MAX_BYTES_PER_IMAGE = 8 * 1024 * 1024;
 
 // Polling tunables for the async-job interface (FastAPI's /ai/scan now
 // returns a job_id immediately; this client polls until the worker finishes).
-// Defaults: poll every 2 s for up to 180 s total. The cascade-into-ensemble
-// pipeline tops out around 120 s in the worst case, so 180 s leaves margin.
+// Defaults: poll every 2 s for up to 300 s total. The Celery hard time-limit is
+// 300 s and the orchestrator wrapper is 240 s, so the client budget must sit
+// ABOVE those (was 180 s — it abandoned still-running jobs). Order: client_poll
+// (300) ≥ celery_hard (300) > celery_soft (270) > pipeline (240).
 const POLL_INITIAL_DELAY_MS = 1_000;
 const POLL_INTERVAL_MS      = 2_000;
-const POLL_MAX_TOTAL_MS     = 180_000;
+const POLL_MAX_TOTAL_MS     = 300_000;
 
 const ALLOWED_TIERS = new Set(['fast', 'best']);
 

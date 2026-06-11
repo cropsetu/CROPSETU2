@@ -3,8 +3,8 @@ CropGuard Agentic AI — FastAPI service
 Exposes all AI endpoints that Express proxies to.
 
 Endpoints:
-  POST /ai/chat                              — FarmMind chat (Groq → Gemini)
-  POST /ai/scan                              — Crop disease (5-agent Claude pipeline)
+  POST /ai/chat                              — FarmMind chat (Gemini)
+  POST /ai/scan                              — Crop disease (agentic Gemini pipeline)
   POST /ai/alerts                            — Smart farm alerts
   POST /api/v1/crop-disease/agentic-predict  — Direct multipart endpoint (Postman / testing)
   GET  /health                               — Health check
@@ -18,7 +18,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -37,6 +37,7 @@ from observability.logging import (
 )
 from security.pii import install as _install_pii_filter
 _install_pii_filter()  # idempotent — must run AFTER setup_logging
+from security.auth import verify_signed_request
 from config import API_HOST, API_PORT, DATABASE_URL
 from rate_limit import make_limiter
 from db_pool import get_shared_pool, close_shared_pool
@@ -74,7 +75,6 @@ async def lifespan(app: FastAPI):
     # ── Startup ───────────────────────────────────────────────────────────────
     keys = {
         "GEMINI_API_KEY":    os.getenv("GEMINI_API_KEY"),
-        "GROQ_API_KEY":      os.getenv("GROQ_API_KEY"),
         "SARVAM_API_KEY":    os.getenv("SARVAM_API_KEY"),
         "DATA_GOV_API_KEY":  os.getenv("DATA_GOV_API_KEY"),
         "DATABASE_URL":      os.getenv("DATABASE_URL"),
@@ -84,6 +84,20 @@ async def lifespan(app: FastAPI):
             logger.warning("[Config] %s not set — feature will be disabled", name)
         else:
             logger.info("[Config] %s configured", name)
+
+    # CFG-4: fail FAST in production on missing critical config instead of
+    # limping along with empty-string defaults that fail silently at runtime.
+    if IS_PROD:
+        required = {
+            "GEMINI_API_KEY":   os.getenv("GEMINI_API_KEY"),
+            "AI_SHARED_SECRET": os.getenv("AI_SHARED_SECRET"),
+            "DATABASE_URL":     os.getenv("DATABASE_URL"),
+        }
+        missing = [k for k, v in required.items() if not (v or "").strip()]
+        if missing:
+            raise RuntimeError(
+                f"[Config] FATAL: missing required production config: {', '.join(missing)}"
+            )
 
     # Test DB connectivity at startup using the shared pool
     if DATABASE_URL:
@@ -117,16 +131,44 @@ async def lifespan(app: FastAPI):
 
 IS_PROD = os.getenv("NODE_ENV", os.getenv("ENV", "development")) == "production"
 
-ALLOWED_ORIGINS = os.getenv(
+
+def _validate_origins(raw: str) -> list[str]:
+    """Validate AI_ALLOWED_ORIGINS at startup (AISVC-10).
+
+    Reject '*' (incompatible with allow_credentials=True anyway) and any entry
+    that isn't a well-formed http(s):// origin. In production a bad value fails
+    boot loudly; in dev we drop the bad entries and warn.
+    """
+    import re as _re
+    origins = [o.strip() for o in (raw or "").split(",") if o.strip()]
+    bad = [o for o in origins if o == "*" or not _re.match(r"^https?://[^\s/]+", o)]
+    if bad:
+        msg = (f"[CORS] invalid AI_ALLOWED_ORIGINS entries {bad!r} — "
+               f"must be http(s):// origins, '*' is not allowed with credentials")
+        if IS_PROD:
+            raise RuntimeError(msg)
+        logger.warning("%s — dropping them (dev only)", msg)
+        origins = [o for o in origins if o not in bad]
+    return origins or ["http://localhost:3000"]
+
+
+ALLOWED_ORIGINS = _validate_origins(os.getenv(
     "AI_ALLOWED_ORIGINS",
     "http://localhost:3000,http://localhost:3001,http://localhost:5173"
-).split(",")
+))
+
+# Max request body (AISVC-12). Generous enough for a base64 leaf photo (8 MB raw
+# ≈ 11 MB base64) plus JSON envelope; oversized bodies are rejected with 413.
+try:
+    _MAX_BODY_BYTES = int(os.getenv("AI_MAX_BODY_BYTES", str(12 * 1024 * 1024)))
+except ValueError:
+    _MAX_BODY_BYTES = 12 * 1024 * 1024
 
 app = FastAPI(
     title="CropGuard Agentic AI",
     description=(
-        "FarmEasy AI backend — 5-agent crop disease pipeline (Claude), "
-        "FarmMind chat (Groq → Gemini), smart alerts, and weather-aware diagnosis."
+        "FarmEasy AI backend — agentic crop disease pipeline, FarmMind chat, "
+        "smart alerts, and weather-aware diagnosis. Powered by Google Gemini."
     ),
     version="2.0.0",
     lifespan=lifespan,
@@ -149,6 +191,27 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "x-user-id", "x-request-id", "idempotency-key"],
     expose_headers=["x-request-id"],
 )
+
+
+# ── Request body-size guard (AISVC-12) ───────────────────────────────────────
+# Reject oversized POST bodies early (before they're buffered into memory or
+# reach the LLM token meter) with 413. Uses Content-Length when present; for
+# chunked uploads with no length header we let it through to the per-image size
+# checks downstream.
+@app.middleware("http")
+async def _body_size_guard(request: Request, call_next):
+    if request.method in ("POST", "PUT", "PATCH"):
+        cl = request.headers.get("content-length")
+        if cl:
+            try:
+                if int(cl) > _MAX_BODY_BYTES:
+                    return JSONResponse(
+                        {"success": False, "error": "request body too large"},
+                        status_code=413,
+                    )
+            except ValueError:
+                pass
+    return await call_next(request)
 
 
 # ── Request context middleware ───────────────────────────────────────────────
@@ -183,22 +246,42 @@ app.include_router(alerts_router)           # POST /ai/alerts
 app.include_router(agripredict_router)      # /agripredict/*
 
 # ── Health ────────────────────────────────────────────────────────────────────
+# Public /health is a minimal liveness probe — status only, no internal version
+# or build details (AISVC-8). The fingerprint-rich diagnostic payload moves to
+# /health/details behind the signed-request dependency so only the Express
+# gateway (not an anonymous scanner) can read versions/chains/invariants.
 
-@app.get("/health", tags=["System"])
-async def health():
-    """Reuses the shared connection pool — no new connection per health check.
-    Also surfaces the local-classifier, prompt registry, and chemical
-    registry versions so ops can confirm what's actually running."""
-    db_ok = False
+async def _db_ok() -> bool:
     try:
         pool = await get_shared_pool()
         if pool:
             async with pool.acquire() as conn:
                 await conn.fetchval("SELECT 1")
-            db_ok = True
+            return True
     except Exception:
         pass
-    # Lazy imports — health is hot path, prompt files load once per process.
+    return False
+
+
+@app.get("/health", tags=["System"])
+async def health():
+    """Minimal public liveness — no internal version/build info leaked."""
+    from safety.invariants import check_invariants, CRITICAL
+    db_ok = await _db_ok()
+    crit = [i for i in check_invariants() if i["severity"] == CRITICAL]
+    return {
+        "status":  "ok" if (db_ok and not crit) else "degraded",
+        "service": "CropGuard AI",
+    }
+
+
+@app.get("/health/details", tags=["System"], dependencies=[Depends(verify_signed_request)])
+async def health_details():
+    """Detailed diagnostics for ops — gated behind the signed Express secret.
+    Surfaces local-classifier, prompt registry, model chains, and registry
+    versions so ops can confirm what's actually running."""
+    db_ok = await _db_ok()
+    # Lazy imports — keep the hot public path light.
     from agents.prompt_registry import all_active as _prompts
     from agents.router import describe_chains as _chains
     from models.local_classifier import status as _local_status

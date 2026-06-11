@@ -46,8 +46,8 @@ export async function warmMarketCache() {
   const total = HOT_MARKET_COMBOS.length;
   // Nothing to warm without an LLM key — getMarketPrices would only return
   // (uncached) fallbacks, so skip the pointless calls.
-  if (!ENV.GROQ_API_KEY) {
-    logger.info('[CacheWarm] GROQ_API_KEY not set — skipping market cache warm');
+  if (!ENV.GEMINI_API_KEY) {
+    logger.info('[CacheWarm] GEMINI_API_KEY not set — skipping market cache warm');
     return { ok: 0, fail: 0, total, skipped: true };
   }
 

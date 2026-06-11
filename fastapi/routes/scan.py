@@ -22,8 +22,15 @@ from fastapi.responses import JSONResponse
 from slowapi.util import get_remote_address
 
 from agents.registry import normalize_tier
-from jobs.queue import enqueue_diagnosis, get_job_status, lookup_job_for_key, bind_idempotency
+from jobs.queue import (
+    enqueue_diagnosis,
+    get_job_status,
+    get_job_owner,
+    lookup_job_for_key,
+    bind_idempotency,
+)
 from security.auth import verify_signed_request
+from security.input_sanitize import clean_user_text
 from security.spend import check_under_cap
 from services import idempotency
 from rate_limit import make_limiter
@@ -33,6 +40,23 @@ router = APIRouter(tags=["Scan"])
 
 
 _MAX_INLINE_BYTES_PER_IMAGE = 8 * 1024 * 1024  # 8 MB per image (matches worker)
+
+# Free-text params that get interpolated into the LLM diagnosis/treatment
+# prompts — strip control chars + cap length before they leave the route
+# (AISVC-3). Structured fields (crop_name, soil_type, …) are handled by the
+# input normalizer's whitelist instead.
+_FREE_TEXT_PARAM_KEYS = (
+    "symptom_description", "recent_pesticide_used", "fertilizer_history",
+    "farm_history", "additional_symptoms", "notes",
+)
+_MAX_PARAM_TEXT_LEN = 1500
+
+
+def _sanitize_params(params: dict) -> dict:
+    for k in _FREE_TEXT_PARAM_KEYS:
+        if params.get(k) is not None:
+            params[k] = clean_user_text(params[k], max_len=_MAX_PARAM_TEXT_LEN)
+    return params
 
 
 def _validate_images(images: list[dict]) -> tuple[list[dict], list[str]]:
@@ -106,6 +130,7 @@ async def ai_scan(request: Request):
         params = body.get("params", {})
 
         params["tier"] = normalize_tier(params.get("tier"))
+        params = _sanitize_params(params)
 
         cleaned_images, errs = _validate_images(images_in)
         if errs:
@@ -189,6 +214,10 @@ async def ai_scan(request: Request):
     "/ai/scan/{job_id}",
     dependencies=[Depends(verify_signed_request)],
 )
+# Per-caller cap (AISVC-6): the mobile client polls every couple of seconds, so
+# ~1.5 req/s/user is generous for legitimate polling while making rapid job-id
+# enumeration infeasible. Keyed by user (or IP) like the enqueue limiter.
+@_scan_limiter.limit("90/minute")
 async def ai_scan_status(request: Request, job_id: str = Path(..., min_length=4, max_length=128)):
     """Poll for job status / result.
 
@@ -204,6 +233,22 @@ async def ai_scan_status(request: Request, job_id: str = Path(..., min_length=4,
     inline without a second worker run.
     """
     try:
+        # Object-level authorization (AISVC-2): a user may only poll a job they
+        # submitted. The owner is bound at enqueue time. When both the job owner
+        # and the caller are known and differ, refuse with 403 (IDOR guard). If
+        # the owner is unrecorded (Redis miss / legacy job) we don't hard-fail,
+        # since the route already requires the signed Express secret.
+        caller = (request.headers.get("x-user-id") or "").strip()
+        owner = get_job_owner(job_id)
+        if owner and caller and owner != caller:
+            logger.warning(
+                "[Scan] IDOR blocked: caller=%s tried to read job owned by=%s", caller, owner,
+            )
+            return JSONResponse(
+                {"success": False, "error": "You do not have access to this scan job."},
+                status_code=403,
+            )
+
         snap = get_job_status(job_id)
         response: dict = {
             "success": True,

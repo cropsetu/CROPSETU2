@@ -52,10 +52,10 @@ def select(crop: str | None) -> list[str]:
     """
     Resolve the ordered list of model ids to fan out across.
 
-    Order: the configured ensemble chain (typically Gemini Pro + Claude
-    Sonnet + GPT-4o), then any crop-specific specialist registered in
-    agents/specialists/. We dedupe in case a specialist's id is already
-    in the ensemble chain.
+    Order: the configured ensemble chain (Gemini Pro + Gemini Flash, plus the
+    cross-vendor OpenAI GPT-4o voter when OPENAI_API_KEY is set), then any
+    crop-specific specialist registered in agents/specialists/. We dedupe in
+    case a specialist's id is already in the ensemble chain.
     """
     # Tier is intentionally ignored — the ensemble stage always uses its
     # own "best" set regardless of the farmer-facing tier toggle (which

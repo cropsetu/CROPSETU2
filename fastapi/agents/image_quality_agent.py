@@ -89,11 +89,11 @@ def _cv_inspect(path: Path) -> dict:
             # 3. Mean luminance for exposure.
             mean_lum = float(ImageStat.Stat(rgb.convert("L")).mean[0])
 
-            # 4. HSV "green" ratio — sample every Nth pixel for speed.
-            hsv = rgb.convert("HSV")
-            pixels = list(hsv.getdata())
-            step = max(1, len(pixels) // 4000)   # ~4000 samples max
-            sample = pixels[::step]
+            # 4. HSV "green" ratio. Downsample to a fixed ~4k-pixel grid instead
+            #    of materialising the full-resolution pixel list (for a 512² image
+            #    that's ~262k tuples in memory just to sample a few thousand). The
+            #    box-resize averages pixels, so the green ratio is equivalent.
+            sample = list(rgb.convert("HSV").resize((64, 64)).getdata())  # 4096 px
             # Plant green in HSV (0-255 each):
             #   H ∈ [60, 130]   ≈ 85°–180° hue range
             #   S ≥ 30          (not washed-out)

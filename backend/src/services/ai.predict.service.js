@@ -19,20 +19,10 @@ import logger from '../utils/logger.js';
 
 export const PROMPT_VERSION = 'v3.0';
 
-// ─── Client singletons ───────────────────────────────────────────────────────
+// ─── Client singleton (Gemini-only; OpenAI key kept as a last-resort fallback) ─
 let _geminiClient = null;
-let _groqClient = null;
 
-function getClient(provider = 'gemini') {
-  if (provider === 'groq' && ENV.GROQ_API_KEY) {
-    if (!_groqClient) {
-      _groqClient = new OpenAI({
-        apiKey: ENV.GROQ_API_KEY,
-        baseURL: 'https://api.groq.com/openai/v1',
-      });
-    }
-    return _groqClient;
-  }
+function getClient() {
   if (!_geminiClient) {
     if (ENV.GEMINI_API_KEY) {
       _geminiClient = new OpenAI({
@@ -48,8 +38,7 @@ function getClient(provider = 'gemini') {
   return _geminiClient;
 }
 
-function getModel(provider = 'gemini') {
-  if (provider === 'groq') return 'meta-llama/llama-4-scout-17b-16e-instruct';
+function getModel() {
   return ENV.GEMINI_API_KEY
     ? (ENV.GEMINI_MODEL || 'gemini-2.5-flash')
     : 'gpt-4o';
@@ -429,15 +418,10 @@ async function callGemini(messages, attempt = 1, provider = 'gemini') {
 
     return { result, tokensUsed: response.usage?.total_tokens || 0 };
   } catch (err) {
+    // 429 is retriable too — CropSetu is Gemini-only, so back off and retry the
+    // same provider rather than switching to a now-removed Groq fallback.
     const retriable = ['PARSE_FAILURE', 'EMPTY_RESPONSE'].includes(err.message)
-      || [408, 503, 529].includes(err.status);
-
-    // On 429 (rate limit) — try Groq fallback immediately instead of waiting
-    if (err.status === 429 && provider === 'gemini' && ENV.GROQ_API_KEY) {
-      logger.warn('[AI] Gemini 429 rate limited — switching to Groq fallback');
-      // Strip image parts for Groq text-only fallback (Groq vision model handles base64 too)
-      return callGemini(messages, 1, 'groq');
-    }
+      || [408, 429, 503, 529].includes(err.status);
 
     if (retriable && attempt < 3) {
       const backoff = 1000 * attempt;

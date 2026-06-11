@@ -15,7 +15,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from config import GROQ_API_KEY, GEMINI_API_KEY, DIAGNOSIS_ESCALATE_BELOW
+from config import DIAGNOSIS_ESCALATE_BELOW
 from agents.llm_utils import empty_token_info
 from agents.llm_dispatch import call_llm_text, get_feature_config
 from data.agro_zones import zone_for
@@ -28,9 +28,17 @@ except Exception:  # pragma: no cover - defensive
     STATE_BANS_VERSION = "0"
 
 # ── Redis cache (optional — falls back to in-memory if Redis unavailable) ─────
+# Use the SHARED Redis URL (RATE_LIMIT_STORAGE_URI / REDIS_URL) so the treatment
+# cache is shared across replicas instead of a hardcoded localhost that silently
+# degrades to per-process caching in production.
+import os as _os
+_TREATMENT_REDIS_URL = (_os.environ.get("RATE_LIMIT_STORAGE_URI")
+                        or _os.environ.get("REDIS_URL", "")).strip()
 try:
+    if not _TREATMENT_REDIS_URL:
+        raise RuntimeError("no Redis URL configured")
     import redis as _redis_lib
-    _redis = _redis_lib.Redis(host="localhost", port=6379, db=0, socket_connect_timeout=2)
+    _redis = _redis_lib.Redis.from_url(_TREATMENT_REDIS_URL, socket_connect_timeout=2)
     _redis.ping()
     _REDIS_OK = True
     logger.info("Redis connected — treatment results cached for 7 days")

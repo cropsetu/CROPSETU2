@@ -113,6 +113,78 @@ def lookup_job_for_key(idempotency_key: str | None) -> Optional[str]:
     return None
 
 
+# ── Job ownership (AISVC-2) ──────────────────────────────────────────────────
+# Bind each job to the user who submitted it so GET /ai/scan/{job_id} can refuse
+# to return another user's scan results (IDOR). Stored in the same Redis,
+# outliving the Celery result so a late poll still resolves the owner.
+
+_OWNER_NAMESPACE = "owner:scan:job"
+_OWNER_TTL = 24 * 3600 + 3600  # outlive result_expires (24h) by an hour
+
+
+def _owner_key(job_id: str) -> str:
+    return f"{_OWNER_NAMESPACE}:{(job_id or '').strip()[:128]}"
+
+
+def bind_job_owner(job_id: str, owner_id: str | None) -> None:
+    """Record which user owns this job. No-op when owner/redis is absent."""
+    if not _REDIS_OK or not job_id or not owner_id:
+        return
+    try:
+        _redis.setex(_owner_key(job_id), _OWNER_TTL, str(owner_id)[:128])
+    except Exception:  # noqa: BLE001
+        logger.warning("[Jobs] failed to bind owner for job_id=%s", job_id)
+
+
+def get_job_owner(job_id: str) -> Optional[str]:
+    """Return the owner user_id for a job, or None if unknown/redis down."""
+    if not _REDIS_OK or not job_id:
+        return None
+    try:
+        raw = _redis.get(_owner_key(job_id))
+        if raw:
+            return raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+# ── Job-existence marker ─────────────────────────────────────────────────────
+# Celery returns state=PENDING for BOTH "queued, not yet started" AND "unknown
+# task id", so an unknown/expired/typo'd job_id would otherwise be reported as
+# "queued" forever and the mobile client polls indefinitely. We stamp a marker
+# at enqueue (outliving result_expires); a PENDING job with no marker is treated
+# as a terminal "unknown job" instead.
+_EXISTS_NAMESPACE = "exists:scan:job"
+_EXISTS_TTL = 24 * 3600 + 3600  # outlive result_expires (24h) by an hour
+
+
+def _exists_key(job_id: str) -> str:
+    return f"{_EXISTS_NAMESPACE}:{(job_id or '').strip()[:128]}"
+
+
+def mark_job_exists(job_id: str) -> None:
+    if not _REDIS_OK or not job_id:
+        return
+    try:
+        _redis.setex(_exists_key(job_id), _EXISTS_TTL, "1")
+    except Exception:  # noqa: BLE001
+        logger.warning("[Jobs] failed to mark existence for job_id=%s", job_id)
+
+
+def job_was_enqueued(job_id: str) -> bool:
+    """True if we recorded this job at enqueue. False = unknown/expired id.
+    Returns True when Redis is down (can't disprove existence → don't false-fail)."""
+    if not _REDIS_OK:
+        return True
+    if not job_id:
+        return False
+    try:
+        return _redis.exists(_exists_key(job_id)) == 1
+    except Exception:  # noqa: BLE001
+        return True
+
+
 # ── Enqueue + status ─────────────────────────────────────────────────────────
 
 def enqueue_diagnosis(payload: dict, *, idempotency_key: str | None = None) -> str:
@@ -148,6 +220,11 @@ def enqueue_diagnosis(payload: dict, *, idempotency_key: str | None = None) -> s
     )
     if idempotency_key:
         bind_idempotency(idempotency_key, async_result.id)
+    # Bind ownership so the result can only be polled back by its submitter.
+    bind_job_owner(async_result.id, (payload or {}).get("user_id"))
+    # Record existence so an unknown/expired job_id isn't reported as "queued"
+    # forever (Celery PENDING is ambiguous — see get_job_status).
+    mark_job_exists(async_result.id)
     logger.info("[Jobs] enqueued job_id=%s", async_result.id)
     return async_result.id
 
@@ -162,9 +239,12 @@ def get_job_status(job_id: str) -> dict:
     state = result.state  # PENDING, STARTED, SUCCESS, FAILURE, RETRY, REVOKED
     if state == "PENDING":
         # Celery returns PENDING for both "queued, not started" AND "unknown
-        # task id". We can't distinguish reliably without per-task heartbeat;
-        # the route treats this as "queued" — clients should treat extended
-        # PENDING as "not yet picked up".
+        # task id". Disambiguate via the enqueue-time existence marker: a marker
+        # present → genuinely queued; absent → unknown/expired id (the client
+        # would otherwise poll "queued" forever). Redis-down → assume queued.
+        if not job_was_enqueued(job_id):
+            return {"status": "failed", "data": None,
+                    "error": "Unknown or expired scan job — please resubmit the scan."}
         return {"status": "queued", "data": None, "error": None}
     if state in ("STARTED", "RETRY"):
         return {"status": "running", "data": None, "error": None}

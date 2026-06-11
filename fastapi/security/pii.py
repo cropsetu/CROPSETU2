@@ -48,6 +48,17 @@ _RE_PHONE = re.compile(r"(?<!\d)\+\d{1,3}[-\s]?\d{4,12}(?!\d)")
 # Emails
 _RE_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
+# ── Indian financial / identity identifiers (PII-16) ─────────────────────────
+# Aadhaar — 12 digits, usually grouped 4-4-4. Require the grouped/long form and a
+# non-digit boundary so we don't mask ordinary 12-digit sequences like job ids.
+_RE_AADHAAR = re.compile(r"(?<!\d)(?:\d{4}[-\s]\d{4}[-\s]\d{4})(?!\d)")
+# PAN — 5 letters, 4 digits, 1 letter (e.g. AAAPA5055K).
+_RE_PAN = re.compile(r"(?<![A-Z0-9])[A-Z]{5}\d{4}[A-Z](?![A-Z0-9])")
+# GSTIN — 2-digit state + 10-char PAN + entity/checksum (15 chars total).
+_RE_GST = re.compile(r"(?<![A-Z0-9])\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9](?![A-Z0-9])")
+# IFSC — 4 letters + '0' + 6 alphanumerics (e.g. HDFC0000123).
+_RE_IFSC = re.compile(r"(?<![A-Z0-9])[A-Z]{4}0[A-Z0-9]{6}(?![A-Z0-9])")
+
 # Long free-text fields the orchestrator logs ("symptom_description": "...")
 # — mask everything past 8 chars to keep the field name visible.
 _RE_SYMPTOM = re.compile(
@@ -60,6 +71,8 @@ _SENSITIVE_KEYS = {
     "symptom_description", "farmer_description", "narrative",
     "lat", "lon", "latitude", "longitude", "field_latitude", "field_longitude",
     "phone", "email", "user_phone", "user_email",
+    "aadhaar", "aadhar", "pan", "pan_number", "gst", "gstin", "gst_number",
+    "ifsc", "bank_ifsc", "account_number", "bank_account",
 }
 
 
@@ -71,6 +84,11 @@ def _scrub_text(s: str) -> str:
     s = _RE_PHONE_IN.sub("<phone>", s)
     s = _RE_PHONE.sub("<phone>", s)
     s = _RE_EMAIL.sub("<email>", s)
+    # Indian identifiers — GST before PAN since a GSTIN embeds a PAN substring.
+    s = _RE_GST.sub("<gstin>", s)
+    s = _RE_IFSC.sub("<ifsc>", s)
+    s = _RE_PAN.sub("<pan>", s)
+    s = _RE_AADHAAR.sub("<aadhaar>", s)
     s = _RE_SYMPTOM.sub(r"\1\2<redacted>\4", s)
     return s
 

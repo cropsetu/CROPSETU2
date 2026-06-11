@@ -1,8 +1,8 @@
 /**
- * Market Price Routes — real data.gov.in + Claude predictions (via FastAPI)
+ * Market Price Routes — real data.gov.in + Gemini predictions (via FastAPI)
  *
  * GET /api/v1/market/prices?crop=Tomato&state=Maharashtra&district=Pune  — live mandi prices
- * GET /api/v1/market/predict?crop=Tomato&state=Maharashtra&district=Pune — Claude prediction (FastAPI)
+ * GET /api/v1/market/predict?crop=Tomato&state=Maharashtra&district=Pune — Gemini prediction (FastAPI)
  * GET /api/v1/market/crops                                               — supported crops + states
  *
  * Extended historical/forecast: use /api/v1/agripredict/prices/history
@@ -11,6 +11,7 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { getMandiPrices } from '../services/mandiPrice.service.js';
+import { postSignedJSON } from '../utils/fastapi-signed.js';
 import { ENV } from '../config/env.js';
 
 const AI_BASE = ENV.AI_BACKEND_URL || 'http://localhost:8001';
@@ -29,23 +30,14 @@ const SUPPORTED_CROPS = [
 ];
 
 async function fastApiPredict(commodity, state, district) {
-  const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 120_000);
-  try {
-    const resp = await fetch(`${AI_BASE}/agripredict/predict`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ commodity, state, district: district || '' }),
-      signal:  ctrl.signal,
-    });
-    clearTimeout(timer);
-    const body = await resp.json();
-    if (!resp.ok) throw Object.assign(new Error(body?.detail || 'FastAPI error'), { status: resp.status });
-    return body.data;
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
-  }
+  // Signed Express→FastAPI request (HMAC) — /agripredict/predict now enforces
+  // auth (AISVC-1), so an unsigned fetch would be rejected with 401.
+  const envelope = await postSignedJSON(
+    '/agripredict/predict',
+    { commodity, state, district: district || '' },
+    { timeoutMs: 120_000 },
+  );
+  return envelope?.data;
 }
 
 const router = Router();

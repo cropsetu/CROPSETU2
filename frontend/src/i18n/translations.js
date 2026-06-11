@@ -940,7 +940,7 @@ export const translations = {
       allProducts: 'All Products',
       itemCount: '{{count}} items',
       noProducts: 'No products found',
-      searchPlaceholder: 'Search seeds, tools, pesticides...',
+      searchPlaceholder: 'Search agri-related products here',
       catSeeds: 'Seeds &\nFertilizers',
       catPesticides: 'Pesticides &\nHerbicides',
       catTools: 'Agricultural\nTools',

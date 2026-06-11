@@ -22,7 +22,6 @@ import { Router }  from 'express';
 import multer      from 'multer';
 import fs          from 'fs';
 import os          from 'os';
-import OpenAI      from 'openai';
 import { authenticate } from '../middleware/auth.js';
 import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError } from '../utils/response.js';
@@ -150,24 +149,6 @@ function flattenNodePrediction(result, farmCtx = {}) {
   };
 }
 
-// ── Whisper STT client (Groq by default, OpenAI optional) ───────────────────
-// Reads AI_VOICE_STT_API_KEY from env — set it to a different key in .env
-// to swap providers. Base URL is auto-inferred from the model name:
-//   whisper-large-v3*  → Groq (https://api.groq.com/openai/v1)
-//   whisper-1, gpt-4o-transcribe → OpenAI (https://api.openai.com/v1)
-let _sttClient = null;
-function getGroqSTT() {
-  if (!_sttClient) {
-    const apiKey = ENV.AI_VOICE_STT_API_KEY;
-    if (!apiKey) throw new Error('AI_VOICE_STT_API_KEY not set — required for voice transcription');
-    const model = ENV.AI_VOICE_STT_MODEL || 'whisper-large-v3-turbo';
-    const baseURL = /^whisper-large-v3/.test(model)
-      ? 'https://api.groq.com/openai/v1'
-      : 'https://api.openai.com/v1';
-    _sttClient = new OpenAI({ apiKey, baseURL });
-  }
-  return _sttClient;
-}
 
 const router = Router();
 // :id (conversations) and :sessionId (scan sessions) are uuid()s; reject non-UUIDs
@@ -375,7 +356,7 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
 
   // RESERVE credits atomically before the expensive LLM call (race-free). Image
   // chats hold against the vision (scan) bucket; text holds the chat floor.
-  const reserveFeature = hasImage ? 'ai_scan_gemini' : 'ai_chat_claude';
+  const reserveFeature = hasImage ? 'ai_scan_gemini' : 'ai_chat_gemini';
   const hold = await reserveCredits(req.user.id, reserveFeature);
   if (!hold.ok) {
     return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
@@ -388,12 +369,19 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
       convo = await prisma.aIConversation.findFirst({
         where: { id: conversationId, userId: req.user.id },
       });
-      if (!convo) return sendError(res, 'Conversation not found', 404);
+      if (!convo) {
+        // Release the reserved hold — this early return bypasses the catch refund.
+        await releaseCredits(req.user.id, reserveFeature, { reserved: hold.reserved, holdId: hold.holdId });
+        return sendError(res, 'Conversation not found', 404);
+      }
     } else {
+      // message may be empty/undefined for an image-only chat — guard the title
+      // so `.trim()` can't throw (crashed non-app callers that omit the field).
+      const titleText = (message?.trim() || '[photo]');
       convo = await prisma.aIConversation.create({
         data: {
           userId: req.user.id,
-          title:  message.trim().slice(0, 40) + (message.length > 40 ? '...' : ''),
+          title:  titleText.slice(0, 40) + (titleText.length > 40 ? '...' : ''),
         },
       });
     }
@@ -432,45 +420,47 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
     const tokens = tokenInfo?.total_tokens || 0;
     const model  = tokenInfo?.model || 'unknown';
 
-    // ── 4. Save messages (with token tracking) ──────────────────────────────
-    await prisma.aIMessage.createMany({
-      data: [
-        {
-          conversationId: convo.id, role: 'user',
-          content: (message || '').trim() || '[photo]',
-          messageType: hasImage ? 'image' : 'text', language: farmProfile?.language || 'en',
-        },
-        {
-          conversationId: convo.id, role: 'assistant', content: reply,
-          messageType: type, structuredData: structuredData ?? undefined,
-          language: farmProfile?.language || 'en',
-          tokensUsed: tokens, modelUsed: model,
-        },
-      ],
-    });
-
-    // ── 5. Update conversation ───────────────────────────────────────────────
-    const newCount = (convo.messageCount || 0) + 2;
-    await prisma.aIConversation.update({
-      where: { id: convo.id },
-      data:  { updatedAt: new Date(), messageCount: newCount },
-    });
-
-    // ── 6. Track usage + deduct credits (non-blocking) ───────────────────────
-    const featureType = hasImage
-      ? 'ai_scan_gemini'
-      : (model.includes('groq') || model.includes('llama') ? 'ai_chat_groq' : 'ai_chat_claude');
-    const today = new Date(); today.setUTCHours(0, 0, 0, 0);
-    prisma.aIUsage.upsert({
-      where:  { userId_date: { userId: req.user.id, date: today } },
-      create: { userId: req.user.id, date: today, chatCount: 1, totalTokens: tokens, monthlyTokens: tokens },
-      update: { chatCount: { increment: 1 }, totalTokens: { increment: tokens }, monthlyTokens: { increment: tokens } },
-    }).catch(() => {});
-    // SETTLE the hold against actual tokens (awaited — spend is never lost).
+    // ── SETTLE FIRST ─────────────────────────────────────────────────────────
+    // The LLM call above already incurred real spend, so the DB persistence
+    // below must be best-effort: a Prisma hiccup must NOT refund the hold (free
+    // chat) nor cost the user the reply they paid for. Settle here; the catch's
+    // refund now only covers pre-LLM failures (conversation lookup / the call).
+    const featureType = hasImage ? 'ai_scan_gemini' : 'ai_chat_gemini';
     await settleCredits(req.user.id, featureType, {
       reserved: hold.reserved, holdId: hold.holdId, tokensUsed: tokens, model,
       description: `Chat: ${model}`, costUsd: tokenInfo?.cost_usd,
     });
+
+    // ── Persist (best-effort) — log failures, still return the reply. ────────
+    try {
+      await prisma.aIMessage.createMany({
+        data: [
+          {
+            conversationId: convo.id, role: 'user',
+            content: (message || '').trim() || '[photo]',
+            messageType: hasImage ? 'image' : 'text', language: farmProfile?.language || 'en',
+          },
+          {
+            conversationId: convo.id, role: 'assistant', content: reply,
+            messageType: type, structuredData: structuredData ?? undefined,
+            language: farmProfile?.language || 'en',
+            tokensUsed: tokens, modelUsed: model,
+          },
+        ],
+      });
+      await prisma.aIConversation.update({
+        where: { id: convo.id },
+        data:  { updatedAt: new Date(), messageCount: (convo.messageCount || 0) + 2 },
+      });
+      const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+      prisma.aIUsage.upsert({
+        where:  { userId_date: { userId: req.user.id, date: today } },
+        create: { userId: req.user.id, date: today, chatCount: 1, totalTokens: tokens, monthlyTokens: tokens },
+        update: { chatCount: { increment: 1 }, totalTokens: { increment: tokens }, monthlyTokens: { increment: tokens } },
+      }).catch(() => {});
+    } catch (persistErr) {
+      logger.warn('[AI Chat] persist failed (reply still returned to user): %s', persistErr.message);
+    }
 
     return sendSuccess(res, {
       reply, type, card: structuredData ?? null, conversationId: convo.id,
@@ -483,9 +473,14 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
     await releaseCredits(req.user.id, reserveFeature, { reserved: hold.reserved, holdId: hold.holdId });
     logger.error('[AI Chat] %s', err.message);
     if (err.status === 429)
-      return sendError(res, 'AI rate limit reached. Please wait 30 seconds.', 429);
-    if (err.name === 'AbortError')
-      return sendError(res, 'AI response timed out. Please try again.', 504);
+      return sendError(res, 'AI is busy right now — please wait 30 seconds and try again.', 429);
+    // FastAPI now maps Gemini overload to 503 and a pipeline timeout to 504.
+    // postSignedJSON rethrows an aborted fetch as an Error with .status=504
+    // (not name==='AbortError'), so branch on status.
+    if (err.status === 503)
+      return sendError(res, 'AI is busy right now — please try again in a moment.', 503);
+    if (err.status === 504 || err.name === 'AbortError')
+      return sendError(res, 'AI took too long to respond. Please try again.', 504);
     return sendError(res, 'AI service unavailable. Please try again.', 500);
   }
 });
@@ -528,7 +523,8 @@ router.post('/soil-card-ocr', authenticate, aiChatLimit, async (req, res) => {
       create: { userId: req.user.id, date: today, totalTokens: tokens, monthlyTokens: tokens },
       update: { totalTokens: { increment: tokens }, monthlyTokens: { increment: tokens } },
     }).catch(() => {});
-    deductCredits(req.user.id, 'ai_soil_ocr', { model, tokensUsed: tokens, description: 'Soil card OCR' }).catch(() => {});
+    const _ocrDed = await deductCredits(req.user.id, 'ai_soil_ocr', { model, tokensUsed: tokens, description: 'Soil card OCR' });
+    if (_ocrDed?.error) logger.warn('[Soil OCR] credit deduct failed for user=%s: %s', req.user.id, _ocrDed.error);
 
     return sendSuccess(res, result);
   } catch (err) {
@@ -564,45 +560,42 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
     let transcription    = '';
     let detectedLanguage = req.body.language || null;
 
-    // Whisper rejects BCP-47 like "kn-IN" — it only knows ISO short codes
-    // ("kn"). Strip the country suffix before any STT call. Sarvam accepts
-    // either form internally, so this is safe for both.
-    const shortLang = (req.body.language || '').split('-')[0].toLowerCase() || undefined;
-
-    // ── Sarvam STT (primary) ─────────────────────────────────────────────────
-    if (ENV.SARVAM_API_KEY) {
-      try {
-        const audioBuffer = fs.readFileSync(renamedPath);
-        const r = await sarvamSTT(audioBuffer, `audio.${ext}`, detectedLanguage);
-        transcription    = r.transcript;
-        detectedLanguage = r.languageCode;
-      } catch (e) {
-        logger.warn('[Sarvam STT] failed, falling back to Groq Whisper: %s', e.message);
-      }
+    // ── Sarvam STT (sole transcription provider) ─────────────────────────────
+    // CropSetu uses Sarvam for Indic speech-to-text (Groq Whisper was dropped
+    // in the Gemini consolidation). The chat reply is generated by Gemini and
+    // spoken back via Sarvam TTS.
+    if (!ENV.SARVAM_API_KEY) {
+      cleanUp(renamedPath);
+      await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
+      return sendError(res, 'Voice is temporarily unavailable. Please type your question instead.', 503);
     }
-
-    // ── Whisper STT (Sarvam fallback path) ────────────────────────────────────
-    // Model + API key from AI_VOICE_STT_* env vars (see backend/src/config/env.js).
-    // Default: Groq whisper-large-v3-turbo. Set AI_VOICE_STT_MODEL=whisper-1 +
-    // AI_VOICE_STT_API_KEY=sk-... to swap to OpenAI Whisper.
-    if (!transcription) {
-      const sttClient = getGroqSTT();
-      const result  = await sttClient.audio.transcriptions.create({
-        file:            fs.createReadStream(renamedPath),
-        model:           ENV.AI_VOICE_STT_MODEL || 'whisper-large-v3-turbo',
-        response_format: 'text',
-        language:        shortLang,
-        prompt:          'FarmMind AI farming assistant. Farmer asking about crops, diseases, mandi prices, schemes.',
-      });
-      transcription = (typeof result === 'string' ? result : result?.text || '').trim();
+    let sttError = null;
+    try {
+      const audioBuffer = fs.readFileSync(renamedPath);
+      const r = await sarvamSTT(audioBuffer, `audio.${ext}`, detectedLanguage);
+      transcription    = (r.transcript || '').trim();
+      detectedLanguage = r.languageCode || detectedLanguage;
+    } catch (e) {
+      sttError = e;
+      logger.warn('[Sarvam STT] failed: %s', e.message);
     }
 
     cleanUp(renamedPath);
-    if (!transcription)
+    // Distinguish a SERVICE failure (Sarvam down/auth/5xx/breaker-open) from a
+    // genuinely empty transcript. The former is a 503 "try again", not a
+    // misleading 422 "speak more clearly" that blames the farmer.
+    if (sttError) {
+      await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
+      return sendError(res, 'Voice service is temporarily unavailable. Please try again in a moment.', 503);
+    }
+    if (!transcription) {
+      await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
       return sendError(res, 'Could not transcribe audio — please speak clearly and try again.', 422);
+    }
 
     const wait = await checkCooldown(req.user.id);
     if (wait > 0) {
+      await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
       return sendSuccess(res, {
         transcription, detectedLanguage,
         reply: `Please wait ${wait}s before sending another message.`,
@@ -650,7 +643,7 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
     // whatever Sarvam STT detected, then to 'en'. Always short-coded —
     // FastAPI / chat_service expects 'mr', not 'mr-IN'.
     const replyLang = (
-      shortLang
+      (req.body.language || '').split('-')[0].toLowerCase()
       || (detectedLanguage || '').split('-')[0].toLowerCase()
       || 'en'
     );
@@ -665,13 +658,17 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
     const voiceRespLen = speakReply
       ? 'short'
       : (LENGTHS.includes(req.body.responseLength) ? req.body.responseLength : 'short');
+    // Cap the FastAPI call at 55s so the whole voice round-trip returns inside
+    // the native client's ~60s OkHttp upload ceiling (was unbounded → default
+    // 90s, so a slow reply aborted on-device after credits had settled). Voice
+    // forces a SHORT, single-call reply, so 55s is ample headroom.
     const result = await callFastAPI('/ai/chat', {
       message:         transcription,
       history,
       farm_profile:    enrichedProfile,
       mode:            speakReply ? 'voice' : 'text',
       response_length: voiceRespLen,
-    }, req.user.id, undefined, req.id);
+    }, req.user.id, 55_000, req.id);
 
     const { reply, type, structured_data: structuredData, token_info: voiceTokenInfo, followUps } = result;
     const voiceTokens = voiceTokenInfo?.total_tokens || 0;
@@ -708,15 +705,12 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
     const wantsTTS = req.query.tts === '1' || req.body.tts === true || req.body.tts === 'true';
     if (wantsTTS && ENV.SARVAM_API_KEY && reply) {
       try {
+        // The reply is ALREADY generated in the user's language (we set
+        // enrichedProfile.language = replyLang above), so speak it directly.
+        // The previous en-IN→ttsLang pre-translation mislabeled an already-
+        // localised (e.g. Marathi) reply as English and garbled it.
         const ttsLang = detectedLanguage || 'hi-IN';
-        let ttsText   = reply;
-        if (ttsLang !== 'en-IN' && !ttsLang.startsWith('en')) {
-          try {
-            const t = await sarvamTranslate(reply, 'en-IN', ttsLang);
-            ttsText = t.translatedText || reply;
-          } catch { /* speak English if translate fails */ }
-        }
-        const ttsResult = await sarvamTTS(ttsText, ttsLang);
+        const ttsResult = await sarvamTTS(reply, ttsLang);
         audioData = { audio: ttsResult.audio, mimeType: ttsResult.mimeType };
       } catch (e) {
         logger.warn('[Sarvam TTS] failed (non-fatal): %s', e.message);
@@ -743,17 +737,26 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/tts
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/tts', authenticate, async (req, res) => {
+router.post('/tts', authenticate, aiChatLimit, async (req, res) => {
   const { text, language = 'hi-IN' } = req.body;
   if (!text?.trim())    return sendError(res, 'text is required', 400);
   if (text.length > 1000) return sendError(res, 'text too long (max 1000 chars)', 400);
   if (!ENV.SARVAM_API_KEY) return sendError(res, 'TTS not configured — set SARVAM_API_KEY', 503);
 
+  // Meter TTS (flat floor debit). Reserve atomically up-front and settle/release
+  // so concurrent calls can't TOCTOU-overspend, and a Sarvam failure refunds.
+  const hold = await reserveCredits(req.user.id, 'ai_tts');
+  if (!hold.ok) {
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
+  }
+
   try {
     const lang   = normaliseLangCode(language);
     const result = await sarvamTTS(text.trim(), lang);
+    await settleCredits(req.user.id, 'ai_tts', { reserved: hold.reserved, holdId: hold.holdId, description: 'Text-to-speech (Sarvam)' });
     return sendSuccess(res, { audio: result.audio, mimeType: result.mimeType, language: lang });
   } catch (err) {
+    await releaseCredits(req.user.id, 'ai_tts', { reserved: hold.reserved, holdId: hold.holdId });
     logger.error('[Sarvam TTS] %s', err.message);
     return sendError(res, 'Text-to-speech failed. Please try again.', 500);
   }
@@ -762,18 +765,26 @@ router.post('/tts', authenticate, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/translate
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/translate', authenticate, async (req, res) => {
+router.post('/translate', authenticate, aiChatLimit, async (req, res) => {
   const { text, sourceLang = 'en-IN', targetLang = 'hi-IN' } = req.body;
   if (!text?.trim())    return sendError(res, 'text is required', 400);
   if (text.length > 2000) return sendError(res, 'text too long (max 2000 chars)', 400);
   if (!ENV.SARVAM_API_KEY) return sendError(res, 'Translation not configured — set SARVAM_API_KEY', 503);
 
+  // Meter translation (flat floor debit) — atomic reserve/settle/release.
+  const hold = await reserveCredits(req.user.id, 'ai_translate');
+  if (!hold.ok) {
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
+  }
+
   try {
     const src    = normaliseLangCode(sourceLang);
     const tgt    = normaliseLangCode(targetLang);
     const result = await sarvamTranslate(text.trim(), src, tgt);
+    await settleCredits(req.user.id, 'ai_translate', { reserved: hold.reserved, holdId: hold.holdId, description: 'Translation (Sarvam)' });
     return sendSuccess(res, { translatedText: result.translatedText, sourceLang: src, targetLang: tgt });
   } catch (err) {
+    await releaseCredits(req.user.id, 'ai_translate', { reserved: hold.reserved, holdId: hold.holdId });
     logger.error('[Sarvam Translate] %s', err.message);
     return sendError(res, 'Translation failed. Please try again.', 500);
   }
@@ -876,11 +887,17 @@ router.delete('/voice/conversations/:id', authenticate, async (req, res) => {
 // GET /api/v1/ai/conversations/:id
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/conversations/:id', authenticate, async (req, res) => {
+  // DB-3: bound the nested messages so a very long thread can't return an
+  // unbounded row set (memory/latency spike). Default to the most recent 100,
+  // newest-first from the DB then reversed to chronological for the client.
+  const msgLimit = Math.min(parseInt(req.query.messageLimit || '100', 10) || 100, 200);
   const convo = await prisma.aIConversation.findFirst({
     where:   { id: req.params.id, userId: req.user.id },
     include: {
+      _count: { select: { messages: true } },
       messages: {
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: 'desc' },
+        take: msgLimit,
         select: {
           id: true, role: true, content: true,
           messageType: true, structuredData: true, createdAt: true,
@@ -889,7 +906,10 @@ router.get('/conversations/:id', authenticate, async (req, res) => {
     },
   });
   if (!convo) return sendError(res, 'Conversation not found', 404);
-  return sendSuccess(res, convo);
+  convo.messages.reverse();  // back to chronological (oldest → newest)
+  const totalMessages = convo._count?.messages ?? convo.messages.length;
+  delete convo._count;
+  return sendSuccess(res, { ...convo, totalMessages, messagesTruncated: totalMessages > convo.messages.length });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -956,10 +976,15 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
       : JSON.parse(req.body.farmContext || '{}');
   } catch { /* ignore */ }
 
-  // Weather fetch is fire-and-forget but synchronous here (1-3s, cheap) so the
-  // poll handler has it ready when the pipeline finishes.
+  // Weather is a NICE-TO-HAVE for the persisted report (FastAPI fetches its own
+  // weather for the diagnosis independently), so cap it at 2.5s — a slow weather
+  // upstream must not eat the native client's ~60s submit ceiling before we even
+  // return the job id.
   const scanPincode = farmCtx.pincode || req.user?.pincode || '000000';
-  const weatherData = await getWeatherData(scanPincode).catch(() => null);
+  const weatherData = await Promise.race([
+    getWeatherData(scanPincode).catch(() => null),
+    new Promise(resolve => setTimeout(() => resolve(null), 2_500)),
+  ]);
 
   const lat = parseFloat(req.body.lat);
   const lon = parseFloat(req.body.lon);
@@ -1019,6 +1044,7 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
       const flat = flattenFastAPIDiagnosis(result.data, farmCtx);
       const finalised = await _persistDoneScan({
         userId: req.user.id, farmCtx, weatherData, raw: result.data, flat, imageUrlsPromise,
+        jobId: result.jobId,
       });
       logger.info('[Express/Scan/submit] idempotent inline replay — user=%s elapsed=%dms', req.user.id, Date.now() - t0);
       return sendSuccess(res, { status: 'done', ...finalised });
@@ -1033,7 +1059,13 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
   } catch (err) {
     cleanupFile();
     logger.error({ err }, '[Express/Scan/submit] enqueue failed');
-    return sendError(res, 'Scan submission failed. Please try again.', err.status || 500);
+    const st = err.status || 500;
+    const msg = st === 402 ? 'You’ve used all your AI credits for this month. They refill on the 1st.'
+      : st === 429 ? 'Too many scans right now — please wait a moment and try again.'
+      : st === 503 ? 'The diagnosis service is busy. Please try again in a moment.'
+      : st === 504 ? 'The diagnosis service took too long. Please try again.'
+      : 'Scan submission failed. Please try again.';
+    return sendError(res, msg, st);
   }
 });
 
@@ -1076,6 +1108,7 @@ router.get('/scan/job/:jobId', authenticate, async (req, res) => {
     userId: req.user.id, farmCtx, weatherData, raw: snap.data, flat,
     imageUrlsPromise: ctx?.imageUrlsPromise,
     skipPersist: !ctx,
+    jobId,
   });
   pendingScans.delete(jobId);
   return sendSuccess(res, { status: 'done', ...finalised });
@@ -1086,14 +1119,49 @@ router.get('/scan/job/:jobId', authenticate, async (req, res) => {
 // /scan/job/:jobId). Records usage, deducts credits, persists the
 // CropDiseaseReport, strips _fullReport for the wire response, and returns
 // the client-facing diagnosis dict.
-async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, imageUrlsPromise, skipPersist = false }) {
+async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, imageUrlsPromise, skipPersist = false, jobId = null }) {
+  // Non-results must NOT be charged or persisted: a "retake the photo"
+  // (needs_rescan) ran no diagnosis LLM, and a service_unavailable is the
+  // graceful response when Gemini 503'd — the farmer got no analysis, so
+  // charging 3 credits for it is wrong. Still return the report so the UI can
+  // show the retry/rescan message.
+  const isNonResult = raw?.needs_rescan === true
+    || raw?.service_unavailable === true
+    || raw?.meta?.service_unavailable === true;
+  if (isNonResult) {
+    logger.info('[Scan] non-result (rescan/service-unavailable) — not charging or persisting (user=%s job=%s)', userId, jobId || '-');
+    const { _fullReport, ...diagnosisForClient } = flat;
+    return { ...diagnosisForClient, _fullReport, reportId: null, weatherUsed: !!weatherData };
+  }
+
+  // Idempotent settlement (credit + DB safety): GET /scan/job/:jobId has no
+  // idempotency middleware and FastAPI returns `done` for ~24h, so a duplicate
+  // or concurrent poll (or the inline-replay racing a poll) would re-deduct
+  // credits AND re-insert the report. Claim settlement atomically per jobId —
+  // only the winner charges + persists. Redis down → fall through and settle
+  // once (rare; a possible double-charge beats a silent free scan).
+  if (jobId && redis?.status === 'ready') {
+    try {
+      const claimed = await redis.set(`scan_settled:${jobId}`, '1', 'EX', 86400, 'NX');
+      if (!claimed) {
+        logger.info('[Scan] job=%s already settled — returning report without re-charge/re-persist', jobId);
+        const { _fullReport, ...diagnosisForClient } = flat;
+        return { ...diagnosisForClient, _fullReport, reportId: null, weatherUsed: !!weatherData, alreadySettled: true };
+      }
+    } catch (e) { logger.warn('[Scan] settle-claim failed (non-fatal): %s', e?.message); }
+  }
+
   const tokenUsage = (() => { const u = extractFastAPIUsage(raw); return { total_tokens: u.tokens, total_cost_usd: u.costUsd }; })();
   recordScanUsage(userId, tokenUsage).catch(() => {});
-  deductCredits(userId, 'ai_scan_gemini', {
+  // Awaited so the credit debit is reliably recorded (was fire-and-forget — a
+  // failed write silently gave a free scan). deductCredits handles its own
+  // errors internally, so this never throws the scan away.
+  const _ded = await deductCredits(userId, 'ai_scan_gemini', {
     model: raw?.meta?.model_diagnose || 'fastapi-agentic',
     tokensUsed: tokenUsage.total_tokens,
     description: `Crop scan: ${flat?.disease || 'analysis'}`,
-  }).catch(() => {});
+  });
+  if (_ded?.error) logger.warn('[Scan] credit deduct failed for user=%s: %s', userId, _ded.error);
 
   // Wait briefly for the parallel Cloudinary uploads to finish so the
   // report row carries the image URLs. Cap the wait so a slow CDN doesn't
@@ -1344,15 +1412,24 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
       needsRescan = rawDiagnosis?.needs_rescan === true;
     }
 
-    // ── Record usage + deduct credits (non-blocking) — same for both paths ──
+    // ── Record usage + deduct credits — usage is analytics (non-blocking),
+    //    the credit debit is AWAITED so spend is never silently lost. ──
+    //    A needs_rescan ("retake photo") or service_unavailable (Gemini 503)
+    //    ran no real diagnosis, so it must NOT be charged. ──
     recordScanUsage(req.user.id, tokenUsage).catch(() => {});
-    deductCredits(req.user.id, 'ai_scan_gemini', {
-      model: diagnosisMethod === 'fastapi-agentic'
-        ? (rawDiagnosis?.meta?.model_diagnose || 'fastapi-agentic')
-        : 'gemini-2.5-flash',
-      tokensUsed: tokenUsage.total_tokens,
-      description: `Crop scan: ${diagnosis?.disease || 'analysis'}`,
-    }).catch(() => {});
+    const _scanNonResult = needsRescan
+      || rawDiagnosis?.service_unavailable === true
+      || rawDiagnosis?.meta?.service_unavailable === true;
+    if (!_scanNonResult) {
+      const _scanDed = await deductCredits(req.user.id, 'ai_scan_gemini', {
+        model: diagnosisMethod === 'fastapi-agentic'
+          ? (rawDiagnosis?.meta?.model_diagnose || 'fastapi-agentic')
+          : 'gemini-2.5-flash',
+        tokensUsed: tokenUsage.total_tokens,
+        description: `Crop scan: ${diagnosis?.disease || 'analysis'}`,
+      });
+      if (_scanDed?.error) logger.warn('[Scan] credit deduct failed for user=%s: %s', req.user.id, _scanDed.error);
+    }
 
     logger.debug('[Express/Scan] disease=%s conf=%s severity=%s treatments=%d',
       diagnosis.disease, diagnosis.confidence, diagnosis.severity, diagnosis.treatment?.length);
@@ -1494,13 +1571,20 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/scan/:sessionId/chat  — follow-up Q&A on a scan
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/scan/:sessionId/chat', authenticate, async (req, res) => {
+router.post('/scan/:sessionId/chat', authenticate, aiChatLimit, async (req, res) => {
   const { message } = req.body;
   if (!message?.trim())      return sendError(res, 'message is required', 400);
   if (message.length > 1000) return sendError(res, 'message too long (max 1000 chars)', 400);
 
   const wait = await checkCooldown(req.user.id);
   if (wait > 0) return sendError(res, `Please wait ${wait}s before sending another message.`, 429);
+
+  // Meter the follow-up: this forwards to the LLM exactly like /ai/chat, so it
+  // must reserve + settle credits (previously it was unmetered — free token burn).
+  const hold = await reserveCredits(req.user.id, 'ai_chat_gemini');
+  if (!hold.ok) {
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
+  }
 
   try {
     // Authorization: look the session up by id ALONE first so we can tell
@@ -1511,9 +1595,11 @@ router.post('/scan/:sessionId/chat', authenticate, async (req, res) => {
       where:  { id: req.params.sessionId, isScanSession: true },
       select: { id: true, userId: true, language: true, messageCount: true },
     });
-    if (!convo) return sendError(res, 'Scan session not found', 404);
-    if (convo.userId !== req.user.id)
+    if (!convo) { await releaseCredits(req.user.id, 'ai_chat_gemini', { reserved: hold.reserved, holdId: hold.holdId }); return sendError(res, 'Scan session not found', 404); }
+    if (convo.userId !== req.user.id) {
+      await releaseCredits(req.user.id, 'ai_chat_gemini', { reserved: hold.reserved, holdId: hold.holdId });
       return sendError(res, 'You do not have access to this scan session', 403);
+    }
 
     const history = await prisma.aIMessage.findMany({
       where:   { conversationId: convo.id },
@@ -1538,7 +1624,8 @@ router.post('/scan/:sessionId/chat', authenticate, async (req, res) => {
       farm_profile: farmProfile,
     }, req.user.id);
 
-    const { reply, type, structured_data: structuredData } = result;
+    const { reply, type, structured_data: structuredData, token_info: tokenInfo } = result;
+    const tokens = tokenInfo?.total_tokens || 0;
 
     await prisma.aIMessage.createMany({
       data: [
@@ -1552,8 +1639,16 @@ router.post('/scan/:sessionId/chat', authenticate, async (req, res) => {
       data:  { updatedAt: new Date(), messageCount: { increment: 2 } },
     });
 
+    // Settle the hold against actual tokens (awaited — spend is never lost).
+    await settleCredits(req.user.id, 'ai_chat_gemini', {
+      reserved: hold.reserved, holdId: hold.holdId, tokensUsed: tokens,
+      model: tokenInfo?.model, description: 'Scan follow-up chat', costUsd: tokenInfo?.cost_usd,
+    });
+
     return sendSuccess(res, { reply, type, card: structuredData ?? null, sessionId: convo.id });
   } catch (err) {
+    // Refund the hold — the user shouldn't pay for a failed request.
+    await releaseCredits(req.user.id, 'ai_chat_gemini', { reserved: hold.reserved, holdId: hold.holdId });
     logger.error('[Scan Chat] %s', err.message);
     return sendError(res, 'Failed to process your question. Please try again.', 500);
   }

@@ -1,7 +1,14 @@
 """
-LLM Utility Functions — CropGuard Agentic AI
+LLM Utility Functions — CropGuard Agentic AI (Gemini-only)
 
-Shared helpers for calling Gemini (vision + text) and Groq (text).
+Shared helpers for calling Gemini (vision + text). CropSetu consolidated onto
+Google Gemini for production; the Anthropic call path was removed. Two non-Gemini
+providers survive in narrow, opt-in roles (both keyed by their own env var, both
+no-ops when that key is unset):
+  - Groq (call_groq_text)      — text-chat last-resort fallback when the Gemini
+                                 path is fully down (agents/llm_dispatch).
+  - OpenAI (call_openai_vision) — one extra cross-vendor voter in the crop-disease
+                                 diagnosis ensemble (agents/router + ensemble_agent).
 Each function returns (raw_text, token_info_dict).
 """
 from __future__ import annotations
@@ -9,30 +16,33 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 
 import httpx
 
-from services.http_clients import get_anthropic, get_gemini, get_groq
+from services.http_clients import get_gemini, get_groq, get_openai
 
 logger = logging.getLogger(__name__)
 
 # ── Pricing (USD per 1K tokens, approximate) ────────────────────────────────
-# Without Anthropic models in this table, _calc_cost() silently returns 0.0
-# for the entire 5-agent Claude pipeline and the API reports $0.00 spend.
-# Verify against Anthropic's current published rates and update on model
-# changes.
+# A model missing from this table makes _calc_cost() silently return 0.0 — which
+# breaks the daily spend cap (it would see $0). Keep a row for every Gemini model
+# the registry/_DEFAULTS can select. Verify against Google's published rates.
 _PRICING = {
     "gemini-2.5-flash":            {"input": 0.00015, "output": 0.0006},
     "gemini-2.5-pro":              {"input": 0.00125, "output": 0.005},
+    # Groq — chat fallback only. Keep a row so the daily spend cap stays accurate
+    # when chat fails over to Groq (an unpriced model would bill $0). Verify
+    # against Groq's published per-token rates.
     "llama-3.3-70b-versatile":     {"input": 0.00059, "output": 0.00079},
-    # Anthropic Claude — update when pricing changes.
-    "claude-sonnet-4-6":           {"input": 0.003,   "output": 0.015},
-    "claude-haiku-4-5-20251001":   {"input": 0.001,   "output": 0.005},
+    # OpenAI — crop-diagnosis ensemble voter. Same rationale: an unpriced model
+    # bills $0 and breaks the daily spend cap. Verify against OpenAI's rates.
+    "gpt-4o":                      {"input": 0.0025,  "output": 0.01},
+    "gpt-4o-mini":                 {"input": 0.00015, "output": 0.0006},
 }
 
 _GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 _GROQ_BASE = "https://api.groq.com/openai/v1/chat/completions"
+_OPENAI_BASE = "https://api.openai.com/v1/chat/completions"
 
 
 def empty_token_info(model: str = "none") -> dict:
@@ -47,7 +57,20 @@ def empty_token_info(model: str = "none") -> dict:
 
 
 def _calc_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    prices = _PRICING.get(model, {"input": 0.0, "output": 0.0})
+    prices = _PRICING.get(model)
+    if prices is None:
+        # An unpriced model would silently bill $0 and disable the daily USD cap
+        # (a near-free runaway). Fall back to the closest Gemini family price and
+        # log loudly so the row gets added.
+        m = (model or "").lower()
+        if "pro" in m:
+            prices = _PRICING["gemini-2.5-pro"]
+        else:
+            prices = _PRICING["gemini-2.5-flash"]
+        logger.warning(
+            "[Pricing] model %r missing from _PRICING — using %s pricing as fallback. "
+            "Add an explicit row.", model, "pro" if "pro" in m else "flash",
+        )
     return round(
         (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1000, 6
     )
@@ -83,7 +106,6 @@ async def call_gemini_vision(
     images_b64: list[dict],       # [{"data": str, "mime_type": str}]
     gemini_api_key: str,
     *,
-    groq_api_key: str = "",
     model: str = "gemini-2.5-flash",
     max_tokens: int = 4096,
     temperature: float = 0.3,
@@ -237,13 +259,15 @@ async def call_gemini_text(
     }
 
     client = get_gemini()
-    # See call_gemini_vision for rationale — one quick retry, then punt to
-    # the router for cross-provider fallback.
+    # Quick in-call retry on the FULL transient set (429 + 5xx), matching
+    # call_gemini_vision. Previously only 429 retried here, so a 503 "high
+    # demand" failed on the first hit even though the next attempt often
+    # succeeds. One quick 2s retry, then surface the error to the dispatcher.
     for attempt in range(2):
         resp = await client.post(url, json=payload, headers=headers, timeout=90)
-        if resp.status_code == 429:
+        if resp.status_code in (429, 500, 502, 503, 504):
             if attempt == 0:
-                logger.warning("Gemini text 429 (attempt 1) — quick 2s retry")
+                logger.warning("Gemini text %s (attempt 1) — quick 2s retry", resp.status_code)
                 await asyncio.sleep(2.0)
                 continue
             _raise_gemini_error(resp, model)
@@ -251,10 +275,33 @@ async def call_gemini_text(
             _raise_gemini_error(resp, model)
         break
     else:
-        raise RuntimeError("Gemini text rate-limited after 2 retries")
+        raise RuntimeError("Gemini text transient-failed after 2 retries")
 
     data = resp.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
+    # Gemini can return HTTP 200 with NO usable text: a safety block
+    # (promptFeedback.blockReason, no candidates), finishReason=MAX_TOKENS where
+    # the candidate has content but no parts (thinking ate the budget), or
+    # SAFETY/RECITATION with empty content. Accessing the path blindly raised a
+    # KeyError that _with_retry does NOT retry (not an HTTPStatusError) and that
+    # surfaced to the user as a cryptic "Chat unavailable — ... 'candidates'".
+    # Mirror call_gemini_vision: parse defensively and raise a typed error.
+    try:
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError):
+        block = (data.get("promptFeedback") or {}).get("blockReason")
+        finish = ""
+        try:
+            finish = data["candidates"][0].get("finishReason", "")
+        except (KeyError, IndexError):
+            pass
+        logger.error(
+            "Unexpected Gemini text response (block=%s finish=%s): %s",
+            block, finish, json.dumps(data)[:500],
+        )
+        raise ValueError(
+            f"Empty or malformed Gemini response (blockReason={block or 'none'}, "
+            f"finishReason={finish or 'none'})"
+        )
 
     usage = data.get("usageMetadata", {})
     tok = _make_token_info(
@@ -265,7 +312,14 @@ async def call_gemini_text(
     return text, tok
 
 
-# ── Groq Text ────────────────────────────────────────────────────────────────
+# ── Groq Text (cross-provider chat fallback) ─────────────────────────────────
+# Restored as a LAST-RESORT fallback for the text-chat features. When the Gemini
+# primary AND its Flash↔Pro capacity fallback both fail, the dispatcher
+# (agents/llm_dispatch.call_llm_text) tries Groq so the farmer still gets a reply
+# instead of "Chat unavailable" — Groq's free Llama tier has capacity separate
+# from Google's, so it survives a Gemini-side outage or quota exhaustion.
+# Text-only: Groq Llama can't do vision, so the vision/diagnose paths never reach
+# here. OpenAI-compatible /chat/completions shape.
 
 async def call_groq_text(
     system_prompt: str,
@@ -276,7 +330,13 @@ async def call_groq_text(
     max_tokens: int = 4096,
     temperature: float = 0.3,
 ) -> tuple[str, dict]:
-    """Call Groq text API. Returns (raw_text, token_info)."""
+    """Call Groq's OpenAI-compatible chat API. Returns (raw_text, token_info).
+
+    One quick 2s retry on transient statuses (429 + 5xx) — matching the Gemini
+    helpers — then raises HTTPStatusError so the dispatcher's _with_retry applies
+    its backoff or surfaces the failure. Keeps the cross-provider fallback well
+    inside the request budget rather than burning 60s on internal retries.
+    """
     headers = {
         "Authorization": f"Bearer {groq_api_key}",
         "Content-Type": "application/json",
@@ -292,20 +352,35 @@ async def call_groq_text(
     }
 
     client = get_groq()
-    for attempt in range(3):
+    for attempt in range(2):
         resp = await client.post(_GROQ_BASE, headers=headers, json=payload, timeout=90)
-        if resp.status_code == 429:
-            wait = 10 * (attempt + 1)
-            logger.warning("Groq 429 — backing off %ds", wait)
-            await asyncio.sleep(wait)
-            continue
-        resp.raise_for_status()
+        if resp.status_code in (429, 500, 502, 503, 504):
+            if attempt == 0:
+                logger.warning("Groq text %s (attempt 1, model=%s) — quick 2s retry",
+                               resp.status_code, model)
+                await asyncio.sleep(2.0)
+                continue
+            # Surface the body so a transient run of failures is debuggable, then
+            # raise HTTPStatusError so the dispatcher decides on further retry.
+            logger.error("[Groq] %s HTTP %d — %s", model, resp.status_code,
+                         (resp.text or "")[:300])
+            resp.raise_for_status()
+        if resp.status_code >= 400:
+            # 401/403 → bad/expired key; 400 → bad request. Log the reason before
+            # httpx eats it ("Client error '401 Unauthorized'" hides the detail).
+            logger.error("[Groq] %s HTTP %d — %s", model, resp.status_code,
+                         (resp.text or "")[:300])
+            resp.raise_for_status()
         break
     else:
-        raise RuntimeError("Groq rate-limited after 3 retries")
+        raise RuntimeError(f"Groq {model} transient-failed after 2 retries")
 
     data = resp.json()
-    text = data["choices"][0]["message"]["content"]
+    try:
+        text = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError):
+        logger.error("Unexpected Groq response: %s", json.dumps(data)[:500])
+        raise ValueError("Empty or malformed Groq response")
 
     usage = data.get("usage", {})
     tok = _make_token_info(
@@ -316,214 +391,85 @@ async def call_groq_text(
     return text, tok
 
 
-# ── Generic OpenAI-compatible (any /v1/chat/completions endpoint) ────────────
-# Same payload + response shape as OpenAI/Groq/DeepSeek/xAI/Together/OpenRouter
-# /Mistral/Perplexity/Cerebras/Fireworks/local LM Studio/vLLM/Ollama. The
-# admin picks ONE provider per feature in .env; we don't fall back to others.
+# ── OpenAI Vision (crop-diagnosis ensemble voter) ────────────────────────────
+# GPT-4o joins the crop-disease ensemble as ONE extra cross-vendor vision voter
+# (alongside Gemini Pro + Flash); the reconciler fuses its diagnosis with the
+# others. Same OpenAI-compatible /chat/completions shape as Groq, but the user
+# turn carries the image as a base64 data URI. Returns the raw JSON text — the
+# ensemble agent's _parse_json/_normalise handle it provider-agnostically.
 
-_OPENAI_COMPAT_CLIENTS: dict[str, "httpx.AsyncClient"] = {}
-
-
-def _get_openai_compat_client(base_url: str) -> httpx.AsyncClient:
-    """One pooled client per distinct base_url. Reuses TLS handshakes across
-    requests to the same provider — meaningful given each LLM call is its
-    own HTTPS handshake otherwise."""
-    if base_url not in _OPENAI_COMPAT_CLIENTS:
-        _OPENAI_COMPAT_CLIENTS[base_url] = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0),
-            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20,
-                                keepalive_expiry=30.0),
-        )
-    return _OPENAI_COMPAT_CLIENTS[base_url]
-
-
-async def call_openai_compatible_text(
-    system_prompt: str,
-    user_prompt: str,
-    *,
-    base_url: str,
-    api_key: str,
-    model: str,
-    max_tokens: int = 4096,
-    temperature: float = 0.3,
-) -> tuple[str, dict]:
-    """Call any OpenAI-compatible /v1/chat/completions endpoint.
-    Returns (raw_text, token_info). Raises on non-2xx (no internal retries —
-    the admin gets the error and decides whether to swap models)."""
-    if not api_key:
-        raise ValueError(f"API key not configured for {base_url}")
-
-    url = base_url.rstrip("/") + "/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-
-    client = _get_openai_compat_client(base_url)
-    resp = await client.post(url, headers=headers, json=payload, timeout=120)
-    resp.raise_for_status()
-    data = resp.json()
-    text = data["choices"][0]["message"]["content"]
-
-    usage = data.get("usage", {})
-    tok = _make_token_info(
-        model,
-        usage.get("prompt_tokens", 0),
-        usage.get("completion_tokens", 0),
-    )
-    return text, tok
-
-
-async def call_openai_compatible_vision(
-    system_prompt: str,
-    user_prompt: str,
-    images_b64: list[dict],   # [{"data": str, "mime_type": str}]
-    *,
-    base_url: str,
-    api_key: str,
-    model: str,
-    max_tokens: int = 4096,
-    temperature: float = 0.3,
-) -> tuple[str, dict]:
-    """Vision variant — encodes images as data-URLs in the user message.
-    Compatible with OpenAI Vision, OpenRouter vision-capable models, etc.
-    Models without vision capability will reject the request — that's the
-    admin's responsibility to avoid."""
-    if not api_key:
-        raise ValueError(f"API key not configured for {base_url}")
-
-    # Build OpenAI-style "content as list" for the user message: images first, then text.
-    user_content: list[dict] = []
-    for img in images_b64:
-        data_url = f"data:{img['mime_type']};base64,{img['data']}"
-        user_content.append({"type": "image_url", "image_url": {"url": data_url}})
-    user_content.append({"type": "text", "text": user_prompt})
-
-    url = base_url.rstrip("/") + "/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_content},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-
-    client = _get_openai_compat_client(base_url)
-    resp = await client.post(url, headers=headers, json=payload, timeout=180)
-    resp.raise_for_status()
-    data = resp.json()
-    text = data["choices"][0]["message"]["content"]
-
-    usage = data.get("usage", {})
-    tok = _make_token_info(
-        model,
-        usage.get("prompt_tokens", 0),
-        usage.get("completion_tokens", 0),
-    )
-    return text, tok
-
-
-async def close_openai_compat_clients() -> None:
-    """Close pooled clients on shutdown. Wired into the FastAPI lifespan."""
-    for client in _OPENAI_COMPAT_CLIENTS.values():
-        try:
-            await client.aclose()
-        except Exception:
-            pass
-    _OPENAI_COMPAT_CLIENTS.clear()
-
-
-# ── Anthropic Claude — Vision ────────────────────────────────────────────────
-
-async def call_claude_vision(
+async def call_openai_vision(
     system_prompt: str,
     user_prompt: str,
     images_b64: list[dict],       # [{"data": str, "mime_type": str}]
-    anthropic_api_key: str = "",   # kept for signature symmetry; SDK reads env/config
+    openai_api_key: str,
     *,
-    model: str = "claude-sonnet-4-6",
+    model: str = "gpt-4o",
     max_tokens: int = 4096,
     temperature: float = 0.3,
 ) -> tuple[str, dict]:
+    """Call OpenAI vision with images + text. Returns (raw_text, token_info).
+
+    One quick 2s retry on transient statuses (429 + 5xx) — matching the Gemini /
+    Groq helpers — then raises HTTPStatusError. As an ensemble member its caller
+    (agents/router.dispatch_one_vision) tolerates a hard failure: one missing
+    voter just means the reconciler fuses N-1.
     """
-    Claude vision via the official AsyncAnthropic SDK client.
-    Returns (raw_text, token_info). The SDK handles its own retries + pooling.
-    """
-    client = get_anthropic()
-    content_blocks: list[dict] = []
+    headers = {
+        "Authorization": f"Bearer {openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    # OpenAI vision: the user turn is a content array of text + image_url parts,
+    # each image inlined as a data URI. Text first, then the image(s).
+    user_content: list[dict] = [{"type": "text", "text": user_prompt}]
     for img in images_b64:
-        content_blocks.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": img["mime_type"],
-                "data": img["data"],
-            },
-        })
-    content_blocks.append({"type": "text", "text": user_prompt})
+        data_uri = f"data:{img['mime_type']};base64,{img['data']}"
+        user_content.append({"type": "image_url", "image_url": {"url": data_uri}})
 
-    msg = await client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        system=system_prompt,
-        messages=[{"role": "user", "content": content_blocks}],
-    )
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
 
-    text = "".join(
-        block.text for block in msg.content if getattr(block, "type", "") == "text"
-    )
-    usage = getattr(msg, "usage", None)
+    client = get_openai()
+    for attempt in range(2):
+        resp = await client.post(_OPENAI_BASE, headers=headers, json=payload, timeout=120)
+        if resp.status_code in (429, 500, 502, 503, 504):
+            if attempt == 0:
+                logger.warning("OpenAI vision %s (attempt 1, model=%s) — quick 2s retry",
+                               resp.status_code, model)
+                await asyncio.sleep(2.0)
+                continue
+            logger.error("[OpenAI] %s HTTP %d — %s", model, resp.status_code,
+                         (resp.text or "")[:300])
+            resp.raise_for_status()
+        if resp.status_code >= 400:
+            # 401 → bad/expired key; 400 → bad request (e.g. model lacks vision).
+            # Log the body before httpx hides it behind a generic message.
+            logger.error("[OpenAI] %s HTTP %d — %s", model, resp.status_code,
+                         (resp.text or "")[:300])
+            resp.raise_for_status()
+        break
+    else:
+        raise RuntimeError(f"OpenAI {model} transient-failed after 2 retries")
+
+    data = resp.json()
+    try:
+        text = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError):
+        logger.error("Unexpected OpenAI response: %s", json.dumps(data)[:500])
+        raise ValueError("Empty or malformed OpenAI response")
+
+    usage = data.get("usage", {})
     tok = _make_token_info(
         model,
-        getattr(usage, "input_tokens", 0) if usage else 0,
-        getattr(usage, "output_tokens", 0) if usage else 0,
+        usage.get("prompt_tokens", 0),
+        usage.get("completion_tokens", 0),
     )
     return text, tok
 
-
-# ── Anthropic Claude — Text ──────────────────────────────────────────────────
-
-async def call_claude_text(
-    system_prompt: str,
-    user_prompt: str,
-    anthropic_api_key: str = "",
-    *,
-    model: str = "claude-sonnet-4-6",
-    max_tokens: int = 4096,
-    temperature: float = 0.3,
-) -> tuple[str, dict]:
-    """Claude text-only call. Returns (raw_text, token_info)."""
-    client = get_anthropic()
-    msg = await client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-    text = "".join(
-        block.text for block in msg.content if getattr(block, "type", "") == "text"
-    )
-    usage = getattr(msg, "usage", None)
-    tok = _make_token_info(
-        model,
-        getattr(usage, "input_tokens", 0) if usage else 0,
-        getattr(usage, "output_tokens", 0) if usage else 0,
-    )
-    return text, tok

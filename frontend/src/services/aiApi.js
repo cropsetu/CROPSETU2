@@ -43,7 +43,10 @@ export async function sendChatMessage(
   const { data } = await api.post(
     '/ai/chat',
     { message, conversationId, farmProfile, includeFarmContext, language, responseLength, image },
-    { headers: { 'Idempotency-Key': newIdemKey() } },
+    // Chat must outlive Express's 120s FastAPI budget — the default `api`
+    // instance's 15s timeout aborts slow-but-successful replies mid-pipeline
+    // (and the user still gets charged). Override to sit just above 120s.
+    { headers: { 'Idempotency-Key': newIdemKey() }, timeout: 125_000 },
   );
   return data.data; // { reply, type, card, followUps, conversationId }
 }

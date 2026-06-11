@@ -1,30 +1,19 @@
 /**
- * FarmMind AI Service
+ * FarmMind AI Service (Gemini-only)
  *
- * Text tasks  → Groq (llama-3.3-70b-versatile) 30 RPM / 14,400 RPD — free
- *               ↳ fallback: Claude (claude-haiku-4-5-20251001)       — paid
- *               ↳ fallback: Gemini (gemini-2.5-flash)                — free
- * Vision task → Gemini (gemini-2.5-flash) 10 RPM                    — free
- *               ↳ fallback: Claude vision (claude-sonnet-4-6)
- *               ↳ fallback: Groq symptom-based text analysis
+ * Text tasks  → Gemini (gemini-2.5-flash)
+ * Vision task → Gemini (gemini-2.5-flash) native REST
+ *               ↳ fallback: Gemini symptom-based text analysis (no image)
  *
- * Auto-fallback: provider chain tried in order on 429 / 503.
+ * CropSetu consolidated onto Google Gemini for production; the Groq + Claude
+ * provider paths were removed.
  */
 import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
 import { ENV } from '../config/env.js';
 import { extractJSON as extractJSONFromResponse } from '../utils/jsonExtract.js';
 import logger from '../utils/logger.js';
 
 // ── Client factory ─────────────────────────────────────────────────────────────
-function makeGroqClient() {
-  if (!ENV.GROQ_API_KEY) throw new Error('GROQ_API_KEY not set in .env');
-  return new OpenAI({
-    apiKey: ENV.GROQ_API_KEY,
-    baseURL: 'https://api.groq.com/openai/v1',
-  });
-}
-
 function makeGeminiClient() {
   if (!ENV.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set in .env');
   return new OpenAI({
@@ -33,43 +22,11 @@ function makeGeminiClient() {
   });
 }
 
-function makeClaudeClient() {
-  if (!ENV.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set in .env');
-  return new Anthropic({ apiKey: ENV.ANTHROPIC_API_KEY });
-}
-
-// Lazy singletons
-let _groq = null;
+// Lazy singleton
 let _gemini = null;
-let _claude = null;
-const groq   = () => { if (!_groq)   _groq   = makeGroqClient();   return _groq; };
 const gemini = () => { if (!_gemini) _gemini = makeGeminiClient(); return _gemini; };
-const claude = () => { if (!_claude) _claude = makeClaudeClient(); return _claude; };
 
-const GROQ_MODEL         = ENV.GROQ_MODEL   || 'llama-3.3-70b-versatile';
-const GEMINI_MODEL       = ENV.GEMINI_MODEL || 'gemini-2.5-flash';
-const CLAUDE_MODEL       = ENV.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
-const CLAUDE_VISION_MODEL = 'claude-sonnet-4-6'; // Sonnet has better vision than Haiku
-
-// ── Claude call helper (Anthropic SDK has a different message format) ──────────
-// Extracts system message from the messages array, passes it as top-level param.
-async function callClaude(params) {
-  const systemMsg = params.messages.find(m => m.role === 'system');
-  const userMessages = params.messages
-    .filter(m => m.role !== 'system')
-    .map(m => ({ role: m.role, content: m.content }));
-
-  const response = await claude().messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: params.max_tokens || 700,
-    temperature: params.temperature ?? 0.7,
-    ...(systemMsg ? { system: systemMsg.content } : {}),
-    messages: userMessages,
-  });
-  const text = response.content[0]?.text || '';
-  // Strip markdown code fences Claude may add around JSON responses
-  return text.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
-}
+const GEMINI_MODEL = ENV.GEMINI_MODEL || 'gemini-2.5-flash';
 
 // ── Season helper ──────────────────────────────────────────────────────────────
 export function getCurrentSeason() {
@@ -561,38 +518,10 @@ export function parseStructuredData(text) {
   return { type: 'text', data: null, cleanText: text };
 }
 
-// ── Helper: call with auto-fallback ──────────────────────────────────────────
-// Chain: Groq → Claude → Gemini. Each step tried on 429 / 503 / unavailable.
-async function callWithFallback(groqParams, geminiParams) {
-  const isRateLimit = (err) => {
-    const status = err.status || err.response?.status;
-    return status === 429 || status === 503;
-  };
-
-  // 1. Try Groq
-  if (ENV.GROQ_API_KEY) {
-    try {
-      const res = await groq().chat.completions.create(groqParams);
-      return res.choices[0]?.message?.content || '';
-    } catch (err) {
-      if (!isRateLimit(err)) throw err;
-      logger.warn('[Groq] rate limited, trying Claude...');
-    }
-  }
-
-  // 2. Try Claude
-  if (ENV.ANTHROPIC_API_KEY) {
-    try {
-      return await callClaude(groqParams); // same params shape; callClaude adapts format
-    } catch (err) {
-      if (!isRateLimit(err)) throw err;
-      logger.warn('[Claude] rate limited, falling back to Gemini...');
-    }
-  }
-
-  // 3. Fallback to Gemini
-  if (!ENV.GEMINI_API_KEY) throw new Error('No AI provider configured — set GROQ_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY in .env');
-  const res = await gemini().chat.completions.create(geminiParams);
+// ── Helper: single Gemini text call ──────────────────────────────────────────
+async function callGeminiChat(params) {
+  if (!ENV.GEMINI_API_KEY) throw new Error('No AI provider configured — set GEMINI_API_KEY in .env');
+  const res = await gemini().chat.completions.create({ ...params, model: GEMINI_MODEL });
   return res.choices[0]?.message?.content || '';
 }
 
@@ -607,10 +536,7 @@ export async function chatWithFarmMind(userMessage, conversationHistory = [], fa
     { role: 'user', content: userMessage },
   ];
 
-  const rawText = await callWithFallback(
-    { model: GROQ_MODEL,   messages, temperature: 0.7, max_tokens: 700 },
-    { model: GEMINI_MODEL, messages, temperature: 0.7, max_tokens: 700 },
-  );
+  const rawText = await callGeminiChat({ messages, temperature: 0.7, max_tokens: 700 });
 
   const { type, data, cleanText } = parseStructuredData(rawText);
   return { reply: cleanText, type, structuredData: data };
@@ -620,13 +546,10 @@ export async function chatWithFarmMind(userMessage, conversationHistory = [], fa
 export async function generatePlannerTasks(farmContext) {
   const messages = [{ role: 'user', content: PLANNER_PROMPT(farmContext) }];
 
-  // Groq supports JSON mode via response_format on newer models
-  const rawText = await callWithFallback(
-    { model: GROQ_MODEL,   messages, temperature: 0.6, max_tokens: 900,
-      response_format: { type: 'json_object' } },
-    { model: GEMINI_MODEL, messages, temperature: 0.6, max_tokens: 900,
-      response_format: { type: 'json_object' } },
-  );
+  const rawText = await callGeminiChat({
+    messages, temperature: 0.6, max_tokens: 900,
+    response_format: { type: 'json_object' },
+  });
 
   try {
     const parsed = JSON.parse(rawText);
@@ -641,9 +564,9 @@ export async function generatePlannerTasks(farmContext) {
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 
-// ── Text-only fallback diagnosis via Groq (when Gemini vision is unavailable) ──
+// ── Text-only fallback diagnosis via Gemini (when vision is unavailable) ──────
 async function analyzeBySymptoms(farmContext) {
-  if (!ENV.GROQ_API_KEY) throw new Error('No AI provider available');
+  if (!ENV.GEMINI_API_KEY) throw new Error('No AI provider available');
 
   const {
     cropName, cropAge, symptoms, firstNoticed, affectedArea,
@@ -757,8 +680,8 @@ Return ONLY valid JSON (no other text):
   "diagnosisMethod": "symptom-based"
 }`;
 
-  const res = await groq().chat.completions.create({
-    model: GROQ_MODEL,
+  const res = await gemini().chat.completions.create({
+    model: GEMINI_MODEL,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3,
     max_tokens: 1200,
@@ -790,7 +713,7 @@ Return ONLY valid JSON (no other text):
     };
   }
 
-  logger.debug('[Scan/Groq-text] diagnosed: %s (%d%% confidence, symptom-based)', parsed.disease, parsed.confidence);
+  logger.debug('[Scan/Gemini-text] diagnosed: %s (%d%% confidence, symptom-based)', parsed.disease, parsed.confidence);
   return parsed;
 }
 
@@ -854,99 +777,20 @@ async function runGeminiVision(prompt, base64Image, mimeType) {
   }
 }
 
-// ── Claude vision call ────────────────────────────────────────────────────────
-async function runClaudeVision(prompt, base64Image, mimeType) {
-  if (!ENV.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
-
-  // Ensure mimeType is one Claude accepts for base64 images
-  const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-  const safeMime = allowedMimes.includes(mimeType) ? mimeType : 'image/jpeg';
-
-  const response = await claude().messages.create({
-    model: CLAUDE_VISION_MODEL,
-    max_tokens: 1800,
-    temperature: 0.1,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'text', text: prompt },
-        { type: 'image', source: { type: 'base64', media_type: safeMime, data: base64Image } },
-      ],
-    }],
-  });
-
-  const raw    = response.content[0]?.text || '';
-  logger.debug('[Scan/Claude] raw response (first 200 chars): %s', raw.slice(0, 200));
-
-  const parsed = extractJSONFromResponse(raw);
-
-  if (parsed.error || !parsed.disease) {
-    throw new Error(`Claude returned invalid diagnosis: ${JSON.stringify(parsed).slice(0, 100)}`);
-  }
-
-  parsed.diagnosisMethod = 'claude-vision';
-  logger.debug('[Scan/Claude] diagnosed: %s (%d%% confidence)', parsed.disease, parsed.confidence);
-  return parsed;
-}
-
-// ── Merge two vision results via consensus ────────────────────────────────────
-function mergeVisionResults(primary, secondary) {
-  if (!secondary) return primary;
-
-  const d1 = (primary.disease  || '').toLowerCase().trim();
-  const d2 = (secondary.disease || '').toLowerCase().trim();
-
-  // Consider them agreeing if one contains the other (handles "Late Blight" vs "Late Blight of Tomato")
-  const agree = d1 && d2 && (d1.includes(d2) || d2.includes(d1) || d1 === d2);
-
-  if (agree) {
-    return {
-      ...primary,
-      confidence: Math.min(97, Math.round((primary.confidence + secondary.confidence) / 2) + 12),
-      diagnosisMethod:  'multi-model-consensus',
-      modelAgreement:   true,
-      models:           ['gemini-vision', 'claude-vision'],
-    };
-  }
-
-  // Disagreement — keep primary, add secondary as alternative, lower confidence slightly
-  return {
-    ...primary,
-    confidence:           Math.max(40, (primary.confidence || 60) - 8),
-    diagnosisMethod:      'gemini-vision-primary',
-    modelAgreement:       false,
-    models:               ['gemini-vision', 'claude-vision'],
-    alternativeDiagnosis: secondary.disease,
-    alternativeConfidence: secondary.confidence,
-    notes: `${primary.notes || ''} | Note: Claude vision suggested "${secondary.disease}" — consult agronomist to confirm.`.trim(),
-  };
-}
-
-// ── Main crop scan — parallel Gemini + Claude, symptom fallback ───────────────
+// ── Main crop scan — Gemini vision, symptom-based fallback ────────────────────
 export async function scanCropImage(base64Image, mimeType = 'image/jpeg', farmContext = {}, weatherContext = null) {
   const prompt = buildScanPrompt(farmContext, weatherContext);
 
-  // Run both vision models in parallel for consensus
-  const [geminiRes, claudeRes] = await Promise.allSettled([
-    ENV.GEMINI_API_KEY     ? runGeminiVision(prompt, base64Image, mimeType) : Promise.reject(new Error('no gemini key')),
-    ENV.ANTHROPIC_API_KEY  ? runClaudeVision(prompt, base64Image, mimeType) : Promise.reject(new Error('no claude key')),
-  ]);
-
-  const geminiOk = geminiRes.status === 'fulfilled' ? geminiRes.value : null;
-  const claudeOk = claudeRes.status === 'fulfilled' ? claudeRes.value : null;
-
-  if (geminiOk || claudeOk) {
-    const primary   = geminiOk || claudeOk;
-    const secondary = geminiOk && claudeOk ? claudeOk : null;
-    return mergeVisionResults(primary, secondary);
+  if (ENV.GEMINI_API_KEY) {
+    try {
+      return await runGeminiVision(prompt, base64Image, mimeType);
+    } catch (err) {
+      logger.warn('[Scan/Gemini] vision failed: %s', err?.message?.slice(0, 80));
+    }
   }
 
-  // Both vision models failed — log reasons
-  if (geminiRes.status === 'rejected') logger.warn('[Scan/Gemini] %s', geminiRes.reason?.message?.slice(0, 80));
-  if (claudeRes.status === 'rejected') logger.warn('[Scan/Claude] %s', claudeRes.reason?.message?.slice(0, 80));
-
-  // Symptom-based text fallback via Groq
-  logger.warn('[Scan] All vision models failed — running symptom-based Groq fallback');
+  // Vision unavailable/failed — symptom-based text fallback (also Gemini).
+  logger.warn('[Scan] Gemini vision unavailable — running symptom-based fallback');
   return analyzeBySymptoms(farmContext);
 }
 

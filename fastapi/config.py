@@ -11,16 +11,36 @@ _here = Path(__file__).parent
 load_dotenv(_here / ".env", override=False)
 load_dotenv(_here.parent / ".env", override=False)
 
-# ── Anthropic (Claude) ────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
-
-# ── Groq (primary chat LLM — fast + cheap) ────────────────────────────────────
-GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
-
-# ── Google Gemini (chat fallback + vision) ────────────────────────────────────
+# ── Google Gemini (sole LLM provider) ─────────────────────────────────────────
+# CropSetu runs Gemini-only in production. Groq + Anthropic were removed during
+# the production consolidation — Gemini serves every LLM feature (chat, alerts,
+# diagnosis, treatment, soil OCR, pest). Voice STT/TTS is handled by Sarvam in
+# the Express backend.
 GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
 
-# ── Sarvam (Indic translation for report enrichment) ─────────────────────────
+# ── Groq (cross-provider chat fallback — optional) ────────────────────────────
+# CropSetu is Gemini-first, but the text-chat features fall back to Groq's free
+# Llama tier when the Gemini path (primary + Flash↔Pro capacity fallback) is
+# fully down — so the farmer still gets a reply instead of "Chat unavailable".
+# Groq has capacity separate from Google, so it survives a Gemini-side outage or
+# quota exhaustion. Leave GROQ_API_KEY blank to disable the fallback entirely
+# (chat then fails hard on a Gemini outage, as the Gemini-only design intended).
+# Wiring lives in agents/llm_dispatch.call_llm_text; text-only (Groq Llama can't
+# do vision, so the vision/diagnose paths never reach it).
+GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
+GROQ_FALLBACK_MODEL: str = os.environ.get("GROQ_FALLBACK_MODEL", "llama-3.3-70b-versatile")
+
+# ── OpenAI (crop-diagnosis ensemble voter — optional) ─────────────────────────
+# OpenAI is NOT a primary provider. It joins the crop-disease diagnosis ENSEMBLE
+# as one extra vision voter alongside Gemini Pro + Flash, so the reconciler fuses
+# a cross-vendor opinion on uncertain scans. It only participates when
+# OPENAI_API_KEY is set (resolve_chain skips catalog entries with no key) AND the
+# ensemble fires at all (ENABLE_ENSEMBLE=true + a low-confidence/ambiguous scan).
+# With no key the pipeline stays Gemini-only, unchanged.
+OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_DIAGNOSE_MODEL: str = os.environ.get("OPENAI_DIAGNOSE_MODEL", "gpt-4o")
+
+# ── Sarvam (Indic translation + voice STT/TTS) ───────────────────────────────
 SARVAM_API_KEY: str = os.environ.get("SARVAM_API_KEY", "")
 
 # ── Agent model assignments ───────────────────────────────────────────────────
@@ -29,11 +49,11 @@ SARVAM_API_KEY: str = os.environ.get("SARVAM_API_KEY", "")
 # "Fast vs Best" toggle. The constants below are kept ONLY for non-pipeline
 # call sites (e.g. ad-hoc scripts) and should not be referenced from the
 # scan/diagnose/treatment path.
-MODEL_IMAGE_QUALITY  = "claude-sonnet-4-6"          # vision capable
-MODEL_WEATHER        = "claude-haiku-4-5-20251001"   # fast + cheap
-MODEL_DIAGNOSIS      = "claude-sonnet-4-6"           # highest accuracy
-MODEL_TREATMENT      = "claude-sonnet-4-6"           # balanced
-MODEL_REPORT         = "claude-haiku-4-5-20251001"   # speed > reasoning
+MODEL_IMAGE_QUALITY  = "gemini-2.5-pro"      # vision capable, highest accuracy
+MODEL_WEATHER        = "gemini-2.5-flash"    # fast + cheap
+MODEL_DIAGNOSIS      = "gemini-2.5-pro"      # highest accuracy
+MODEL_TREATMENT      = "gemini-2.5-flash"    # balanced
+MODEL_REPORT         = "gemini-2.5-flash"    # speed > reasoning
 
 # ── Pipeline tier ─────────────────────────────────────────────────────────────
 # Default tier when the client does not send `params.tier`. Operators can flip
@@ -44,8 +64,7 @@ PIPELINE_DEFAULT_TIER: str = os.environ.get("PIPELINE_DEFAULT_TIER", "fast").str
 # set ALLOW_BEST_TIER=false to coerce every request to "fast" server-side.
 ALLOW_BEST_TIER: bool = os.environ.get("ALLOW_BEST_TIER", "true").strip().lower() != "false"
 
-# ── Chat / alert model assignments ───────────────────────────────────────────
-MODEL_GROQ_CHAT   = os.environ.get("GROQ_CHAT_MODEL",   "llama-3.3-70b-versatile")
+# ── Chat / alert model assignment ────────────────────────────────────────────
 MODEL_GEMINI_CHAT = os.environ.get("GEMINI_CHAT_MODEL",  "gemini-2.5-flash")
 
 # ── Quality / confidence thresholds ──────────────────────────────────────────
@@ -67,9 +86,16 @@ TREATMENT_REL_THRESHOLD   = 0.8
 # more cost + latency); set lower → ensemble only for the truly hard cases.
 # Tune against the eval/golden_runner.py top-1 metric.
 ENSEMBLE_ESCALATE_BELOW   = float(os.environ.get("ENSEMBLE_ESCALATE_BELOW", "0.80"))
-# Soft kill-switch — set ENABLE_ENSEMBLE=false to keep every scan single-model
-# (useful during a quota incident or when measuring cheap-only baseline).
-ENABLE_ENSEMBLE: bool     = os.environ.get("ENABLE_ENSEMBLE", "true").strip().lower() != "false"
+# Soft kill-switch. Default OFF (matches .env.example — the previous code default
+# of "true" silently enabled the 2-4x-cost ensemble fan-out on any deploy that
+# omitted the var). Ensemble fans out to Pro+Flash concurrently on uncertain
+# scans → 2-4x the 503/throttle exposure too, not worth it on a capacity-
+# constrained key. Set ENABLE_ENSEMBLE=true to opt back in.
+ENABLE_ENSEMBLE: bool     = os.environ.get("ENABLE_ENSEMBLE", "false").strip().lower() != "false"
+# AISVC-5: skip the (2-4x cost) ensemble fan-out when the user's remaining daily
+# budget is below this USD reserve, so a near-cap user can't trigger a runaway
+# multi-model overrun in a single request. The cheap-pass result still stands.
+ENSEMBLE_MIN_BUDGET_USD: float = float(os.environ.get("ENSEMBLE_MIN_BUDGET_USD", "0.05"))
 # Ambiguity gate: when |primary_conf - top_differential_prob| < this AND the
 # differential's own probability > 0.25, treat the result as ambiguous and
 # escalate regardless of absolute confidence. Matches the spec's §6.2.

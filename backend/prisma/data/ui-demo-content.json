@@ -1,0 +1,1723 @@
+{
+  "farmers": [
+    {
+      "name": "Ramesh Pawar",
+      "gender": "male",
+      "village": "Saswad",
+      "taluka": "Purandar",
+      "landAcres": 6.5,
+      "cropTypes": [
+        "Onion",
+        "Pomegranate",
+        "Wheat"
+      ],
+      "soilType": "Black Cotton Soil",
+      "irrigationType": "Drip",
+      "farmingExperienceYrs": 22,
+      "statusQuote": "शेती हाच आमचा खरा धर्म",
+      "language": "mr"
+    },
+    {
+      "name": "Sunita Jadhav",
+      "gender": "female",
+      "village": "Manchar",
+      "taluka": "Ambegaon",
+      "landAcres": 3,
+      "cropTypes": [
+        "Tomato",
+        "Onion",
+        "Vegetables"
+      ],
+      "soilType": "Red Soil",
+      "irrigationType": "Sprinkler",
+      "farmingExperienceYrs": 9,
+      "statusQuote": "कष्टाला फळ नक्की मिळतं",
+      "language": "mr"
+    },
+    {
+      "name": "Balasaheb Shinde",
+      "gender": "male",
+      "village": "Walchandnagar",
+      "taluka": "Indapur",
+      "landAcres": 18,
+      "cropTypes": [
+        "Sugarcane",
+        "Wheat"
+      ],
+      "soilType": "Black Cotton Soil",
+      "irrigationType": "Canal",
+      "farmingExperienceYrs": 31,
+      "statusQuote": "ऊस गोड, पण मेहनत त्याहून गोड",
+      "language": "mr"
+    },
+    {
+      "name": "Vaishali Kale",
+      "gender": "female",
+      "village": "Narayangaon",
+      "taluka": "Junnar",
+      "landAcres": 4.5,
+      "cropTypes": [
+        "Grapes",
+        "Tomato"
+      ],
+      "soilType": "Loamy",
+      "irrigationType": "Drip",
+      "farmingExperienceYrs": 12,
+      "statusQuote": "द्राक्षाची बाग म्हणजे माझा अभिमान",
+      "language": "mr"
+    },
+    {
+      "name": "Dattatray Mane",
+      "gender": "male",
+      "village": "Baramati",
+      "taluka": "Baramati",
+      "landAcres": 12,
+      "cropTypes": [
+        "Sugarcane",
+        "Soybean",
+        "Jowar"
+      ],
+      "soilType": "Black Cotton Soil",
+      "irrigationType": "Borewell",
+      "farmingExperienceYrs": 27,
+      "statusQuote": "Hard work in the field always pays off",
+      "language": "mr"
+    },
+    {
+      "name": "Anita Gaikwad",
+      "gender": "female",
+      "village": "Shikrapur",
+      "taluka": "Shirur",
+      "landAcres": 2,
+      "cropTypes": [
+        "Vegetables",
+        "Onion"
+      ],
+      "soilType": "Sandy Loam",
+      "irrigationType": "Borewell",
+      "farmingExperienceYrs": 6,
+      "statusQuote": "छोटी शेती, मोठी स्वप्नं",
+      "language": "mr"
+    },
+    {
+      "name": "Sopan Bhosale",
+      "gender": "male",
+      "village": "Rajgurunagar",
+      "taluka": "Khed",
+      "landAcres": 8.5,
+      "cropTypes": [
+        "Onion",
+        "Wheat",
+        "Jowar"
+      ],
+      "soilType": "Red Soil",
+      "irrigationType": "Borewell",
+      "farmingExperienceYrs": 19,
+      "statusQuote": "कांद्याचा भाव आला की दिवाळी आली",
+      "language": "mr"
+    },
+    {
+      "name": "Pradeep Kshirsagar",
+      "gender": "male",
+      "village": "Talegaon",
+      "taluka": "Maval",
+      "landAcres": 5,
+      "cropTypes": [
+        "Vegetables",
+        "Tomato",
+        "Wheat"
+      ],
+      "soilType": "Loamy",
+      "irrigationType": "Sprinkler",
+      "farmingExperienceYrs": 14,
+      "statusQuote": "Fresh from my farm to your plate",
+      "language": "en"
+    },
+    {
+      "name": "Mangala Dhumal",
+      "gender": "female",
+      "village": "Uruli Kanchan",
+      "taluka": "Haveli",
+      "landAcres": 3.5,
+      "cropTypes": [
+        "Pomegranate",
+        "Vegetables"
+      ],
+      "soilType": "Black Cotton Soil",
+      "irrigationType": "Drip",
+      "farmingExperienceYrs": 11,
+      "statusQuote": "डाळिंबाच्या बागेत माझं मन रमतं",
+      "language": "mr"
+    },
+    {
+      "name": "Hanmant Chavan",
+      "gender": "male",
+      "village": "Nira",
+      "taluka": "Purandar",
+      "landAcres": 24,
+      "cropTypes": [
+        "Sugarcane",
+        "Cotton",
+        "Jowar",
+        "Soybean"
+      ],
+      "soilType": "Black Cotton Soil",
+      "irrigationType": "Canal",
+      "farmingExperienceYrs": 35,
+      "statusQuote": "माती हीच आई, शेत हेच घर",
+      "language": "mr"
+    }
+  ],
+  "sellers": [
+    {
+      "name": "Dattatray Maruti Pawar",
+      "gender": "male",
+      "businessName": "Jai Malhar Krishi Seva Kendra",
+      "businessType": "Krishi Seva Kendra",
+      "area": "Saswad",
+      "taluka": "Purandar",
+      "bankName": "Bank of Maharashtra",
+      "statusQuote": "Bali raja sukhi, tar amhi sukhi - shetkaryala changla maal milala pahije."
+    },
+    {
+      "name": "Sunita Balasaheb Jadhav",
+      "gender": "female",
+      "businessName": "Sahyadri Agro Agencies",
+      "businessType": "Agro Agencies",
+      "area": "Rajgurunagar",
+      "taluka": "Khed",
+      "bankName": "Pune District Central Co-op Bank",
+      "statusQuote": "Pramanik vyavhar haach amcha paya, shetkari amche kutumb."
+    },
+    {
+      "name": "Ramesh Tukaram Shinde",
+      "gender": "male",
+      "businessName": "Shri Ganesh Seeds & Fertilizer Centre",
+      "businessType": "Seeds & Fertilizer Dealer",
+      "area": "Manchar",
+      "taluka": "Ambegaon",
+      "bankName": "State Bank of India",
+      "statusQuote": "Changle biyane, changle pik - hach amcha vada."
+    },
+    {
+      "name": "Vaishali Dnyaneshwar Kale",
+      "gender": "female",
+      "businessName": "Mauli Nursery & Roplava Kendra",
+      "businessType": "Nursery",
+      "area": "Paud",
+      "taluka": "Mulshi",
+      "bankName": "HDFC Bank",
+      "statusQuote": "Eka ropatun shambhar phale - nisargacha aashirwad shetkaryanna."
+    },
+    {
+      "name": "Balasaheb Hari Mane",
+      "gender": "male",
+      "businessName": "Krushna Krishi Bhandar",
+      "businessType": "Krishi Seva Kendra",
+      "area": "Baramati",
+      "taluka": "Baramati",
+      "bankName": "Bank of Maharashtra",
+      "statusQuote": "Usaachya patti madhe amcha vyapar phulto."
+    },
+    {
+      "name": "Anil Shankar Gaikwad",
+      "gender": "male",
+      "businessName": "Vighnaharta Agro Centre",
+      "businessType": "Seeds & Fertilizer Dealer",
+      "area": "Shikrapur",
+      "taluka": "Shirur",
+      "bankName": "ICICI Bank",
+      "statusQuote": "Shetkaryacha vishwas hach amcha khara nafa."
+    },
+    {
+      "name": "Manisha Vitthal Bhosale",
+      "gender": "female",
+      "businessName": "Tulsi Krishi Seva Kendra",
+      "businessType": "Krishi Seva Kendra",
+      "area": "Narayangaon",
+      "taluka": "Junnar",
+      "bankName": "Pune District Central Co-op Bank",
+      "statusQuote": "Drakshachya baagebarobar amcha vyavsay vaadhla."
+    },
+    {
+      "name": "Sopan Govind Jagtap",
+      "gender": "male",
+      "businessName": "Bhairavnath Agro Agencies",
+      "businessType": "Agro Agencies",
+      "area": "Yavat",
+      "taluka": "Daund",
+      "bankName": "Bank of India",
+      "statusQuote": "Mati, paani aani mehnat - tithech amhi shetkaryasobat."
+    },
+    {
+      "name": "Pradeep Namdev Lokhande",
+      "gender": "male",
+      "businessName": "Shivneri Seeds & Pesticides",
+      "businessType": "Seeds & Fertilizer Dealer",
+      "area": "Talegaon",
+      "taluka": "Maval",
+      "bankName": "Axis Bank",
+      "statusQuote": "Yogya margadarshan ani darjedar maal - amcha shabd."
+    },
+    {
+      "name": "Lata Kisan Phadtare",
+      "gender": "female",
+      "businessName": "Annapurna Rop-Vatika & Krishi Kendra",
+      "businessType": "Nursery",
+      "area": "Wagholi",
+      "taluka": "Haveli",
+      "bankName": "State Bank of India",
+      "statusQuote": "Hirvaigar ropanchi seva hach maza dharma."
+    }
+  ],
+  "animalSellers": [
+    {
+      "name": "Ramesh Pawar",
+      "gender": "male",
+      "village": "Manchar",
+      "taluka": "Ambegaon",
+      "statusQuote": "Aaplya gaai aaplya bhaganitlya. Changli janavar, changla daam.",
+      "listings": [
+        {
+          "animal": "Cow",
+          "breed": "Gir",
+          "age": "4 years",
+          "gender": "FEMALE",
+          "weight": "385 kg",
+          "price": 85000,
+          "description": "Shuddha Gir gaai, dusri vyali. Roj 12-14 litre dudh deti, A2 dudh. Sakali-sanjyache donhi vele changle dohan. Sagle lasikaran (FMD, HS) zhaale aahe, deworminghi keli aahe. Shant swabhav, hatani dohan karta yeto. Pune-Nashik road javal, gotha bhetayla yewu shakta.",
+          "milkYield": "12-14 L/day",
+          "tags": [
+            "A2 milk",
+            "second calving",
+            "vaccinated",
+            "hand-milkable"
+          ],
+          "imageKeywords": "gir,cow,desi cow,cattle,dairy"
+        },
+        {
+          "animal": "Calf",
+          "breed": "Gir",
+          "age": "5 months",
+          "gender": "FEMALE",
+          "weight": "75 kg",
+          "price": 22000,
+          "description": "Gir gaaiche kalvad, shuddha vansh. Vadicha changla aahe, nirogi aahe. Aaiche dudh chaangle aahe tyamule bhavishyat changli dudh dudhachi gaai hoil. Lasikaran chालू aahe.",
+          "milkYield": null,
+          "tags": [
+            "heifer calf",
+            "purebred",
+            "healthy"
+          ],
+          "imageKeywords": "gir,calf,desi cow,cattle"
+        }
+      ]
+    },
+    {
+      "name": "Sunita Jadhav",
+      "gender": "female",
+      "village": "Saswad",
+      "taluka": "Purandar",
+      "statusQuote": "Mhashiche dudh ghatt, ghari banwlela toop pan miltе.",
+      "listings": [
+        {
+          "animal": "Buffalo",
+          "breed": "Murrah",
+          "age": "5 years",
+          "gender": "FEMALE",
+          "weight": "560 kg",
+          "price": 135000,
+          "description": "Murrah mhash, tisri vyali, vyaun 2 mahine zhaale. Roj 16-18 litre ghatt dudh, fat 7 takke. Kale shing, kala rang, shuddha Murrah lakshane. Donhi vele dohan, machinene pan hatani pan deta. Lasikaran ani gabhan tapasani niyamit. Jagchi visht tar gabhan gaai sambhalun ghya.",
+          "milkYield": "16-18 L/day",
+          "tags": [
+            "high fat milk",
+            "third calving",
+            "vaccinated",
+            "machine-milkable"
+          ],
+          "imageKeywords": "murrah,buffalo,water buffalo,dairy buffalo"
+        }
+      ]
+    },
+    {
+      "name": "Balasaheb Shinde",
+      "gender": "male",
+      "village": "Walchandnagar",
+      "taluka": "Indapur",
+      "statusQuote": "Pandharpuri mhash mhanje Maharashtrachi shaan.",
+      "listings": [
+        {
+          "animal": "Buffalo",
+          "breed": "Pandharpuri",
+          "age": "6 years",
+          "gender": "FEMALE",
+          "weight": "490 kg",
+          "price": 110000,
+          "description": "Pandharpuri mhash, lamb valleli shinge ji ya jaatichi olakh aahe. Chauthi vyali, roj 10-12 litre dudh, fat 8 takke khup ghatt. Ya bhagatil havamanasathi ekdam mast jaat, kami kharchat sambhalta yete. Sagle lasikaran zhaale, nirogi. Pratyaksh pahun ghya.",
+          "milkYield": "10-12 L/day",
+          "tags": [
+            "native breed",
+            "high fat",
+            "hardy",
+            "fourth calving"
+          ],
+          "imageKeywords": "pandharpuri,buffalo,water buffalo,curved horns"
+        },
+        {
+          "animal": "Buffalo",
+          "breed": "Mehsana",
+          "age": "4 years",
+          "gender": "FEMALE",
+          "weight": "520 kg",
+          "price": 125000,
+          "description": "Mehsana mhash, dusri vyali. Roj 13-15 litre dudh deti, fat changla. Gujarati jaat pan ithe changli rakhli aahe. Shant swabhav, dohan sope. Lasikaran ani jantnashak vel-vel var keli aahe. Doghi mhashi ekatra ghetlya tar daam kami karun deto.",
+          "milkYield": "13-15 L/day",
+          "tags": [
+            "second calving",
+            "good fat",
+            "docile",
+            "vaccinated"
+          ],
+          "imageKeywords": "mehsana,buffalo,water buffalo,dairy"
+        }
+      ]
+    },
+    {
+      "name": "Vaishali Kale",
+      "gender": "female",
+      "village": "Narayangaon",
+      "taluka": "Junnar",
+      "statusQuote": "HF gaai, tank dudh, dudhachya dairy la roj ghaalto.",
+      "listings": [
+        {
+          "animal": "Cow",
+          "breed": "HF cross",
+          "age": "3 years",
+          "gender": "FEMALE",
+          "weight": "450 kg",
+          "price": 95000,
+          "description": "HF cross (Holstein Friesian sankarit) gaai, pahili vyali, vyaun 40 divas zhaale. Roj 22-25 litre dudh, peak la 28 litre paryant geli hoti. Pandhri-kali gaai, motha kas. Sundar shariryashti. Lasikaran (FMD, brucella) zhaale, deworming niyamit. Junnar bhagat changlya dudh dairy aahet. Machine dohan chालू.",
+          "milkYield": "22-25 L/day",
+          "tags": [
+            "high yield",
+            "first calving",
+            "machine-milked",
+            "vaccinated"
+          ],
+          "imageKeywords": "holstein friesian,hf cow,black and white cow,dairy cattle"
+        }
+      ]
+    },
+    {
+      "name": "Dattatray Mane",
+      "gender": "male",
+      "village": "Yavat",
+      "taluka": "Daund",
+      "statusQuote": "Jersey gaai kami khaate, jasta dudh deti.",
+      "listings": [
+        {
+          "animal": "Cow",
+          "breed": "Jersey",
+          "age": "4 years",
+          "gender": "FEMALE",
+          "weight": "320 kg",
+          "price": 78000,
+          "description": "Jersey gaai, dusri vyali. Roj 15-18 litre dudh, fat 4.5 takke. Tambada-pivla rang, lहान baandha mhanun chara kami lagto pan dudh chaangle. Shant ani manus-laval. Sagle lasikaran zhaale, nuktach deworming keli. Daund-Yavat road var gotha aahe, kधihi pahun jaa.",
+          "milkYield": "15-18 L/day",
+          "tags": [
+            "efficient feeder",
+            "second calving",
+            "docile",
+            "good fat"
+          ],
+          "imageKeywords": "jersey,cow,brown cow,dairy cattle"
+        },
+        {
+          "animal": "Bull",
+          "breed": "Gir",
+          "age": "3 years",
+          "gender": "MALE",
+          "weight": "480 kg",
+          "price": 65000,
+          "description": "Gir vaLU (khillari nasलela shuddha Gir), pajan-prajananasathi ekdam uttam. Motha baandha, balkat. Naisargik garbhdharan-sathi vapralela, vansh changla. Nirogi, lasikaran zhaale aahe. Sheti kaamasathihi vaprta yeto.",
+          "milkYield": null,
+          "tags": [
+            "breeding bull",
+            "strong build",
+            "purebred",
+            "vaccinated"
+          ],
+          "imageKeywords": "gir,bull,breeding bull,desi bull,cattle"
+        }
+      ]
+    },
+    {
+      "name": "Anil Lonkar",
+      "gender": "male",
+      "village": "Saswad",
+      "taluka": "Purandar",
+      "statusQuote": "Osmanabadi bokad bakri-eid la motha bhav miltो.",
+      "listings": [
+        {
+          "animal": "Goat",
+          "breed": "Osmanabadi",
+          "age": "1.5 years",
+          "gender": "MALE",
+          "weight": "42 kg",
+          "price": 28000,
+          "description": "Osmanabadi bokad, mansasathi ani prajananasathihi changla. Kala rang, ujwal kaatadi, balkat shariryashti. Bakri-Eid sathi ekdam mast vajan vadhel. Charai var vadhavlela, rasayan-mukt. PPR lasikaran zhaale aahe, jant-nashak dilela. Purandar bhaagat sarvat changle Osmanabadi.",
+          "milkYield": null,
+          "tags": [
+            "meat goat",
+            "Bakri-Eid ready",
+            "native breed",
+            "vaccinated"
+          ],
+          "imageKeywords": "osmanabadi,goat,black goat,buck,desi goat"
+        },
+        {
+          "animal": "Goat",
+          "breed": "Osmanabadi",
+          "age": "10 months",
+          "gender": "FEMALE",
+          "weight": "26 kg",
+          "price": 14000,
+          "description": "Osmanabadi shel (bakri), prajananasathi changli. Pahilya vetala donhi pille deण्याची kshamta. Nirogi ani charai var vadhavleli. PPR lasi zhaali aahe. Pillanchya paidashisathi gheun thevayla uttam.",
+          "milkYield": null,
+          "tags": [
+            "breeding doe",
+            "native breed",
+            "twins potential",
+            "vaccinated"
+          ],
+          "imageKeywords": "osmanabadi,goat,doe,black goat,nanny goat"
+        }
+      ]
+    },
+    {
+      "name": "Hanumant Bhosale",
+      "gender": "male",
+      "village": "Baramati",
+      "taluka": "Baramati",
+      "statusQuote": "Sirohi ani Boer bokad — vajan zhatpat vadhte.",
+      "listings": [
+        {
+          "animal": "Goat",
+          "breed": "Sirohi",
+          "age": "1 year",
+          "gender": "MALE",
+          "weight": "38 kg",
+          "price": 25000,
+          "description": "Sirohi bokad, Rajasthani jaat pan Baramati bhagat changli rakhli. Tambada-tपkiri rang, vajan zhatpat vadhte. Mansasathi ekdam changla, kami divasat motha hoto. Charai ani thode khaadya var vadhavlela. Lasikaran ani deworming up-to-date.",
+          "milkYield": null,
+          "tags": [
+            "fast growing",
+            "meat goat",
+            "vaccinated"
+          ],
+          "imageKeywords": "sirohi,goat,brown goat,buck,meat goat"
+        },
+        {
+          "animal": "Goat",
+          "breed": "Boer",
+          "age": "8 months",
+          "gender": "MALE",
+          "weight": "45 kg",
+          "price": 38000,
+          "description": "Boer cross bokad, mansachi jaat. Pandhri body ani taambada doke — Boer chi olakh. Vajan vadhichा dar khup jaast, kami vayatahi motha. Mansachya vyavsayasathi (goat farming) uttam. Sagle lasikaran zhaale, nirogi. Adhik mahitisathi sampark kara.",
+          "milkYield": null,
+          "tags": [
+            "Boer cross",
+            "high growth",
+            "meat farming",
+            "vaccinated"
+          ],
+          "imageKeywords": "boer,goat,white goat,brown head,meat goat"
+        }
+      ]
+    },
+    {
+      "name": "Shobha Gaikwad",
+      "gender": "female",
+      "village": "Otur",
+      "taluka": "Junnar",
+      "statusQuote": "Jamunapari bakri — dudh ani pille donhi changle.",
+      "listings": [
+        {
+          "animal": "Goat",
+          "breed": "Jamunapari",
+          "age": "2 years",
+          "gender": "FEMALE",
+          "weight": "48 kg",
+          "price": 32000,
+          "description": "Jamunapari bakri, mothi jaat. Lamb kaan ani Roman naak — shuddha lakshane. Roj 2-2.5 litre dudh deti, dudhasathi ani pillanchya paidashisathi donhi changli. Donhi vetala jodi pille dilele. Nirogi, PPR ani ET lasikaran zhaale aahe.",
+          "milkYield": "2-2.5 L/day",
+          "tags": [
+            "dairy goat",
+            "large breed",
+            "breeding doe",
+            "vaccinated"
+          ],
+          "imageKeywords": "jamunapari,goat,white goat,long ears,dairy goat"
+        }
+      ]
+    },
+    {
+      "name": "Ganpat Tupe",
+      "gender": "male",
+      "village": "Nira",
+      "taluka": "Purandar",
+      "statusQuote": "Deccani menढ्या — lokar ani mans donhisathi.",
+      "listings": [
+        {
+          "animal": "Sheep",
+          "breed": "Deccani",
+          "age": "2 years",
+          "gender": "MALE",
+          "weight": "35 kg",
+          "price": 12000,
+          "description": "Deccani menढा (mendha), ya bhagatil havamanasathi ekdam kateel jaat. Kala-tपkiri rang, mansasathi changla. Charai var ekdam mast vadhto, kami kharchat sambhalta yeto. Dhangari paddhatine vadhavlela. Lasikaran zhaale aahe. Menढ्यancha kalp ghyaycha asel tar bolun ghya.",
+          "milkYield": null,
+          "tags": [
+            "hardy breed",
+            "meat sheep",
+            "grazing reared",
+            "native"
+          ],
+          "imageKeywords": "deccani,sheep,black sheep,ram,desi sheep"
+        },
+        {
+          "animal": "Sheep",
+          "breed": "Madgyal",
+          "age": "1.5 years",
+          "gender": "MALE",
+          "weight": "40 kg",
+          "price": 18000,
+          "description": "Madgyal menढा, Sangli-Solapur bhagatli prasiddh mansachi jaat, ithe pan changli vadhavli. Pandhra rang, undach baandha, mans-utpadan jaast. Vajan changle, mansacha vyavsay karnaryana faaydeshir. Nirogi ani lasikaran zhaale.",
+          "milkYield": null,
+          "tags": [
+            "meat sheep",
+            "high weight",
+            "native breed",
+            "vaccinated"
+          ],
+          "imageKeywords": "madgyal,sheep,white sheep,ram,meat sheep"
+        }
+      ]
+    },
+    {
+      "name": "Pradeep Dhumal",
+      "gender": "male",
+      "village": "Rajgurunagar",
+      "taluka": "Khed",
+      "statusQuote": "Kadaknath ani Giriraja — gava-rani kombadi, motha bhav.",
+      "listings": [
+        {
+          "animal": "Poultry",
+          "breed": "Kadaknath",
+          "age": "6 months",
+          "gender": "MALE",
+          "weight": "1.4 kg",
+          "price": 900,
+          "description": "Kadaknath kombda (kala mans-haadche koMbade), aushadhi gun mhanun olkhle jate. Kala mans, kala rang. Gava-rani paddhatine mukt charai var vadhavlele, rasayan-mukt. Mansala 800-1000 rupye kilo bhav miltо. Lasikaran (Ranikhet, Gumboro) zhaale. Kami-jaast nag haveet tasе miltil.",
+          "milkYield": null,
+          "tags": [
+            "Kadaknath",
+            "free-range",
+            "black meat",
+            "vaccinated"
+          ],
+          "imageKeywords": "kadaknath,black chicken,rooster,desi poultry"
+        },
+        {
+          "animal": "Poultry",
+          "breed": "Giriraja",
+          "age": "4 months",
+          "gender": "FEMALE",
+          "weight": "2.2 kg",
+          "price": 650,
+          "description": "Giriraja kombadi, gava-rani sangopanasathi uttam jaat. Mukt charai var vadhavleli, motha aakar ani changli andi-utpadan kshamta. Mans ani andi donhisathi faaydeshir. Lasikaran zhaale aahe. 25-30 chya batchne ghetlya tar bhav kami karto.",
+          "milkYield": null,
+          "tags": [
+            "Giriraja",
+            "dual purpose",
+            "free-range",
+            "vaccinated"
+          ],
+          "imageKeywords": "giriraja,country chicken,hen,backyard poultry"
+        }
+      ]
+    }
+  ],
+  "machineryOwners": [
+    {
+      "name": "Balasaheb Shinde",
+      "gender": "male",
+      "area": "Shikrapur",
+      "taluka": "Shirur",
+      "statusQuote": "Sheti karaychi tar yantra changli pahijet - bhada nyay-ne ghya.",
+      "listing": {
+        "name": "Mahindra 575 DI Tractor",
+        "category": "Tractor",
+        "brand": "Mahindra",
+        "description": "Well-maintained Mahindra 575 DI, 47 HP tractor available on rent for ploughing, hauling and rotavator work across Shirur taluka. Single owner, serviced every season, all papers clear. Operator can be arranged for an extra charge. Ideal for medium farms around Shikrapur and Ranjangaon.",
+        "pricePerDay": 2800,
+        "horsePower": "47 HP",
+        "fuelType": "Diesel",
+        "ageYears": 4,
+        "features": [
+          "Power steering",
+          "Dual clutch",
+          "Oil immersed brakes",
+          "8 forward + 2 reverse gears",
+          "1700 kg lift capacity"
+        ],
+        "imageKeywords": "tractor,mahindra,farm,plough"
+      }
+    },
+    {
+      "name": "Dattatray Mane",
+      "gender": "male",
+      "area": "Baramati",
+      "taluka": "Baramati",
+      "statusQuote": "Vel vachawa, shet velevar tayar kara - aamhi madat karto.",
+      "listing": {
+        "name": "Swaraj 744 FE Tractor",
+        "category": "Tractor",
+        "brand": "Swaraj",
+        "description": "Sturdy Swaraj 744 FE 48 HP tractor for rent in Baramati region. Great for sugarcane and grape farm operations - trolley hauling, cultivator and harrow work. Engine recently overhauled, tyres in excellent condition. Available for both short jobs and full-season contracts.",
+        "pricePerDay": 2900,
+        "horsePower": "48 HP",
+        "fuelType": "Diesel",
+        "ageYears": 5,
+        "features": [
+          "Constant mesh transmission",
+          "Power steering",
+          "Dual stage clutch",
+          "Heavy duty drawbar",
+          "Sugarcane field ready"
+        ],
+        "imageKeywords": "tractor,swaraj,sugarcane,farm"
+      }
+    },
+    {
+      "name": "Vaishali Kale",
+      "gender": "female",
+      "area": "Manchar",
+      "taluka": "Ambegaon",
+      "statusQuote": "Mahila shetkari pan magil nahi - aadhunik yantrane sheti.",
+      "listing": {
+        "name": "John Deere 5050D Tractor",
+        "category": "Tractor",
+        "brand": "John Deere",
+        "description": "Premium John Deere 5050D, 50 HP tractor on rent in Ambegaon taluka, perfect for onion and tomato belt around Manchar. Smooth power delivery for rotavator, seed drill and spray operations. Fuel efficient, low maintenance, runs like new. Trusted by neighbouring farmers for years.",
+        "pricePerDay": 3400,
+        "horsePower": "50 HP",
+        "fuelType": "Diesel",
+        "ageYears": 3,
+        "features": [
+          "Collar shift transmission",
+          "Power steering",
+          "Fuel efficient engine",
+          "2000 kg hydraulic lift",
+          "Low noise operation"
+        ],
+        "imageKeywords": "tractor,johndeere,farm,field"
+      }
+    },
+    {
+      "name": "Ramesh Pawar",
+      "gender": "male",
+      "area": "Saswad",
+      "taluka": "Purandar",
+      "statusQuote": "Lahan shet asla tari power tiller-ne kaam sope hote.",
+      "listing": {
+        "name": "VST Shakti 130 DI Power Tiller",
+        "category": "Tiller",
+        "brand": "VST",
+        "description": "VST Shakti 130 DI power tiller available for rent in Purandar taluka, ideal for small and terraced fields around Saswad and Jejuri. Excellent for puddling, inter-cultivation and seedbed preparation in fig and pomegranate orchards. Lightweight, easy to handle, low diesel consumption.",
+        "pricePerDay": 1200,
+        "horsePower": "13 HP",
+        "fuelType": "Diesel",
+        "ageYears": 3,
+        "features": [
+          "13 HP diesel engine",
+          "Rotary tiller attachment",
+          "Suitable for small plots",
+          "Easy to transport",
+          "Low fuel consumption"
+        ],
+        "imageKeywords": "power-tiller,vst,farm,cultivation"
+      }
+    },
+    {
+      "name": "Sunita Jadhav",
+      "gender": "female",
+      "area": "Narayangaon",
+      "taluka": "Junnar",
+      "statusQuote": "Matichi mashagat barobar zali ki peek changle yete.",
+      "listing": {
+        "name": "Shaktiman Rotavator 7 Feet",
+        "category": "Rotavator",
+        "brand": "Shaktiman",
+        "description": "Heavy-duty Shaktiman 7-feet rotavator for rent in Junnar taluka, perfect for fine seedbed preparation in tomato and grape farms around Narayangaon and Otur. Multi-speed gearbox, sharp blades replaced this season. Best results when paired with 45 HP or above tractor. Operator and tractor combo available on request.",
+        "pricePerDay": 1600,
+        "horsePower": "",
+        "fuelType": "Manual",
+        "ageYears": 2,
+        "features": [
+          "7 feet working width",
+          "Multi-speed gearbox",
+          "42 C-type blades",
+          "Side gear drive",
+          "Adjustable depth"
+        ],
+        "imageKeywords": "rotavator,tillage,farm,soil"
+      }
+    },
+    {
+      "name": "Ganesh Bhosale",
+      "gender": "male",
+      "area": "Walchandnagar",
+      "taluka": "Indapur",
+      "statusQuote": "Sugi cha vel - harvester velevar booking kara.",
+      "listing": {
+        "name": "Kartar 4000 Combine Harvester",
+        "category": "Harvester",
+        "brand": "Kartar",
+        "description": "Kartar 4000 self-propelled combine harvester available on rent in Indapur taluka for wheat, jowar and bajra harvesting across Walchandnagar and Nira belt. High output, low grain loss, experienced operator included. Booking on per-acre or per-hour basis. Diesel borne by hirer for long jobs.",
+        "pricePerDay": 18000,
+        "horsePower": "101 HP",
+        "fuelType": "Diesel",
+        "ageYears": 4,
+        "pricePerAcre": 2200,
+        "pricePerHour": 2500,
+        "features": [
+          "Self-propelled",
+          "Wheat and jowar harvesting",
+          "Low grain loss",
+          "Operator included",
+          "Wide cutter bar"
+        ],
+        "imageKeywords": "combine-harvester,wheat,harvest,farm"
+      }
+    },
+    {
+      "name": "Anil Gaikwad",
+      "gender": "male",
+      "area": "Yavat",
+      "taluka": "Daund",
+      "statusQuote": "Dhanya kaadhayla thresher pekshahi changla paryay nahi.",
+      "listing": {
+        "name": "Dashmesh Multi-Crop Thresher",
+        "category": "Thresher",
+        "brand": "Dashmesh",
+        "description": "Dashmesh multi-crop thresher for rent in Daund taluka, suitable for wheat, jowar, bajra and gram threshing around Yavat and Kedgaon. Tractor PTO driven, clean grain output with minimal wastage. Easy to shift between fields. Tractor can be arranged at additional cost.",
+        "pricePerDay": 2400,
+        "horsePower": "",
+        "fuelType": "Diesel",
+        "ageYears": 5,
+        "features": [
+          "Multi-crop threshing",
+          "PTO driven",
+          "Clean grain separation",
+          "Adjustable sieves",
+          "High throughput"
+        ],
+        "imageKeywords": "thresher,wheat,grain,farm"
+      }
+    },
+    {
+      "name": "Sambhaji Kadam",
+      "gender": "male",
+      "area": "Talegaon",
+      "taluka": "Maval",
+      "statusQuote": "Pendha banwaycha asel tar baler la phone kara.",
+      "listing": {
+        "name": "John Deere F441R Round Baler",
+        "category": "Baler",
+        "brand": "John Deere",
+        "description": "John Deere F441R round baler on rent in Maval taluka for paddy straw, grass and fodder baling around Talegaon and Vadgaon. Produces tight, uniform round bales for easy storage and transport. Tractor PTO operated, ideal for dairy farmers needing fodder. Skilled operator available.",
+        "pricePerDay": 5500,
+        "horsePower": "",
+        "fuelType": "Diesel",
+        "ageYears": 3,
+        "features": [
+          "Round bale production",
+          "PTO driven",
+          "Adjustable bale density",
+          "Suitable for paddy straw and grass",
+          "Twine wrapping"
+        ],
+        "imageKeywords": "baler,hay,straw,farm"
+      }
+    },
+    {
+      "name": "Pralhad Dhumal",
+      "gender": "male",
+      "area": "Wagholi",
+      "taluka": "Haveli",
+      "statusQuote": "Phavarani veldha ve 30 var keli ki kid niyantranat.",
+      "listing": {
+        "name": "Aspee Tractor Mounted Boom Sprayer",
+        "category": "Sprayer",
+        "brand": "Aspee",
+        "description": "Aspee tractor-mounted boom sprayer with 400-litre tank for rent in Haveli taluka, covering large fields fast around Wagholi and Lonikand. Uniform spray for cotton, wheat, vegetables and sugarcane. Saves labour and chemical. Folding boom for easy road transport. Tractor combo on request.",
+        "pricePerDay": 1800,
+        "horsePower": "",
+        "fuelType": "Manual",
+        "ageYears": 2,
+        "features": [
+          "400 litre tank",
+          "Tractor mounted boom",
+          "Uniform spray coverage",
+          "Foldable boom arms",
+          "Adjustable nozzles"
+        ],
+        "imageKeywords": "boom-sprayer,tractor,pesticide,farm"
+      }
+    },
+    {
+      "name": "Hanumant Lonkar",
+      "gender": "male",
+      "area": "Rajgurunagar",
+      "taluka": "Khed",
+      "statusQuote": "Maal vahtuk swasta ani surakshit - troli bhadyane ghya.",
+      "listing": {
+        "name": "Captain Hydraulic Tractor Trolley",
+        "category": "Trailer",
+        "brand": "Captain",
+        "description": "Strong 5-ton hydraulic tipping tractor trolley for rent in Khed taluka, ideal for transporting sugarcane, soil, sand, bricks and farm produce around Rajgurunagar and Chakan. Hydraulic tipping makes unloading quick and effortless. Heavy duty chassis, good tyres, all RTO papers clear.",
+        "pricePerDay": 1500,
+        "horsePower": "",
+        "fuelType": "Manual",
+        "ageYears": 4,
+        "features": [
+          "5 ton capacity",
+          "Hydraulic tipping",
+          "Heavy duty chassis",
+          "Drop sides",
+          "RTO registered"
+        ],
+        "imageKeywords": "tractor-trolley,trailer,transport,farm"
+      }
+    }
+  ],
+  "products": [
+    {
+      "name": "Mahyco Bajra Hybrid Seeds MH-179",
+      "nameHi": "माहिको बाजरा हाइब्रिड बीज MH-179",
+      "nameMr": "माहिको बाजरी संकरित बियाणे MH-179",
+      "category": "Seeds & Planting Material",
+      "subcategory": "Hybrid Cereal Seeds",
+      "price": 485,
+      "mrp": 560,
+      "unit": "pack",
+      "stock": 120,
+      "brand": "Mahyco",
+      "description": "High-yielding pearl millet (bajra) hybrid suited to the light soils and kharif conditions of Pune district talukas like Daund and Shirur. Strong tillering, downy mildew tolerance and uniform grain for both fodder and grain harvest.",
+      "highlights": [
+        "Downy mildew tolerant variety",
+        "Maturity in 78-82 days",
+        "Suited for kharif sowing in Daund-Shirur belt",
+        "1.5 kg pack treats ~1 acre"
+      ],
+      "tags": [
+        "bajra",
+        "millet",
+        "hybrid",
+        "kharif",
+        "seeds"
+      ],
+      "imageKeywords": "bajra,pearl millet,seed packet",
+      "isFeatured": true
+    },
+    {
+      "name": "IFFCO Urea 46% N Fertilizer",
+      "nameHi": "इफको यूरिया 46% नाइट्रोजन उर्वरक",
+      "nameMr": "इफको युरिया 46% नत्र खत",
+      "category": "Fertilizers & Soil Nutrition",
+      "subcategory": "Nitrogen Fertilizers",
+      "price": 266,
+      "mrp": 300,
+      "unit": "bag",
+      "stock": 400,
+      "brand": "IFFCO",
+      "description": "Neem-coated prilled urea with 46% nitrogen for sugarcane, wheat and vegetable crops grown across Haveli and Baramati. Slow nitrogen release reduces leaching and improves nitrogen use efficiency in irrigated fields.",
+      "highlights": [
+        "46% nitrogen, neem-coated prills",
+        "45 kg standard government-subsidised bag",
+        "Ideal for sugarcane and wheat top dressing",
+        "Reduces nitrogen loss in irrigated soils"
+      ],
+      "tags": [
+        "urea",
+        "nitrogen",
+        "fertilizer",
+        "neem-coated",
+        "sugarcane"
+      ],
+      "imageKeywords": "urea,fertilizer,bag",
+      "isFeatured": true
+    },
+    {
+      "name": "Coromandel Gromor DAP 18:46:0",
+      "nameHi": "कोरोमंडल ग्रोमोर डीएपी 18:46:0",
+      "nameMr": "कोरोमंडल ग्रोमोर डीएपी 18:46:0",
+      "category": "Fertilizers & Soil Nutrition",
+      "subcategory": "Phosphatic Fertilizers",
+      "price": 1350,
+      "mrp": 1450,
+      "unit": "bag",
+      "stock": 260,
+      "brand": "Coromandel",
+      "description": "Di-ammonium phosphate granules providing 18% nitrogen and 46% phosphorus for strong root establishment in onion, wheat and gram crops common in Indapur and Junnar. Best applied as basal dose at sowing.",
+      "highlights": [
+        "18% N and 46% P2O5",
+        "Promotes vigorous root development",
+        "50 kg basal application bag",
+        "Suited for onion and gram in Indapur"
+      ],
+      "tags": [
+        "dap",
+        "phosphorus",
+        "basal",
+        "fertilizer",
+        "onion"
+      ],
+      "imageKeywords": "dap,fertilizer,granules,bag",
+      "isFeatured": false
+    },
+    {
+      "name": "Mahadhan Smartek NPK 19:19:19",
+      "nameHi": "महाधन स्मार्टेक एनपीके 19:19:19",
+      "nameMr": "महाधन स्मार्टेक एनपीके 19:19:19",
+      "category": "Fertilizers & Soil Nutrition",
+      "subcategory": "Water Soluble NPK",
+      "price": 175,
+      "mrp": 210,
+      "unit": "kg",
+      "stock": 340,
+      "brand": "Mahadhan",
+      "description": "Fully water-soluble balanced NPK for drip and foliar feeding of grapes, tomato and capsicum in the Maval and Mulshi belt. Dissolves completely with no residue, making it ideal for fertigation systems.",
+      "highlights": [
+        "100% water soluble for fertigation",
+        "Balanced 19:19:19 grade",
+        "Compatible with drip systems",
+        "Quick uptake for grape and tomato"
+      ],
+      "tags": [
+        "npk",
+        "water soluble",
+        "fertigation",
+        "drip",
+        "grapes"
+      ],
+      "imageKeywords": "npk,water soluble fertilizer,packet",
+      "isFeatured": false
+    },
+    {
+      "name": "Bayer Confidor Imidacloprid 17.8% SL",
+      "nameHi": "बायर कॉन्फिडोर इमिडाक्लोप्रिड 17.8% एसएल",
+      "nameMr": "बायर कॉन्फिडोर इमिडाक्लोप्रिड 17.8% एसएल",
+      "category": "Crop Protection",
+      "subcategory": "Insecticides",
+      "price": 420,
+      "mrp": 495,
+      "unit": "bottle",
+      "stock": 180,
+      "brand": "Bayer",
+      "description": "Systemic insecticide controlling sucking pests like aphids, jassids and whitefly in cotton, vegetables and grapes grown near Shirur and Baramati. Long-lasting protection with quick knockdown action.",
+      "highlights": [
+        "Controls aphids, jassids and whitefly",
+        "Systemic action for lasting protection",
+        "100 ml concentrate bottle",
+        "Effective on cotton and vegetables"
+      ],
+      "tags": [
+        "insecticide",
+        "imidacloprid",
+        "sucking pests",
+        "systemic",
+        "cotton"
+      ],
+      "imageKeywords": "insecticide,pesticide,bottle",
+      "isFeatured": true
+    },
+    {
+      "name": "UPL Saaf Carbendazim + Mancozeb Fungicide",
+      "nameHi": "यूपीएल साफ कार्बेन्डाजिम + मैंकोजेब फफूंदनाशक",
+      "nameMr": "यूपीएल साफ कार्बेन्डाझिम + मॅन्कोझेब बुरशीनाशक",
+      "category": "Crop Protection",
+      "subcategory": "Fungicides",
+      "price": 310,
+      "mrp": 360,
+      "unit": "pack",
+      "stock": 220,
+      "brand": "UPL",
+      "description": "Broad-spectrum systemic plus contact fungicide for downy mildew, blight and leaf spot in grapes, onion and tomato across Purandar and Haveli. Dual action gives both curative and protective control.",
+      "highlights": [
+        "Dual systemic and contact action",
+        "Controls blight, leaf spot and mildew",
+        "500 g pack for multiple sprays",
+        "Trusted on grapes and onion"
+      ],
+      "tags": [
+        "fungicide",
+        "carbendazim",
+        "mancozeb",
+        "downy mildew",
+        "grapes"
+      ],
+      "imageKeywords": "fungicide,pesticide,powder pack",
+      "isFeatured": false
+    },
+    {
+      "name": "Krishi Vermicompost Organic Manure 50 kg",
+      "nameHi": "कृषि वर्मीकम्पोस्ट जैविक खाद 50 किग्रा",
+      "nameMr": "कृषी गांडूळखत सेंद्रिय खत 50 किलो",
+      "category": "Organic & Natural Farming",
+      "subcategory": "Compost & Manure",
+      "price": 420,
+      "mrp": 500,
+      "unit": "bag",
+      "stock": 300,
+      "brand": "Krishi",
+      "description": "Premium earthworm-processed vermicompost rich in NPK, beneficial microbes and humus for vegetables and fruit orchards around Velhe and Bhor. Improves soil structure and water-holding capacity naturally.",
+      "highlights": [
+        "Rich in microbes and humus",
+        "Improves soil structure and fertility",
+        "50 kg organic-certified bag",
+        "Ideal for vegetables and orchards"
+      ],
+      "tags": [
+        "vermicompost",
+        "organic",
+        "manure",
+        "soil health",
+        "compost"
+      ],
+      "imageKeywords": "vermicompost,organic manure,bag",
+      "isFeatured": true
+    },
+    {
+      "name": "Multiplex Neem Cake Organic Fertilizer",
+      "nameHi": "मल्टीप्लेक्स नीम केक जैविक उर्वरक",
+      "nameMr": "मल्टिप्लेक्स निंबोळी पेंड सेंद्रिय खत",
+      "category": "Organic & Natural Farming",
+      "subcategory": "Organic Pest Repellents",
+      "price": 340,
+      "mrp": 400,
+      "unit": "bag",
+      "stock": 160,
+      "brand": "Multiplex",
+      "description": "Cold-pressed neem seed cake that nourishes the soil while suppressing nematodes and soil-borne pests in sugarcane and onion fields of Daund and Indapur. Acts as a slow-release organic nitrogen source.",
+      "highlights": [
+        "Controls nematodes and soil grubs",
+        "Slow-release organic nitrogen",
+        "25 kg neem seed cake bag",
+        "Safe for soil and earthworms"
+      ],
+      "tags": [
+        "neem cake",
+        "organic",
+        "nematode",
+        "soil amendment",
+        "sugarcane"
+      ],
+      "imageKeywords": "neem cake,organic fertilizer,bag",
+      "isFeatured": false
+    },
+    {
+      "name": "Tata Bahaar Gibberellic Acid GA3 Plant Hormone",
+      "nameHi": "टाटा बहार गिब्बरेलिक एसिड GA3 पौध हार्मोन",
+      "nameMr": "टाटा बहार जिबरेलिक आम्ल GA3 वनस्पती संप्रेरक",
+      "category": "Plant Growth Regulators",
+      "subcategory": "Growth Promoters",
+      "price": 260,
+      "mrp": 300,
+      "unit": "pack",
+      "stock": 140,
+      "brand": "Tata",
+      "description": "Gibberellic acid growth regulator used to improve berry size and bunch elongation in Maval and Junnar grape vineyards. Also enhances flowering and fruit set in vegetables when used at recommended doses.",
+      "highlights": [
+        "Improves grape berry size and bunch length",
+        "Enhances flowering and fruit set",
+        "10 g sachet pack",
+        "Widely used in Pune vineyards"
+      ],
+      "tags": [
+        "ga3",
+        "gibberellic acid",
+        "grapes",
+        "growth regulator",
+        "berry size"
+      ],
+      "imageKeywords": "plant growth regulator,sachet,hormone",
+      "isFeatured": false
+    },
+    {
+      "name": "Jain Irrigation Inline Drip Lateral 16mm 100m",
+      "nameHi": "जैन इरिगेशन इनलाइन ड्रिप लेटरल 16मिमी 100मी",
+      "nameMr": "जैन इरिगेशन इनलाइन ड्रिप लॅटरल 16मिमी 100मी",
+      "category": "Irrigation & Water Management",
+      "subcategory": "Drip Irrigation",
+      "price": 1450,
+      "mrp": 1700,
+      "unit": "unit",
+      "stock": 90,
+      "brand": "Jain Irrigation",
+      "description": "Pressure-compensating inline drip lateral with built-in emitters at 30 cm spacing for water-efficient irrigation of sugarcane, banana and vegetables across Baramati and Indapur. UV-stabilised for long field life.",
+      "highlights": [
+        "Pressure-compensating emitters at 30cm",
+        "UV-stabilised 16mm tubing",
+        "100 metre roll covers one bed line",
+        "Saves up to 40% irrigation water"
+      ],
+      "tags": [
+        "drip",
+        "irrigation",
+        "lateral",
+        "water saving",
+        "jain"
+      ],
+      "imageKeywords": "drip irrigation,pipe,lateral tube",
+      "isFeatured": true
+    },
+    {
+      "name": "Finolex Rain Pipe Sprinkler Set 63mm",
+      "nameHi": "फिनोलेक्स रेन पाइप स्प्रिंकलर सेट 63मिमी",
+      "nameMr": "फिनोलेक्स रेन पाइप स्प्रिंकलर संच 63मिमी",
+      "category": "Irrigation & Water Management",
+      "subcategory": "Sprinkler Systems",
+      "price": 3850,
+      "mrp": 4500,
+      "unit": "set",
+      "stock": 55,
+      "brand": "Finolex",
+      "description": "Portable HDPE rain-pipe sprinkler set ideal for wheat, gram and fodder irrigation in the rainfed pockets of Khed and Ambegaon. Quick-coupling fittings allow easy shifting between plots.",
+      "highlights": [
+        "Portable HDPE rain-pipe system",
+        "Quick-coupling for easy shifting",
+        "Covers fodder, wheat and gram",
+        "63mm pipe with riser nozzles"
+      ],
+      "tags": [
+        "sprinkler",
+        "rain pipe",
+        "irrigation",
+        "hdpe",
+        "finolex"
+      ],
+      "imageKeywords": "sprinkler irrigation,pipe set,field",
+      "isFeatured": false
+    },
+    {
+      "name": "VST Shakti Power Weeder 5HP Diesel",
+      "nameHi": "वीएसटी शक्ति पावर वीडर 5एचपी डीजल",
+      "nameMr": "व्हीएसटी शक्ती पॉवर वीडर 5एचपी डिझेल",
+      "category": "Farm Machinery & Equipment",
+      "subcategory": "Tillers & Weeders",
+      "price": 62500,
+      "mrp": 68000,
+      "unit": "unit",
+      "stock": 18,
+      "brand": "VST Shakti",
+      "description": "Compact 5 HP diesel power weeder for inter-cultivation in sugarcane, grape and vegetable plots of Mulshi and Haveli. Lightweight design handles narrow row spacing where tractors cannot operate.",
+      "highlights": [
+        "5 HP diesel engine, low fuel use",
+        "Ideal for inter-row weeding",
+        "Works in narrow grape and cane rows",
+        "Includes rotary and weeding blades"
+      ],
+      "tags": [
+        "power weeder",
+        "tiller",
+        "machinery",
+        "diesel",
+        "inter-cultivation"
+      ],
+      "imageKeywords": "power weeder,tiller,farm machine",
+      "isFeatured": true
+    },
+    {
+      "name": "Falcon Garden Khurpi Hand Weeder Steel",
+      "nameHi": "फाल्कन गार्डन खुरपी हैंड वीडर स्टील",
+      "nameMr": "फाल्कन गार्डन खुरपे हात तण काढणी पोलादी",
+      "category": "Hand Tools & Small Equipment",
+      "subcategory": "Weeding Tools",
+      "price": 95,
+      "mrp": 130,
+      "unit": "piece",
+      "stock": 500,
+      "brand": "Falcon",
+      "description": "Forged carbon-steel khurpi with sturdy wooden handle for weeding, transplanting and soil loosening in kitchen gardens and nurseries around Wagholi and Hadapsar. Sharp blade holds its edge through a full season.",
+      "highlights": [
+        "Forged carbon-steel blade",
+        "Comfortable hardwood handle",
+        "For weeding and transplanting",
+        "Durable single-piece tang"
+      ],
+      "tags": [
+        "khurpi",
+        "hand weeder",
+        "hand tool",
+        "weeding",
+        "steel"
+      ],
+      "imageKeywords": "khurpi,hand weeder,garden tool",
+      "isFeatured": false
+    },
+    {
+      "name": "Coromandel Multiplex Chamatkar Micronutrient Mix",
+      "nameHi": "कोरोमंडल मल्टीप्लेक्स चमत्कार सूक्ष्म पोषक मिश्रण",
+      "nameMr": "कोरोमंडल मल्टिप्लेक्स चमत्कार सूक्ष्म अन्नद्रव्य मिश्रण",
+      "category": "Micronutrients & Specialty Nutrition",
+      "subcategory": "Chelated Micronutrient Mixtures",
+      "price": 390,
+      "mrp": 450,
+      "unit": "pack",
+      "stock": 210,
+      "brand": "Coromandel",
+      "description": "Chelated multi-micronutrient grade-2 mixture supplying zinc, iron, manganese, boron and copper to correct hidden hunger in pomegranate, grape and onion crops of Purandar and Junnar. Suitable for foliar and soil use.",
+      "highlights": [
+        "Chelated Zn, Fe, Mn, B and Cu",
+        "Corrects micronutrient deficiency",
+        "250 g foliar and soil pack",
+        "Boosts grape and pomegranate yield"
+      ],
+      "tags": [
+        "micronutrient",
+        "chelated",
+        "zinc",
+        "boron",
+        "foliar"
+      ],
+      "imageKeywords": "micronutrient,fertilizer,packet",
+      "isFeatured": false
+    },
+    {
+      "name": "Bayer Gaucho Seed Treatment Imidacloprid 600 FS",
+      "nameHi": "बायर गौचो बीज उपचार इमिडाक्लोप्रिड 600 एफएस",
+      "nameMr": "बायर गौचो बीज प्रक्रिया इमिडाक्लोप्रिड 600 एफएस",
+      "category": "Seeds Treatment & Additives",
+      "subcategory": "Seed Treatment Insecticides",
+      "price": 540,
+      "mrp": 620,
+      "unit": "bottle",
+      "stock": 130,
+      "brand": "Bayer",
+      "description": "Flowable seed-dressing insecticide that protects germinating cotton, maize and soybean from early sucking pests and termites in Shirur and Daund sowing windows. One treatment safeguards seedlings for weeks.",
+      "highlights": [
+        "Protects seedlings from sucking pests",
+        "Controls termites at germination",
+        "100 ml flowable bottle",
+        "Treats cotton, maize and soybean seed"
+      ],
+      "tags": [
+        "seed treatment",
+        "imidacloprid",
+        "seedling protection",
+        "termite",
+        "cotton"
+      ],
+      "imageKeywords": "seed treatment,coated seeds,bottle",
+      "isFeatured": false
+    },
+    {
+      "name": "Godrej Agrovet Layer Poultry Feed 50 kg",
+      "nameHi": "गोदरेज एग्रोवेट लेयर पोल्ट्री फीड 50 किग्रा",
+      "nameMr": "गोदरेज अॅग्रोवेट लेयर कुक्कुटपालन खाद्य 50 किलो",
+      "category": "Livestock, Dairy & Poultry",
+      "subcategory": "Poultry Feed",
+      "price": 1480,
+      "mrp": 1650,
+      "unit": "bag",
+      "stock": 140,
+      "brand": "Godrej Agrovet",
+      "description": "Balanced layer mash feed fortified with calcium and vitamins for sustained egg production in backyard and commercial poultry units around Manchar and Rajgurunagar. Promotes strong shell quality and bird health.",
+      "highlights": [
+        "Fortified with calcium and vitamins",
+        "Supports steady egg production",
+        "50 kg layer mash bag",
+        "Improves shell strength"
+      ],
+      "tags": [
+        "poultry feed",
+        "layer",
+        "livestock",
+        "egg production",
+        "godrej"
+      ],
+      "imageKeywords": "poultry feed,chicken feed,bag",
+      "isFeatured": false
+    },
+    {
+      "name": "Tata Wiron GI Barbed Wire Fencing 25 kg",
+      "nameHi": "टाटा वायरॉन जीआई कांटेदार तार बाड़ 25 किग्रा",
+      "nameMr": "टाटा वायरॉन जीआय काटेरी तार कुंपण 25 किलो",
+      "category": "Fencing & Farm Protection",
+      "subcategory": "Barbed Wire & Fencing",
+      "price": 2350,
+      "mrp": 2700,
+      "unit": "unit",
+      "stock": 70,
+      "brand": "Tata",
+      "description": "Heavy galvanised double-strand barbed wire to protect orchards and field boundaries from cattle and wild boar in the hilly Velhe and Bhor talukas. Thick zinc coating resists rust through monsoon seasons.",
+      "highlights": [
+        "Heavy galvanised, rust resistant",
+        "Double-strand barbed wire",
+        "25 kg coil covers long boundary",
+        "Protects against cattle and boar"
+      ],
+      "tags": [
+        "barbed wire",
+        "fencing",
+        "gi wire",
+        "farm protection",
+        "tata"
+      ],
+      "imageKeywords": "barbed wire,fencing,coil",
+      "isFeatured": true
+    },
+    {
+      "name": "Storewell Jumbo Grain Storage Bags 50 kg (Pack of 25)",
+      "nameHi": "स्टोरवेल जंबो अनाज भंडारण बैग 50 किग्रा (25 का पैक)",
+      "nameMr": "स्टोरवेल जंबो धान्य साठवण पिशव्या 50 किलो (25 चा संच)",
+      "category": "Storage & Packaging",
+      "subcategory": "Grain Storage Bags",
+      "price": 620,
+      "mrp": 750,
+      "unit": "pack",
+      "stock": 240,
+      "brand": "Storewell",
+      "description": "Heavy-duty laminated PP woven sacks for safe storage and transport of wheat, jowar and onion harvested in Indapur and Baramati. Moisture-resistant lamination keeps grain dry during monsoon storage.",
+      "highlights": [
+        "Laminated PP, moisture resistant",
+        "50 kg capacity, reusable",
+        "Pack of 25 sturdy sacks",
+        "For wheat, jowar and onion"
+      ],
+      "tags": [
+        "storage bags",
+        "grain sack",
+        "pp woven",
+        "packaging",
+        "harvest"
+      ],
+      "imageKeywords": "grain storage bags,sacks,stack",
+      "isFeatured": false
+    },
+    {
+      "name": "Fyllo Soil Moisture & Weather Sensor Node",
+      "nameHi": "फिलो मृदा नमी और मौसम सेंसर नोड",
+      "nameMr": "फायलो माती ओलावा व हवामान सेन्सर नोड",
+      "category": "Agri Technology & Smart Farming",
+      "subcategory": "Soil & Weather Sensors",
+      "price": 18500,
+      "mrp": 21000,
+      "unit": "unit",
+      "stock": 25,
+      "brand": "Fyllo",
+      "description": "Solar-powered IoT field sensor measuring soil moisture, temperature, humidity and leaf wetness with mobile alerts for grape and pomegranate growers in Junnar and Narayangaon. Helps schedule irrigation and disease sprays precisely.",
+      "highlights": [
+        "Tracks soil moisture and leaf wetness",
+        "Solar-powered with mobile app alerts",
+        "Optimises irrigation scheduling",
+        "Disease-risk advisory for grapes"
+      ],
+      "tags": [
+        "soil sensor",
+        "iot",
+        "smart farming",
+        "weather",
+        "precision"
+      ],
+      "imageKeywords": "soil sensor,iot device,field",
+      "isFeatured": true
+    },
+    {
+      "name": "Shakti Solar Submersible Pump 3HP DC Kit",
+      "nameHi": "शक्ति सोलर सबमर्सिबल पंप 3एचपी डीसी किट",
+      "nameMr": "शक्ती सोलर सबमर्सिबल पंप 3एचपी डीसी संच",
+      "category": "Solar & Energy",
+      "subcategory": "Solar Water Pumps",
+      "price": 138000,
+      "mrp": 155000,
+      "unit": "kit",
+      "stock": 12,
+      "brand": "Shakti",
+      "description": "Complete 3 HP DC solar submersible pump kit with panels and controller for borewell irrigation in off-grid farms of Maval and Khed. Eliminates diesel and grid dependence while delivering reliable daytime water.",
+      "highlights": [
+        "3 HP DC solar submersible pump",
+        "Includes panels and MPPT controller",
+        "No diesel or electricity bills",
+        "Ideal for borewell irrigation"
+      ],
+      "tags": [
+        "solar pump",
+        "submersible",
+        "renewable",
+        "borewell",
+        "irrigation"
+      ],
+      "imageKeywords": "solar pump,solar panel,water pump",
+      "isFeatured": false
+    }
+  ],
+  "labour": [
+    {
+      "name": "Dattatray Shankar Kale",
+      "gender": "male",
+      "type": "individual",
+      "groupName": null,
+      "leader": null,
+      "groupSize": 1,
+      "skills": [
+        "tractorOperation",
+        "landPreparation",
+        "loading"
+      ],
+      "languages": [
+        "marathi",
+        "hindi"
+      ],
+      "experience": "14 years",
+      "pricePerDay": 1000,
+      "pricePerHour": 150,
+      "description": "Mi gelya 14 varshanpasun tractor chalavto. Rotavator, nangar, peruni sagle kaam yete. Baramati bhagat usache ranat ani jminichi mashagat kartoy. Vel padli tar raatri pan kaam karto, vishwasu kaam.",
+      "area": "Baramati",
+      "taluka": "Baramati",
+      "statusQuote": "Tractor tayar aahe, jminichi mashagat karaychi asel tar phone kara.",
+      "imageKeywords": "tractor,plowing,farmer,field"
+    },
+    {
+      "name": "Hanumant Bhau Gore",
+      "gender": "male",
+      "type": "group",
+      "groupName": "Jai Bhavani Mजुर Toli",
+      "leader": "Hanumant Bhau Gore",
+      "groupSize": 12,
+      "skills": [
+        "sugarcaneCutting",
+        "loading",
+        "harvesting"
+      ],
+      "languages": [
+        "marathi",
+        "hindi"
+      ],
+      "experience": "10 seasons",
+      "pricePerDay": 9000,
+      "pricePerHour": null,
+      "description": "Amhi Beed kadun usataod hangamasathi yeto. 12 jananchi toli aahe, bayka-purush donhi. Ek divsat motha plot phadto. Karkhanyachi gaadi bharun deto, tofa todato ani gaadit bharato. Daund-Indapur bhagat kaam karto.",
+      "area": "Indapur",
+      "taluka": "Indapur",
+      "statusQuote": "Us todaycha asel tar puri toli ready, ek phone kara.",
+      "imageKeywords": "sugarcane,cutting,laborer,harvest"
+    },
+    {
+      "name": "Lakshmi Bai Pawar",
+      "gender": "female",
+      "type": "individual",
+      "groupName": null,
+      "leader": null,
+      "groupSize": 1,
+      "skills": [
+        "weeding",
+        "harvesting",
+        "transplanting"
+      ],
+      "languages": [
+        "marathi"
+      ],
+      "experience": "20 years",
+      "pricePerDay": 450,
+      "pricePerHour": 60,
+      "description": "Kandyache khurpani ani kadhni mi khup varshe karte. Bhaat lavkar chalto, ek-ek vaaphsa swacch karte. Khed bhagat shetkaryanche kandyache kaam, bhajipala lavni ani khurpani karte. Vela var yete, kaam chokas.",
+      "area": "Rajgurunagar",
+      "taluka": "Khed",
+      "statusQuote": "Kandyache khurpani ani kadhni saathi bolva, kaam neat karte.",
+      "imageKeywords": "onion,weeding,woman,farm-worker"
+    },
+    {
+      "name": "Bhausaheb Tukaram Dhumal",
+      "gender": "male",
+      "type": "group",
+      "groupName": "Sahyadri Draksha Chhatani Toli",
+      "leader": "Bhausaheb Tukaram Dhumal",
+      "groupSize": 8,
+      "skills": [
+        "pruning",
+        "fruitPicking",
+        "harvesting",
+        "spraying"
+      ],
+      "languages": [
+        "marathi",
+        "hindi"
+      ],
+      "experience": "12 seasons",
+      "pricePerDay": 6400,
+      "pricePerHour": null,
+      "description": "Drakshachi chhatani (pruning) ani toda amchi khasiyat aahe. 8 jananchi tayar toli. October chhatani, dipping, ghad nighni ani harvest sagle yete. Narayangaon-Junnar bhagat baagaytdaranche kaam karto. Niyat changli.",
+      "area": "Narayangaon",
+      "taluka": "Junnar",
+      "statusQuote": "Drakshachi chhatani ani toda karaycha asel tar toli haajar.",
+      "imageKeywords": "grape,vineyard,pruning,workers"
+    },
+    {
+      "name": "Sunita Anil Bhosale",
+      "gender": "female",
+      "type": "individual",
+      "groupName": null,
+      "leader": null,
+      "groupSize": 1,
+      "skills": [
+        "transplanting",
+        "planting",
+        "weeding"
+      ],
+      "languages": [
+        "marathi"
+      ],
+      "experience": "15 years",
+      "pricePerDay": 400,
+      "pricePerHour": 55,
+      "description": "Bhaat lavni (transplanting) ani rop lavanyat mi tarbej aahe. Tomato, mirchi, kandyachi rop sarkhi line madhe lavte. Ambegaon bhagat paavsalyat bhaat lavni karte ani itar veli khurpani. Diwasbhar daddam kaam.",
+      "area": "Ghodegaon",
+      "taluka": "Ambegaon",
+      "statusQuote": "Rop lavni ani bhaat lavnisathi tayar, line sarkhi lavte.",
+      "imageKeywords": "rice,transplanting,paddy,woman-farmer"
+    },
+    {
+      "name": "Ramesh Vitthal Jadhav",
+      "gender": "male",
+      "type": "individual",
+      "groupName": null,
+      "leader": null,
+      "groupSize": 1,
+      "skills": [
+        "spraying",
+        "irrigation",
+        "pruning"
+      ],
+      "languages": [
+        "marathi",
+        "hindi"
+      ],
+      "experience": "9 years",
+      "pricePerDay": 600,
+      "pricePerHour": 90,
+      "description": "Fawarni (spraying) cha kaam mi karto, औषध-fवारणी yogya pramanat marto. Power sprayer swatahacha aahe. Daksha ani dalimbachya baagat औषध marto, thibak sinchanachi durusti pan karto. Daund bhagat kaam.",
+      "area": "Daund",
+      "taluka": "Daund",
+      "statusQuote": "Sprayer tayar aahe, औषध fawarni karaychi asel tar kalva.",
+      "imageKeywords": "pesticide,spraying,farmer,orchard"
+    },
+    {
+      "name": "Kondiram Maruti Shinde",
+      "gender": "male",
+      "type": "group",
+      "groupName": "Dalimb Toda Mजुर Gang",
+      "leader": "Kondiram Maruti Shinde",
+      "groupSize": 6,
+      "skills": [
+        "fruitPicking",
+        "harvesting",
+        "pruning",
+        "loading"
+      ],
+      "languages": [
+        "marathi",
+        "hindi"
+      ],
+      "experience": "8 seasons",
+      "pricePerDay": 4500,
+      "pricePerHour": null,
+      "description": "Dalimbacha (pomegranate) toda ani prati amchi toli karte. 6 jana aahot. Fळ kaapun, vargvari karun crate madhe bharto, gaadit loading karto. Junnar-Narayangaon bhagat baagaytdaranche kaam. Fळachi mod hou det nahi.",
+      "area": "Junnar",
+      "taluka": "Junnar",
+      "statusQuote": "Dalimb toda ani gradesathi toli ready, fळ jpun haatalto.",
+      "imageKeywords": "pomegranate,harvest,fruit-picking,laborers"
+    },
+    {
+      "name": "Vaijinath Babruvan Munde",
+      "gender": "male",
+      "type": "group",
+      "groupName": "Marathwada Usataod Koyta Toli",
+      "leader": "Vaijinath Babruvan Munde",
+      "groupSize": 14,
+      "skills": [
+        "sugarcaneCutting",
+        "loading",
+        "harvesting",
+        "threshing"
+      ],
+      "languages": [
+        "marathi",
+        "hindi"
+      ],
+      "experience": "11 seasons",
+      "pricePerDay": 11000,
+      "pricePerHour": null,
+      "description": "Amhi Beed-Parli kadun karkhanyachya hangamasathi sthalantar karun yeto. 14 koyte (7 jodi). Bailgadi ani tractor donhi ne us vahtuk karto. Pahaate paasun us todato. Indapur-Baramati sakhar pattyaat kaam, motha plot ek divsat phadto.",
+      "area": "Walchandnagar",
+      "taluka": "Indapur",
+      "statusQuote": "Sakhar karkhanyacha hangam suru, koyta toli usataodla tayar.",
+      "imageKeywords": "sugarcane,koyta,cutting,migrant-workers"
+    },
+    {
+      "name": "Ashabai Genba Kamble",
+      "gender": "female",
+      "type": "group",
+      "groupName": "Mauli Mahila Mजुर Toli",
+      "leader": "Ashabai Genba Kamble",
+      "groupSize": 10,
+      "skills": [
+        "weeding",
+        "harvesting",
+        "transplanting",
+        "fruitPicking"
+      ],
+      "languages": [
+        "marathi"
+      ],
+      "experience": "16 seasons",
+      "pricePerDay": 4000,
+      "pricePerHour": null,
+      "description": "Amchi 10 baykanchi toli aahe. Kandyache khurpani, kadhni, mirchi ani tomato toda, bhaat lavni sagle karto. Khed-Ambegaon bhagat shetat rojachi mजुri kartao. Saglyan barobar yeto, kaam vel var ani swacch hoto.",
+      "area": "Manchar",
+      "taluka": "Ambegaon",
+      "statusQuote": "Khurpani, kadhni va lavnisathi 10 jananchi mahila toli haajar.",
+      "imageKeywords": "women,farm-workers,weeding,field"
+    },
+    {
+      "name": "Ganpat Namdev Lonkar",
+      "gender": "male",
+      "type": "individual",
+      "groupName": null,
+      "leader": null,
+      "groupSize": 1,
+      "skills": [
+        "tractorOperation",
+        "threshing",
+        "landPreparation",
+        "loading"
+      ],
+      "languages": [
+        "marathi",
+        "hindi",
+        "english"
+      ],
+      "experience": "18 years",
+      "pricePerDay": 1100,
+      "pricePerHour": 160,
+      "description": "Tractor ani threshing (mळni) machine donhi chalavto. Gahu-jwari mळni, baling, rotavator, peruni sagle kaam yete. Shirur-Pune bhagat shetkaryanchi mळni ani jminichi kaame karto. 18 varshacha anubhav, machine swatahachi.",
+      "area": "Shirur",
+      "taluka": "Shirur",
+      "statusQuote": "Mळni ani jminichya kaamasathi tractor-thresher ready aahe.",
+      "imageKeywords": "tractor,threshing,wheat,operator"
+    }
+  ]
+}

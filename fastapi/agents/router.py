@@ -1,9 +1,9 @@
 """
 LLM Router — CropGuard Agentic AI
 
-Picks a model chain for a (stage, tier) and dispatches calls to the right
-provider client (Gemini / Groq / Anthropic). Auto-falls back to the next
-model on transient errors (429, 5xx, timeouts) or empty/unparseable output.
+Picks a Gemini model chain for a (stage, tier) and dispatches the call.
+Auto-falls back to the next model in the chain (e.g. Gemini Pro → Flash) on
+transient errors (429, 5xx, timeouts) or empty/unparseable output.
 
 The router does NOT parse JSON or interpret responses — it just returns the
 raw text + accumulated token info. Agents own their own parsing + retry
@@ -30,11 +30,9 @@ from typing import Awaitable, Callable
 import httpx
 
 from agents.llm_utils import (
-    call_claude_text,
-    call_claude_vision,
     call_gemini_text,
     call_gemini_vision,
-    call_groq_text,
+    call_openai_vision,
     empty_token_info,
 )
 from agents.registry import (
@@ -45,7 +43,7 @@ from agents.registry import (
     provider_of,
     resolve_chain,
 )
-from config import ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY
+from config import GEMINI_API_KEY, OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -112,25 +110,21 @@ async def _call_one_vision(
     temperature: float = 0.3,
 ) -> tuple[str, dict]:
     provider = provider_of(model_id)
-    # Claude (especially Haiku) emits longer JSON than Gemini — our 8K-char
-    # diagnose prompt asks for detailed reasoning + 3 differentials +
-    # look-alikes, and Haiku frequently overruns 4096 tokens mid-string,
-    # producing unparseable truncated output. 8192 is well within model
-    # limits and worth the small cost premium for parse reliability.
-    max_tokens = 8192 if provider == "anthropic" else 4096
     if provider == "gemini":
         return await call_gemini_vision(
             system_prompt, user_prompt, images_b64,
-            GEMINI_API_KEY, groq_api_key=GROQ_API_KEY, model=model_id,
-            temperature=temperature, max_tokens=max_tokens,
+            GEMINI_API_KEY, model=model_id,
+            temperature=temperature, max_tokens=4096,
         )
-    if provider == "anthropic":
-        return await call_claude_vision(
+    if provider == "openai":
+        # Cross-vendor ensemble voter only (registry restricts OpenAI to the
+        # ensemble chain). Same (raw_text, token_info) contract as Gemini.
+        return await call_openai_vision(
             system_prompt, user_prompt, images_b64,
-            ANTHROPIC_API_KEY, model=model_id, temperature=temperature,
-            max_tokens=max_tokens,
+            OPENAI_API_KEY, model=model_id,
+            temperature=temperature, max_tokens=4096,
         )
-    raise ValueError(f"Model {model_id!r} (provider={provider}) does not support vision")
+    raise ValueError(f"Model {model_id!r} (provider={provider}) has no vision adapter")
 
 
 async def _call_one_text(
@@ -139,13 +133,9 @@ async def _call_one_text(
     user_prompt: str,
 ) -> tuple[str, dict]:
     provider = provider_of(model_id)
-    if provider == "groq":
-        return await call_groq_text(system_prompt, user_prompt, GROQ_API_KEY, model=model_id)
-    if provider == "gemini":
-        return await call_gemini_text(system_prompt, user_prompt, GEMINI_API_KEY, model=model_id)
-    if provider == "anthropic":
-        return await call_claude_text(system_prompt, user_prompt, ANTHROPIC_API_KEY, model=model_id)
-    raise ValueError(f"Model {model_id!r} has unknown provider {provider!r}")
+    if provider != "gemini":
+        raise ValueError(f"Model {model_id!r} has unsupported provider {provider!r} (Gemini-only)")
+    return await call_gemini_text(system_prompt, user_prompt, GEMINI_API_KEY, model=model_id)
 
 
 # ── Public dispatchers ───────────────────────────────────────────────────────

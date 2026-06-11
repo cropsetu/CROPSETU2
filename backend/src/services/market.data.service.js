@@ -1,7 +1,7 @@
 /**
  * Market Data Service — FarmMind
  *
- * Uses Groq (Llama 3.3 70B) to generate realistic, seasonally-accurate
+ * Uses Gemini (gemini-2.5-flash) to generate realistic, seasonally-accurate
  * mandi prices for Indian commodities.
  *
  * Data is grounded in:
@@ -20,14 +20,18 @@ import { recordCacheHit, recordCacheMiss } from '../utils/cacheMetrics.js';
 import redis from '../config/redis.js';
 import logger from '../utils/logger.js';
 
-// ── Groq client ────────────────────────────────────────────────────────────────
-let _groq = null;
-function getGroq() {
-  if (!_groq) {
-    if (!ENV.GROQ_API_KEY) throw new Error('GROQ_API_KEY not set');
-    _groq = new OpenAI({ apiKey: ENV.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
+// ── Gemini client (OpenAI-compatible endpoint) ─────────────────────────────────
+const MARKET_LLM_MODEL = ENV.GEMINI_MODEL || 'gemini-2.5-flash';
+let _llm = null;
+function getLLM() {
+  if (!_llm) {
+    if (!ENV.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
+    _llm = new OpenAI({
+      apiKey: ENV.GEMINI_API_KEY,
+      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    });
   }
-  return _groq;
+  return _llm;
 }
 
 // ── 30-min cache (stampede-guarded: single-flight + jittered TTL) ──────────────
@@ -245,9 +249,9 @@ export async function getMarketPrices(commodity = 'Tomato', state = 'Maharashtra
     if (l2) { cacheSet(key, l2); return { ...l2, fromCache: true }; }
 
     try {
-      const client = getGroq();
+      const client = getLLM();
       const completion = await client.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: MARKET_LLM_MODEL,
         messages: [{ role: 'user', content: buildPricePrompt(commodity, state, city) }],
         temperature: 0.4,
         max_tokens: 600,
@@ -334,9 +338,9 @@ Return ONLY this JSON:
     if (l2) { cacheSet(key, l2); return { ...l2, fromCache: true }; }
 
     try {
-      const client = getGroq();
+      const client = getLLM();
       const completion = await client.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: MARKET_LLM_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
         max_tokens: 500,
@@ -418,9 +422,9 @@ Return ONLY valid JSON (no other text):
     if (l2) { cacheSet(key, l2, EXT_TTL); return { ...l2, fromCache: true }; }
 
     try {
-      const client = getGroq();
+      const client = getLLM();
       const completion = await client.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: MARKET_LLM_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.25,
         max_tokens: maxTokens,

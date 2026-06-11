@@ -29,6 +29,7 @@ Coverage note
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 
 # Map: any lowercased synonym -> canonical scientific (or stable common) name.
@@ -223,9 +224,14 @@ def _canon_crop_local(crop: str | None) -> str:
         return str(crop).strip().title()
 
 
+@lru_cache(maxsize=4096)
 def canonicalize(name: str | None, crop: str | None = None) -> str:
     """
     Return the canonical name for a disease label.
+
+    Memoized (lru_cache): the reconciler canonicalizes the same disease name
+    repeatedly across ensemble members + their differentials, and the maps are
+    immutable at runtime, so caching by (name, crop) removes the redundant work.
 
     Precedence:
       1. crop-scoped scientific table (_CROP_SCI) when `crop` is supplied

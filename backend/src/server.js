@@ -25,9 +25,8 @@ import logger from './utils/logger.js';
 const OPTIONAL_KEYS = [
   ['MSG91_AUTH_KEY',       'OTP delivery via MSG91'],
   ['CLOUDINARY_CLOUD_NAME','Image uploads'],
-  ['GEMINI_API_KEY',       'AI crop diagnosis (Gemini)'],
-  ['GROQ_API_KEY',         'FarmMind chat + treatment (Groq)'],
-  ['SARVAM_API_KEY',       'Voice / multilingual (Sarvam)'],
+  ['GEMINI_API_KEY',       'All LLM features: crop diagnosis, chat, alerts, pest (Gemini)'],
+  ['SARVAM_API_KEY',       'Voice STT/TTS + multilingual (Sarvam)'],
   ['DATA_GOV_API_KEY',     'Mandi market prices'],
 ];
 for (const [key, feature] of OPTIONAL_KEYS) {

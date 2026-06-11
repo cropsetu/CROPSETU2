@@ -2,10 +2,9 @@
 Alert Service — generates smart farm alerts for the FarmEasy dashboard.
 
 Model selection
-  Reads ONE model + ONE API key from .env via `agents/llm_dispatch`:
-    AI_ALERT_MODEL=llama-3.3-70b-versatile    (default: Groq Llama)
-    AI_ALERT_API_KEY=gsk_...                  (default: GROQ_API_KEY)
-    AI_ALERT_BASE_URL=...                     (optional override)
+  Reads ONE Gemini model from .env via `agents/llm_dispatch`:
+    AI_ALERT_MODEL=gemini-2.5-flash           (default)
+    AI_ALERT_API_KEY=...                       (default: GEMINI_API_KEY)
 
   No fallback — if the configured model fails, returns an empty alert
   list and logs the error. Admin swaps the model in .env if needed.
@@ -17,12 +16,40 @@ import logging
 import json
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, ValidationError
 
 from agents.llm_dispatch import call_llm_text, get_feature_config
 from services.chat_service import current_season
 
 logger = logging.getLogger(__name__)
+
+
+# ── LLM output schema (AISVC-7) ──────────────────────────────────────────────
+# Validate + coerce each alert the model emits before it leaves the service, so
+# malformed / unexpected output is dropped or repaired rather than passed
+# straight through to the client/dashboard.
+_ALERT_TYPES = {"weather", "disease", "market", "irrigation", "fertilizer", "harvest", "general"}
+_SEVERITIES = {"low", "medium", "high", "critical"}
+
+
+class _AlertModel(BaseModel):
+    id: str = Field(default="alert_0", max_length=64)
+    type: str = Field(default="general", max_length=32)
+    severity: str = Field(default="low", max_length=16)
+    title: str = Field(min_length=1, max_length=200)
+    message: str = Field(default="", max_length=1000)
+    action: str = Field(default="", max_length=500)
+    icon: str = Field(default="alert-circle-outline", max_length=64)
+
+    def normalized(self) -> dict[str, Any]:
+        d = self.model_dump()
+        if d["type"] not in _ALERT_TYPES:
+            d["type"] = "general"
+        if d["severity"] not in _SEVERITIES:
+            d["severity"] = "low"
+        return d
 
 
 _ALERT_PROMPT_TEMPLATE = """You are an Indian agricultural expert AI. Generate 4–6 smart, actionable farm alerts.
@@ -60,9 +87,23 @@ def _parse_alerts(raw: str) -> list[dict[str, Any]]:
         return []
     try:
         alerts = json.loads(match.group())
-        return [a for a in alerts if isinstance(a, dict) and "title" in a]
     except json.JSONDecodeError:
+        logger.warning("[AlertService] LLM output was not valid JSON — dropping")
         return []
+    if not isinstance(alerts, list):
+        return []
+    # Schema-validate each alert (AISVC-7): coerce/repair into the expected
+    # shape; silently drop any entry that can't satisfy the schema (e.g. missing
+    # title) rather than returning unvalidated model output to the dashboard.
+    out: list[dict[str, Any]] = []
+    for i, a in enumerate(alerts[:10]):
+        if not isinstance(a, dict):
+            continue
+        try:
+            out.append(_AlertModel(**a).normalized())
+        except ValidationError:
+            logger.debug("[AlertService] dropped malformed alert[%d]", i)
+    return out
 
 
 async def generate_smart_alerts(farm_context: dict) -> list[dict[str, Any]]:

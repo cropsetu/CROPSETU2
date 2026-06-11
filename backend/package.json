@@ -20,6 +20,8 @@
     "db:seed:crops": "node prisma/seed-crops.js",
     "db:seed:msp": "node prisma/seed-msp.js",
     "db:seed:products": "node prisma/seed-products.js",
+    "db:seed:categories": "node prisma/seed-categories.js",
+    "db:seed:ui-demo": "node prisma/seed-categories.js && node prisma/seed-ui-demo.js",
     "db:seed:animals": "node prisma/seed-animals.js",
     "db:reassign:animals": "node prisma/reassign-animal-sellers.js",
     "db:unseed:animals": "node prisma/unseed-animals.js",

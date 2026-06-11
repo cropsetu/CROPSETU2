@@ -127,7 +127,7 @@ export async function sarvamSTT(audioBuffer, fileName = 'audio.m4a', languageCod
  */
 export async function sarvamTTS(text, languageCode = 'hi-IN', speaker = null) {
   const lang = normaliseLangCode(languageCode);
-  const spkr = speaker || SPEAKER_MAP[lang] || 'meera';
+  const spkr = speaker || SPEAKER_MAP[lang] || 'priya';
 
   const body = {
     text:                  text.trim(),

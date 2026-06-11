@@ -1,16 +1,18 @@
 """
 AgriPredict routes — crop yield/price prediction endpoints.
+Signed Express→FastAPI request required (AISVC-1) — /predict invokes the LLM.
 """
 from __future__ import annotations
 import logging
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from security.auth import verify_signed_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agripredict", tags=["AgriPredict"])
 
 
-@router.post("/predict")
+@router.post("/predict", dependencies=[Depends(verify_signed_request)])
 async def predict(request: Request):
     body = await request.json()
     try:

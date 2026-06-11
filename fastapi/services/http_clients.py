@@ -3,9 +3,8 @@ Shared, long-lived HTTP clients for LLM providers.
 
 Opening `httpx.AsyncClient` per request wastes a TLS handshake on every
 LLM call (≈50–200 ms) and exhausts ephemeral source ports under burst
-load. This module keeps one pooled client per upstream alive for the
-whole app lifetime, plus a singleton Anthropic SDK client (the SDK
-manages its own connection pool internally).
+load. This module keeps one pooled client per upstream (Gemini + Sarvam)
+alive for the whole app lifetime.
 
 Lifecycle:
     - Clients are created lazily on first `get_*()` call.
@@ -15,14 +14,11 @@ Lifecycle:
 from __future__ import annotations
 
 import httpx
-from anthropic import AsyncAnthropic
-
-from config import ANTHROPIC_API_KEY
 
 _gemini: httpx.AsyncClient | None = None
 _groq: httpx.AsyncClient | None = None
+_openai: httpx.AsyncClient | None = None
 _sarvam: httpx.AsyncClient | None = None
-_anthropic_sdk: AsyncAnthropic | None = None
 
 
 def _make_client(*, default_read_timeout: float) -> httpx.AsyncClient:
@@ -52,11 +48,28 @@ def get_gemini() -> httpx.AsyncClient:
 
 
 def get_groq() -> httpx.AsyncClient:
-    """Pooled client for `api.groq.com`."""
+    """Pooled client for `api.groq.com` (OpenAI-compatible chat completions).
+
+    Only used as the last-resort cross-provider chat fallback when the Gemini
+    path is fully down — see agents/llm_dispatch.call_llm_text.
+    """
     global _groq
     if _groq is None:
         _groq = _make_client(default_read_timeout=90.0)
     return _groq
+
+
+def get_openai() -> httpx.AsyncClient:
+    """Pooled client for `api.openai.com` (OpenAI-compatible chat completions).
+
+    Only used by the crop-diagnosis ensemble voter (GPT-4o vision) — see
+    agents/router._call_one_vision. Vision needs a long budget, so use the same
+    120s read timeout as the Gemini client.
+    """
+    global _openai
+    if _openai is None:
+        _openai = _make_client(default_read_timeout=120.0)
+    return _openai
 
 
 def get_sarvam() -> httpx.AsyncClient:
@@ -68,30 +81,18 @@ def get_sarvam() -> httpx.AsyncClient:
     return _sarvam
 
 
-def get_anthropic() -> AsyncAnthropic:
-    """Singleton Anthropic SDK client. The SDK pools connections itself."""
-    global _anthropic_sdk
-    if _anthropic_sdk is None:
-        _anthropic_sdk = AsyncAnthropic(
-            api_key=ANTHROPIC_API_KEY,
-            timeout=60.0,
-            max_retries=2,
-        )
-    return _anthropic_sdk
-
-
 async def close_all() -> None:
     """Close all pooled clients. Call from lifespan shutdown."""
-    global _gemini, _groq, _sarvam, _anthropic_sdk
+    global _gemini, _groq, _openai, _sarvam
     if _gemini is not None:
         await _gemini.aclose()
         _gemini = None
     if _groq is not None:
         await _groq.aclose()
         _groq = None
+    if _openai is not None:
+        await _openai.aclose()
+        _openai = None
     if _sarvam is not None:
         await _sarvam.aclose()
         _sarvam = None
-    if _anthropic_sdk is not None:
-        await _anthropic_sdk.close()
-        _anthropic_sdk = None

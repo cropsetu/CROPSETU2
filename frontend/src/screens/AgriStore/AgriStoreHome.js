@@ -8,7 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useCart } from '../../context/CartContext';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable,
-  FlatList, TextInput, StatusBar, Image, Easing,
+  FlatList, TextInput, StatusBar, Image, Easing, Keyboard,
   Modal, TouchableWithoutFeedback, Dimensions,
   Animated as RNAnimated,
 } from 'react-native';
@@ -25,6 +25,7 @@ import useScrollHeader from '../../hooks/useScrollHeader';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
+import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
@@ -416,6 +417,7 @@ export default function AgriStoreHome({ navigation }) {
   const [selectedCategory,   setSelectedCategory]   = useState(ALL_ID);
   const [selectedSubcategory, setSelectedSubcategory] = useState(null);
   const [searchQuery,        setSearchQuery]        = useState('');
+  const [searchFocused,      setSearchFocused]      = useState(false);
   const [categories,         setCategories]         = useState([]);
   const [products,           setProducts]           = useState([]);
   const { count: cartCount, refresh: refreshCart } = useCart();
@@ -450,6 +452,13 @@ export default function AgriStoreHome({ navigation }) {
         setCategories(Array.isArray(cats) ? cats : []);
       })
       .catch(() => setCategories([]));
+  }, []);
+
+  // Clear the search focus ring once the keyboard is dismissed — on Android the
+  // back-press hides the keyboard without firing onBlur, so the ring would stick.
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => setSearchFocused(false));
+    return () => sub.remove();
   }, []);
 
   // Load products on filter/search change
@@ -515,15 +524,15 @@ export default function AgriStoreHome({ navigation }) {
       <Animated.View style={headerAnimatedStyle}>
         <View style={[S.header, { paddingTop: insets.top + 10, paddingBottom: 10 }]}>
           <View style={S.headerTop}>
-            <TouchableOpacity style={S.hamburger} onPress={() => setDrawerOpen(true)} activeOpacity={0.7}>
-              <View style={S.hamLine} />
-              <View style={[S.hamLine, { width: 18 }]} />
-              <View style={S.hamLine} />
-            </TouchableOpacity>
-            <View style={S.logoRow}>
+            <View style={S.headerSide}>
+              <TouchableOpacity style={S.hamburger} onPress={() => setDrawerOpen(true)} activeOpacity={0.7}>
+                <View style={S.hamLine} />
+                <View style={[S.hamLine, { width: 18 }]} />
+                <View style={S.hamLine} />
+              </TouchableOpacity>
               <Image
-                source={require('../../../assets/cropsetu-logo.png')}
-                style={S.logoBrand}
+                source={require('../../../assets/cropsetu-wordmark.png')}
+                style={S.brandLogo}
                 resizeMode="contain"
                 accessibilityLabel={t('appName')}
               />
@@ -543,19 +552,27 @@ export default function AgriStoreHome({ navigation }) {
       </Animated.View>
 
       {/* ── Search + Categories (always visible) ── */}
-      <View style={{ backgroundColor: COLORS.white, paddingHorizontal: 18 }}>
-        <View style={S.searchBar}>
-          <Ionicons name="search-outline" size={16} color={COLORS.grayLight2} />
+      <View style={{ backgroundColor: KHET.muted, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 4 }}>
+        <View style={[S.searchBar, searchFocused && S.searchBarFocused]}>
+          <Ionicons
+            name="search-outline"
+            size={18}
+            color={searchFocused ? KHET.primary : KHET.mutedForeground}
+          />
           <TextInput
             style={S.searchInput}
-            placeholder={t('store.searchPlaceholder') || 'Search seeds, tools, pesticides...'}
-            placeholderTextColor={COLORS.grayLight2}
+            placeholder={t('store.searchPlaceholder', 'Search agri-related products here')}
+            placeholderTextColor="rgba(87,104,90,0.5)"
             value={searchQuery}
             onChangeText={setSearchQuery}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            returnKeyType="search"
+            selectionColor={KHET.primary}
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={17} color={COLORS.divider} />
+            <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={18} color={KHET.mutedForeground} />
             </TouchableOpacity>
           )}
         </View>
@@ -571,7 +588,8 @@ export default function AgriStoreHome({ navigation }) {
       )}
 
       {/* ── Scrollable content ── */}
-      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} style={S.scroll} onScroll={hideOnScroll} scrollEventThrottle={16}>
+      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} style={S.scroll} contentContainerStyle={S.scrollContent} onScroll={hideOnScroll} scrollEventThrottle={16}>
+        <View style={S.contentSheet}>
 
         {/* Best Sellers */}
         {!loading && bestSellers.length > 0 && (
@@ -608,9 +626,14 @@ export default function AgriStoreHome({ navigation }) {
             </View>
           ) : products.length === 0 ? (
             <View style={S.emptyWrap}>
-              <View style={S.emptyIconBg}>
-                <Ionicons name="storefront-outline" size={36} color={GREEN} />
-              </View>
+              <LinearGradient
+                colors={KHET.gradPrimary}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={S.emptyIconBg}
+              >
+                <Ionicons name="storefront-outline" size={36} color={KHET.primaryForeground} />
+              </LinearGradient>
               <Text style={S.emptyTitle}>{t('ai.comingSoon')}</Text>
               <Text style={S.emptyTxt}>{t('store.comingSoonMsg')}</Text>
               <Text style={S.emptyHint}>Check back soon for seeds, fertilizers & more!</Text>
@@ -634,6 +657,7 @@ export default function AgriStoreHome({ navigation }) {
         </View>
 
         <View style={{ height: 40 }} />
+        </View>
       </ScrollView>
 
       <ScrollToTopButton visible={showTopBtn} onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })} />
@@ -678,8 +702,26 @@ export default function AgriStoreHome({ navigation }) {
 // Styles
 // ─────────────────────────────────────────────────────────────────────────────
 const S = StyleSheet.create({
-  root:   { flex: 1, backgroundColor: BG },
-  scroll: { flex: 1 },
+  root:   { flex: 1, backgroundColor: KHET.muted },
+  scroll: { flex: 1, backgroundColor: KHET.muted },
+  scrollContent: { flexGrow: 1 },
+  // Rounded-top white "sheet" holding the product list — echoes the rounded
+  // search card so the list reads as a defined panel, not a flat region.
+  contentSheet: {
+    flexGrow: 1,
+    backgroundColor: KHET.card,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    marginTop: 10,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderColor: KHET.border,
+    shadowColor: '#0e3a20',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
 
   // ── Header ──
   header: {
@@ -689,21 +731,16 @@ const S = StyleSheet.create({
     ...SHADOWS.small,
   },
   headerTop:   { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  hamburger:   { padding: 4, gap: 4, justifyContent: 'center', marginRight: 8 },
+  // Left zone groups the hamburger + wordmark together so the logo sits right
+  // next to the menu; the right zone (headerRight) holds the actions, flex-end.
+  headerSide:  { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  hamburger:   { padding: 4, gap: 4, justifyContent: 'center' },
   hamLine:     { width: 22, height: 2.5, borderRadius: 2, backgroundColor: COLORS.textDark },
-  logoRow:     { flex: 1, flexDirection: 'column', justifyContent: 'center', gap: 2 },
-  // Wide horizontal CropSetu logo (plant + circuit board + wordmark + tagline).
-  // Aspect ~1.91:1 → at 38 px tall the rendered width is ~73 px; with
-  // resizeMode "contain" the wordmark stays readable inside the header bar.
-  // Width hugs the actual rendered logo (~73px at 38px tall) so it sits flush
-  // left — a wide 150px box would center the image inside it via "contain".
-  logoBrand:   { width: 50, height: 38, alignSelf: 'flex-start' },
-  // Kept for backward compat in case any other screen references these styles;
-  // the new layout uses logoBrand instead of logoIcon + logoText.
-  logoIcon:    { width: 38, height: 38, borderRadius: 14, backgroundColor: GREEN_L, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: GREEN + '22' },
-  logoText:    { fontSize: 19, fontWeight: TYPE.weight.black, color: COLORS.textDark, letterSpacing: -0.3 },
-  logoSub:     { fontSize: 10.5, fontWeight: TYPE.weight.medium, color: COLORS.textMedium, marginTop: 1 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // CropSetu wordmark (tree-in-C + "SMART FARMING"), transparent PNG. Explicit
+  // width+height (source aspect ~2.46:1) — an Image with only height+aspectRatio
+  // balloons to full width inside this flex/animated header, so both are pinned.
+  brandLogo:   { width: 112, height: 44 },
+  headerRight: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
   langBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: GREEN_L, borderWidth: 1, borderColor: GREEN + '30' },
   langBtnTxt:  { color: GREEN, fontSize: 11, fontWeight: '700' },
   cartBtn:     { position: 'relative', padding: 4 },
@@ -711,77 +748,79 @@ const S = StyleSheet.create({
   cartBadgeTxt:{ color: COLORS.white, fontSize: 9, fontWeight: '900' },
 
   // ── Search ──
-  searchBar:   { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.surfaceRaised, borderRadius: 16, paddingHorizontal: 14, height: 46, borderWidth: 1, borderColor: BORDER },
-  searchInput: { flex: 1, fontSize: 14, color: COLORS.textDark, padding: 0, fontWeight: TYPE.weight.medium },
+  searchBar:   { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: KHET.card, borderRadius: 16, paddingHorizontal: 16, height: 52, borderWidth: 1, borderColor: KHET.border, ...KSHADOW.soft },
+  // Focus state — green ring + glow so the bar feels interactive when tapped.
+  searchBarFocused: { borderColor: KHET.primary, borderWidth: 2, shadowColor: KHET.primary, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.22, shadowRadius: 14, elevation: 8 },
+  searchInput: { flex: 1, fontSize: 15, color: KHET.foreground, padding: 0, fontFamily: KFONT.sansMed },
 
   // ── Category pills ──
-  pillsWrap:     { backgroundColor: CARD, borderBottomWidth: 1, borderBottomColor: BORDER, height: 66 },
+  pillsWrap:     { backgroundColor: KHET.muted, height: 66 },
   pillsRow:      { paddingHorizontal: 12, paddingVertical: 10, gap: 8, alignItems: 'center' },
   pill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingLeft: 6, paddingRight: 12, paddingVertical: 6,
-    borderRadius: 50, backgroundColor: COLORS.surfaceRaised,
-    borderWidth: 1.5, borderColor: 'transparent',
+    borderRadius: 50, backgroundColor: KHET.secondary,
+    borderWidth: 1.5, borderColor: KHET.border,
     height: 40,
   },
-  pillActive:    { backgroundColor: GREEN, borderColor: GREEN },
+  pillActive:    { backgroundColor: KHET.primary, borderColor: KHET.primary },
   pillIcon:      { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  pillTxt:       { fontSize: 12, fontWeight: '700', color: COLORS.grayDark2, flexShrink: 1 },
-  pillTxtActive: { color: COLORS.white },
+  pillTxt:       { fontSize: 12, fontFamily: KFONT.sansMed, color: KHET.secondaryForeground, flexShrink: 1 },
+  pillTxtActive: { color: KHET.primaryForeground, fontFamily: KFONT.sansSemi },
 
   // ── Sections ──
   section:     { marginTop: 6 },
   sectionRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10 },
-  sectionTitle:{ fontSize: 18, fontWeight: TYPE.weight.black, color: COLORS.textDark, letterSpacing: -0.2 },
+  sectionTitle:{ fontSize: 20, fontFamily: KFONT.displaySemi, color: KHET.foreground, letterSpacing: -0.5 },
   seeAllBtn:   { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  seeAllTxt:   { fontSize: 13, color: GREEN, fontWeight: '700' },
-  resultCount: { fontSize: 12, color: COLORS.grayLight2 },
+  seeAllTxt:   { fontSize: 13, color: KHET.primary, fontFamily: KFONT.sansSemi },
+  resultCount: { fontSize: 12, color: KHET.mutedForeground, fontFamily: KFONT.sans },
 
   // ── Best sellers ──
   bsScroll:    { paddingHorizontal: 16, paddingBottom: 4, gap: 12 },
-  bsCard:      { width: 158, backgroundColor: CARD, borderRadius: 18, overflow: 'hidden', ...SHADOWS.small, borderWidth: 1, borderColor: BORDER },
-  bsImgWrap:   { height: 110, backgroundColor: GREEN_L, position: 'relative' },
+  bsCard:      { width: 158, backgroundColor: KHET.card, borderRadius: 18, overflow: 'hidden', ...KSHADOW.soft, borderWidth: 1, borderColor: KHET.border },
+  bsImgWrap:   { height: 110, backgroundColor: KHET.secondary, position: 'relative' },
   bsImg:       { width: '100%', height: '100%' },
-  bsDiscLeft:  { position: 'absolute', top: 8, left: 8, backgroundColor: COLORS.error, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
-  bsDiscTxt:   { color: COLORS.white, fontSize: 9, fontWeight: '900' },
+  bsDiscLeft:  { position: 'absolute', top: 8, left: 8, backgroundColor: KHET.gold, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
+  bsDiscTxt:   { color: COLORS.white, fontSize: 9, fontFamily: KFONT.sansBold },
   bsBody:      { padding: 10, gap: 4 },
-  bsName:      { fontSize: 12, fontWeight: '700', color: COLORS.textDark, lineHeight: 16, minHeight: 32 },
+  bsName:      { fontSize: 12, fontFamily: KFONT.sansSemi, color: KHET.foreground, lineHeight: 16, minHeight: 32 },
   bsRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  bsRatingTxt: { fontSize: 10, color: COLORS.grayMid3 },
+  bsRatingTxt: { fontSize: 10, color: KHET.mutedForeground, fontFamily: KFONT.sans },
   bsFooter:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-  bsPrice:     { fontSize: 15, fontWeight: '900', color: GREEN },
-  bsAddBtn:    { width: 28, height: 28, borderRadius: 14, backgroundColor: GREEN, justifyContent: 'center', alignItems: 'center' },
+  bsPrice:     { fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.gold },
+  bsAddBtn:    { width: 28, height: 28, borderRadius: 14, backgroundColor: KHET.primary, justifyContent: 'center', alignItems: 'center' },
 
   // ── Product grid ──
   productGrid:   { paddingHorizontal: 12, paddingBottom: 8, gap: 12 },
-  gridCard:      { flex: 1, backgroundColor: CARD, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: BORDER, ...SHADOWS.small },
-  gridImgWrap:   { height: 130, backgroundColor: GREEN_L, position: 'relative' },
+  gridCard:      { flex: 1, backgroundColor: KHET.card, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: KHET.border, ...KSHADOW.soft },
+  gridImgWrap:   { height: 130, backgroundColor: KHET.secondary, position: 'relative' },
   gridImg:           { width: '100%', height: '100%' },
   gridImgGrad:       { position: 'absolute', bottom: 0, left: 0, right: 0, height: 50 },
   wishBtn:           { position: 'absolute', top: 8, left: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.9)', justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.black, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
-  gridDiscRight:     { position: 'absolute', top: 8, right: 8, backgroundColor: COLORS.error, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
-  gridDiscTxt:       { color: COLORS.white, fontSize: 9, fontWeight: '900' },
+  gridDiscRight:     { position: 'absolute', top: 8, right: 8, backgroundColor: KHET.gold, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
+  gridDiscTxt:       { color: COLORS.white, fontSize: 9, fontFamily: KFONT.sansBold },
   gridRatingBadge:   { position: 'absolute', bottom: 6, right: 8, flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  gridRatingBadgeTxt:{ color: COLORS.white, fontSize: 9, fontWeight: '800' },
+  gridRatingBadgeTxt:{ color: COLORS.white, fontSize: 9, fontFamily: KFONT.sansSemi },
   // Stock urgency badge — bottom-left of the image, sits opposite the rating chip.
   stockBadge:        { position: 'absolute', bottom: 6, left: 8, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
-  stockBadgeOut:     { backgroundColor: COLORS.error },
+  stockBadgeOut:     { backgroundColor: KHET.destructive },
   stockBadgeLow:     { backgroundColor: '#E65100' },
-  stockBadgeTxt:     { color: COLORS.white, fontSize: 9.5, fontWeight: '900', letterSpacing: 0.2 },
+  stockBadgeTxt:     { color: COLORS.white, fontSize: 9.5, fontFamily: KFONT.sansBold, letterSpacing: 0.2 },
   gridBody:          { padding: 10, gap: 4 },
-  gridName:          { fontSize: 13.5, fontWeight: TYPE.weight.bold, color: COLORS.textDark, lineHeight: 18, minHeight: 36 },
+  gridName:          { fontSize: 13.5, fontFamily: KFONT.sansSemi, color: KHET.foreground, lineHeight: 18, minHeight: 36 },
   gridPriceRow:      { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
-  gridPrice:     { fontSize: 15, fontWeight: '900', color: GREEN },
-  gridMrp:       { fontSize: 10, color: COLORS.silver, textDecorationLine: 'line-through' },
-  addToCartBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: GREEN, borderRadius: 9, paddingVertical: 9, marginTop: 4, shadowColor: GREEN, shadowOpacity: 0.2, shadowRadius: 4, elevation: 2 },
-  addToCartTxt:  { color: COLORS.white, fontSize: 12, fontWeight: '700' },
+  gridPrice:     { fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.gold },
+  gridMrp:       { fontSize: 10, color: KHET.mutedForeground, textDecorationLine: 'line-through', fontFamily: KFONT.sans },
+  addToCartBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: KHET.primary, borderRadius: 12, paddingVertical: 10, marginTop: 4, ...KSHADOW.soft },
+  addToCartTxt:  { color: KHET.primaryForeground, fontSize: 12, fontFamily: KFONT.sansSemi },
 
   // ── Empty ──
   emptyWrap:   { alignItems: 'center', paddingVertical: 52, paddingHorizontal: 24, gap: 6 },
-  emptyIconBg: { width: 80, height: 80, borderRadius: 40, backgroundColor: GREEN_L, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  emptyTitle:  { fontSize: 20, fontWeight: '900', color: COLORS.textDark },
-  emptyTxt:    { fontSize: 14, color: COLORS.textMedium, fontWeight: '500', textAlign: 'center' },
-  emptyHint:   { fontSize: 12, color: COLORS.textLight, textAlign: 'center' },
+  emptyIconBg: { width: 80, height: 80, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: 8, ...KSHADOW.elegant },
+  emptyTitle:  { fontSize: 22, fontFamily: KFONT.displaySemi, color: KHET.foreground, letterSpacing: -0.5 },
+  emptyTxt:    { fontSize: 14, color: KHET.mutedForeground, fontFamily: KFONT.sans, textAlign: 'center' },
+  emptyHint:   { fontSize: 12, color: KHET.mutedForeground, fontFamily: KFONT.sans, textAlign: 'center' },
 
   // ── Language Picker ──
   lpBackdrop:  { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.50)' },

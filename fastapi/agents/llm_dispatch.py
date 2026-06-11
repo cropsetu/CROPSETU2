@@ -1,30 +1,31 @@
 """
-agents/llm_dispatch.py — Flat per-feature LLM dispatch.
+agents/llm_dispatch.py — Flat per-feature LLM dispatch (Gemini-first).
 
-Each AI feature (text chat, crop diagnose, treatment, alert, pest, voice STT)
-reads exactly ONE model + ONE api key from .env. The provider is auto-detected
-from the model name prefix; admins never need to specify it.
+Each AI feature (text chat, crop diagnose, treatment, alert, pest) reads exactly
+ONE Gemini model from .env. CropSetu consolidated onto Google Gemini for
+production; the Anthropic provider was removed. Gemini is the only provider a
+feature can be CONFIGURED to use (AI_<F>_MODEL must be a 'gemini-*' id).
 
-Admin workflow when a provider breaks:
+Groq survives in ONE narrow role: a last-resort cross-provider fallback for the
+text-chat features (TEXT_CHAT / CHAT_WRITER / CHAT_ENHANCER). When the Gemini
+primary AND its Flash↔Pro capacity fallback both fail, call_llm_text tries Groq
+so the farmer still gets a reply. It fires only when GROQ_API_KEY is set; with no
+key the dispatcher is Gemini-only, exactly as before. See call_llm_text / the
+_groq_fallback helper.
+
+Admin workflow to change a feature's model:
     1. Open fastapi/.env
-    2. Change AI_<FEATURE>_MODEL=<new-model-id>
-    3. Paste AI_<FEATURE>_API_KEY=<new-key>
-    4. Save → uvicorn --reload picks it up → done
+    2. Change AI_<FEATURE>_MODEL=<gemini-model-id>   (e.g. gemini-2.5-pro)
+    3. (Optional) AI_<FEATURE>_API_KEY=<key>  — defaults to GEMINI_API_KEY
+    4. Save → restart picks it up → done
 
-There is NO fallback chain. If the chosen model fails, the user-facing call
-fails too. That's the explicit trade-off the admin wants — full control over
-which provider serves each request, no hidden behaviour.
+The only fallback is the chat chain described above (Gemini → Gemini capacity →
+Groq). For every non-chat feature there is NO fallback — if the chosen model
+fails, the user-facing call fails too, by design (full control, no hidden
+behaviour). The vision path (call_llm_vision) never falls back at all.
 
-Provider auto-detection rules (in priority order):
-    1. AI_<F>_BASE_URL set → openai_compatible (admin override; works for any
-       custom URL: OpenRouter, private hosting, Ollama, vLLM, etc.)
-    2. Model starts with "claude-"               → anthropic native SDK
-    3. Model starts with "gemini-"               → gemini native REST
-    4. Model starts with "gpt-", "o1-", "o3-"    → openai-compat @ api.openai.com
-    5. Model starts with "llama-", "mixtral-"    → openai-compat @ api.groq.com
-    6. Model starts with "deepseek-"             → openai-compat @ api.deepseek.com
-    7. Model starts with "grok-"                 → openai-compat @ api.x.ai
-    8. Otherwise → AI_<F>_BASE_URL required, raises ConfigError if missing
+Only Gemini model ids (prefix "gemini-") are accepted. Any other id raises a
+ConfigError so a stray non-Gemini model can't silently fail at call time.
 """
 from __future__ import annotations
 
@@ -37,14 +38,11 @@ from typing import Awaitable, Callable, Optional
 import httpx
 
 from agents.llm_utils import (
-    call_claude_text,
-    call_claude_vision,
     call_gemini_text,
     call_gemini_vision,
-    call_openai_compatible_text,
-    call_openai_compatible_vision,
+    call_groq_text,
 )
-from config import ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY
+from config import GEMINI_API_KEY, GROQ_API_KEY, GROQ_FALLBACK_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -62,48 +60,27 @@ AI_FEATURES = (
     "CROP_TREATMENT",   # RAG-grounded treatment plan
     "ALERT",            # Smart farm alerts
     "PEST",             # KisanRakshak pest enhancement
-    "VOICE_STT",        # Whisper transcription (read by backend/, not fastapi/)
 )
 
 
-# Default model + api-key-source per feature, used when AI_<F>_MODEL is unset
-# in .env so a fresh checkout still works. Admin can override any of these
-# by setting the env var.
+# Default Gemini model per feature, used when AI_<F>_MODEL is unset in .env so a
+# fresh checkout still works. Admin can override any of these by setting the env
+# var. The api key defaults to GEMINI_API_KEY for every feature.
 #
-# Crop disease/treatment default to Gemini 2.5 Flash — fast (~3-5s vs Haiku's
-# 30-60s) and cheap, now that Gemini billing is active. To fall back to Claude,
-# set AI_CROP_DIAGNOSE_MODEL=claude-haiku-4-5-20251001 (+ AI_CROP_DIAGNOSE_API_KEY).
-# Text features default to Groq Llama 3.3 70B — fast, free, preferred for chat.
-_DEFAULTS: dict[str, tuple[str, str]] = {
-    # feature             (default model id,                default api key constant)
-    "TEXT_CHAT":          ("llama-3.3-70b-versatile",       GROQ_API_KEY),
-    # Agentic chat stages default to Gemini 2.5 Flash — fast AND with far higher
-    # free-tier limits than Groq (which 429s under the pipeline's 3 calls/message).
-    # Each is independently swappable via AI_CHAT_<STAGE>_MODEL.
-    "CHAT_WRITER":        ("gemini-2.5-flash",              GEMINI_API_KEY),
-    "CHAT_ENHANCER":      ("gemini-2.5-flash",              GEMINI_API_KEY),
-    "CHAT_VISION":        ("gemini-2.5-flash",              GEMINI_API_KEY),
-    # Soil Health Card OCR — Gemini 2.5 Flash reads printed/tabular cards well.
-    "SOIL_OCR":           ("gemini-2.5-flash",              GEMINI_API_KEY),
-    "CROP_DIAGNOSE":      ("gemini-2.5-flash",              GEMINI_API_KEY),
-    "CROP_TREATMENT":     ("gemini-2.5-flash",              GEMINI_API_KEY),
-    "ALERT":              ("llama-3.3-70b-versatile",       GROQ_API_KEY),
-    "PEST":               ("llama-3.3-70b-versatile",       GROQ_API_KEY),
-    "VOICE_STT":          ("whisper-large-v3-turbo",        GROQ_API_KEY),
-}
-
-
-# Known model-prefix → openai-compatible base URL. Order doesn't matter; we
-# check prefix containment, not list order.
-_PREFIX_TO_BASE_URL: dict[str, str] = {
-    "gpt-":         "https://api.openai.com/v1",
-    "o1-":          "https://api.openai.com/v1",
-    "o3-":          "https://api.openai.com/v1",
-    "llama-":       "https://api.groq.com/openai/v1",
-    "mixtral-":     "https://api.groq.com/openai/v1",
-    "whisper-":     "https://api.groq.com/openai/v1",   # for STT (backend uses this)
-    "deepseek-":    "https://api.deepseek.com/v1",
-    "grok-":        "https://api.x.ai/v1",
+# Flash is the default everywhere — fast + cheap and the free-tier limits are
+# generous enough for the chat pipeline's multiple calls/message. Switch a
+# feature to gemini-2.5-pro via AI_<FEATURE>_MODEL when you want more accuracy.
+_DEFAULTS: dict[str, str] = {
+    # feature             default Gemini model id
+    "TEXT_CHAT":          "gemini-2.5-flash",
+    "CHAT_WRITER":        "gemini-2.5-flash",
+    "CHAT_ENHANCER":      "gemini-2.5-flash",
+    "CHAT_VISION":        "gemini-2.5-flash",
+    "SOIL_OCR":           "gemini-2.5-flash",
+    "CROP_DIAGNOSE":      "gemini-2.5-flash",
+    "CROP_TREATMENT":     "gemini-2.5-flash",
+    "ALERT":              "gemini-2.5-flash",
+    "PEST":               "gemini-2.5-flash",
 }
 
 
@@ -112,9 +89,9 @@ _PREFIX_TO_BASE_URL: dict[str, str] = {
 @dataclass(frozen=True)
 class FeatureConfig:
     feature:  str          # e.g. "TEXT_CHAT"
-    model:    str          # e.g. "llama-3.3-70b-versatile"
+    model:    str          # e.g. "gemini-2.5-flash"
     api_key:  str
-    base_url: Optional[str]  # set when admin wants an explicit endpoint
+    base_url: Optional[str] = None  # vestigial — Gemini uses its native REST endpoint
 
     @property
     def provider(self) -> str:
@@ -122,66 +99,92 @@ class FeatureConfig:
 
 
 class ConfigError(RuntimeError):
-    """Raised when AI_<F>_MODEL points at an unknown provider with no base_url."""
+    """Raised when AI_<F>_MODEL points at a non-Gemini model."""
 
 
 # ── Provider detection ───────────────────────────────────────────────────────
 
-def _detect_provider(model: str, base_url: Optional[str]) -> str:
-    """Return one of: 'anthropic', 'gemini', 'openai_compatible'.
-
-    base_url, when set, ALWAYS wins — admin escape hatch for custom URLs,
-    private hosting, OpenRouter, etc. Otherwise we sniff the model prefix.
-    """
-    if base_url:
-        return "openai_compatible"
+def _detect_provider(model: str, base_url: Optional[str] = None) -> str:
+    """Gemini is the only supported provider. Any non-gemini model id is a
+    configuration error we surface immediately rather than at call time."""
     m = (model or "").lower().strip()
-    if m.startswith("claude-"):
-        return "anthropic"
     if m.startswith("gemini-"):
         return "gemini"
-    for prefix in _PREFIX_TO_BASE_URL:
-        if m.startswith(prefix):
-            return "openai_compatible"
     raise ConfigError(
-        f"Cannot auto-detect provider for model {model!r}. "
-        f"Set AI_<FEATURE>_BASE_URL to the provider's /v1 endpoint."
-    )
-
-
-def _resolve_base_url(model: str, base_url: Optional[str]) -> str:
-    """Pick the actual base URL for an openai_compatible call. Explicit
-    base_url from env wins; otherwise look up the prefix table."""
-    if base_url:
-        return base_url
-    m = (model or "").lower().strip()
-    for prefix, url in _PREFIX_TO_BASE_URL.items():
-        if m.startswith(prefix):
-            return url
-    raise ConfigError(
-        f"No known base URL for model prefix in {model!r}. "
-        f"Set AI_<FEATURE>_BASE_URL explicitly."
+        f"Unsupported model {model!r}. CropSetu is Gemini-only — set "
+        f"AI_<FEATURE>_MODEL to a 'gemini-*' id."
     )
 
 
 # ── Config loader ────────────────────────────────────────────────────────────
 
 def get_feature_config(feature: str) -> FeatureConfig:
-    """Read AI_<FEATURE>_MODEL / _API_KEY / _BASE_URL from os.environ.
+    """Read AI_<FEATURE>_MODEL / _API_KEY from os.environ.
 
-    Falls back to the baked-in default (see _DEFAULTS) for model + api_key
-    when the env var is unset. base_url defaults to None and is only set
-    when the admin provides AI_<F>_BASE_URL explicitly.
+    Falls back to the baked-in Gemini default (see _DEFAULTS) for the model and
+    to GEMINI_API_KEY for the key when the env var is unset.
     """
     if feature not in AI_FEATURES:
         raise ValueError(f"Unknown AI feature {feature!r}. Valid: {AI_FEATURES}")
 
-    default_model, default_key = _DEFAULTS[feature]
+    default_model = _DEFAULTS[feature]
     model = (os.environ.get(f"AI_{feature}_MODEL") or default_model).strip()
-    api_key = (os.environ.get(f"AI_{feature}_API_KEY") or default_key).strip()
-    base_url = (os.environ.get(f"AI_{feature}_BASE_URL") or "").strip() or None
+    api_key = (os.environ.get(f"AI_{feature}_API_KEY") or GEMINI_API_KEY).strip()
 
-    return FeatureConfig(feature=feature, model=model, api_key=api_key, base_url=base_url)
+    return FeatureConfig(feature=feature, model=model, api_key=api_key, base_url=None)
+
+
+# ── Capacity fallback (within Gemini) ────────────────────────────────────────
+# When the primary model is throttled (503 "high demand"), retrying the SAME
+# overloaded model rarely helps. A different-size Gemini model has separate
+# capacity, so on exhausted-retry failure we try ONE fallback. This is a
+# capacity fallback within the same provider (Flash↔Pro), NOT the cross-provider
+# "weaker guess" the diagnose path deliberately avoids — Pro is the stronger
+# model, so the chat answer quality only improves. Enabled by default for chat +
+# text-advisory features; vision diagnosis stays single-model by design. Any
+# feature can override the target with AI_<FEATURE>_FALLBACK_MODEL (empty = off).
+_AUTO_FALLBACK_FEATURES = {"TEXT_CHAT", "CHAT_WRITER", "CHAT_ENHANCER", "ALERT", "PEST"}
+
+
+def _fallback_model(feature: str, primary: str) -> Optional[str]:
+    explicit = (os.environ.get(f"AI_{feature}_FALLBACK_MODEL") or "").strip()
+    if explicit:
+        return explicit if explicit.lower() != (primary or "").lower() else None
+    if feature not in _AUTO_FALLBACK_FEATURES:
+        return None
+    p = (primary or "").lower()
+    if p == "gemini-2.5-flash":
+        return "gemini-2.5-pro"
+    if p == "gemini-2.5-pro":
+        return "gemini-2.5-flash"
+    return None
+
+
+# ── Cross-provider fallback (Gemini → Groq) ──────────────────────────────────
+# LAST resort for the text-chat features: after the Gemini primary AND its
+# Flash↔Pro capacity fallback have both failed, try Groq so the farmer still
+# gets a reply instead of "Chat unavailable". This is the ONE place CropSetu
+# leaves the Gemini-only path — Groq has capacity separate from Google, so it
+# survives a Gemini-side outage / quota exhaustion that retrying Gemini cannot.
+# Off unless GROQ_API_KEY is set (no key → Gemini-only behaviour, unchanged).
+# Text-only — Groq Llama can't do vision, so call_llm_vision never uses it.
+# Override per feature: AI_<FEATURE>_GROQ_FALLBACK=false to disable, or
+# AI_<FEATURE>_GROQ_MODEL=<groq-model> to pick a different Groq model.
+_GROQ_FALLBACK_FEATURES = {"TEXT_CHAT", "CHAT_WRITER", "CHAT_ENHANCER"}
+
+
+def _groq_fallback(feature: str) -> Optional[tuple[str, str]]:
+    """Return (groq_model, groq_api_key) for the cross-provider chat fallback,
+    or None when it's disabled or unconfigured."""
+    api_key = (os.environ.get(f"AI_{feature}_GROQ_API_KEY") or GROQ_API_KEY).strip()
+    if not api_key:
+        return None
+    default_on = "true" if feature in _GROQ_FALLBACK_FEATURES else "false"
+    enabled = (os.environ.get(f"AI_{feature}_GROQ_FALLBACK") or default_on).strip().lower()
+    if enabled != "true":
+        return None
+    model = (os.environ.get(f"AI_{feature}_GROQ_MODEL") or GROQ_FALLBACK_MODEL).strip()
+    return (model, api_key) if model else None
 
 
 # ── Transient-failure retry ──────────────────────────────────────────────────
@@ -253,24 +256,44 @@ async def call_llm_text(
     )
 
     label = f"{cfg.feature}/{provider}"
-    if provider == "anthropic":
-        return await _with_retry(lambda: call_claude_text(
-            system_prompt, user_prompt, cfg.api_key,
-            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
-        ), label=label)
-    if provider == "gemini":
+    try:
         return await _with_retry(lambda: call_gemini_text(
             system_prompt, user_prompt, cfg.api_key,
             model=cfg.model, max_tokens=max_tokens, temperature=temperature,
         ), label=label)
-    if provider == "openai_compatible":
-        return await _with_retry(lambda: call_openai_compatible_text(
-            system_prompt, user_prompt,
-            base_url=_resolve_base_url(cfg.model, cfg.base_url),
-            api_key=cfg.api_key, model=cfg.model,
-            max_tokens=max_tokens, temperature=temperature,
-        ), label=label)
-    raise ConfigError(f"Unrouted provider {provider!r} for feature {cfg.feature}")
+    except Exception as primary_exc:  # noqa: BLE001
+        # 1) Gemini capacity fallback (Flash↔Pro) — same provider, separate quota.
+        fb = _fallback_model(cfg.feature, cfg.model)
+        if fb:
+            logger.warning(
+                "[LLMDispatch] %s primary model %s failed (%s) — capacity fallback to %s",
+                cfg.feature, cfg.model, type(primary_exc).__name__, fb,
+            )
+            try:
+                return await _with_retry(lambda: call_gemini_text(
+                    system_prompt, user_prompt, cfg.api_key,
+                    model=fb, max_tokens=max_tokens, temperature=temperature,
+                ), label=f"{label}/fallback:{fb}")
+            except Exception:  # noqa: BLE001
+                pass  # Gemini path exhausted — fall through to cross-provider Groq.
+
+        # 2) Cross-provider Groq fallback (text-chat features, GROQ_API_KEY set).
+        groq = _groq_fallback(cfg.feature)
+        if groq:
+            groq_model, groq_key = groq
+            logger.warning(
+                "[LLMDispatch] %s Gemini path failed (%s) — cross-provider fallback to Groq %s",
+                cfg.feature, type(primary_exc).__name__, groq_model,
+            )
+            try:
+                return await _with_retry(lambda: call_groq_text(
+                    system_prompt, user_prompt, groq_key,
+                    model=groq_model, max_tokens=max_tokens, temperature=temperature,
+                ), label=f"{cfg.feature}/groq:{groq_model}")
+            except Exception:  # noqa: BLE001
+                pass  # Groq also failed — surface the original Gemini failure below.
+
+        raise primary_exc  # surface the original failure, not a fallback's
 
 
 async def call_llm_vision(
@@ -290,21 +313,7 @@ async def call_llm_vision(
     )
 
     label = f"{cfg.feature}/{provider}/vision"
-    if provider == "anthropic":
-        return await _with_retry(lambda: call_claude_vision(
-            system_prompt, user_prompt, images_b64, cfg.api_key,
-            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
-        ), label=label)
-    if provider == "gemini":
-        return await _with_retry(lambda: call_gemini_vision(
-            system_prompt, user_prompt, images_b64, cfg.api_key,
-            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
-        ), label=label)
-    if provider == "openai_compatible":
-        return await _with_retry(lambda: call_openai_compatible_vision(
-            system_prompt, user_prompt, images_b64,
-            base_url=_resolve_base_url(cfg.model, cfg.base_url),
-            api_key=cfg.api_key, model=cfg.model,
-            max_tokens=max_tokens, temperature=temperature,
-        ), label=label)
-    raise ConfigError(f"Unrouted provider {provider!r} for feature {cfg.feature} (vision)")
+    return await _with_retry(lambda: call_gemini_vision(
+        system_prompt, user_prompt, images_b64, cfg.api_key,
+        model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+    ), label=label)

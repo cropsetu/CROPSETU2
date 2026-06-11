@@ -192,29 +192,14 @@ export const ENV = {
   OPENAI_API_KEY:      process.env.OPENAI_API_KEY  || '',
   OPENWEATHER_API_KEY: process.env.OPENWEATHER_API_KEY || '',
 
-  // ── Groq (free tier: 30 RPM / 14,400 RPD — used for all text AI tasks) ──────
-  // Get free key: https://console.groq.com
-  GROQ_API_KEY:   process.env.GROQ_API_KEY  || '',
-  GROQ_MODEL:     process.env.GROQ_MODEL    || 'llama-3.3-70b-versatile',
-
-  // ── Voice transcription (Speech-to-Text) ──────────────────────────────────
-  // One model + one API key, no fallback — same flat-config pattern as the
-  // FastAPI services. Mirrors AI_VOICE_STT_* in fastapi/.env.example.
-  //
-  // To swap providers, edit both lines:
-  //   AI_VOICE_STT_MODEL=whisper-large-v3-turbo   (Groq Whisper, default)
-  //   AI_VOICE_STT_MODEL=whisper-large-v3          (Groq Whisper, slower/more accurate)
-  //   AI_VOICE_STT_MODEL=whisper-1                 (OpenAI Whisper, set AI_VOICE_STT_API_KEY=sk-...)
-  AI_VOICE_STT_MODEL:   process.env.AI_VOICE_STT_MODEL    || process.env.VOICE_STT_MODEL || 'whisper-large-v3-turbo',
-  AI_VOICE_STT_API_KEY: process.env.AI_VOICE_STT_API_KEY  || process.env.GROQ_API_KEY    || '',
-
-  // Backwards-compat alias for the older VOICE_STT_MODEL env var.
-  VOICE_STT_MODEL: process.env.VOICE_STT_MODEL || process.env.AI_VOICE_STT_MODEL || 'whisper-large-v3-turbo',
-
-  // ── Anthropic / Claude (second-tier fallback for text tasks) ──────────────────
-  // Models: claude-sonnet-4-6 (powerful), claude-haiku-4-5-20251001 (fast, cheap)
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-  ANTHROPIC_MODEL:   process.env.ANTHROPIC_MODEL   || 'claude-haiku-4-5-20251001',
+  // ── Voice transcription + speech (Sarvam — Indic STT/TTS) ──────────────────
+  // CropSetu is Gemini-only for LLM and Sarvam-only for voice (Groq Whisper was
+  // dropped). SARVAM_API_KEY (below) powers both speech-to-text and the spoken
+  // reply. These AI_VOICE_STT_* vars are retained only for backwards-compat with
+  // older deploys and are no longer used by the voice route.
+  AI_VOICE_STT_MODEL:   process.env.AI_VOICE_STT_MODEL || process.env.VOICE_STT_MODEL || 'sarvam:saarika',
+  AI_VOICE_STT_API_KEY: process.env.AI_VOICE_STT_API_KEY || process.env.SARVAM_API_KEY || '',
+  VOICE_STT_MODEL: process.env.VOICE_STT_MODEL || process.env.AI_VOICE_STT_MODEL || 'sarvam:saarika',
 
   // ── FastAPI AI Backend (CropGuard agentic pipeline) ───────────────────────────
   // Run: cd AI_CROP_DISESE_DETECTION && .venv/bin/uvicorn main:app --port 8001 --reload
@@ -352,8 +337,8 @@ if (ENV.NODE_ENV === 'production') {
   if (!ENV.AI_SHARED_SECRET || ENV.AI_SHARED_SECRET.length < 16) {
     problems.push('AI_SHARED_SECRET missing/weak (Express↔FastAPI auth)');
   }
-  if (!ENV.GEMINI_API_KEY) problems.push('GEMINI_API_KEY missing (chat + crop scan)');
-  if (!ENV.GROQ_API_KEY)   problems.push('GROQ_API_KEY missing (voice STT)');
+  if (!ENV.GEMINI_API_KEY) problems.push('GEMINI_API_KEY missing (all LLM features: chat, scan, alerts, pest)');
+  if (!ENV.SARVAM_API_KEY) problems.push('SARVAM_API_KEY missing (voice STT + TTS)');
   if (problems.length) {
     throw new Error(`FATAL: production config invalid — ${problems.join('; ')}`);
   }

@@ -39,13 +39,14 @@ from config import (
     ENABLE_ENSEMBLE,
     ENSEMBLE_AMBIGUOUS_DELTA,
     ENSEMBLE_ESCALATE_BELOW,
+    ENSEMBLE_MIN_BUDGET_USD,
     IMAGE_QUALITY_THRESHOLD,
     IMAGE_UNUSABLE_THRESHOLD,
     STRICT_IMAGE_GATE,
     PIPELINE_DEFAULT_TIER,
 )
 from agents import ensemble_agent, reconciler
-from observability.logging import request_id_var, tier_var
+from observability.logging import request_id_var, tier_var, user_id_var
 from persistence.diagnosis_repo import record_diagnosis
 from pipeline.budget import BudgetExhausted, PipelineBudget
 from safety import cross_verify
@@ -72,9 +73,7 @@ _PIPELINE_TIMEOUT_SECONDS = 240
 # cheap/fast tier; the primary (no `_model`) and any unlisted model default to 1.0.
 _MODEL_ACCURACY_WEIGHTS = {
     "gemini-2.5-pro":            1.25,
-    "claude-sonnet-4-6":         1.25,
     "gemini-2.5-flash":          0.90,
-    "claude-haiku-4-5-20251001": 0.90,
 }
 
 
@@ -309,6 +308,23 @@ async def _run_diagnosis_inner(
         and not diagnosis.get("crop_mismatch")
         and not diagnosis.get("is_out_of_distribution")
     )
+    # AISVC-5: budget pre-check. The ensemble fans out 2-4 model calls; if the
+    # user is already near their daily cap, skip it and keep the cheap-pass
+    # result rather than risk a single-request overrun. The authoritative
+    # per-user budget is the Express credit ledger; this is a FastAPI-side guard.
+    if should_escalate:
+        try:
+            from security.spend import remaining_budget
+            _uid = (user_id_var.get() or "").strip()
+            _headroom = remaining_budget(_uid)
+            if _headroom < ENSEMBLE_MIN_BUDGET_USD:
+                logger.info(
+                    "[Orchestrator] STAGE 3.25 — ensemble SKIPPED: budget headroom $%.4f < $%.4f reserve",
+                    _headroom, ENSEMBLE_MIN_BUDGET_USD,
+                )
+                should_escalate = False
+        except Exception:  # noqa: BLE001
+            pass  # never block diagnosis on a budget-read error
     if should_escalate:
         models = ensemble_agent.select(params.get("crop_name"))
         logger.info(
@@ -555,12 +571,13 @@ async def _run_diagnosis_inner(
     logger.info(f"[Orchestrator] ✓ Pipeline DONE in {elapsed}s")
     logger.info(f"{'='*60}\n")
 
-    # Fire-and-forget persistence. record_diagnosis() never raises — a DB
-    # outage or schema-creation failure logs a warning and is dropped, so
-    # this can never delay or break the response to the farmer. We use
-    # create_task (not await) so the user gets the report immediately
-    # while the row is inserted in the background.
-    asyncio.create_task(record_diagnosis(params=params, images=images, report=report))
+    # Persistence is AWAITED, not fire-and-forget: this pipeline runs inside a
+    # Celery task via asyncio.run(), which tears down the event loop the moment
+    # the coroutine returns — a create_task() here would be cancelled before it
+    # ran, so audit rows were never written. record_diagnosis() never raises (a
+    # DB outage logs a warning and is dropped), so awaiting it is safe and the
+    # insert latency is negligible next to the multi-second pipeline.
+    await record_diagnosis(params=params, images=images, report=report)
 
     return report
 

@@ -16,6 +16,7 @@ import api from '../../services/api';
 import { compressImage } from '../../utils/mediaCompressor';
 import { EntrySlide, D } from '../../components/ui/ImmersiveKit';
 import { COLORS } from '../../constants/colors';
+import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import Svg, { Circle, Defs, RadialGradient as SvgRadialGradient, Stop, Path } from 'react-native-svg';
 
@@ -54,10 +55,10 @@ function SectionCard({ children, style, delay = 0 }) {
 }
 
 function SectionHeader({ title, icon, iconColor }) {
-  const color = iconColor || COLORS.primary;
+  const color = iconColor || KHET.primary;
   return (
     <View style={S.sectionHeader}>
-      <View style={[S.sectionIconWrap, { backgroundColor: color + '12' }]}>
+      <View style={[S.sectionIconWrap, { backgroundColor: color + '18' }]}>
         <Ionicons name={icon || 'ellipse'} size={icon ? 14 : 6} color={color} />
       </View>
       <Text style={S.sectionTitle}>{title}</Text>
@@ -66,14 +67,14 @@ function SectionHeader({ title, icon, iconColor }) {
 }
 
 function RowItem({ icon, iconColor, label, subtitle, onPress, showArrow = true, rightElement, isLast }) {
-  const color = iconColor || COLORS.primary;
+  const color = iconColor || KHET.primary;
   return (
     <TouchableOpacity
       style={[S.rowItem, isLast && { borderBottomWidth: 0 }]}
       onPress={onPress}
       activeOpacity={0.6}
     >
-      <View style={[S.rowIcon, { backgroundColor: color + '14' }]}>
+      <View style={[S.rowIcon, { backgroundColor: color + '18' }]}>
         <Ionicons name={icon} size={18} color={color} />
       </View>
       <View style={{ flex: 1 }}>
@@ -81,7 +82,7 @@ function RowItem({ icon, iconColor, label, subtitle, onPress, showArrow = true, 
         {subtitle ? <Text style={S.rowSubtitle} numberOfLines={1}>{subtitle}</Text> : null}
       </View>
       {rightElement || (showArrow && (
-        <Ionicons name="chevron-forward" size={18} color={D.textFaint} />
+        <Ionicons name="chevron-forward" size={18} color={KHET.mutedForeground} />
       ))}
     </TouchableOpacity>
   );
@@ -91,7 +92,7 @@ function QuickTile({ icon, label, color, onPress, index = 0 }) {
   return (
     <EntrySlide delay={index * 80} fromY={20} style={{ flex: 1 }}>
       <TouchableOpacity style={S.quickTile} onPress={onPress} activeOpacity={0.7}>
-        <View style={[S.quickIcon, { backgroundColor: color + '14' }]}>
+        <View style={[S.quickIcon, { backgroundColor: color + '18' }]}>
           <Ionicons name={icon} size={24} color={color} />
         </View>
         <Text style={S.quickLabel} numberOfLines={2}>{label}</Text>
@@ -135,7 +136,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
   };
 
   const FIELDS = [
-    { key: 'name',     label: t('profile.fullName', 'Full name'),        icon: 'person-outline',              color: COLORS.primary, value: name,        setter: setName,        placeholder: t('profile.fullNamePlaceholder'), maxLen: 80  },
+    { key: 'name',     label: t('profile.fullName', 'Full name'),        icon: 'person-outline',              color: KHET.primary, value: name,        setter: setName,        placeholder: t('profile.fullNamePlaceholder'), maxLen: 80  },
     { key: 'quote',    label: t('profile.statusQuote', 'Status / bio'),  icon: 'chatbubble-ellipses-outline', color: D.cyan,         value: statusQuote, setter: setStatusQuote, placeholder: t('profile.statusPlaceholder'),   maxLen: 200 },
     { key: 'district', label: t('profile.district'),                     icon: 'business-outline',            color: D.green,        value: district,    setter: setDistrict,    placeholder: t('profile.districtPlaceholder'), maxLen: 100 },
     { key: 'city',     label: t('profile.cityTown'),                     icon: 'location-outline',            color: D.amber,        value: city,        setter: setCity,        placeholder: t('profile.cityPlaceholder'),     maxLen: 100 },
@@ -154,7 +155,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
           <View style={S.editHeader}>
             <Text style={S.sheetTitle}>{t('editProfile')}</Text>
             <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close" size={22} color={D.textDim} />
+              <Ionicons name="close" size={22} color={KHET.mutedForeground} />
             </TouchableOpacity>
           </View>
 
@@ -168,7 +169,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
               <View key={f.key} style={S.fieldGroup}>
                 <Text style={S.fieldLabel}>{f.label}</Text>
                 <View style={S.fieldRow}>
-                  <View style={[S.fieldIconWrap, { backgroundColor: f.color + '12' }]}>
+                  <View style={[S.fieldIconWrap, { backgroundColor: f.color + '18' }]}>
                     <Ionicons name={f.icon} size={16} color={f.color} />
                   </View>
                   <TextInput
@@ -176,7 +177,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
                     value={f.value}
                     onChangeText={f.setter}
                     placeholder={f.placeholder}
-                    placeholderTextColor={D.textFaint}
+                    placeholderTextColor={KHET.mutedForeground}
                     maxLength={f.maxLen}
                     keyboardType={f.keyboard || 'default'}
                   />
@@ -192,12 +193,12 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
             activeOpacity={0.85}
           >
             <LinearGradient
-              colors={[COLORS.primary, COLORS.primaryMedium]}
+              colors={KHET.gradPrimary}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
               style={S.saveBtnGrad}
             >
               {saving
-                ? <ActivityIndicator color={COLORS.white} />
+                ? <ActivityIndicator color={KHET.primaryForeground} />
                 : <Text style={S.saveBtnTxt}>{t('profile.saveChanges')}</Text>}
             </LinearGradient>
           </TouchableOpacity>
@@ -362,7 +363,7 @@ export default function ProfileScreen({ navigation }) {
       >
         <Animated.View style={{ transform: [{ perspective: 1200 }, { scale: heroScale }], opacity: heroOpacity }}>
           <LinearGradient
-            colors={[COLORS.primary, COLORS.primaryMedium || '#21865A']}
+            colors={KHET.gradPrimary}
             start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
             style={S.hero}
           >
@@ -387,8 +388,8 @@ export default function ProfileScreen({ navigation }) {
                 </View>
                 <View style={S.cameraBtn}>
                   {uploadingPhoto
-                    ? <ActivityIndicator size="small" color={COLORS.white} />
-                    : <Ionicons name="camera" size={12} color={COLORS.white} />}
+                    ? <ActivityIndicator size="small" color={KHET.white} />
+                    : <Ionicons name="camera" size={12} color={KHET.white} />}
                 </View>
               </TouchableOpacity>
 
@@ -408,7 +409,7 @@ export default function ProfileScreen({ navigation }) {
 
               <View style={S.heroActions}>
                 <TouchableOpacity style={S.editBtn} onPress={() => setShowEditModal(true)} activeOpacity={0.75}>
-                  <Ionicons name="create-outline" size={14} color={COLORS.white} />
+                  <Ionicons name="create-outline" size={14} color={KHET.white} />
                   <Text style={S.editBtnTxt}>{t('editProfile')}</Text>
                 </TouchableOpacity>
                 <Text style={S.memberSince}>
@@ -462,8 +463,8 @@ export default function ProfileScreen({ navigation }) {
                 <Switch
                   value={notifications}
                   onValueChange={setNotifications}
-                  trackColor={{ false: COLORS.slateLight, true: COLORS.primary + '70' }}
-                  thumbColor={notifications ? COLORS.primary : COLORS.textDisabled}
+                  trackColor={{ false: KHET.border, true: KHET.primary + '70' }}
+                  thumbColor={notifications ? KHET.primary : KHET.white}
                 />
               }
             />
@@ -500,12 +501,12 @@ export default function ProfileScreen({ navigation }) {
           <EntrySlide delay={360} fromY={16}>
             <TouchableOpacity activeOpacity={0.85} onPress={() => navigation.navigate('AIAssistant', { screen: 'Scheme' })}>
               <LinearGradient
-                colors={[COLORS.primary, COLORS.primaryMedium, COLORS.primaryLight]}
+                colors={KHET.gradPrimary}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                 style={S.schemeBanner}
               >
                 <View style={S.schemeIconWrap}>
-                  <Ionicons name="ribbon" size={22} color={COLORS.white} />
+                  <Ionicons name="ribbon" size={22} color={KHET.white} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={S.schemesTitle}>{t('profile.schemesTitle')}</Text>
@@ -561,10 +562,10 @@ export default function ProfileScreen({ navigation }) {
           <EntrySlide delay={540} fromY={16}>
             <TouchableOpacity style={S.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
               <View style={S.logoutIconWrap}>
-                <Ionicons name="log-out-outline" size={18} color={D.red} />
+                <Ionicons name="log-out-outline" size={18} color={KHET.destructive} />
               </View>
               <Text style={S.logoutLabel}>{t('logout')}</Text>
-              <Ionicons name="chevron-forward" size={16} color={D.red + '80'} />
+              <Ionicons name="chevron-forward" size={16} color={KHET.destructive + '80'} />
             </TouchableOpacity>
           </EntrySlide>
 
@@ -607,15 +608,15 @@ export default function ProfileScreen({ navigation }) {
           <View style={S.stateSheet}>
             <View style={S.sheetHandle} />
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4, paddingHorizontal: 4 }}>
-              <Ionicons name="globe-outline" size={22} color={COLORS.primary} />
-              <Text style={{ fontSize: 16, fontWeight: '800', color: D.text, flex: 1 }}>
+              <Ionicons name="globe-outline" size={22} color={KHET.primary} />
+              <Text style={{ fontSize: 17, fontFamily: KFONT.displaySemi, color: KHET.foreground, flex: 1, letterSpacing: -0.3 }}>
                 {t('profile.selectState')}
               </Text>
               <TouchableOpacity onPress={() => { setShowStateModal(false); setShowLangModal(true); }}>
-                <Text style={{ fontSize: 12, color: D.cyan, fontWeight: '600' }}>{t('profile.manualLang')}</Text>
+                <Text style={{ fontSize: 12, color: KHET.primary, fontFamily: KFONT.sansSemi }}>{t('profile.manualLang')}</Text>
               </TouchableOpacity>
             </View>
-            <Text style={{ fontSize: 12, color: D.textDim, marginBottom: 16, paddingHorizontal: 4 }}>
+            <Text style={{ fontSize: 12, color: KHET.mutedForeground, fontFamily: KFONT.sans, marginBottom: 16, paddingHorizontal: 4 }}>
               {t('profile.stateLangHint')}
             </Text>
             <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
@@ -630,18 +631,18 @@ export default function ProfileScreen({ navigation }) {
                       return (
                         <TouchableOpacity
                           key={state.name}
-                          style={[S.stateOption, isSelected && { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '10' }]}
+                          style={[S.stateOption, isSelected && { borderColor: KHET.primary, backgroundColor: KHET.accent }]}
                           onPress={() => { setLanguageByState(state.name); setShowStateModal(false); }}
                           activeOpacity={0.75}
                         >
                           <View style={{ flex: 1 }}>
-                            <Text style={[S.stateName, isSelected && { color: COLORS.primary }]}>{state.name}</Text>
+                            <Text style={[S.stateName, isSelected && { color: KHET.primary }]}>{state.name}</Text>
                             {state.nativeName ? (
                               <Text style={S.stateNative}>{state.nativeName}</Text>
                             ) : null}
                           </View>
                           <Text style={S.stateLangBadge}>{state.lang.toUpperCase()}</Text>
-                          {isSelected && <Ionicons name="checkmark-circle" size={20} color={COLORS.primary} style={{ marginLeft: 6 }} />}
+                          {isSelected && <Ionicons name="checkmark-circle" size={20} color={KHET.primary} style={{ marginLeft: 6 }} />}
                         </TouchableOpacity>
                       );
                     })}
@@ -659,26 +660,26 @@ export default function ProfileScreen({ navigation }) {
           <View style={S.langSheet}>
             <View style={S.sheetHandle} />
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-              <Ionicons name="language" size={22} color={COLORS.primary} />
-              <Text style={{ fontSize: 13, fontWeight: '700', color: D.text, flex: 1 }}>
+              <Ionicons name="language" size={22} color={KHET.primary} />
+              <Text style={{ fontSize: 15, fontFamily: KFONT.displaySemi, color: KHET.foreground, flex: 1, letterSpacing: -0.3 }}>
                 Choose Language / भाषा चुनें / भाषा निवडा
               </Text>
             </View>
             {LANGUAGES.map((lang) => (
               <TouchableOpacity
                 key={lang.code}
-                style={[S.langOption, language === lang.code && { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '10' }]}
+                style={[S.langOption, language === lang.code && { borderColor: KHET.primary, backgroundColor: KHET.accent }]}
                 onPress={() => { setLanguage(lang.code); setShowLangModal(false); }}
                 activeOpacity={0.8}
               >
                 <Text style={{ fontSize: 28 }}>{lang.flag}</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={[{ fontSize: 16, fontWeight: '700', color: D.text }, language === lang.code && { color: COLORS.primary }]}>
+                  <Text style={[{ fontSize: 16, fontFamily: KFONT.sansSemi, color: KHET.foreground }, language === lang.code && { color: KHET.primary }]}>
                     {lang.name}
                   </Text>
-                  <Text style={{ fontSize: 13, color: D.textFaint, marginTop: 2 }}>{lang.nativeName}{lang.region ? `  ·  ${lang.region}` : ''}</Text>
+                  <Text style={{ fontSize: 13, color: KHET.mutedForeground, fontFamily: KFONT.sans, marginTop: 2 }}>{lang.nativeName}{lang.region ? `  ·  ${lang.region}` : ''}</Text>
                 </View>
-                {language === lang.code && <Ionicons name="checkmark-circle" size={22} color={COLORS.primary} />}
+                {language === lang.code && <Ionicons name="checkmark-circle" size={22} color={KHET.primary} />}
               </TouchableOpacity>
             ))}
           </View>
@@ -689,7 +690,7 @@ export default function ProfileScreen({ navigation }) {
 }
 
 const S = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F1F3F6' },
+  root: { flex: 1, backgroundColor: KHET.background },
 
   hero: {
     paddingTop: Platform.OS === 'android' ? 52 : 52,
@@ -703,7 +704,7 @@ const S = StyleSheet.create({
   avatarWrap: { position: 'relative', marginBottom: 14 },
   avatarRing: {
     width: 96, height: 96, borderRadius: 48,
-    borderWidth: 3, borderColor: 'rgba(255,255,255,0.5)',
+    borderWidth: 3, borderColor: KHET.primaryGlow,
     overflow: 'hidden',
     shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 }, elevation: 8,
@@ -713,24 +714,24 @@ const S = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   avatarImg: { width: '100%', height: '100%' },
-  avatarTxt: { fontSize: 34, fontWeight: '900', color: COLORS.white },
+  avatarTxt: { fontSize: 34, fontFamily: KFONT.displayBold, color: KHET.white },
   cameraBtn: {
     position: 'absolute', bottom: 2, right: 2,
     width: 28, height: 28, borderRadius: 14,
-    backgroundColor: COLORS.primary,
+    backgroundColor: KHET.primaryGlow,
     justifyContent: 'center', alignItems: 'center',
-    borderWidth: 2.5, borderColor: COLORS.white,
+    borderWidth: 2.5, borderColor: KHET.white,
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 }, elevation: 4,
   },
 
   heroName: {
-    fontSize: 22, fontWeight: '900', color: COLORS.white,
-    textAlign: 'center', marginBottom: 4,
+    fontSize: 24, fontFamily: KFONT.displayBold, color: KHET.primaryForeground,
+    textAlign: 'center', marginBottom: 4, letterSpacing: -0.5,
     textShadowColor: 'rgba(0,0,0,0.2)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3,
   },
   heroPhone: {
-    fontSize: 14, color: 'rgba(255,255,255,0.9)', fontWeight: '500',
+    fontSize: 14, color: 'rgba(255,255,255,0.9)', fontFamily: KFONT.sans,
     marginBottom: 6, textAlign: 'center',
   },
   locRow: {
@@ -738,13 +739,13 @@ const S = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 12,
     paddingHorizontal: 10, paddingVertical: 4,
   },
-  heroLoc: { fontSize: 12, color: 'rgba(255,255,255,0.9)', fontWeight: '500' },
+  heroLoc: { fontSize: 12, color: 'rgba(255,255,255,0.9)', fontFamily: KFONT.sansMed },
   quoteWrap: {
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 6,
     marginBottom: 4, marginTop: 2,
   },
-  heroQuote: { fontSize: 12, color: 'rgba(255,255,255,0.85)', fontStyle: 'italic', textAlign: 'center' },
+  heroQuote: { fontSize: 13, color: 'rgba(255,255,255,0.9)', fontFamily: KFONT.displayItalic, fontStyle: 'italic', textAlign: 'center' },
   heroActions: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     width: '100%', marginTop: 14,
@@ -755,60 +756,60 @@ const S = StyleSheet.create({
     borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
   },
-  editBtnTxt: { fontSize: 13, fontWeight: '700', color: COLORS.white },
-  memberSince: { fontSize: 12, color: 'rgba(255,255,255,0.65)', fontStyle: 'italic' },
+  editBtnTxt: { fontSize: 13, fontFamily: KFONT.sansSemi, color: KHET.white },
+  memberSince: { fontSize: 12, color: 'rgba(255,255,255,0.7)', fontFamily: KFONT.displayItalic, fontStyle: 'italic' },
 
   body: { paddingHorizontal: 16, marginTop: -12 },
 
   statsCard: {
-    flexDirection: 'row', backgroundColor: COLORS.white,
+    flexDirection: 'row', backgroundColor: KHET.card,
     borderRadius: 20, paddingVertical: 20, paddingHorizontal: 8,
-    shadowColor: COLORS.primary, shadowOpacity: 0.08, shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 }, elevation: 4,
+    borderWidth: 1, borderColor: KHET.border,
+    ...KSHADOW.soft,
     marginBottom: 16,
   },
   statCell: { flex: 1, alignItems: 'center', gap: 6 },
-  statCellBorder: { borderRightWidth: 1, borderRightColor: 'rgba(0,0,0,0.06)' },
+  statCellBorder: { borderRightWidth: 1, borderRightColor: KHET.border },
   statIcon: {
     width: 44, height: 44, borderRadius: 14,
     justifyContent: 'center', alignItems: 'center', marginBottom: 2,
   },
-  statValue: { fontSize: 22, fontWeight: '900', color: D.text },
-  statLabel: { fontSize: 11, color: D.textDim, fontWeight: '600' },
+  statValue: { fontSize: 22, fontFamily: KFONT.displayBold, color: KHET.foreground },
+  statLabel: { fontSize: 11, color: KHET.mutedForeground, fontFamily: KFONT.sansSemi },
 
   sectionCard: {
-    backgroundColor: COLORS.white, borderRadius: 14,
+    backgroundColor: KHET.card, borderRadius: 20,
     paddingHorizontal: 14, paddingTop: 14, paddingBottom: 4,
     marginBottom: 12,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 }, elevation: 2,
+    borderWidth: 1, borderColor: KHET.border,
+    ...KSHADOW.soft,
   },
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginBottom: 6, paddingBottom: 10,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)',
+    borderBottomWidth: 1, borderBottomColor: KHET.border,
   },
   sectionIconWrap: {
     width: 26, height: 26, borderRadius: 8,
     justifyContent: 'center', alignItems: 'center',
   },
   sectionTitle: {
-    fontSize: 12.5, fontWeight: '800', color: D.textDim,
-    letterSpacing: 0.6, textTransform: 'uppercase',
+    fontSize: 12.5, fontFamily: KFONT.sansBold, color: KHET.mutedForeground,
+    letterSpacing: 0.8, textTransform: 'uppercase',
   },
 
   rowItem: {
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: 13,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)',
+    borderBottomWidth: 1, borderBottomColor: KHET.border,
     gap: 14,
   },
   rowIcon: {
     width: 38, height: 38, borderRadius: 19,
     justifyContent: 'center', alignItems: 'center',
   },
-  rowLabel: { fontSize: 14.5, fontWeight: '600', color: D.text },
-  rowSubtitle: { fontSize: 12, color: D.textDim, marginTop: 2 },
+  rowLabel: { fontSize: 14.5, fontFamily: KFONT.sansSemi, color: KHET.foreground },
+  rowSubtitle: { fontSize: 12, color: KHET.mutedForeground, fontFamily: KFONT.sans, marginTop: 2 },
 
   quickGrid: { flexDirection: 'row', paddingBottom: 4 },
   quickTile: {
@@ -819,22 +820,21 @@ const S = StyleSheet.create({
     width: 52, height: 52, borderRadius: 16,
     justifyContent: 'center', alignItems: 'center',
   },
-  quickLabel: { fontSize: 11, fontWeight: '600', color: D.textDim, textAlign: 'center', lineHeight: 15 },
+  quickLabel: { fontSize: 11, fontFamily: KFONT.sansMed, color: KHET.foreground, textAlign: 'center', lineHeight: 15 },
 
   schemeBanner: {
     flexDirection: 'row', alignItems: 'center',
     gap: 14, paddingHorizontal: 20, paddingVertical: 18,
     borderRadius: 20, marginBottom: 14,
-    shadowColor: COLORS.primary, shadowOpacity: 0.15, shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }, elevation: 4,
+    ...KSHADOW.elegant,
   },
   schemeIconWrap: {
     width: 44, height: 44, borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center', alignItems: 'center',
   },
-  schemesTitle: { fontSize: 15, fontWeight: '800', color: COLORS.white },
-  schemesSub: { fontSize: 12, color: 'rgba(255,255,255,0.85)', marginTop: 3 },
+  schemesTitle: { fontSize: 16, fontFamily: KFONT.displaySemi, color: KHET.white, letterSpacing: -0.3 },
+  schemesSub: { fontSize: 12, color: 'rgba(255,255,255,0.85)', fontFamily: KFONT.sans, marginTop: 3 },
 
   sellerBanner: {
     flexDirection: 'row', alignItems: 'center',
@@ -848,8 +848,8 @@ const S = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center', alignItems: 'center',
   },
-  sellerTitle: { fontSize: 15, fontWeight: '800', color: COLORS.white },
-  sellerSub: { fontSize: 12, color: 'rgba(255,255,255,0.9)', marginTop: 3 },
+  sellerTitle: { fontSize: 16, fontFamily: KFONT.displaySemi, color: KHET.white, letterSpacing: -0.3 },
+  sellerSub: { fontSize: 12, color: 'rgba(255,255,255,0.9)', fontFamily: KFONT.sans, marginTop: 3 },
   bannerArrow: {
     width: 34, height: 34, borderRadius: 17,
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -858,21 +858,20 @@ const S = StyleSheet.create({
 
   logoutBtn: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.white, borderRadius: 20,
+    backgroundColor: KHET.card, borderRadius: 20,
     paddingHorizontal: 16, paddingVertical: 16,
     gap: 12, marginBottom: 8,
-    borderWidth: 1.5, borderColor: D.red + '15',
-    shadowColor: D.red, shadowOpacity: 0.06, shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 }, elevation: 1,
+    borderWidth: 1, borderColor: KHET.destructive + '33',
+    ...KSHADOW.soft,
   },
   logoutIconWrap: {
     width: 40, height: 40, borderRadius: 12,
-    backgroundColor: D.red + '10',
+    backgroundColor: KHET.destructive + '14',
     justifyContent: 'center', alignItems: 'center',
   },
-  logoutLabel: { flex: 1, fontSize: 15, fontWeight: '700', color: D.red },
+  logoutLabel: { flex: 1, fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.destructive },
 
-  version: { textAlign: 'center', fontSize: 12, color: D.textFaint, marginTop: 12, marginBottom: 8 },
+  version: { textAlign: 'center', fontSize: 12, color: KHET.mutedForeground, fontFamily: KFONT.sans, marginTop: 12, marginBottom: 8 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
 
@@ -883,31 +882,31 @@ const S = StyleSheet.create({
   },
   confirmCard: {
     width: '100%', maxWidth: 360,
-    backgroundColor: COLORS.white, borderRadius: 24,
+    backgroundColor: KHET.card, borderRadius: 24,
     paddingHorizontal: 24, paddingTop: 24, paddingBottom: 20,
     alignItems: 'center',
-    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 24,
-    shadowOffset: { width: 0, height: 8 }, elevation: 12,
+    borderWidth: 1, borderColor: KHET.border,
+    ...KSHADOW.elegant,
   },
   confirmIconWrap: {
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: D.red + '12',
+    backgroundColor: KHET.destructive + '14',
     justifyContent: 'center', alignItems: 'center', marginBottom: 14,
   },
-  confirmTitle: { fontSize: 19, fontWeight: '800', color: D.text, marginBottom: 6, textAlign: 'center' },
-  confirmMsg: { fontSize: 14, color: D.textDim, textAlign: 'center', lineHeight: 20, marginBottom: 22 },
+  confirmTitle: { fontSize: 20, fontFamily: KFONT.displaySemi, color: KHET.foreground, marginBottom: 6, textAlign: 'center', letterSpacing: -0.3 },
+  confirmMsg: { fontSize: 14, color: KHET.mutedForeground, fontFamily: KFONT.sans, textAlign: 'center', lineHeight: 20, marginBottom: 22 },
   confirmBtnRow: { flexDirection: 'row', gap: 12, width: '100%' },
   confirmBtn: {
     flex: 1, paddingVertical: 14, borderRadius: 14,
     justifyContent: 'center', alignItems: 'center',
   },
-  confirmCancel: { backgroundColor: '#F1F3F0' },
-  confirmCancelTxt: { fontSize: 15, fontWeight: '700', color: D.text },
-  confirmDanger: { backgroundColor: D.red },
-  confirmDangerTxt: { fontSize: 15, fontWeight: '800', color: COLORS.white },
+  confirmCancel: { backgroundColor: KHET.muted, borderWidth: 1, borderColor: KHET.border },
+  confirmCancelTxt: { fontSize: 15, fontFamily: KFONT.sansSemi, color: KHET.foreground },
+  confirmDanger: { backgroundColor: KHET.destructive },
+  confirmDangerTxt: { fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.white },
   editKav: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   editSheet: {
-    backgroundColor: COLORS.white,
+    backgroundColor: KHET.card,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     paddingHorizontal: 22, paddingTop: 12,
     paddingBottom: Platform.OS === 'ios' ? 36 : 22,
@@ -916,61 +915,64 @@ const S = StyleSheet.create({
   editHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   editScroll: { flexGrow: 0 },
   sheetHandle: {
-    width: 40, height: 4, backgroundColor: COLORS.slateLight,
+    width: 40, height: 4, backgroundColor: KHET.border,
     borderRadius: 2, alignSelf: 'center', marginBottom: 14,
   },
-  sheetTitle: { fontSize: 19, fontWeight: '800', color: D.text },
+  sheetTitle: { fontSize: 20, fontFamily: KFONT.displaySemi, color: KHET.foreground, letterSpacing: -0.3 },
   fieldGroup: { marginBottom: 14 },
-  fieldLabel: { fontSize: 12.5, fontWeight: '700', color: D.textDim, marginBottom: 6, marginLeft: 2 },
+  fieldLabel: { fontSize: 11, fontFamily: KFONT.sansBold, color: KHET.mutedForeground, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8, marginLeft: 2 },
   fieldRow: {
     flexDirection: 'row', alignItems: 'center',
-    borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.06)',
-    borderRadius: 14, paddingHorizontal: 12, paddingVertical: 12,
-    backgroundColor: '#F8FAF7',
+    borderWidth: 1, borderColor: KHET.border,
+    borderRadius: 16, paddingHorizontal: 12, paddingVertical: 12,
+    backgroundColor: KHET.card,
     gap: 10,
+    ...KSHADOW.soft,
   },
   fieldIconWrap: {
     width: 32, height: 32, borderRadius: 10,
     justifyContent: 'center', alignItems: 'center',
   },
-  fieldInput: { flex: 1, fontSize: 15, color: D.text, padding: 0 },
-  saveBtn: { borderRadius: 16, overflow: 'hidden', marginTop: 12 },
+  fieldInput: { flex: 1, fontSize: 15, color: KHET.foreground, fontFamily: KFONT.sansMed, padding: 0 },
+  saveBtn: { borderRadius: 16, overflow: 'hidden', marginTop: 12, ...KSHADOW.elegant },
   saveBtnGrad: { paddingVertical: 16, alignItems: 'center', borderRadius: 16 },
-  saveBtnTxt: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
+  saveBtnTxt: { color: KHET.primaryForeground, fontSize: 16, fontFamily: KFONT.sansSemi },
 
   langSheet: {
-    backgroundColor: COLORS.white,
+    backgroundColor: KHET.card,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     padding: 20, paddingBottom: 40,
   },
   langOption: {
     flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16,
-    borderRadius: 14, marginBottom: 10,
-    backgroundColor: '#F8FAF7', borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.06)',
+    borderRadius: 16, marginBottom: 10,
+    backgroundColor: KHET.card, borderWidth: 1, borderColor: KHET.border,
+    ...KSHADOW.soft,
   },
 
   stateSheet: {
-    backgroundColor: COLORS.white,
+    backgroundColor: KHET.card,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     padding: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 24,
     maxHeight: '85%',
   },
   regionHeader: {
-    fontSize: 11, fontWeight: '700', color: D.textDim,
-    letterSpacing: 0.8, textTransform: 'uppercase',
+    fontSize: 11, fontFamily: KFONT.sansBold, color: KHET.mutedForeground,
+    letterSpacing: 1, textTransform: 'uppercase',
     paddingHorizontal: 4, paddingTop: 14, paddingBottom: 6,
   },
   stateOption: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 14, paddingVertical: 12,
-    borderRadius: 14, marginBottom: 6,
-    backgroundColor: '#F8FAF7', borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.06)',
+    borderRadius: 16, marginBottom: 6,
+    backgroundColor: KHET.card, borderWidth: 1, borderColor: KHET.border,
+    ...KSHADOW.soft,
   },
-  stateName: { fontSize: 15, fontWeight: '600', color: D.text },
-  stateNative: { fontSize: 12, color: D.textFaint, marginTop: 1 },
+  stateName: { fontSize: 15, fontFamily: KFONT.sansSemi, color: KHET.foreground },
+  stateNative: { fontSize: 12, color: KHET.mutedForeground, fontFamily: KFONT.sans, marginTop: 1 },
   stateLangBadge: {
-    fontSize: 11, fontWeight: '700', color: D.textFaint,
-    backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: 6,
+    fontSize: 11, fontFamily: KFONT.sansBold, color: KHET.accentForeground,
+    backgroundColor: KHET.accent, borderRadius: 6,
     paddingHorizontal: 7, paddingVertical: 3,
   },
 });
