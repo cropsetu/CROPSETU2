@@ -66,6 +66,26 @@ export async function enqueue(queueName, jobName, data, opts = {}) {
   }
 }
 
+/**
+ * Snapshot job counts per queue for the admin Ops dashboard. Read-only; reports
+ * `available: false` when the queue layer is disabled or Redis is down (the
+ * fail-open inline path is running) rather than throwing.
+ */
+export async function getQueueStats() {
+  const out = {};
+  const usable = ENV.QUEUE_ENABLED && redis?.status === 'ready';
+  for (const name of Object.values(QUEUE_NAMES)) {
+    if (!usable) { out[name] = { available: false }; continue; }
+    try {
+      const counts = await getQueue(name).getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed', 'paused');
+      out[name] = { available: true, ...counts };
+    } catch (err) {
+      out[name] = { available: false, error: err.message };
+    }
+  }
+  return out;
+}
+
 /** Close all producer queues (graceful shutdown). */
 export async function closeQueues() {
   await Promise.allSettled([..._queues.values()].map((q) => q.close()));

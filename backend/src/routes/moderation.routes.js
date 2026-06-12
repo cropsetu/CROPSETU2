@@ -13,6 +13,7 @@ import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { sendSuccess, sendError, sendNotFound } from '../utils/response.js';
 import logger from '../utils/logger.js';
+import prisma from '../config/db.js';
 import { listFlags, resolveFlag, MODERATION_STATUSES } from '../services/moderation.service.js';
 
 const router = Router();
@@ -47,6 +48,31 @@ router.get(
     }
   }
 );
+
+// ── GET /:id — flag detail + the underlying flagged content ──────────────────
+router.get('/:id', [param('id').isUUID()], validate, async (req, res) => {
+  try {
+    const flag = await prisma.contentFlag.findUnique({ where: { id: req.params.id } });
+    if (!flag) return sendNotFound(res, 'Flag');
+
+    let entity = null;
+    if (flag.entityType === 'Review') {
+      entity = await prisma.review.findUnique({
+        where: { id: flag.entityId },
+        include: { user: { select: { id: true, name: true } }, product: { select: { id: true, name: true } } },
+      });
+    } else if (flag.entityType === 'Product') {
+      entity = await prisma.product.findUnique({
+        where: { id: flag.entityId },
+        include: { seller: { select: { id: true, name: true } } },
+      });
+    }
+    return sendSuccess(res, { flag, entity });
+  } catch (err) {
+    logger.error({ err }, '[Moderation] GET /:id error');
+    return sendError(res, 'Failed to load flag detail', 500);
+  }
+});
 
 // ── POST /:id/resolve — clear or remove a flagged item ───────────────────────
 router.post(

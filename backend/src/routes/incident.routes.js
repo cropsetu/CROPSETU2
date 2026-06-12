@@ -40,12 +40,16 @@ router.get(
     query('status').optional().isIn(STATUSES),
     query('severity').optional().isIn(SEVERITIES),
     query('category').optional().isIn(CATEGORIES),
+    query('notificationRequired').optional().isBoolean(),
+    query('overdue').optional().isBoolean(),
   ],
   validate,
   async (req, res) => {
     try {
       const incidents = await listIncidents({
         status: req.query.status, severity: req.query.severity, category: req.query.category,
+        notificationRequired: req.query.notificationRequired !== undefined ? req.query.notificationRequired === 'true' : undefined,
+        overdue: req.query.overdue === 'true',
       });
       return sendSuccess(res, { incidents });
     } catch (err) {
