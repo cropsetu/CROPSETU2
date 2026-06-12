@@ -109,30 +109,36 @@ app.set('io', io);
 // ── Start ─────────────────────────────────────────────────────────────────────
 async function start() {
   try {
-    await prisma.$connect();
-    logger.info('[DB] PostgreSQL connected');
+    // ── Listen FIRST ─────────────────────────────────────────────────────────
+    // The deploy healthcheck hits /healthz (dependency-free liveness), so the
+    // HTTP server must start before any DB/Redis work. Every dependency below is
+    // attached AFTER listen and NON-BLOCKING, so a slow/unreachable Redis (e.g.
+    // Railway private networking still warming up at boot) can never prevent the
+    // server from listening and never fail the healthcheck. Prisma connects
+    // lazily on first query, so warming it eagerly is a nicety, not a gate.
+    httpServer.listen(ENV.PORT, '0.0.0.0', () => {
+      logger.info('[Server] FarmEasy API running on http://localhost:%d%s', ENV.PORT, ENV.API_PREFIX);
+      logger.info('[Server] Environment: %s', ENV.NODE_ENV);
+    });
 
-    // Seed default feature flags (no-op if already seeded)
-    await seedDefaultFlags().catch(e => logger.warn('[FeatureFlags] Seed skipped: %s', e.message));
+    // Warm the DB connection (non-fatal — queries connect lazily regardless).
+    prisma.$connect()
+      .then(() => logger.info('[DB] PostgreSQL connected'))
+      .catch(e => logger.error('[DB] connect failed: %s', e?.message || e));
+
+    // Seed default feature flags (no-op if already seeded). Non-blocking.
+    seedDefaultFlags().catch(e => logger.warn('[FeatureFlags] Seed skipped: %s', e.message));
 
     // Connect the shared cache client in the BACKGROUND. Redis is optional for
     // liveness (commands fail-open while it's down) and the client retries forever
-    // via its retryStrategy, so we must NOT await it here — a slow/unreachable
-    // Redis at boot would otherwise block httpServer.listen and fail the deploy
-    // healthcheck. It logs once it connects (or keeps retrying quietly).
+    // via its retryStrategy. It logs once it connects (or keeps retrying quietly).
     redis.connect()
       .then(() => logger.info('[Redis] Connected'))
       .catch((e) => logger.info('[Redis] Not available at boot — retrying in background (%s)', e?.message || e));
 
     // Subscribe for cross-instance feature-flag invalidations (no-op if Redis is
-    // down — flags then converge via the in-process TTL). Not awaited for the same
-    // reason: its subscriber connection retries forever and must not gate startup.
+    // down — flags then converge via the in-process TTL).
     initFlagInvalidationSubscriber();
-
-    httpServer.listen(ENV.PORT, () => {
-      logger.info('[Server] FarmEasy API running on http://localhost:%d%s', ENV.PORT, ENV.API_PREFIX);
-      logger.info('[Server] Environment: %s', ENV.NODE_ENV);
-    });
 
     // ── Job queue workers (in-process) ──────────────────────────────────────
     // Process queued heavy work (notification delivery, etc.) in this process so

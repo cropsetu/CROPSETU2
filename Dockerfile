@@ -38,7 +38,9 @@ COPY --from=admin-build /admin/dist /app/admin/dist
 
 ENV NODE_ENV=production
 ENV ADMIN_DIST_DIR=/app/admin/dist
-EXPOSE 3000
+# No EXPOSE: Railway detects an EXPOSEd port as the healthcheck/proxy target,
+# which would mismatch the $PORT the app actually listens on. With none, Railway
+# routes to the PORT env var it injects (which the server binds to).
 
 # Push schema to the DB (no migration history yet) then start. Railway's
 # startCommand overrides this if set; kept so the image runs standalone too.
