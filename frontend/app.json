@@ -57,7 +57,10 @@
       "react-native-compressor"
     ],
     "extra": {
-      "eas": {}
-    }
+      "eas": {
+        "projectId": "f1df1b28-f453-4395-8134-e389cadb394a"
+      }
+    },
+    "owner": "shubhamyeljale2025"
   }
 }
