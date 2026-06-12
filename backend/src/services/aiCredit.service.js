@@ -348,6 +348,41 @@ export async function addCredits(userId, amount, type = 'purchase', description 
 }
 
 /**
+ * Admin manual credit adjustment (grant or deduct). `amount` may be negative.
+ * Records ONE AICreditTransaction (type 'admin_adjust') carrying the required
+ * reason and the acting admin's id, and clamps the balance at zero. Returns the
+ * new balance + the transaction. The route audits this in the AuditLog too.
+ */
+export async function adminAdjustCredits(userId, amount, reason, adminId) {
+  await getOrCreateCredits(userId); // ensure the credit row exists (+ monthly refill)
+
+  return prisma.$transaction(async (tx) => {
+    let credit = await tx.aICredit.update({
+      where: { userId },
+      data: {
+        balance: { increment: amount },
+        // Grants add to lifetimeEarned; deductions add to lifetimeSpent.
+        ...(amount >= 0 ? { lifetimeEarned: { increment: amount } } : { lifetimeSpent: { increment: -amount } }),
+      },
+    });
+    if (credit.balance < 0) {
+      credit = await tx.aICredit.update({ where: { userId }, data: { balance: 0 } });
+    }
+    const transaction = await tx.aICreditTransaction.create({
+      data: {
+        creditId: credit.id,
+        amount,
+        balanceAfter: credit.balance,
+        type: 'admin_adjust',
+        description: reason,
+        metadata: { adminId },
+      },
+    });
+    return { balance: credit.balance, transaction };
+  });
+}
+
+/**
  * Get user's credit balance + recent transactions.
  */
 export async function getCreditSummary(userId) {

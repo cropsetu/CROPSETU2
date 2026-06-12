@@ -182,12 +182,22 @@ export async function listIncidents({
   status,
   severity,
   category,
+  notificationRequired,
+  overdue,
   limit = 100,
 } = {}) {
   const where = {};
   if (status) where.status = status;
   if (severity) where.severity = severity;
   if (category) where.category = category;
+  if (notificationRequired !== undefined) where.notificationRequired = notificationRequired;
+  // Breach-SLA view: notification is required, the Board has NOT been notified, and
+  // the statutory deadline (notifyDueAt) has already passed.
+  if (overdue) {
+    where.notificationRequired = true;
+    where.boardNotifiedAt = null;
+    where.notifyDueAt = { lt: new Date() };
+  }
   const rows = await prisma.securityIncident.findMany({
     where,
     orderBy: { detectedAt: "desc" },
