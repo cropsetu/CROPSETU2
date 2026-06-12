@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/server.js",
   "scripts": {
-    "dev": "nodemon --delay 1000 --watch src --watch .env --ext js,json,env src/server.js",
+    "dev": "nodemon --legacy-watch --delay 1000 --watch src --watch .env --ext js,json,env src/server.js",
     "start": "node src/server.js",
     "start:prod": "npx prisma migrate deploy && node src/server.js",
     "worker": "node src/worker.js",
@@ -16,6 +16,7 @@
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
+    "db:seed:admin": "node prisma/seed-admin.js",
     "db:seed:chat": "node prisma/seed.chat.js",
     "db:seed:crops": "node prisma/seed-crops.js",
     "db:seed:msp": "node prisma/seed-msp.js",

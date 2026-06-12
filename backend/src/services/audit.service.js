@@ -113,6 +113,48 @@ export const AUDIT_ACTIONS = {
   FRAUD_PAYMENT_TAMPER: "FRAUD_PAYMENT_TAMPER",
 };
 
+// ── Admin-panel action taxonomy (OPS-8) ──────────────────────────────────────
+// Every mutation made through the /api/v1/admin/* API writes an AuditLog row with
+// one of these actions, so the admin audit viewer + compliance exports can filter
+// by a stable, greppable vocabulary. ADMIN_PII_REVEAL is emitted by adminPii.js
+// whenever decrypted PII is shipped to an operator (with the supplied reason).
+export const ADMIN_ACTIONS = {
+  PII_REVEAL:           'ADMIN_PII_REVEAL',
+  USER_UPDATE:          'ADMIN_USER_UPDATE',          // role / isActive change
+  USER_FORCE_LOGOUT:    'ADMIN_USER_FORCE_LOGOUT',
+  KYC_VERIFY:           'ADMIN_KYC_VERIFY',
+  KYC_REJECT:           'ADMIN_KYC_REJECT',
+  KYC_DOCS_ACCESS:      'ADMIN_KYC_DOCS_ACCESS',       // viewed a seller's KYC documents (PII access)
+  CATEGORY_CREATE:      'ADMIN_CATEGORY_CREATE',
+  CATEGORY_UPDATE:      'ADMIN_CATEGORY_UPDATE',
+  CATEGORY_DELETE:      'ADMIN_CATEGORY_DELETE',
+  PRODUCT_UPDATE:       'ADMIN_PRODUCT_UPDATE',
+  PRODUCT_DELETE:       'ADMIN_PRODUCT_DELETE',
+  REVIEW_DELETE:        'ADMIN_REVIEW_DELETE',
+  ORDER_UPDATE:         'ADMIN_ORDER_UPDATE',
+  LISTING_UPDATE:       'ADMIN_LISTING_UPDATE',        // animal / machinery / labour
+  POST_UPDATE:          'ADMIN_POST_UPDATE',           // pin/unpin
+  POST_DELETE:          'ADMIN_POST_DELETE',           // soft-delete
+  COMMENT_DELETE:       'ADMIN_COMMENT_DELETE',
+  GROUP_UPDATE:         'ADMIN_GROUP_UPDATE',
+  AI_CREDIT_ADJUST:     'ADMIN_AI_CREDIT_ADJUST',
+  AI_FEEDBACK_UPDATE:   'ADMIN_AI_FEEDBACK_UPDATE',    // mark usedForRetrain
+  SCHEME_CREATE:        'ADMIN_SCHEME_CREATE',
+  SCHEME_UPDATE:        'ADMIN_SCHEME_UPDATE',
+  SCHEME_DELETE:        'ADMIN_SCHEME_DELETE',
+  MSP_CREATE:           'ADMIN_MSP_CREATE',
+  MSP_UPDATE:           'ADMIN_MSP_UPDATE',
+  MSP_DELETE:           'ADMIN_MSP_DELETE',
+  CROP_MASTER_CREATE:   'ADMIN_CROP_MASTER_CREATE',
+  CROP_MASTER_UPDATE:   'ADMIN_CROP_MASTER_UPDATE',
+  CROP_MASTER_DELETE:   'ADMIN_CROP_MASTER_DELETE',
+  PEST_ALERT_CREATE:    'ADMIN_PEST_ALERT_CREATE',
+  PEST_ALERT_UPDATE:    'ADMIN_PEST_ALERT_UPDATE',
+  MANDI_SYNC_TRIGGER:   'ADMIN_MANDI_SYNC_TRIGGER',
+  BROADCAST_SEND:       'ADMIN_BROADCAST_SEND',
+  ERASURE_PROCESS:      'ADMIN_ERASURE_PROCESS',
+};
+
 /**
  * Thin request-aware wrapper over auditLog for route handlers: pulls the actor,
  * IP and request id off `req` so a caller only specifies the action + target.

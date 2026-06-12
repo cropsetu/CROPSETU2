@@ -39,6 +39,9 @@ import consentRoutes       from './routes/consent.routes.js';
 import incidentRoutes      from './routes/incident.routes.js';
 import fraudRoutes         from './routes/fraud.routes.js';
 import moderationRoutes    from './routes/moderation.routes.js';
+// Admin panel API (users, KYC, catalog, orders, listings, community, AI, CMS,
+// broadcast, ops, compliance) — ADMIN-gated + audited (routes/admin/index.js).
+import adminRoutes         from './routes/admin/index.js';
 import telemetryRoutes     from './routes/telemetry.routes.js';
 // ── New AI Services (Phase 1-4) ───────────────────────────────────────────────
 import mandiRoutes         from './routes/mandi.routes.js';
@@ -91,6 +94,14 @@ app.use(cors({
   origin: (incomingOrigin, callback) => {
     // No Origin header → mobile app / curl / Postman → always allow
     if (!incomingOrigin) return callback(null, true);
+
+    // Dev convenience: always allow loopback origins (localhost / 127.0.0.1, any
+    // port) so the admin SPA (:5180), Expo web (:8081/:19006) and other local
+    // clients work without having to keep ALLOWED_ORIGINS in sync during local
+    // dev. Loopback-only + IS_DEV-only, so production is unaffected.
+    if (ENV.IS_DEV && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(incomingOrigin)) {
+      return callback(null, true);
+    }
 
     if (ENV.ALLOWED_ORIGINS.length) {
       // Explicit allowlist configured — enforce it in all environments
@@ -280,6 +291,9 @@ app.use(`${API}/irrigation`, irrigationRoutes);
 app.use(`${API}/inputs`,     inputsRoutes);
 app.use(`${API}/crops`,      cropsRoutes);
 app.use(`${API}/admin`,      featuresRoutes);
+// Mounted AFTER the specific admin routers (incidents/fraud/moderation/features)
+// so their paths win; this fills the rest of /admin/* (disjoint sub-paths).
+app.use(`${API}/admin`,      adminRoutes);
 app.use(`${API}/agripredict`, agriPredictRoutes);
 
 // ── Farmer Profile & Multi-Farm Module ───────────────────────────────────────
@@ -301,3 +315,4 @@ app.use((err, req, res, _next) => {
 });
 
 export default app;
+// dev reload trigger — picks up RATE_LIMIT_ENABLED=false from .env on restart
