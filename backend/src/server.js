@@ -1,3 +1,4 @@
+import './_boottrace.js'; // TEMP diagnostic — must stay the very first import
 import 'dotenv/config';
 import http from 'http';
 import cron from 'node-cron';
@@ -35,6 +36,7 @@ for (const [key, feature] of OPTIONAL_KEYS) {
   }
 }
 
+process.stdout.write('[boot] all imports evaluated — building HTTP server\n'); // TEMP diagnostic
 const httpServer = http.createServer(app);
 
 // In-process BullMQ workers (started after listen; closed on shutdown). Empty
@@ -109,6 +111,7 @@ app.set('io', io);
 // ── Start ─────────────────────────────────────────────────────────────────────
 async function start() {
   try {
+    process.stdout.write('[boot] start() invoked — about to listen\n'); // TEMP diagnostic
     // ── Listen FIRST ─────────────────────────────────────────────────────────
     // The deploy healthcheck hits /healthz (dependency-free liveness), so the
     // HTTP server must start before any DB/Redis work. Every dependency below is
