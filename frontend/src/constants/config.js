@@ -20,9 +20,9 @@ const DEV_HOST =
 // Prod URL can be overridden per-build via EAS env (EXPO_PUBLIC_API_BASE_URL in eas.json).
 // Default falls back to the production Railway deployment.
 const PROD_API = process.env.EXPO_PUBLIC_API_BASE_URL
-  || 'https://cropsetu-backend-production.up.railway.app/api/v1';
+  || 'https://cropsetu2-production.up.railway.app/api/v1';
 const PROD_SOCKET = process.env.EXPO_PUBLIC_SOCKET_URL
-  || 'wss://cropsetu-backend-production.up.railway.app';
+  || 'wss://cropsetu2-production.up.railway.app';
 
 // Resolution order:
 //   1. EXPO_PUBLIC_API_BASE_URL — set in frontend/.env or eas.json. Wins

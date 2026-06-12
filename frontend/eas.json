@@ -25,7 +25,8 @@
       },
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://cropsetu-backend-production.up.railway.app/api/v1"
+        "EXPO_PUBLIC_API_BASE_URL": "https://cropsetu2-production.up.railway.app/api/v1",
+        "EXPO_PUBLIC_SOCKET_URL": "wss://cropsetu2-production.up.railway.app"
       }
     },
     "production": {
@@ -35,7 +36,8 @@
       },
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://cropsetu-backend-production.up.railway.app/api/v1"
+        "EXPO_PUBLIC_API_BASE_URL": "https://cropsetu2-production.up.railway.app/api/v1",
+        "EXPO_PUBLIC_SOCKET_URL": "wss://cropsetu2-production.up.railway.app"
       }
     }
   },
