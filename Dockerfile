@@ -38,10 +38,17 @@ COPY --from=admin-build /admin/dist /app/admin/dist
 
 ENV NODE_ENV=production
 ENV ADMIN_DIST_DIR=/app/admin/dist
+# Prisma's update checker opens a socket to checkpoint.prisma.io and can keep the
+# CLI process alive in a slim container, so `prisma db push && node …` never reaches
+# node. Disable it so the CLI exits cleanly.
+ENV CHECKPOINT_DISABLE=1
+ENV PRISMA_HIDE_UPDATE_MESSAGE=1
 # No EXPOSE: Railway detects an EXPOSEd port as the healthcheck/proxy target,
 # which would mismatch the $PORT the app actually listens on. With none, Railway
 # routes to the PORT env var it injects (which the server binds to).
 
 # Push schema to the DB (no migration history yet) then start. Railway's
 # startCommand overrides this if set; kept so the image runs standalone too.
-CMD ["sh", "-c", "npx prisma db push --skip-generate && node src/server.js"]
+# `;` (not `&&`) + timeout: run the schema push, but ALWAYS start node even if the
+# push stalls or fails — node listening is what the healthcheck needs.
+CMD ["sh", "-c", "timeout 60 npx prisma db push --skip-generate; node src/server.js"]
