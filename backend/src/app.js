@@ -93,10 +93,25 @@ app.use(helmet());
 // Mobile apps (React Native on device) send no Origin header → always allowed.
 // Browser-based clients (admin panel, web) must be listed in ALLOWED_ORIGINS.
 // In development with no list set, all origins are allowed for convenience.
+//
+// The admin SPA is served SAME-ORIGIN from this backend. Its asset requests (Vite
+// marks bundles `crossorigin`, so they send an Origin header) and its API calls
+// carry THIS service's own origin — which must always be allowed, or the allowlist
+// below rejects them with a 500 and the panel white-screens. Railway exposes the
+// public host via RAILWAY_PUBLIC_DOMAIN / RAILWAY_STATIC_URL.
+const SELF_ORIGINS = new Set(
+  [process.env.RAILWAY_PUBLIC_DOMAIN, process.env.RAILWAY_STATIC_URL]
+    .filter(Boolean)
+    .map((d) => `https://${d}`),
+);
+
 app.use(cors({
   origin: (incomingOrigin, callback) => {
     // No Origin header → mobile app / curl / Postman → always allow
     if (!incomingOrigin) return callback(null, true);
+
+    // Same-origin (this service's own public origin) → always allow.
+    if (SELF_ORIGINS.has(incomingOrigin)) return callback(null, true);
 
     // Dev convenience: always allow loopback origins (localhost / 127.0.0.1, any
     // port) so the admin SPA (:5180), Expo web (:8081/:19006) and other local
