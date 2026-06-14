@@ -36,6 +36,7 @@ const LOGGER_ROUTE = {
   PRUNING:    'ActivityPruningLog',
   EXPENSE:    'ActivityExpenseLog',
   INCOME:     'ActivityIncomeLog',
+  OTHER:      'ActivityCustomLog',
 };
 
 // Pretty labels (stable even without i18n v2).
@@ -52,6 +53,7 @@ const TYPE_LABELS = {
   SALE:       'Sale',
   EXPENSE:    'Expense',
   INCOME:     'Income',
+  OTHER:      'Custom',
 };
 
 export default function ActivityTypePickerScreen({ navigation, route }) {
@@ -144,7 +146,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COSMIC.TEXT,
     textAlign: 'center',
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   introText: {
     fontSize: 12,
@@ -153,7 +155,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     maxWidth: 300,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
   },
   grid: {
     flexDirection: 'row',

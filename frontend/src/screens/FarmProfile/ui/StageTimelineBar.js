@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
   das: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     marginBottom: 6,
     marginLeft: 2,
   },
@@ -114,8 +114,8 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: COSMIC.MUTED,
     marginTop: 4,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
   },
-  labelCurrent: { color: COSMIC.PRIMARY, fontFamily: 'Inter_700Bold' },
+  labelCurrent: { color: COSMIC.PRIMARY, fontFamily: 'PlusJakartaSans_700Bold' },
   labelPast: { color: COSMIC.TEXT_2 },
 });

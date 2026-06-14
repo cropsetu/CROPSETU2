@@ -7,7 +7,7 @@ Each screen doc follows the same template:
 > **Purpose** · **Where it sits / how you reach it** · **How it works** · **UI elements** (an element-by-element table — search bars, buttons, chat boxes, cards, inputs, modals, FABs, …) · **Services, APIs & data** · **Languages / i18n** · **Notes, edge cases & gaps**
 
 **Already documented elsewhere (not repeated here):**
-- 🌾 **My Farm** tab → [`../MY_FARM_ARCHITECTURE.md`](../MY_FARM_ARCHITECTURE.md)
+- 🌾 **My Farm** tab → [`./my-farm/`](./my-farm/00-README.md)
 - 🤖 **Core AI services** (AI Text Chat, AI Voice Chat, Crop Disease Scan/Diagnosis) → [`../AI_CHAT_ARCHITECTURE.md`](../AI_CHAT_ARCHITECTURE.md) and [`../AI_SERVICES_INHOUSE_LLM_BRIEF.md`](../AI_SERVICES_INHOUSE_LLM_BRIEF.md)
 
 This index covers the **other 60 screens** across 13 feature areas.
@@ -61,10 +61,10 @@ App launch
 | 🤖 **AI** | `AIStack` | AI Assistant Home | ✅ AI hub, market, schemes, calculators, soil, weather (22) · ❌ chat/voice/scan → AI docs |
 | 🐄 **Animals** | `AnimalStack` | Animal Trade Home | ✅ Animal Trade (5) |
 | 🚜 **Rent** | `RentStack` | Rent Home | ✅ Rent (7) |
-| 🌾 **My Farm** | `MyFarmStack` | My Farm Home | ❌ → `MY_FARM_ARCHITECTURE.md` |
+| 🌾 **My Farm** | `MyFarmStack` | My Farm Home | ✅ My Farm (10) → my-farm/ |
 | 👤 **Account** | `ProfileStack` | Account Home | ✅ Account (4) + Seller Portal (8) |
 
-> Note: the `AIStack` also re-registers the **Weather** screens and (for deep-linking) some **My Farm** screens. Weather is documented here; My Farm is in its own doc.
+> Note: the `AIStack` also re-registers the **Weather** screens and (for deep-linking) some **My Farm** screens. Weather is documented here; My Farm is in its own folder ([`./my-farm/`](./my-farm/00-README.md)).
 
 ---
 

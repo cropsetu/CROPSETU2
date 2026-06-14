@@ -47,6 +47,9 @@ export default function SowingLogScreen({ navigation, route }) {
         fields: { method, seedKg: seedKg ? parseFloat(seedKg) : null },
       });
       await farmApi.advanceStage(cycleId, 'SOWING');
+      // Stamp the sowing date so the cycle's DAS / growth-story clock starts ticking.
+      // (Nothing else in the flow sets sowingDate, so without this DAS stays null.)
+      await farmApi.updateCropCycle(cycleId, { sowingDate: new Date().toISOString() });
       if (labour && parseFloat(labour) > 0) {
         await farmApi.addLaborLog(cycleId, { task: 'Sowing', amountInr: parseFloat(labour) });
       }

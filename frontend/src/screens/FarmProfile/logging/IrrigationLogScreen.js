@@ -147,7 +147,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
                   <View style={[styles.methodIcon, { backgroundColor: m.color + '33', borderColor: m.color + '55' }]}>
                     <IrrigationIcon type={m.icon} size={32} />
                   </View>
-                  <Text style={[styles.methodLabel, sel && { color: m.color, fontFamily: 'Inter_700Bold' }]}>
+                  <Text style={[styles.methodLabel, sel && { color: m.color, fontFamily: 'PlusJakartaSans_700Bold' }]}>
                     {m.label}
                   </Text>
                   {sel && (
@@ -213,7 +213,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
                   ]}
                 >
                   <Ionicons name={s.icon} size={16} color={sel ? COSMIC.INFO : COSMIC.TEXT_2} />
-                  <Text style={[styles.chipText, sel && { color: COSMIC.INFO, fontFamily: 'Inter_700Bold' }]}>
+                  <Text style={[styles.chipText, sel && { color: COSMIC.INFO, fontFamily: 'PlusJakartaSans_700Bold' }]}>
                     {s.label}
                   </Text>
                 </Pressable>
@@ -239,7 +239,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
                   ]}
                 >
                   <View style={[styles.moistDot, { backgroundColor: m.color }]} />
-                  <Text style={[styles.moistLabel, sel && { color: m.color, fontFamily: 'Inter_700Bold' }]}>
+                  <Text style={[styles.moistLabel, sel && { color: m.color, fontFamily: 'PlusJakartaSans_700Bold' }]}>
                     {m.label}
                   </Text>
                 </Pressable>
@@ -338,11 +338,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  secTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold', flex: 1 },
+  secTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold', flex: 1 },
   optional: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -371,7 +371,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  methodLabel: { fontSize: 13, color: COSMIC.TEXT, fontFamily: 'Inter_600SemiBold' },
+  methodLabel: { fontSize: 13, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_600SemiBold' },
   methodCheck: {
     position: 'absolute',
     top: 4,
@@ -403,8 +403,8 @@ const styles = StyleSheet.create({
     borderRadius: CR.sm,
   },
   toggleBtnActive: { backgroundColor: COSMIC.PRIMARY },
-  toggleText: { fontSize: 12, color: COSMIC.TEXT_2, fontFamily: 'Inter_600SemiBold' },
-  toggleTextActive: { color: COSMIC.INVERSE, fontFamily: 'Inter_700Bold' },
+  toggleText: { fontSize: 12, color: COSMIC.TEXT_2, fontFamily: 'PlusJakartaSans_600SemiBold' },
+  toggleTextActive: { color: COSMIC.INVERSE, fontFamily: 'PlusJakartaSans_700Bold' },
 
   // Big input
   bigInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
@@ -418,7 +418,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 24,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
     textAlign: 'center',
     letterSpacing: 0.6,
   },
@@ -433,7 +433,7 @@ const styles = StyleSheet.create({
   unitText: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.6,
   },
 
@@ -449,7 +449,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.2,
     minHeight: 32,
   },
-  chipText: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'Inter_600SemiBold' },
+  chipText: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_600SemiBold' },
 
   // Moisture stoplight
   moistRow: { flexDirection: 'row', gap: 8 },
@@ -464,7 +464,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   moistDot: { width: 10, height: 10, borderRadius: 5 },
-  moistLabel: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'Inter_600SemiBold' },
+  moistLabel: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_600SemiBold' },
 
   // Fertigation row
   fertRow: {
@@ -485,13 +485,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkboxChecked: { backgroundColor: COSMIC.PRIMARY, borderColor: COSMIC.PRIMARY },
-  fertText: { fontSize: 13, color: COSMIC.TEXT, flex: 1, fontFamily: 'Inter_400Regular' },
+  fertText: { fontSize: 13, color: COSMIC.TEXT, flex: 1, fontFamily: 'PlusJakartaSans_400Regular' },
 
   // Notes
   subLabel: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
     marginTop: 10,
@@ -506,7 +506,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COSMIC.TEXT,
     backgroundColor: COSMIC.SURFACE,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     minHeight: 44,
   },
 

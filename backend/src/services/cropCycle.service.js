@@ -27,6 +27,7 @@ const ACTIVITY_TYPES = [
   "SALE",
   "EXPENSE",
   "INCOME",
+  "OTHER", // custom / user-defined activity (title carries the farmer's own label)
 ];
 
 const arr = (a) => (Array.isArray(a) ? a : []);
@@ -111,6 +112,15 @@ export async function createCropCycle(farmerId, farmId, data) {
       seedTotalCostInr: data.seedTotalCostInr
         ? parseFloat(data.seedTotalCostInr)
         : null,
+      // Pre-seeding capture (the guided "Crop Plan" flow). Columns already exist
+      // in FarmCropCycle, so no migration is needed — we just persist them here.
+      seedTreatment: data.seedTreatment || null,
+      seedTreatmentProduct: data.seedTreatmentProduct || null,
+      seedPurchaseDate: data.seedPurchaseDate
+        ? new Date(data.seedPurchaseDate)
+        : null,
+      // Field history / rotation + prep plan are free-text (no dedicated column).
+      notes: data.notes || null,
     },
   });
 }

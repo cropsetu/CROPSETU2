@@ -104,13 +104,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   title: {
-    fontSize: 17,
-    fontFamily: 'Inter_700Bold',
+    fontSize: 19,
+    fontFamily: 'Fraunces_700Bold',
+    letterSpacing: -0.3,
     color: COSMIC.TEXT,
   },
   subtitle: {
     fontSize: 11,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     color: COSMIC.TEXT_3,
     marginTop: 1,
   },
@@ -147,6 +148,6 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 9,
     color: COSMIC.INVERSE,
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
   },
 });

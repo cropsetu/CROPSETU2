@@ -12,7 +12,7 @@
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { ActivityIcon } from '../../../components/ActivityIcons';
 import { COSMIC, CR, CT, TAP, activityMeta } from '../theme/cosmicTheme';
 import { Haptics } from '../../../utils/haptics';
 
@@ -35,7 +35,6 @@ export default function ActivityChip({
 
   const tintBg = active ? meta.color : meta.color + '28';   // 28 ≈ 16% alpha
   const tintBorder = active ? meta.color : meta.color + '55';
-  const iconColor = active ? COSMIC.INVERSE : meta.color;
   const textColor = active ? COSMIC.INVERSE : COSMIC.TEXT;
 
   const Wrapper = onPress ? Pressable : View;
@@ -51,8 +50,8 @@ export default function ActivityChip({
         style,
       ]}
     >
-      <View style={[styles.iconWrap, { width: sz.icon + 4, height: sz.icon + 4 }]}>
-        <Ionicons name={meta.icon} size={sz.icon} color={iconColor} />
+      <View style={[styles.iconWrap, { width: sz.icon + 12, height: sz.icon + 12 }]}>
+        <ActivityIcon type={type} size={sz.icon + 12} />
       </View>
       {label != null && (
         <Text
@@ -80,9 +79,7 @@ ActivityChip.Tile = function ActivityTile({ type, label, onPress, style }) {
         style,
       ]}
     >
-      <View style={[tileStyles.iconBubble, { backgroundColor: meta.color + '22', borderColor: meta.color + '66' }]}>
-        <Ionicons name={meta.icon} size={20} color={meta.color} />
-      </View>
+      <ActivityIcon type={type} size={48} />
       <Text style={tileStyles.label} numberOfLines={2}>{label}</Text>
     </Pressable>
   );
@@ -105,20 +102,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   label: {
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
 });
 
 const tileStyles = StyleSheet.create({
   tile: {
     flex: 1,
-    minHeight: 82,
+    minHeight: 100,
     borderWidth: 1.2,
     borderRadius: CR.lg,
     padding: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
   },
   iconBubble: {
     width: 36,
@@ -131,7 +128,7 @@ const tileStyles = StyleSheet.create({
   label: {
     fontSize: 11,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     textAlign: 'center',
   },
 });

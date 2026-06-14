@@ -575,12 +575,13 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 12,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
   },
   farmer: {
-    fontSize: 18,
+    fontSize: 21,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'Fraunces_700Bold',
+    letterSpacing: -0.3,
     marginTop: 1,
   },
 
@@ -597,7 +598,7 @@ const styles = StyleSheet.create({
   heroLabel: {
     fontSize: 10,
     color: COSMIC.PRIMARY,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.8,
   },
   switchPill: {
@@ -614,12 +615,13 @@ const styles = StyleSheet.create({
   switchText: {
     color: COSMIC.PRIMARY,
     fontSize: 11,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   heroName: {
-    fontSize: 22,
+    fontSize: 24,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: 'Fraunces_700Bold',
+    letterSpacing: -0.4,
   },
   heroLocRow: {
     flexDirection: 'row',
@@ -630,7 +632,7 @@ const styles = StyleSheet.create({
   heroLoc: {
     fontSize: 12,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     flexShrink: 1,
   },
   heroStreakRow: {
@@ -652,14 +654,14 @@ const styles = StyleSheet.create({
   heroStatValue: {
     fontSize: 16,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
   },
   heroStatLabel: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
   divider: {
     width: StyleSheet.hairlineWidth,
@@ -678,7 +680,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   sectionBadge: {
     marginLeft: 6,
@@ -692,13 +694,13 @@ const styles = StyleSheet.create({
   sectionBadgeText: {
     fontSize: 9,
     color: COSMIC.PRIMARY,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.6,
   },
   sectionAction: {
     fontSize: 12,
     color: COSMIC.PRIMARY,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
 
   // Quick rail
@@ -721,7 +723,7 @@ const styles = StyleSheet.create({
   seeMoreText: {
     fontSize: 12,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
 
   // Sections
@@ -756,13 +758,13 @@ const styles = StyleSheet.create({
   cycleCrop: {
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   cycleMeta: {
     fontSize: 12,
     color: COSMIC.TEXT_3,
     marginTop: 1,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
   },
   cycleMoneyRow: {
     flexDirection: 'row',
@@ -780,12 +782,12 @@ const styles = StyleSheet.create({
   },
   moneyPillText: {
     fontSize: 12,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   moneyPillLabel: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
   },
 
   // Insights
@@ -808,7 +810,7 @@ const styles = StyleSheet.create({
   insightTitle: {
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     flex: 1,
   },
   insightBody: {
@@ -816,7 +818,7 @@ const styles = StyleSheet.create({
     color: COSMIC.TEXT_2,
     lineHeight: 18,
     marginBottom: 6,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
   },
   insightFooter: {
     flexDirection: 'row',
@@ -827,7 +829,7 @@ const styles = StyleSheet.create({
   insightAction: {
     fontSize: 12,
     color: COSMIC.PRIMARY,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
 
   aiBubble: {
@@ -857,7 +859,7 @@ const styles = StyleSheet.create({
   emptyHeading: {
     fontSize: 15,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     textAlign: 'center',
     marginTop: 2,
   },
@@ -867,7 +869,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
     marginTop: 4,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
   },
 
   // Empty root (no farms)
@@ -881,7 +883,7 @@ const styles = StyleSheet.create({
   emptyRootHeading: {
     fontSize: 18,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
     textAlign: 'center',
     marginTop: 10,
   },
@@ -903,6 +905,6 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 12,
     color: COSMIC.PRIMARY,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
 });

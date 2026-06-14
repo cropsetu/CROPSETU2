@@ -106,12 +106,12 @@ const styles = StyleSheet.create({
   countText: {
     color: COSMIC.TEXT,
     fontSize: 10,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   label: {
     fontSize: 12,
     color: COSMIC.TEXT_2,
     flex: 1,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
   },
 });

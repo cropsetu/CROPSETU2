@@ -89,6 +89,13 @@ export async function deleteCropCycle(cycleId) {
   return res.data;
 }
 
+// Patch arbitrary cycle fields (PATCH /cycles/:id → updateCropCycle). Used e.g. to
+// stamp `sowingDate` when sowing is logged so the DAS / growth-story clock can start.
+export async function updateCropCycle(cycleId, fields) {
+  const { data: res } = await api.patch(`/cycles/${cycleId}`, fields);
+  return res.data;
+}
+
 export async function addFertilizer(cycleId, entry) {
   const { data: res } = await api.post(`/cycles/${cycleId}/fertilizer`, entry);
   return res.data;

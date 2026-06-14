@@ -58,10 +58,13 @@ router.post(
           data: updateData,
         });
 
-        // 2. Create or update first farm (if land size provided)
+        // 2. Create or update the first farm. We ALWAYS create it on completion (the
+        //    form requires a district) so the farm the user set up — name, location,
+        //    soil, irrigation — shows up in My Farm even when they leave land size
+        //    blank. Acreage defaults to 0 and is editable later from My Farm.
         let farm = null;
-        if (landSizeAcres && parseFloat(landSizeAcres) > 0) {
-          const acres = parseFloat(landSizeAcres);
+        if (district) {
+          const acres = landSizeAcres && parseFloat(landSizeAcres) > 0 ? parseFloat(landSizeAcres) : 0;
           const farmData = {
             farmName: farmName || `${firstName || 'My'}'s Farm`,
             village: village || null,

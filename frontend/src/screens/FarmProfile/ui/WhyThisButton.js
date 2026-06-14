@@ -51,7 +51,7 @@ const styles = StyleSheet.create({
   text: {
     color: COSMIC.ACCENT,
     fontSize: 12,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
   textCompact: {
     fontSize: 11,

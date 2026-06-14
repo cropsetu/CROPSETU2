@@ -1,58 +1,61 @@
 /**
- * cosmicTheme.js — MyFarm v2 design tokens (LIGHT, minimal, app-aligned).
+ * cosmicTheme.js — MyFarm design tokens, ported to the KhetAI (Login) design system.
  *
- * Palette and typography mirror the rest of the app (constants/colors.js)
- * so MyFarm blends in visually. Symbol names (`COSMIC`, `GRADIENT`, `GLOW`)
- * are preserved so importing screens don't need to change.
+ * The auth/Login screens use frontend/src/constants/khetTheme.js (KHET/KFONT/KSHADOW):
+ * Fraunces serif display + Plus Jakarta Sans body, deep forest-green #005f21, gold #e0af3b,
+ * gradient buttons, glass/accent pills, soft elegant shadows. This file re-points every
+ * MyFarm token to that system so the whole tab matches Login without per-screen rewrites.
  *
- * Key numbers:
- *   • body fontSize 15 (was 18 in earlier revs — farmer-readable but not huge)
- *   • h1 24, h2 20, h3 17 — matches app's TYPE scale
- *   • tap target 48dp (standard mobile; the earlier 56dp cosmic felt clunky)
- *   • surfaces are white #FFFFFF with subtle 1-px #E7E5E4 borders
- *   • shadows are soft black (not coloured neon glows)
+ * Symbol names (`COSMIC`, `GRADIENT`, `GLOW`, `CR`, `CS`, `CT`, …) are preserved so the
+ * ~20 importing screens/components keep working — only the VALUES changed.
+ *
+ * Key choices:
+ *   • Body font  → Plus Jakarta Sans (matches Login). Big titles → Fraunces serif.
+ *   • Primary    → forest green #005f21 (was #176B43). Accent CTA → gold (was orange).
+ *   • Canvas     → warm green-white #F6FBEE (KhetAI background family).
+ *   • Shadows    → soft forest-green (KSHADOW), no neon.
  */
 
 // ─── Colours ──────────────────────────────────────────────────────────────────
 export const COSMIC = {
-  // Canvas — matches constants/colors.js `background` token
-  BG:            '#F4F8F1',                   // warm field-paper page
+  // Canvas — KhetAI surface family (warm green-white)
+  BG:            '#F6FBEE',                   // page canvas
   BG_ELEVATED:   '#FFFFFF',                   // sheets, modals
   SURFACE:       '#FFFFFF',                   // card background
-  SURFACE_HI:    '#FAFCF8',                   // subtle elevated
-  SURFACE_LO:    '#ECF5EF',                   // sunken / section stripe
-  BORDER:        '#E7E5E4',                   // 1-px soft border
-  BORDER_HI:     '#D6D3D1',                   // emphasized border
+  SURFACE_HI:    '#F2FAEA',                   // subtle elevated (greenish)
+  SURFACE_LO:    '#E7F4DD',                   // sunken / section stripe
+  BORDER:        '#D7E1D5',                   // 1-px soft border (KhetAI border)
+  BORDER_HI:     '#C2D2BD',                   // emphasized border
 
-  // Brand — forest-green primary, orange CTA (same as the rest of the app)
-  PRIMARY:       '#176B43',
-  PRIMARY_DK:    '#0F4A2E',
-  PRIMARY_LT:    '#21865A',
-  PRIMARY_SOFT:  '#DFF3EA',
+  // Brand — deep forest green primary, gold accent (KhetAI)
+  PRIMARY:       '#005F21',
+  PRIMARY_DK:    '#003311',
+  PRIMARY_LT:    '#1C8A3C',                   // lighter forest (between glow & ring)
+  PRIMARY_SOFT:  '#DCF1D0',                   // soft green wash
 
-  ACCENT:        '#E65100',                   // CTA orange
-  ACCENT_DK:     '#D84315',
-  ACCENT_SOFT:   '#FBE9E7',
+  ACCENT:        '#E0AF3B',                   // gold highlight (was orange #C28F22)
+  ACCENT_DK:     '#C28F22',
+  ACCENT_SOFT:   '#FAF0D5',
 
-  // Activity-type accents (darkened for white-bg contrast)
-  LAND_PREP:     '#6D4C41',
-  SOWING:        '#65A30D',
-  IRRIGATION:    '#0288D1',
-  FERTILIZER:    '#00897B',
-  SPRAY:         '#7B1FA2',
-  SCOUT:         '#EF6C00',
-  WEEDING:       '#558B2F',
-  PRUNING:       '#C2185B',
-  HARVEST:       '#F57F17',
-  SALE:          '#176B43',
-  EXPENSE:       '#C62828',
-  INCOME:        '#176B43',
+  // Activity-type accents (semantic per activity; tuned for white-bg contrast)
+  LAND_PREP:     '#6D4C41',                   // earth brown
+  SOWING:        '#65A30D',                   // sprout lime
+  IRRIGATION:    '#0288D1',                   // water blue
+  FERTILIZER:    '#00897B',                   // nutrient teal
+  SPRAY:         '#7B1FA2',                   // protection purple
+  SCOUT:         '#C77700',                   // observation amber
+  WEEDING:       '#558B2F',                   // weed green
+  PRUNING:       '#C2185B',                   // prune magenta
+  HARVEST:       '#E0AF3B',                   // harvest gold
+  SALE:          '#005F21',                   // money green
+  EXPENSE:       '#C62828',                   // spend red
+  INCOME:        '#005F21',                   // income green
 
   // Status
   DANGER:        '#C62828',
   DANGER_SOFT:   '#FDECEA',
-  WARN:          '#EF6C00',
-  WARN_SOFT:     '#FFF4E6',
+  WARN:          '#C77700',
+  WARN_SOFT:     '#FBF1DC',
   INFO:          '#0288D1',
   INFO_SOFT:     '#E3F2FD',
   SUCCESS:       '#2E7D32',
@@ -60,44 +63,48 @@ export const COSMIC = {
 
   // Severity (scouting / observations)
   SEV_LOW:       '#2E7D32',
-  SEV_MODERATE:  '#F57F17',
+  SEV_MODERATE:  '#C77700',
   SEV_HIGH:      '#C62828',
   SEV_CRITICAL:  '#8E1313',
 
-  // Text (warm neutrals — same as rest of app)
-  TEXT:          '#1C1917',                   // primary
-  TEXT_2:        '#44403C',                   // body / secondary
-  TEXT_3:        '#78716C',                   // tertiary / metadata
-  MUTED:         '#A8A29E',                   // placeholder / disabled
+  // Text — forest-tinted neutrals (KhetAI foreground #06210d / muted #57685a)
+  TEXT:          '#0A2614',                   // primary
+  TEXT_2:        '#33483A',                   // body / secondary
+  TEXT_3:        '#57685A',                   // tertiary / metadata
+  MUTED:         '#90A293',                   // placeholder / disabled
   INVERSE:       '#FFFFFF',                   // text on gradient buttons
 
-  OVERLAY:       'rgba(28,25,23,0.45)',
-  SCRIM_TOP:     'rgba(244,248,241,0)',
-  SCRIM_BOTTOM:  'rgba(244,248,241,0.92)',
+  OVERLAY:       'rgba(6,33,13,0.45)',
+  SCRIM_TOP:     'rgba(246,251,238,0)',
+  SCRIM_BOTTOM:  'rgba(246,251,238,0.92)',
 };
 
-// ─── Gradients (used sparingly — for primary CTAs only) ───────────────────────
+// ─── Gradients (forest-green CTAs; gold for accent) ───────────────────────────
 export const GRADIENT = {
-  primary:       ['#21865A', '#176B43'],               // forest-green button
-  primaryBright: ['#3DAA74', '#176B43'],
-  accent:        ['#FF7043', '#E65100'],               // orange CTA button (matches rest of app)
-  logo:          ['#21865A', '#E65100', '#E65100'],
+  primary:       ['#005F21', '#008935'],               // KhetAI gradPrimary
+  primaryBright: ['#0A9A41', '#005F21'],
+  accent:        ['#D2A436', '#A87C1C'],               // deep gold (white text legible)
+  logo:          ['#005F21', '#E0AF3B', '#E0AF3B'],
   danger:        ['#EF5350', '#C62828'],
   soil:          ['#A0826D', '#5D4037'],
   water:         ['#4FC3F7', '#0288D1'],
-  glass:         ['#FFFFFF', '#FAFCF8'],
+  glass:         ['#FFFFFF', '#F2FAEA'],
+  surface:       ['#F8FEF4', '#E1F6DC'],               // KhetAI gradSurface (canvas/hero)
+  heroOverlay:   ['rgba(0,36,3,0)', 'rgba(0,36,3,0.55)', 'rgba(0,24,3,0.96)'], // image-hero overlay
+  heroOverlayLocs: [0, 0.45, 1],
 
   start:         { x: 0, y: 0 },
   end:           { x: 1, y: 1 },
 };
 
-// ─── Shadows (soft black — no neon glows) ─────────────────────────────────────
+// ─── Shadows (soft forest-green — KhetAI KSHADOW) ─────────────────────────────
 export const GLOW = {
-  green:  { shadowColor: '#176B43', shadowOpacity: 0.18, shadowRadius: 8,  shadowOffset: { width: 0, height: 3 }, elevation: 3 },
-  gold:   { shadowColor: '#E65100', shadowOpacity: 0.18, shadowRadius: 8,  shadowOffset: { width: 0, height: 3 }, elevation: 3 },
-  red:    { shadowColor: '#C62828', shadowOpacity: 0.16, shadowRadius: 6,  shadowOffset: { width: 0, height: 3 }, elevation: 3 },
-  soft:   { shadowColor: '#000',    shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
-  subtle: { shadowColor: '#000',    shadowOpacity: 0.04, shadowRadius: 4,  shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  green:   { shadowColor: '#0E3A20', shadowOpacity: 0.20, shadowRadius: 10, shadowOffset: { width: 0, height: 4 },  elevation: 4 },
+  gold:    { shadowColor: '#E0AF3B', shadowOpacity: 0.24, shadowRadius: 10, shadowOffset: { width: 0, height: 4 },  elevation: 4 },
+  red:     { shadowColor: '#C62828', shadowOpacity: 0.16, shadowRadius: 6,  shadowOffset: { width: 0, height: 3 },  elevation: 3 },
+  soft:    { shadowColor: '#0E3A20', shadowOpacity: 0.10, shadowRadius: 14, shadowOffset: { width: 0, height: 8 },  elevation: 6 },
+  subtle:  { shadowColor: '#0E3A20', shadowOpacity: 0.05, shadowRadius: 6,  shadowOffset: { width: 0, height: 2 },  elevation: 1 },
+  elegant: { shadowColor: '#0E3A20', shadowOpacity: 0.30, shadowRadius: 24, shadowOffset: { width: 0, height: 16 }, elevation: 12 }, // hero / gradient CTAs
 };
 
 // ─── Radius ───────────────────────────────────────────────────────────────────
@@ -116,14 +123,19 @@ export const CS = {
   xs: 4, sm: 8, md: 12, base: 14, lg: 18, xl: 24, xxl: 32, huge: 48,
 };
 
-// ─── Typography — matches constants/colors.js TYPE scale ─────────────────────
+// ─── Typography — KhetAI: Plus Jakarta Sans body + Fraunces serif display ─────
 export const CT = {
   family: {
-    regular:  'Inter_400Regular',
-    medium:   'Inter_500Medium',
-    semibold: 'Inter_600SemiBold',
-    bold:     'Inter_700Bold',
-    extra:    'Inter_800ExtraBold',
+    regular:       'PlusJakartaSans_400Regular',
+    medium:        'PlusJakartaSans_500Medium',
+    semibold:      'PlusJakartaSans_600SemiBold',
+    bold:          'PlusJakartaSans_700Bold',
+    extra:         'PlusJakartaSans_800ExtraBold',
+    // Serif display (Login hero / big titles)
+    display:       'Fraunces_700Bold',
+    displaySemi:   'Fraunces_600SemiBold',
+    displayReg:    'Fraunces_400Regular',
+    displayItalic: 'Fraunces_400Regular_Italic',
   },
   size: {
     labelXS: 11,
@@ -134,18 +146,22 @@ export const CT = {
     h2:      20,
     h1:      24,
     hero:    28,
+    display: 32,
   },
-  // Pre-baked style objects — all default to the dark warm primary text.
+  // Pre-baked style objects — default to the dark forest text.
   styles: {
-    labelXS: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#44403C', letterSpacing: 0.8, textTransform: 'uppercase' },
-    bodySM:  { fontSize: 13, fontFamily: 'Inter_400Regular',  color: '#44403C' },
-    body:    { fontSize: 15, fontFamily: 'Inter_400Regular',  color: '#1C1917' },
-    label:   { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#1C1917' },
-    h3:      { fontSize: 17, fontFamily: 'Inter_700Bold',     color: '#1C1917' },
-    h2:      { fontSize: 20, fontFamily: 'Inter_800ExtraBold', color: '#1C1917' },
-    h1:      { fontSize: 24, fontFamily: 'Inter_800ExtraBold', color: '#1C1917' },
-    hero:    { fontSize: 28, fontFamily: 'Inter_800ExtraBold', color: '#1C1917' },
-    muted:   { fontSize: 13, fontFamily: 'Inter_400Regular',  color: '#78716C' },
+    labelXS:       { fontSize: 11, fontFamily: 'PlusJakartaSans_600SemiBold', color: '#33483A', letterSpacing: 0.8, textTransform: 'uppercase' },
+    bodySM:        { fontSize: 13, fontFamily: 'PlusJakartaSans_400Regular',  color: '#33483A' },
+    body:          { fontSize: 15, fontFamily: 'PlusJakartaSans_400Regular',  color: '#0A2614' },
+    label:         { fontSize: 15, fontFamily: 'PlusJakartaSans_600SemiBold', color: '#0A2614' },
+    h3:            { fontSize: 17, fontFamily: 'PlusJakartaSans_700Bold',     color: '#0A2614' },
+    h2:            { fontSize: 20, fontFamily: 'PlusJakartaSans_800ExtraBold', color: '#0A2614' },
+    h1:            { fontSize: 24, fontFamily: 'PlusJakartaSans_800ExtraBold', color: '#0A2614' },
+    // Hero & display use the Fraunces serif to match the Login titles.
+    hero:          { fontSize: 28, fontFamily: 'Fraunces_700Bold',            color: '#0A2614', letterSpacing: -0.4 },
+    display:       { fontSize: 32, fontFamily: 'Fraunces_700Bold',            color: '#0A2614', letterSpacing: -0.5 },
+    displayItalic: { fontFamily: 'Fraunces_400Regular_Italic', fontStyle: 'italic', color: '#005F21' },
+    muted:         { fontSize: 13, fontFamily: 'PlusJakartaSans_400Regular',  color: '#57685A' },
   },
 };
 
@@ -178,6 +194,7 @@ export const ACTIVITY_TYPES = [
   { key: 'SALE',       color: COSMIC.SALE,       icon: 'cash-outline',         i18n: 'myFarm.v2.activity.sale'       },
   { key: 'EXPENSE',    color: COSMIC.EXPENSE,    icon: 'arrow-down-outline',   i18n: 'myFarm.v2.activity.expense'    },
   { key: 'INCOME',     color: COSMIC.INCOME,     icon: 'arrow-up-outline',     i18n: 'myFarm.v2.activity.income'     },
+  { key: 'OTHER',      color: COSMIC.PRIMARY_LT, icon: 'sparkles-outline',     i18n: 'myFarm.v2.activity.other'      },
 ];
 
 export const ACTIVITY_TYPE_MAP = Object.fromEntries(ACTIVITY_TYPES.map((a) => [a.key, a]));

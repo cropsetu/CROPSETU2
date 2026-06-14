@@ -280,7 +280,7 @@ export default function FarmAddEditScreen({ navigation, route }) {
                         </View>
                       )}
                     </View>
-                    <Text style={[styles.soilLabel, selected && { color: COSMIC.PRIMARY_LT, fontFamily: 'Inter_700Bold' }]} numberOfLines={2}>
+                    <Text style={[styles.soilLabel, selected && { color: COSMIC.PRIMARY_LT, fontFamily: 'PlusJakartaSans_700Bold' }]} numberOfLines={2}>
                       {soil.label}
                     </Text>
                   </Pressable>
@@ -309,7 +309,7 @@ export default function FarmAddEditScreen({ navigation, route }) {
                         ? <IrrigationIcon type={irr.ik} size={30} />
                         : <Ionicons name="options" size={22} color={irr.color} />}
                     </View>
-                    <Text style={[styles.irrLabel, selected && { color: irr.color, fontFamily: 'Inter_700Bold' }]}>
+                    <Text style={[styles.irrLabel, selected && { color: irr.color, fontFamily: 'PlusJakartaSans_700Bold' }]}>
                       {irr.label}
                     </Text>
                     {selected && (
@@ -404,13 +404,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  secTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold' },
+  secTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold' },
 
   // Inputs
   label: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     marginBottom: 4,
     letterSpacing: 0.4,
     textTransform: 'uppercase',
@@ -418,7 +418,7 @@ const styles = StyleSheet.create({
   subLabel: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     marginTop: 10,
     marginBottom: 6,
     letterSpacing: 0.4,
@@ -433,12 +433,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COSMIC.TEXT,
     backgroundColor: COSMIC.SURFACE,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     minHeight: 44,
   },
   landInput: {
     fontSize: 18,
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
     textAlign: 'center',
     letterSpacing: 0.4,
   },
@@ -463,7 +463,7 @@ const styles = StyleSheet.create({
     backgroundColor: COSMIC.PRIMARY_SOFT,
     borderStyle: 'solid',
   },
-  gpsText: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'Inter_600SemiBold', flex: 1 },
+  gpsText: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_600SemiBold', flex: 1 },
 
   // Soil
   soilRail: { paddingVertical: 2, gap: 8 },
@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
     color: COSMIC.TEXT_2,
     textAlign: 'center',
     marginTop: 4,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
 
   // Irrigation
@@ -524,7 +524,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  irrLabel: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'Inter_600SemiBold' },
+  irrLabel: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_600SemiBold' },
   irrCheck: {
     position: 'absolute',
     top: 4,

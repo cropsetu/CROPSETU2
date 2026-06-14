@@ -106,6 +106,8 @@ export default function FarmDetailScreen({ navigation, route }) {
   const isActive    = farm.id === activeFarmId;
   const soil        = (farm.soilReports || [])[0] || null;
   const cycles      = farm.cropCycles || [];
+  const activeCycles    = cycles.filter((c) => c.status !== 'COMPLETED');
+  const completedCycles = cycles.filter((c) => c.status === 'COMPLETED');
   const insights    = computeInsights(farm, soil, cycles);
 
   const farmName    = farm.farmName || farm.farmAlias || `Farm ${farm.farmNumber}`;
@@ -167,16 +169,16 @@ export default function FarmDetailScreen({ navigation, route }) {
         {/* ── Active crop cycles ──────────────────────────── */}
         <SectionLabel
           title="Active crops"
-          action={{ label: cycles.length ? 'Add cycle' : 'Start a cycle', onPress: onAdd }}
+          action={{ label: activeCycles.length ? 'Add cycle' : 'Start a cycle', onPress: onAdd }}
         />
-        {cycles.length === 0 ? (
+        {activeCycles.length === 0 ? (
           <GlassCard variant="plain" style={styles.section}>
             <View style={styles.emptyCyclesRow}>
               <View style={[styles.bigBubble, GLOW.green]}>
                 <Ionicons name="leaf" size={26} color={COSMIC.INVERSE} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sectionHeading}>No crop cycles yet</Text>
+                <Text style={styles.sectionHeading}>{completedCycles.length ? 'No active crops' : 'No crop cycles yet'}</Text>
                 <Text style={styles.mutedText}>Start a cycle to track stage, budget, sprays and sales.</Text>
               </View>
             </View>
@@ -184,10 +186,22 @@ export default function FarmDetailScreen({ navigation, route }) {
           </GlassCard>
         ) : (
           <View style={styles.section}>
-            {cycles.map((c) => (
+            {activeCycles.map((c) => (
               <CycleRow key={c.id} cycle={c} onPress={() => navigation.navigate('CropCycleDetail', { cycleId: c.id })} />
             ))}
           </View>
+        )}
+
+        {/* ── History (completed cycles) ──────────────────── */}
+        {completedCycles.length > 0 && (
+          <>
+            <SectionLabel title={`History · ${completedCycles.length} completed`} />
+            <View style={styles.section}>
+              {completedCycles.map((c) => (
+                <CycleRow key={c.id} cycle={c} onPress={() => navigation.navigate('CropCycleDetail', { cycleId: c.id })} />
+              ))}
+            </View>
+          </>
         )}
 
         {/* ── Soil health ─────────────────────────────────── */}
@@ -448,13 +462,13 @@ const styles = StyleSheet.create({
     borderColor: COSMIC.BORDER,
   },
   heroStatCol: { flex: 1, alignItems: 'center', gap: 2, paddingHorizontal: 4 },
-  heroStatValue: { fontSize: 15, color: COSMIC.TEXT, fontFamily: 'Inter_800ExtraBold' },
+  heroStatValue: { fontSize: 15, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_800ExtraBold' },
   heroStatLabel: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
   heroDivider: { width: StyleSheet.hairlineWidth, backgroundColor: COSMIC.BORDER, marginVertical: 2 },
   activePill: {
@@ -468,7 +482,7 @@ const styles = StyleSheet.create({
     borderRadius: CR.pill,
     backgroundColor: COSMIC.PRIMARY,
   },
-  activePillText: { fontSize: 11, color: COSMIC.INVERSE, fontFamily: 'Inter_700Bold' },
+  activePillText: { fontSize: 11, color: COSMIC.INVERSE, fontFamily: 'PlusJakartaSans_700Bold' },
   setActiveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -482,7 +496,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COSMIC.ACCENT + '40',
   },
-  setActiveText: { fontSize: 12, color: COSMIC.ACCENT, fontFamily: 'Inter_700Bold' },
+  setActiveText: { fontSize: 12, color: COSMIC.ACCENT, fontFamily: 'PlusJakartaSans_700Bold' },
 
   // Sections
   sectionLabel: {
@@ -493,7 +507,7 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     gap: 8,
   },
-  sectionTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold' },
+  sectionTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold' },
   sectionBadge: {
     marginLeft: 6,
     paddingHorizontal: 6,
@@ -503,8 +517,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COSMIC.PRIMARY + '33',
   },
-  sectionBadgeText: { fontSize: 9, color: COSMIC.PRIMARY, fontFamily: 'Inter_700Bold', letterSpacing: 0.6 },
-  sectionAction: { fontSize: 12, color: COSMIC.PRIMARY, fontFamily: 'Inter_700Bold' },
+  sectionBadgeText: { fontSize: 9, color: COSMIC.PRIMARY, fontFamily: 'PlusJakartaSans_700Bold', letterSpacing: 0.6 },
+  sectionAction: { fontSize: 12, color: COSMIC.PRIMARY, fontFamily: 'PlusJakartaSans_700Bold' },
   section: { marginHorizontal: CS.base },
 
   // Insights
@@ -523,7 +537,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  insightText: { fontSize: 13, color: COSMIC.TEXT, lineHeight: 18, fontFamily: 'Inter_400Regular' },
+  insightText: { fontSize: 13, color: COSMIC.TEXT, lineHeight: 18, fontFamily: 'PlusJakartaSans_400Regular' },
 
   // Cycles
   cycleTopRow: { flexDirection: 'row', alignItems: 'center' },
@@ -538,13 +552,13 @@ const styles = StyleSheet.create({
     borderColor: COSMIC.BORDER,
     overflow: 'hidden',
   },
-  cycleTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold' },
+  cycleTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold' },
   cycleMeta: {
     fontSize: 11,
     color: COSMIC.TEXT_3,
     marginTop: 1,
     textTransform: 'capitalize',
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
   },
 
   // Empty cycle state
@@ -557,8 +571,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionHeading: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold', marginBottom: 2 },
-  mutedText: { fontSize: 12, color: COSMIC.TEXT_2, lineHeight: 17, fontFamily: 'Inter_400Regular' },
+  sectionHeading: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold', marginBottom: 2 },
+  mutedText: { fontSize: 12, color: COSMIC.TEXT_2, lineHeight: 17, fontFamily: 'PlusJakartaSans_400Regular' },
 
   // Soil badges
   soilRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
@@ -566,11 +580,11 @@ const styles = StyleSheet.create({
   sBadgeLbl: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
-  sBadgeVal: { fontSize: 15, fontFamily: 'Inter_800ExtraBold' },
+  sBadgeVal: { fontSize: 15, fontFamily: 'PlusJakartaSans_800ExtraBold' },
   sBadgePill: {
     paddingHorizontal: 5,
     paddingVertical: 1,
@@ -579,7 +593,7 @@ const styles = StyleSheet.create({
   },
   sBadgeRat: {
     fontSize: 8,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
@@ -604,6 +618,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 4,
   },
-  predTitle: { fontSize: 13, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold' },
-  predSub: { fontSize: 11, color: COSMIC.TEXT_3, fontFamily: 'Inter_400Regular' },
+  predTitle: { fontSize: 13, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold' },
+  predSub: { fontSize: 11, color: COSMIC.TEXT_3, fontFamily: 'PlusJakartaSans_400Regular' },
 });

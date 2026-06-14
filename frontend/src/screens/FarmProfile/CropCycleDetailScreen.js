@@ -13,7 +13,7 @@
  * Inline log modal preserved for typed entry; saves via existing farmApi.
  */
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, Modal, TextInput,
   Alert, RefreshControl, ActivityIndicator, Platform, KeyboardAvoidingView,
@@ -21,6 +21,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 
 import CosmicScreen from './ui/CosmicScreen';
 import CosmicHeader from './ui/CosmicHeader';
@@ -177,15 +178,19 @@ function buildActivityFeed(cycle) {
 // Screen
 // ──────────────────────────────────────────────────────────────────────────────
 
+// Activity types that the picker hands off as `prefillActivity` → which inline modal opens.
+const PREFILL_MODAL = { FERTILIZER: 'fertilizer', SPRAY: 'pesticide', HARVEST: 'harvest', SALE: 'sale' };
+
 export default function CropCycleDetailScreen({ navigation, route }) {
   const { t } = useLanguage();
-  const { cycleId } = route.params;
+  const { cycleId, prefillActivity } = route.params;
 
   const [cycle, setCycle] = useState(null);
   const [financials, setFinancials] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [modal, setModal] = useState(null);
+  // Open the requested modal on arrival when the picker deep-links here with a type.
+  const [modal, setModal] = useState(PREFILL_MODAL[prefillActivity] || null);
   const [formData, setFormData] = useState({});
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -208,7 +213,9 @@ export default function CropCycleDetailScreen({ navigation, route }) {
     }
   }, [cycleId, t]);
 
-  useEffect(() => { load(); }, [load]);
+  // Reload on focus so activities logged in a dedicated logger (and then dismissed)
+  // show up the moment we return to this screen — not only after a manual pull.
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = useCallback(() => { setRefreshing(true); load(); }, [load]);
 
@@ -239,6 +246,22 @@ export default function CropCycleDetailScreen({ navigation, route }) {
     } catch (e) {
       Haptics.error?.();
       Alert.alert(t('login.error') || 'Error', e?.response?.data?.error?.message || e.message || 'Could not complete cycle.');
+    } finally {
+      setCompleting(false);
+    }
+  }, [cycleId, load, t]);
+
+  // Reopen a completed cycle — undo an accidental "complete" and move it back to ACTIVE
+  // so it returns to the active list and can be logged against again.
+  const reopenCycle = useCallback(async () => {
+    setCompleting(true);
+    try {
+      await farmApi.updateCropCycle(cycleId, { status: 'ACTIVE' });
+      Haptics.success?.();
+      load();
+    } catch (e) {
+      Haptics.error?.();
+      Alert.alert(t('login.error') || 'Error', e?.response?.data?.error?.message || e.message || 'Could not reopen cycle.');
     } finally {
       setCompleting(false);
     }
@@ -373,6 +396,76 @@ export default function CropCycleDetailScreen({ navigation, route }) {
           </View>
         </GlassCard>
 
+        {/* ── Growth story entry ───────────────────────────── */}
+        <Pressable
+          onPress={() => navigation.navigate('GrowthStory', { cycleId, cycle })}
+          style={({ pressed }) => [styles.storyBtn, pressed && { opacity: 0.85 }]}
+        >
+          <View style={styles.storyIcon}>
+            <Ionicons name="images-outline" size={16} color={COSMIC.PRIMARY} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.storyTitle}>Growth story</Text>
+            <Text style={styles.storySub} numberOfLines={1}>
+              See your crop day by day{das != null ? ` · day ${das}` : ''}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={COSMIC.PRIMARY} />
+        </Pressable>
+
+        {/* ── Ask KhetAI about this crop (AI deep-link with cycle context) ── */}
+        <Pressable
+          onPress={() => navigation.navigate('AIAssistant', {
+            screen: 'AIChat',
+            params: {
+              seed: `My ${cycle.cropName}${cycle.variety ? ` (${cycle.variety})` : ''} is at the ${prettyStage(stage)} stage`
+                + `${das != null ? `, day ${das} after sowing` : ''}`
+                + `${cycle.season ? `, ${cycle.season} season` : ''}. What should I focus on now — irrigation, nutrients or pest watch?`,
+            },
+          })}
+          style={({ pressed }) => [styles.askAiBtn, pressed && { opacity: 0.85 }]}
+        >
+          <View style={styles.askAiIcon}>
+            <Ionicons name="sparkles" size={15} color={COSMIC.INVERSE} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.askAiTitle}>Ask KhetAI about this crop</Text>
+            <Text style={styles.askAiSub} numberOfLines={1}>Advice tuned to your stage, variety & season</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={COSMIC.PRIMARY} />
+        </Pressable>
+
+        {/* ── Plan & field history (the pre-seeding capture) ── */}
+        {(cycle.notes || cycle.seedBrand || cycle.seedName || cycle.seedSource || cycle.seedTreatmentProduct || cycle.seedTreatment === 'treated') && (
+          <>
+            <SectionLabel title="Plan & seed" />
+            <GlassCard style={styles.section}>
+              {!!cycle.notes && (
+                <View style={styles.planRow}>
+                  <Ionicons name="repeat-outline" size={14} color={COSMIC.LAND_PREP} />
+                  <Text style={styles.planTxt}>{cycle.notes}</Text>
+                </View>
+              )}
+              {(cycle.seedBrand || cycle.seedName || cycle.seedSource) && (
+                <View style={styles.planRow}>
+                  <Ionicons name="pricetag-outline" size={14} color={COSMIC.ACCENT_DK} />
+                  <Text style={styles.planTxt}>
+                    {[cycle.seedBrand || cycle.seedName, cycle.seedSource, cycle.seedQuantityKg ? `${cycle.seedQuantityKg} kg` : null].filter(Boolean).join(' · ')}
+                  </Text>
+                </View>
+              )}
+              {(cycle.seedTreatment === 'treated' || cycle.seedTreatmentProduct) && (
+                <View style={styles.planRow}>
+                  <Ionicons name="shield-checkmark-outline" size={14} color={COSMIC.FERTILIZER} />
+                  <Text style={styles.planTxt}>
+                    Seed treated{cycle.seedTreatmentProduct ? ` · ${cycle.seedTreatmentProduct}` : ''}
+                  </Text>
+                </View>
+              )}
+            </GlassCard>
+          </>
+        )}
+
         {/* ── Profit & loss (only when data exists) ───────── */}
         {showPL && (
           <>
@@ -452,11 +545,20 @@ export default function CropCycleDetailScreen({ navigation, route }) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.quickRail}
             >
+              {/* Pre-seeding & interculture loggers (dedicated screens) + inline modals,
+                  laid out in real crop-cycle order so the whole season is one tap away. */}
+              <ActivityChip type="LAND_PREP"  label="Land prep" size="md" onPress={() => navigation.navigate('ActivityLandPrepLog', { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
+              <ActivityChip type="SOWING"     label="Sow"       size="md" onPress={() => navigation.navigate('ActivitySowingLog',   { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
               <ActivityChip type="IRRIGATION" label="Water"     size="md" onPress={() => { setFormData({}); setModal('irrigation'); }} style={{ marginRight: 8 }} />
               <ActivityChip type="FERTILIZER" label="Fertilize" size="md" onPress={() => { setFormData({}); setModal('fertilizer'); }} style={{ marginRight: 8 }} />
               <ActivityChip type="SPRAY"      label="Spray"     size="md" onPress={() => { setFormData({}); setModal('pesticide'); }}  style={{ marginRight: 8 }} />
+              <ActivityChip type="WEEDING"    label="Weed"      size="md" onPress={() => navigation.navigate('ActivityWeedingLog',   { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
+              <ActivityChip type="PRUNING"    label="Prune"     size="md" onPress={() => navigation.navigate('ActivityPruningLog',   { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
+              <ActivityChip type="SCOUT"      label="Scout"     size="md" onPress={() => navigation.navigate('ActivityScoutLog',     { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
               <ActivityChip type="HARVEST"    label="Harvest"   size="md" onPress={() => { setFormData({}); setModal('harvest'); }}    style={{ marginRight: 8 }} />
-              <ActivityChip type="SALE"       label="Sale"      size="md" onPress={() => { setFormData({}); setModal('sale'); }} />
+              <ActivityChip type="SALE"       label="Sale"      size="md" onPress={() => { setFormData({}); setModal('sale'); }}        style={{ marginRight: 8 }} />
+              <ActivityChip type="EXPENSE"    label="Expense"   size="md" onPress={() => navigation.navigate('ActivityExpenseLog',   { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
+              <ActivityChip type="INCOME"     label="Income"    size="md" onPress={() => navigation.navigate('ActivityIncomeLog',    { cycleId, farmId: cycle.farmId })} />
             </ScrollView>
           </>
         )}
@@ -485,14 +587,25 @@ export default function CropCycleDetailScreen({ navigation, route }) {
           )}
         </GlassCard>
 
-        {/* ── Footer: complete cycle ─────────────────────── */}
-        {!isCompleted && (
+        {/* ── Footer: complete / reopen cycle ────────────── */}
+        {!isCompleted ? (
           <Pressable
             onPress={() => setShowComplete(true)}
             style={({ pressed }) => [styles.completeFooter, pressed && { opacity: 0.7 }]}
           >
             <Ionicons name="checkmark-done" size={18} color={COSMIC.INVERSE} />
             <Text style={styles.completeFooterText}>Mark cycle complete</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={reopenCycle}
+            disabled={completing}
+            style={({ pressed }) => [styles.reopenFooter, pressed && { opacity: 0.7 }]}
+          >
+            {completing
+              ? <ActivityIndicator size="small" color={COSMIC.PRIMARY} />
+              : <Ionicons name="refresh" size={17} color={COSMIC.PRIMARY} />}
+            <Text style={styles.reopenFooterText}>Reopen cycle</Text>
           </Pressable>
         )}
 
@@ -749,23 +862,23 @@ const styles = StyleSheet.create({
     borderRadius: CR.md, borderWidth: 1.5, borderColor: COSMIC.DANGER + '40',
     backgroundColor: COSMIC.DANGER_SOFT,
   },
-  deleteFooterText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: COSMIC.DANGER },
+  deleteFooterText: { fontSize: 14, fontFamily: 'PlusJakartaSans_700Bold', color: COSMIC.DANGER },
 
   // Delete confirmation popup
   delBackdrop: { flex: 1, backgroundColor: COSMIC.OVERLAY, justifyContent: 'center', alignItems: 'center', padding: 28 },
   delCard: { width: '100%', maxWidth: 360, backgroundColor: COSMIC.SURFACE, borderRadius: 22, paddingHorizontal: 22, paddingTop: 22, paddingBottom: 18, alignItems: 'center', borderWidth: 1, borderColor: COSMIC.BORDER },
   delIconWrap: { width: 54, height: 54, borderRadius: 27, backgroundColor: COSMIC.DANGER_SOFT, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  delTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: COSMIC.TEXT, textAlign: 'center', marginBottom: 6 },
-  delMsg: { fontSize: 13.5, fontFamily: 'Inter_400Regular', color: COSMIC.TEXT_2, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  delTitle: { fontSize: 18, fontFamily: 'PlusJakartaSans_700Bold', color: COSMIC.TEXT, textAlign: 'center', marginBottom: 6 },
+  delMsg: { fontSize: 13.5, fontFamily: 'PlusJakartaSans_400Regular', color: COSMIC.TEXT_2, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
   delBtnRow: { flexDirection: 'row', gap: 10, width: '100%' },
   delBtn: { flex: 1, paddingVertical: 13, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   delCancel: { backgroundColor: COSMIC.SURFACE_LO },
-  delCancelTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.TEXT },
+  delCancelTxt: { fontSize: 15, fontFamily: 'PlusJakartaSans_700Bold', color: COSMIC.TEXT },
   delDanger: { backgroundColor: COSMIC.DANGER },
-  delDangerTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.INVERSE },
+  delDangerTxt: { fontSize: 15, fontFamily: 'PlusJakartaSans_700Bold', color: COSMIC.INVERSE },
   completeIconWrap: { width: 54, height: 54, borderRadius: 27, backgroundColor: COSMIC.PRIMARY_SOFT, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   completeConfirm: { backgroundColor: COSMIC.PRIMARY },
-  completeConfirmTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.INVERSE },
+  completeConfirmTxt: { fontSize: 15, fontFamily: 'PlusJakartaSans_700Bold', color: COSMIC.INVERSE },
 
   // Hero
   heroOuter: { marginHorizontal: CS.base, marginTop: CS.sm },
@@ -793,15 +906,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   heroName: {
-    fontSize: 19,
+    fontSize: 21,
     color: '#FFFFFF',
-    fontFamily: 'Inter_800ExtraBold',
-    letterSpacing: -0.2,
+    fontFamily: 'Fraunces_700Bold',
+    letterSpacing: -0.3,
   },
   heroVariety: {
     fontSize: 12.5,
     color: 'rgba(255,255,255,0.85)',
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     marginTop: 1,
   },
   stagePill: {
@@ -824,7 +937,7 @@ const styles = StyleSheet.create({
   stagePillText: {
     fontSize: 10.5,
     color: '#FFFFFF',
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.4,
     textTransform: 'capitalize',
   },
@@ -840,7 +953,7 @@ const styles = StyleSheet.create({
   completedText: {
     fontSize: 9,
     color: COSMIC.PRIMARY,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.3,
     textTransform: 'uppercase',
   },
@@ -862,13 +975,13 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 16,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
     textTransform: 'capitalize',
   },
   statLabel: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -889,7 +1002,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
@@ -912,6 +1025,60 @@ const styles = StyleSheet.create({
   growthTimeline: {
     flex: 1,
   },
+
+  // Growth story entry button
+  storyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: CS.base,
+    marginTop: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: CR.lg,
+    backgroundColor: COSMIC.PRIMARY_SOFT,
+    borderWidth: 1,
+    borderColor: 'rgba(0,95,33,0.18)',
+  },
+  storyIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storyTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Fraunces_600SemiBold' },
+  storySub: { fontSize: 11.5, color: COSMIC.PRIMARY, fontFamily: 'PlusJakartaSans_500Medium', marginTop: 1 },
+
+  // Ask KhetAI button
+  askAiBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: CS.base,
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: CR.lg,
+    backgroundColor: COSMIC.SURFACE,
+    borderWidth: 1,
+    borderColor: COSMIC.BORDER,
+  },
+  askAiIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: COSMIC.PRIMARY,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  askAiTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Fraunces_600SemiBold' },
+  askAiSub: { fontSize: 11.5, color: COSMIC.TEXT_3, fontFamily: 'PlusJakartaSans_500Medium', marginTop: 1 },
+
+  // Plan & seed rows
+  planRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4 },
+  planTxt: { flex: 1, fontSize: 12.5, color: COSMIC.TEXT_2, lineHeight: 18, fontFamily: 'PlusJakartaSans_500Medium' },
 
   // Profit & loss
   plRow: {
@@ -938,12 +1105,12 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
   },
   legendValue: {
     fontSize: 13,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   perAcreRow: {
     flexDirection: 'row',
@@ -954,8 +1121,8 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COSMIC.BORDER,
   },
-  perAcreText: { fontSize: 12, color: COSMIC.TEXT_3, fontFamily: 'Inter_500Medium' },
-  perAcreStrong: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_800ExtraBold' },
+  perAcreText: { fontSize: 12, color: COSMIC.TEXT_3, fontFamily: 'PlusJakartaSans_500Medium' },
+  perAcreStrong: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_800ExtraBold' },
   finGrid: {
     flexDirection: 'row',
     gap: 6,
@@ -977,13 +1144,13 @@ const styles = StyleSheet.create({
   finLabel: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
   finValue: {
     fontSize: 16,
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
     marginTop: 2,
   },
 
@@ -1013,9 +1180,9 @@ const styles = StyleSheet.create({
   tlLine: { flex: 1, width: 2, backgroundColor: COSMIC.BORDER, marginTop: 4, marginBottom: 2, borderRadius: 1 },
   tlContent: { flex: 1, paddingBottom: 18 },
   tlTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  tlTitle: { flex: 1, fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold', textTransform: 'capitalize' },
-  tlTime: { fontSize: 11, color: COSMIC.TEXT_3, fontFamily: 'Inter_500Medium' },
-  tlSub: { fontSize: 12.5, color: COSMIC.TEXT_2, fontFamily: 'Inter_400Regular', marginTop: 3, lineHeight: 17 },
+  tlTitle: { flex: 1, fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold', textTransform: 'capitalize' },
+  tlTime: { fontSize: 11, color: COSMIC.TEXT_3, fontFamily: 'PlusJakartaSans_500Medium' },
+  tlSub: { fontSize: 12.5, color: COSMIC.TEXT_2, fontFamily: 'PlusJakartaSans_400Regular', marginTop: 3, lineHeight: 17 },
   emptyFeed: {
     paddingVertical: 28,
     paddingHorizontal: 24,
@@ -1035,7 +1202,7 @@ const styles = StyleSheet.create({
   emptyHeading: {
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     textAlign: 'center',
     marginBottom: 4,
   },
@@ -1044,14 +1211,14 @@ const styles = StyleSheet.create({
     color: COSMIC.TEXT_2,
     lineHeight: 17,
     textAlign: 'center',
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     maxWidth: 280,
   },
   mutedText: {
     fontSize: 12,
     color: COSMIC.TEXT_2,
     lineHeight: 17,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     textAlign: 'center',
   },
 
@@ -1075,7 +1242,28 @@ const styles = StyleSheet.create({
   completeFooterText: {
     fontSize: 15,
     color: COSMIC.INVERSE,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    letterSpacing: 0.2,
+  },
+
+  // Reopen (revert an accidental complete) — soft outlined button
+  reopenFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: CS.base,
+    marginTop: CS.lg,
+    paddingVertical: 14,
+    borderRadius: CR.md,
+    backgroundColor: COSMIC.PRIMARY_SOFT,
+    borderWidth: 1.5,
+    borderColor: COSMIC.PRIMARY + '55',
+  },
+  reopenFooterText: {
+    fontSize: 15,
+    color: COSMIC.PRIMARY,
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.2,
   },
 
@@ -1124,13 +1312,13 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 15,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     flex: 1,
   },
   modalLabel: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
     marginBottom: 4,
@@ -1144,7 +1332,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COSMIC.TEXT,
     backgroundColor: COSMIC.SURFACE,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     minHeight: 44,
   },
 });

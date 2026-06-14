@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   activeBadge: {
     flexDirection: 'row',
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
   activeText: {
     color: COSMIC.INVERSE,
     fontSize: 9,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.3,
     textTransform: 'uppercase',
   },
@@ -233,7 +233,7 @@ const styles = StyleSheet.create({
   loc: {
     fontSize: 11,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     flexShrink: 1,
   },
   tags: {
@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
   },
   tagText: {
     fontSize: 10,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   chev: {
     paddingRight: 10,
@@ -276,7 +276,7 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 16,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     textAlign: 'center',
   },
   emptyText: {
@@ -286,7 +286,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     maxWidth: 280,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
   },
 
   // FAB

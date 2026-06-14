@@ -58,7 +58,7 @@ export function TileGrid({ items, value, onChange, columns = 2 }) {
             <View style={[k.tileIcon, { backgroundColor: color + '33', borderColor: color + '55' }]}>
               <Ionicons name={it.icon || 'ellipse-outline'} size={22} color={color} />
             </View>
-            <Text style={[k.tileLabel, sel && { color, fontFamily: 'Inter_700Bold' }]} numberOfLines={1}>{it.label}</Text>
+            <Text style={[k.tileLabel, sel && { color, fontFamily: 'PlusJakartaSans_700Bold' }]} numberOfLines={1}>{it.label}</Text>
             {sel && (
               <View style={[k.tileCheck, { backgroundColor: color }]}>
                 <Ionicons name="checkmark" size={12} color={COSMIC.INVERSE} />
@@ -94,7 +94,7 @@ export function ChipRow({ items, value, onChange, multi = false, tint = COSMIC.I
             style={[k.chip, { backgroundColor: sel ? tint + '1A' : COSMIC.SURFACE, borderColor: sel ? tint : COSMIC.BORDER }]}
           >
             {it.icon && <Ionicons name={it.icon} size={15} color={sel ? tint : COSMIC.TEXT_2} />}
-            <Text style={[k.chipText, sel && { color: tint, fontFamily: 'Inter_700Bold' }]}>{it.label}</Text>
+            <Text style={[k.chipText, sel && { color: tint, fontFamily: 'PlusJakartaSans_700Bold' }]}>{it.label}</Text>
           </Pressable>
         );
       })}
@@ -192,28 +192,28 @@ export const k = StyleSheet.create({
 
   secHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: CS.base, marginBottom: 6 },
   secIcon: { width: 26, height: 26, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  secTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold', flex: 1 },
-  optional: { fontSize: 10, color: COSMIC.TEXT_3, fontFamily: 'Inter_500Medium', textTransform: 'uppercase', letterSpacing: 0.5 },
+  secTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold', flex: 1 },
+  optional: { fontSize: 10, color: COSMIC.TEXT_3, fontFamily: 'PlusJakartaSans_500Medium', textTransform: 'uppercase', letterSpacing: 0.5 },
 
   section: { marginBottom: 2 },
 
   tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tile: { flexGrow: 1, minHeight: 84, borderRadius: CR.md, borderWidth: 1.2, padding: 10, alignItems: 'center', justifyContent: 'center', gap: 6, position: 'relative' },
   tileIcon: { width: 36, height: 36, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  tileLabel: { fontSize: 13, color: COSMIC.TEXT, fontFamily: 'Inter_600SemiBold' },
+  tileLabel: { fontSize: 13, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_600SemiBold' },
   tileCheck: { position: 'absolute', top: 4, right: 4, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 2 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 11, paddingVertical: 7, borderRadius: CR.pill, borderWidth: 1.2, minHeight: 34 },
-  chipText: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'Inter_600SemiBold' },
+  chipText: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_600SemiBold' },
 
   bigRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  bigInput: { flex: 1, borderWidth: 1.2, borderRadius: CR.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 24, color: COSMIC.TEXT, fontFamily: 'Inter_800ExtraBold', textAlign: 'center', letterSpacing: 0.6 },
+  bigInput: { flex: 1, borderWidth: 1.2, borderRadius: CR.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 24, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_800ExtraBold', textAlign: 'center', letterSpacing: 0.6 },
   unitPill: { paddingHorizontal: 12, paddingVertical: 12, borderRadius: CR.md, backgroundColor: COSMIC.SURFACE_HI, borderWidth: 1, borderColor: COSMIC.BORDER_HI },
-  unitText: { fontSize: 12, color: COSMIC.TEXT_2, fontFamily: 'Inter_700Bold', letterSpacing: 0.6 },
+  unitText: { fontSize: 12, color: COSMIC.TEXT_2, fontFamily: 'PlusJakartaSans_700Bold', letterSpacing: 0.6 },
 
-  subLabel: { fontSize: 11, color: COSMIC.TEXT_2, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 10, marginBottom: 4 },
-  input: { borderWidth: 1.2, borderColor: COSMIC.BORDER_HI, borderRadius: CR.md, paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 11 : 8, fontSize: 14, color: COSMIC.TEXT, backgroundColor: COSMIC.SURFACE, fontFamily: 'Inter_500Medium', minHeight: 44 },
+  subLabel: { fontSize: 11, color: COSMIC.TEXT_2, fontFamily: 'PlusJakartaSans_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 10, marginBottom: 4 },
+  input: { borderWidth: 1.2, borderColor: COSMIC.BORDER_HI, borderRadius: CR.md, paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 11 : 8, fontSize: 14, color: COSMIC.TEXT, backgroundColor: COSMIC.SURFACE, fontFamily: 'PlusJakartaSans_500Medium', minHeight: 44 },
 
   footer: { paddingHorizontal: CS.base, paddingTop: CS.base, paddingBottom: Platform.OS === 'ios' ? 32 : 20 },
 });

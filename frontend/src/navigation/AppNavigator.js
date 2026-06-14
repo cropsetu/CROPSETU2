@@ -274,6 +274,7 @@ import FarmDetailScreen         from '../screens/FarmProfile/FarmDetailScreen';
 import FarmAddEditScreen        from '../screens/FarmProfile/FarmAddEditScreen';
 import CropCycleCreateScreen    from '../screens/FarmProfile/CropCycleCreateScreen';
 import CropCycleDetailScreen    from '../screens/FarmProfile/CropCycleDetailScreen';
+import GrowthStoryScreen        from '../screens/FarmProfile/GrowthStoryScreen';
 import ActivityTypePickerScreen from '../screens/FarmProfile/ActivityTypePickerScreen';
 import IrrigationLogScreen      from '../screens/FarmProfile/logging/IrrigationLogScreen';
 import LandPrepLogScreen        from '../screens/FarmProfile/logging/LandPrepLogScreen';
@@ -283,6 +284,7 @@ import WeedingLogScreen         from '../screens/FarmProfile/logging/WeedingLogS
 import PruningLogScreen         from '../screens/FarmProfile/logging/PruningLogScreen';
 import ExpenseLogScreen         from '../screens/FarmProfile/logging/ExpenseLogScreen';
 import IncomeLogScreen          from '../screens/FarmProfile/logging/IncomeLogScreen';
+import CustomActivityLogScreen  from '../screens/FarmProfile/logging/CustomActivityLogScreen';
 
 // Seller Portal (integrated)
 import SellerDashboard      from '../screens/Seller/DashboardScreen';
@@ -367,6 +369,7 @@ function AINavigator() {
       <AIStack.Screen name="FarmAddEdit"            component={FarmAddEditScreen}      options={{ headerShown: false }} />
       <AIStack.Screen name="CropCycleCreate"        component={CropCycleCreateScreen}  options={{ headerShown: false }} />
       <AIStack.Screen name="CropCycleDetail"        component={CropCycleDetailScreen}  options={{ headerShown: false }} />
+      <AIStack.Screen name="GrowthStory"            component={GrowthStoryScreen}      options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityTypePicker"     component={ActivityTypePickerScreen} options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityIrrigationLog"  component={IrrigationLogScreen}    options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityLandPrepLog"    component={LandPrepLogScreen}      options={{ headerShown: false }} />
@@ -376,6 +379,7 @@ function AINavigator() {
       <AIStack.Screen name="ActivityPruningLog"     component={PruningLogScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityExpenseLog"     component={ExpenseLogScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityIncomeLog"      component={IncomeLogScreen}        options={{ headerShown: false }} />
+      <AIStack.Screen name="ActivityCustomLog"      component={CustomActivityLogScreen} options={{ headerShown: false }} />
       {/* Weather screens — accessible from AI tab */}
       <AIStack.Screen name="Weather"           component={WeatherHome}            options={{ headerShown: false }} />
       <AIStack.Screen name="CropCalendar"      component={CropCalendar}           options={{ title: t('cropCalendar.bannerTitle') }} />
@@ -422,6 +426,7 @@ function MyFarmNavigator() {
       <MyFarmStack.Screen name="FarmAddEdit"            component={FarmAddEditScreen} />
       <MyFarmStack.Screen name="CropCycleCreate"        component={CropCycleCreateScreen} />
       <MyFarmStack.Screen name="CropCycleDetail"        component={CropCycleDetailScreen} />
+      <MyFarmStack.Screen name="GrowthStory"            component={GrowthStoryScreen} />
       <MyFarmStack.Screen name="ActivityTypePicker"     component={ActivityTypePickerScreen} />
       <MyFarmStack.Screen name="ActivityIrrigationLog"  component={IrrigationLogScreen} />
       <MyFarmStack.Screen name="ActivityLandPrepLog"    component={LandPrepLogScreen} />
@@ -431,6 +436,7 @@ function MyFarmNavigator() {
       <MyFarmStack.Screen name="ActivityPruningLog"     component={PruningLogScreen} />
       <MyFarmStack.Screen name="ActivityExpenseLog"     component={ExpenseLogScreen} />
       <MyFarmStack.Screen name="ActivityIncomeLog"      component={IncomeLogScreen} />
+      <MyFarmStack.Screen name="ActivityCustomLog"      component={CustomActivityLogScreen} />
     </MyFarmStack.Navigator>
   );
 }

@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     textTransform: 'capitalize',
   },
   metaRow: {
@@ -140,12 +140,12 @@ const styles = StyleSheet.create({
   time: {
     fontSize: 11,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
   },
   subtitle: {
     fontSize: 12,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     marginTop: 3,
     lineHeight: 16,
   },
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
   thumbMoreText: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
   voicePill: {
     flexDirection: 'row',
@@ -188,6 +188,6 @@ const styles = StyleSheet.create({
   voicePillText: {
     fontSize: 11,
     color: COSMIC.ACCENT,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
 });
