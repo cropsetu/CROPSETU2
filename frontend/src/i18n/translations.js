@@ -1018,7 +1018,6 @@ export const translations = {
         voiceChat:   { label: 'Voice Chat',             desc: 'Talk to FarmMind in your language' },
         price:       { label: 'Price Prediction',       desc: 'Track mandi prices and market movement' },
         farms:       { label: 'My Farms',               desc: 'Manage farms, crop cycles and AI predictions' },
-        cropCalendar:{ label: 'Crop Calendar',          desc: 'Sowing & harvest windows by crop' },
         stateCrops:  { label: 'State Crops',            desc: 'Best crops for your region' },
       },
       pills: {

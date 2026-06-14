@@ -44,11 +44,6 @@ const AI_TOOLS = [
   { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', icon: 'leaf', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmList' },
   { id: 'soil', labelKey: 'aiHome.tools.soil.label', descKey: 'aiHome.tools.soil.desc', icon: 'flask', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'SoilHealth' },
   { id: 'mandi', labelKey: 'aiHome.tools.mandi.label', descKey: 'aiHome.tools.mandi.desc', icon: 'storefront', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market' },
-  { id: 'mspTracker', labelKey: 'aiHome.tools.msp.label', descKey: 'aiHome.tools.msp.desc', icon: 'ribbon', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'MSPTracker' },
-  { id: 'planner', labelKey: 'aiHome.tools.advisory.label', descKey: 'aiHome.tools.advisory.desc', icon: 'clipboard', color: COLORS.blue, bg: COLORS.blueMist, screen: 'DailyPlanner' },
-  { id: 'farmCalendar', labelKey: 'aiHome.tools.calendar.label', descKey: 'aiHome.tools.calendar.desc', icon: 'calendar-number', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmCalendar' },
-  { id: 'irrigation', labelKey: 'aiHome.tools.irrigation.label', descKey: 'aiHome.tools.irrigation.desc', icon: 'water', color: COLORS.sellerConfirmed, bg: COLORS.skyPale, screen: 'Irrigation' },
-  { id: 'cropCalendar', labelKey: 'aiHome.tools.cropCalendar.label', descKey: 'aiHome.tools.cropCalendar.desc', icon: 'calendar', color: COLORS.primary, bg: COLORS.greenTint, screen: 'CropCalendar' },
   { id: 'stateCrops', labelKey: 'aiHome.tools.stateCrops.label', descKey: 'aiHome.tools.stateCrops.desc', icon: 'map', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'StateCrops' },
 ];
 
