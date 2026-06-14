@@ -127,17 +127,6 @@ async def _call_one_vision(
     raise ValueError(f"Model {model_id!r} (provider={provider}) has no vision adapter")
 
 
-async def _call_one_text(
-    model_id: str,
-    system_prompt: str,
-    user_prompt: str,
-) -> tuple[str, dict]:
-    provider = provider_of(model_id)
-    if provider != "gemini":
-        raise ValueError(f"Model {model_id!r} has unsupported provider {provider!r} (Gemini-only)")
-    return await call_gemini_text(system_prompt, user_prompt, GEMINI_API_KEY, model=model_id)
-
-
 # ── Public dispatchers ───────────────────────────────────────────────────────
 
 async def dispatch_vision(
@@ -178,24 +167,6 @@ async def dispatch_one_vision(
     Raises whatever the underlying provider raised.
     """
     return await _call_one_vision(model_id, system_prompt, user_prompt, images_b64, temperature)
-
-
-async def dispatch_text(
-    *,
-    stage: Stage,
-    tier: str | None,
-    system_prompt: str,
-    user_prompt: str,
-) -> tuple[str, dict, str]:
-    """
-    Run the configured text-model chain for (stage, tier). Returns
-    (raw_text, accumulated_token_info, model_used).
-    """
-    return await _run_chain(
-        stage=stage,
-        tier=tier,
-        runner=lambda m: _call_one_text(m, system_prompt, user_prompt),
-    )
 
 
 # ── Core fallback loop ───────────────────────────────────────────────────────

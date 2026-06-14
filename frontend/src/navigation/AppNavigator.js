@@ -353,7 +353,6 @@ function AINavigator() {
       {/* Soil Hub — cosmic redesign. 'SoilHealth' kept as the entry alias so the
           AI home tile still works; sub-screens are the form/report/scan/guide. */}
       <AIStack.Screen name="SoilHealth"        component={SoilHubScreen}          options={{ headerShown: false }} />
-      <AIStack.Screen name="SoilHub"           component={SoilHubScreen}          options={{ headerShown: false }} />
       <AIStack.Screen name="SoilForm"          component={SoilFormScreen}         options={{ headerShown: false }} />
       <AIStack.Screen name="SoilReport"        component={SoilReportScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="SoilScan"          component={SoilScanScreen}         options={{ headerShown: false }} />

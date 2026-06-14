@@ -184,8 +184,3 @@ def resolve_chain(stage: Stage, tier: Tier) -> list[str]:
 def provider_of(model_id: str) -> Provider | None:
     entry = MODEL_CATALOG.get(model_id)
     return entry["provider"] if entry else None
-
-
-def display_name(model_id: str) -> str:
-    entry = MODEL_CATALOG.get(model_id)
-    return entry["display"] if entry else model_id
