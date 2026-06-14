@@ -5,6 +5,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SHADOWS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
+import { getCropGuide } from '../../data/cropGuide';
 
 const STAGE_COLORS = [
   COLORS.deepPine, COLORS.warmGreen, COLORS.sageMid, COLORS.sageLight, COLORS.calmGreen,
@@ -63,6 +64,9 @@ export default function CropDetail({ route }) {
   const { crop } = route.params;
   const [activeStageIndex, setActiveStageIndex] = useState(1);
 
+  // Rich documentation for this crop (encyclopedia entry), if we have one.
+  const guide = getCropGuide(crop?.name);
+
   const hasStages = Array.isArray(crop.stages) && crop.stages.length > 0;
   const lastStage = hasStages ? crop.stages[crop.stages.length - 1] : null;
   const totalDays = lastStage ? (lastStage.day || 0) + (lastStage.duration || 0) : 0;
@@ -115,6 +119,88 @@ export default function CropDetail({ route }) {
             <Text style={styles.summaryLabel}>{t('cropDetail.bestSoil')}</Text>
           </View>
         </View>
+
+        {/* ── Crop documentation (encyclopedia) ──────────────────────────── */}
+        {guide && (
+          <View style={styles.guideWrap}>
+            <InfoSection icon="information-circle" tint={COLORS.primary} title={t('cropGuide.about', 'About this crop')}>
+              <Text style={styles.gBody}>{guide.about}</Text>
+              {!!guide.uses && <Text style={[styles.gMeta, { marginTop: 6 }]}><Text style={styles.gMetaK}>{t('cropGuide.uses', 'Uses')}: </Text>{guide.uses}</Text>}
+            </InfoSection>
+
+            {guide.varieties?.length > 0 && (
+              <InfoSection icon="ribbon" tint={COLORS.gold} title={t('cropGuide.varieties', 'Recommended varieties')}>
+                <View style={styles.chipWrap}>
+                  {guide.varieties.map((v, i) => (
+                    <View key={i} style={styles.gChip}><Text style={styles.gChipTxt}>{v}</Text></View>
+                  ))}
+                </View>
+              </InfoSection>
+            )}
+
+            <InfoSection icon="leaf" tint={COLORS.success} title={t('cropGuide.soilClimate', 'Soil & climate')}>
+              <Row k={t('cropGuide.soil', 'Soil')} v={guide.soil} />
+              <Row k={t('cropGuide.climate', 'Climate')} v={guide.climate} />
+              <Row k={t('cropGuide.season', 'Season')} v={guide.season} />
+              <Row k={t('cropDetail.totalDuration', 'Duration')} v={guide.duration} />
+            </InfoSection>
+
+            <InfoSection icon="nutrition" tint={COLORS.accent} title={t('cropGuide.seedSowing', 'Seed & sowing')}>
+              <Row k={t('cropGuide.seedRate', 'Seed rate')} v={guide.seedRate} />
+              <Row k={t('cropGuide.spacing', 'Spacing')} v={guide.spacing} />
+              <Row k={t('cropGuide.method', 'Method')} v={guide.sowingMethod} />
+            </InfoSection>
+
+            {guide.nutrients && (
+              <InfoSection icon="flask" tint={COLORS.tealDeep} title={t('cropGuide.fertilizer', 'Fertilizer schedule')}>
+                <Row k={t('cropGuide.basal', 'Basal')} v={guide.nutrients.basal} />
+                {(guide.nutrients.topDress || []).map((d, i) => (
+                  <Row key={i} k={`${t('cropGuide.topDress', 'Top-dress')} ${i + 1}`} v={d} />
+                ))}
+              </InfoSection>
+            )}
+
+            <InfoSection icon="water" tint={COLORS.info} title={t('cropGuide.water', 'Water & weeding')}>
+              <Text style={styles.gBody}>{guide.irrigation}</Text>
+              {!!guide.weed && <Text style={[styles.gMeta, { marginTop: 6 }]}><Text style={styles.gMetaK}>{t('cropGuide.weed', 'Weeds')}: </Text>{guide.weed}</Text>}
+            </InfoSection>
+
+            {guide.pests?.length > 0 && (
+              <InfoSection icon="bug" tint={COLORS.error} title={t('cropGuide.pests', 'Major pests')}>
+                {guide.pests.map((p, i) => <PdRow key={i} item={p} t={t} />)}
+              </InfoSection>
+            )}
+
+            {guide.diseases?.length > 0 && (
+              <InfoSection icon="medkit" tint={COLORS.cta} title={t('cropGuide.diseases', 'Major diseases')}>
+                {guide.diseases.map((d, i) => <PdRow key={i} item={d} t={t} />)}
+              </InfoSection>
+            )}
+
+            <InfoSection icon="cut" tint={COLORS.primary} title={t('cropGuide.harvestYield', 'Harvest & yield')}>
+              <Text style={styles.gBody}>{guide.harvest}</Text>
+              {!!guide.yield && <Text style={[styles.gMeta, { marginTop: 6 }]}><Text style={styles.gMetaK}>{t('cropGuide.yield', 'Yield')}: </Text>{guide.yield}</Text>}
+              {!!guide.postHarvest && <Text style={[styles.gMeta, { marginTop: 6 }]}><Text style={styles.gMetaK}>{t('cropGuide.postHarvest', 'Post-harvest')}: </Text>{guide.postHarvest}</Text>}
+            </InfoSection>
+
+            {!!guide.marketTips && (
+              <InfoSection icon="trending-up" tint={COLORS.rustOrange} title={t('cropGuide.market', 'Market & economics')}>
+                <Text style={styles.gBody}>{guide.marketTips}</Text>
+              </InfoSection>
+            )}
+
+            {guide.dosDonts?.length > 0 && (
+              <InfoSection icon="checkmark-circle" tint={COLORS.success} title={t('cropGuide.dosDonts', "Do’s & Don’ts")}>
+                {guide.dosDonts.map((d, i) => (
+                  <View key={i} style={styles.ddRow}>
+                    <Ionicons name="ellipse" size={6} color={COLORS.primary} style={{ marginTop: 7 }} />
+                    <Text style={[styles.gBody, { flex: 1 }]}>{d}</Text>
+                  </View>
+                ))}
+              </InfoSection>
+            )}
+          </View>
+        )}
 
         {/* Visual Timeline */}
         {hasStages && (
@@ -187,10 +273,65 @@ export default function CropDetail({ route }) {
   );
 }
 
+// ── Crop-documentation sub-components ───────────────────────────────────────────
+function InfoSection({ icon, tint, title, children }) {
+  return (
+    <View style={styles.gSection}>
+      <View style={styles.gSecHead}>
+        <View style={[styles.gSecIcon, { backgroundColor: tint + '1A' }]}>
+          <Ionicons name={icon} size={16} color={tint} />
+        </View>
+        <Text style={styles.gSecTitle}>{title}</Text>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function Row({ k, v }) {
+  if (!v) return null;
+  return (
+    <View style={styles.gKv}>
+      <Text style={styles.gKvK}>{k}</Text>
+      <Text style={styles.gKvV}>{v}</Text>
+    </View>
+  );
+}
+
+function PdRow({ item, t }) {
+  return (
+    <View style={styles.pdRow}>
+      <Text style={styles.pdName}>{item.name}</Text>
+      {!!item.symptom && <Text style={styles.pdLine}><Text style={styles.gMetaK}>{t('cropGuide.symptom', 'Symptom')}: </Text>{item.symptom}</Text>}
+      {!!item.control && <Text style={styles.pdLine}><Text style={styles.gMetaK}>{t('cropGuide.control', 'Control')}: </Text>{item.control}</Text>}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
 
-  cropHeader: { padding: 28, alignItems: 'center', gap: 8 },
+  // Crop documentation
+  guideWrap: { paddingHorizontal: 16, paddingTop: 6 },
+  gSection: { backgroundColor: COLORS.surface, borderRadius: 14, padding: 14, marginBottom: 12, ...SHADOWS.small },
+  gSecHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  gSecIcon: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  gSecTitle: { fontSize: 15, fontWeight: '800', color: COLORS.textDark },
+  gBody: { fontSize: 13.5, color: COLORS.textMedium, lineHeight: 20 },
+  gMeta: { fontSize: 13, color: COLORS.textMedium, lineHeight: 19 },
+  gMetaK: { fontWeight: '800', color: COLORS.textDark },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  gChip: { backgroundColor: COLORS.primaryPale, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
+  gChipTxt: { fontSize: 12.5, fontWeight: '700', color: COLORS.primary },
+  gKv: { flexDirection: 'row', marginBottom: 7, gap: 8 },
+  gKvK: { fontSize: 12.5, fontWeight: '800', color: COLORS.textDark, width: 92 },
+  gKvV: { fontSize: 12.5, color: COLORS.textMedium, flex: 1, lineHeight: 18 },
+  pdRow: { marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: COLORS.divider },
+  pdName: { fontSize: 13.5, fontWeight: '800', color: COLORS.textDark, marginBottom: 3 },
+  pdLine: { fontSize: 12.5, color: COLORS.textMedium, lineHeight: 18, marginTop: 1 },
+  ddRow: { flexDirection: 'row', gap: 8, marginBottom: 6, alignItems: 'flex-start' },
+
+  cropHeader: { padding: 28, paddingTop: 20, alignItems: 'center', gap: 8, backgroundColor: COLORS.mediumGreen, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
   cropIcon: { fontSize: 56 },
   cropName: { fontSize: 26, fontWeight: '900', color: COLORS.textWhite },
   cropNameHi: { fontSize: 18, color: COLORS.primaryPale, fontWeight: '600' },
