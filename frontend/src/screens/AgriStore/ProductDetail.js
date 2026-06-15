@@ -600,7 +600,7 @@ export default function ProductDetail({ route, navigation }) {
       </Animated.ScrollView>
 
       {/* ── Bottom Action Bar ──────────────────────────────────────────────── */}
-      <View style={[S.bottomBar, { paddingBottom: Math.max(insets.bottom + 4, 14) }]}>
+      <View style={[S.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         <TouchableOpacity
           style={[S.addCartBtn, (!inStock || adding) && { opacity: 0.45 }]}
           onPress={handleAddToCart}

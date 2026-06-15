@@ -29,7 +29,6 @@ import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import WeatherIcon from '../../components/WeatherIcons';
 import SoilIcon from '../../components/SoilIcons';
 import TabIcon from '../../components/TabIcons';
-import CropIcon from '../../components/CropIcons';
 
 const { width: W } = Dimensions.get('window');
 const GREEN   = COLORS.primary;
@@ -64,7 +63,7 @@ const AI_TOOLS = [
   { id: 'disease', labelKey: 'aiHome.tools.disease.label', descKey: 'aiHome.tools.disease.desc', icon: 'scan', color: GREEN, bg: COLORS.greenTint, screen: 'CropScan', badge: 'AI' },
   { id: 'chatSupport', labelKey: 'aiHome.tools.chatSupport.label', descKey: 'aiHome.tools.chatSupport.desc', icon: 'chatbubbles', color: COLORS.blue, bg: COLORS.blueMist, screen: 'AIChat', badge: 'LIVE' },
   { id: 'voiceChat', labelKey: 'aiHome.tools.voiceChat.label', descKey: 'aiHome.tools.voiceChat.desc', icon: 'mic', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'VoiceChat', badge: 'NEW' },
-  { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmList', renderIcon: () => <CropIcon crop="Wheat" size={SVG_GLYPH} /> },
+  { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', icon: 'leaf', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmList' },
   { id: 'soil', labelKey: 'aiHome.tools.soil.label', descKey: 'aiHome.tools.soil.desc', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'SoilHealth', renderIcon: () => <SoilIcon type="black" size={SVG_GLYPH} /> },
   { id: 'mandi', labelKey: 'aiHome.tools.mandi.label', descKey: 'aiHome.tools.mandi.desc', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
   { id: 'stateCrops', labelKey: 'aiHome.tools.stateCrops.label', descKey: 'aiHome.tools.stateCrops.desc', icon: 'map', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'StateCrops' },

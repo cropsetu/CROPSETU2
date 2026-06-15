@@ -2,12 +2,13 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   Switch, Alert, Modal, TextInput, Linking,
-  Image, ActivityIndicator, Platform, Animated, ScrollView,
+  Image, ImageBackground, ActivityIndicator, Platform, Animated, ScrollView,
   KeyboardAvoidingView,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import { useLanguage } from '../../context/LanguageContext';
 import { getStatesByRegion, REGION_ORDER } from '../../i18n/stateMappings';
@@ -19,6 +20,10 @@ import { COLORS } from '../../constants/colors';
 import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import Svg, { Circle, Defs, RadialGradient as SvgRadialGradient, Stop, Path } from 'react-native-svg';
+
+// Same hero artwork the Login screen uses — rendered blurred behind the profile
+// body (everything below the edit-profile hero) for a cohesive branded backdrop.
+const HERO = require('../../../assets/khet/welcome-hero.jpg');
 
 function HeroBgDecoration() {
   return (
@@ -421,6 +426,16 @@ export default function ProfileScreen({ navigation }) {
         </Animated.View>
 
         <View style={S.body}>
+          {/* Login-screen hero artwork, blurred, behind the body content.
+              Subtle overlay keeps the foreground cards/text readable. */}
+          <View style={S.bodyBg} pointerEvents="none">
+            <ImageBackground source={HERO} style={StyleSheet.absoluteFill} resizeMode="cover">
+              <BlurView intensity={50} tint="light" style={StyleSheet.absoluteFill} />
+              <View style={S.bodyBgOverlay} />
+            </ImageBackground>
+          </View>
+
+          <View style={S.bodyContent}>
           <EntrySlide delay={0} fromY={20}>
             <View style={S.statsCard}>
               {STAT_CONFIGS.map((stat, i) => (
@@ -570,6 +585,7 @@ export default function ProfileScreen({ navigation }) {
 
           <Text style={S.version}>{t('profile.versionText')}</Text>
           <View style={{ height: 40 }} />
+          </View>
         </View>
       </Animated.ScrollView>
 
@@ -758,7 +774,13 @@ const S = StyleSheet.create({
   editBtnTxt: { fontSize: 13, fontFamily: KFONT.sansSemi, color: KHET.white },
   memberSince: { fontSize: 12, color: 'rgba(255,255,255,0.7)', fontFamily: KFONT.displayItalic, fontStyle: 'italic' },
 
-  body: { paddingHorizontal: 16, marginTop: -12 },
+  body: { marginTop: -12, position: 'relative' },
+  // Blurred Login hero artwork behind the body; absolute so it fills the
+  // full width edge-to-edge regardless of the content's horizontal padding.
+  bodyBg: { ...StyleSheet.absoluteFillObject },
+  // Soft scrim so the (light-tinted blurred) image keeps cards/text readable.
+  bodyBgOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: KHET.background + 'CC' },
+  bodyContent: { paddingHorizontal: 16 },
 
   statsCard: {
     flexDirection: 'row', backgroundColor: KHET.card,

@@ -16,6 +16,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import {
   STATE_CROPS, STATE_LIST, detectStateFromLocation,
 } from '../../data/stateCrops';
+import { tc } from '../../data/contentI18n';
 
 // ── Palette ────────────────────────────────────────────────────────────────────
 const SKY   = COLORS.skyDark;
@@ -36,7 +37,7 @@ function FarmingTypeChip({ item }) {
   );
 }
 
-function CropCard({ crop, onPress, t }) {
+function CropCard({ crop, onPress, t, language }) {
   return (
     <TouchableOpacity style={styles.cropCard} onPress={() => onPress(crop)} activeOpacity={0.88}>
       {/* Season badge */}
@@ -50,8 +51,8 @@ function CropCard({ crop, onPress, t }) {
         <Text style={styles.cropEmoji}>{crop.icon}</Text>
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={styles.cropName}>{crop.name}</Text>
-          <Text style={styles.cropNameHi}>{crop.nameHi}</Text>
-          <Text style={styles.cropDesc} numberOfLines={2}>{crop.description}</Text>
+          {language !== 'en' && <Text style={styles.cropNameHi}>{tc(crop.name, language)}</Text>}
+          <Text style={styles.cropDesc} numberOfLines={2}>{tc(crop.description, language)}</Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={COLORS.textLight} />
       </View>
@@ -160,7 +161,7 @@ function SearchInput({ value, onChangeText, placeholder }) {
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
 export default function StateCropsScreen({ navigation, route }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { coords: gpsCoords } = useLocation();
   // Accept pre-selected state from navigation params or weather page
   const initialState = route.params?.state || null;
@@ -260,7 +261,7 @@ export default function StateCropsScreen({ navigation, route }) {
             <View style={styles.overviewItem}>
               <Ionicons name="partly-sunny-outline" size={18} color={SKY} />
               <Text style={styles.overviewLabel}>{t('stateCrops.climate')}</Text>
-              <Text style={styles.overviewVal}>{stateData.climate}</Text>
+              <Text style={styles.overviewVal}>{tc(stateData.climate, language)}</Text>
             </View>
             <View style={styles.overviewDivider} />
             <View style={styles.overviewItem}>
@@ -301,7 +302,7 @@ export default function StateCropsScreen({ navigation, route }) {
             {stateData.crops.length} {t('stateCrops.keyCrops')}
           </Text>
           {stateData.crops.map((crop) => (
-            <CropCard key={crop.id} crop={crop} onPress={openCropDetail} t={t} />
+            <CropCard key={crop.id} crop={crop} onPress={openCropDetail} t={t} language={language} />
           ))}
         </View>
 

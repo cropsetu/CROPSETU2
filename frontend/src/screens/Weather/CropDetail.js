@@ -14,6 +14,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 import { useLanguage } from '../../context/LanguageContext';
+import { tc } from '../../data/contentI18n';
 import { getCropGuide } from '../../data/cropGuide';
 
 // Forest-green → gold progression for the growth-stage timeline.
@@ -26,7 +27,7 @@ const TINT = {
   harvest: KHET.gold, market: '#C8922A', dd: KHET.primary,
 };
 
-function StageCard({ stage, index, total, isActive, t }) {
+function StageCard({ stage, index, total, isActive, t, language }) {
   const color = STAGE_COLORS[index % STAGE_COLORS.length];
   const progressPct = ((index + 1) / total) * 100;
 
@@ -43,7 +44,7 @@ function StageCard({ stage, index, total, isActive, t }) {
         <View style={styles.stageHeader}>
           <View style={{ flex: 1 }}>
             <Text style={styles.stageName}>{stage.name}</Text>
-            <Text style={styles.stageNameHi}>{stage.nameHi}</Text>
+            {language !== 'en' && <Text style={styles.stageNameHi}>{tc(stage.name, language)}</Text>}
           </View>
           <View style={[styles.stageDayBadge, { backgroundColor: color }]}>
             <Text style={styles.stageDayText}>{t('cropDetail.dayLabel')} {stage.day}</Text>
@@ -57,7 +58,7 @@ function StageCard({ stage, index, total, isActive, t }) {
 
         <View style={styles.stageTip}>
           <Ionicons name="bulb" size={14} color={KHET.gold} />
-          <Text style={styles.stageTipText}>{stage.tip}</Text>
+          <Text style={styles.stageTipText}>{tc(stage.tip, language)}</Text>
         </View>
 
         <View style={styles.stageProgressBar}>
@@ -70,7 +71,7 @@ function StageCard({ stage, index, total, isActive, t }) {
 }
 
 export default function CropDetail({ route }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
   const { crop } = route.params;
   const [activeStageIndex, setActiveStageIndex] = useState(1);
@@ -98,7 +99,7 @@ export default function CropDetail({ route }) {
             <Text style={styles.cropIcon}>{crop.icon}</Text>
           </View>
           <Text style={styles.cropName}>{crop.name}</Text>
-          {!!crop.nameHi && <Text style={styles.cropNameHi}>{crop.nameHi}</Text>}
+          {language !== 'en' && <Text style={styles.cropNameHi}>{tc(crop.name, language)}</Text>}
           <View style={styles.seasonPill}>
             <Ionicons name="calendar" size={13} color="#fff" />
             <Text style={styles.seasonText}>{crop.season}</Text>
@@ -244,7 +245,7 @@ export default function CropDetail({ route }) {
 
             <View style={styles.timeline}>
               {crop.stages.map((stage, i) => (
-                <StageCard key={i} stage={stage} index={i} total={crop.stages.length} isActive={activeStageIndex === i} t={t} />
+                <StageCard key={i} stage={stage} index={i} total={crop.stages.length} isActive={activeStageIndex === i} t={t} language={language} />
               ))}
             </View>
           </View>

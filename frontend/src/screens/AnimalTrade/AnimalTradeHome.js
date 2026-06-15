@@ -72,7 +72,7 @@ function CategoryPill({ item, active, onPress, t }) {
         onPressIn={() => { sc.value = withSpring(0.9, SPRINGS.snappy); }}
         onPressOut={() => { sc.value = withSpring(1, SPRINGS.snappy); }}
       >
-        <View style={[S.catImgWrap, active && S.catImgWrapActive]}>
+        <View style={S.catImgWrap}>
           <AnimalIcon type={item.key} size={50} />
         </View>
         <Text style={[S.catLabel, active && S.catLabelActive]}>{t(item.tKey === 'all' ? 'all' : `animals.${item.tKey.toLowerCase()}`) || item.key.toUpperCase()}</Text>
@@ -558,15 +558,13 @@ const S = StyleSheet.create({
   searchBar: {
     flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: COLORS.surfaceRaised, borderRadius: 16, paddingHorizontal: 13, paddingVertical: 12,
-    borderWidth: 1.5, borderColor: COLORS.border,
+    borderWidth: 1.5, borderColor: GREEN,
   },
   searchInput: { flex: 1, fontSize: 14, color: COLORS.textDark, padding: 0, fontFamily: 'Inter_400Regular' },
 
   catRow:           { paddingHorizontal: 12, paddingBottom: 12, gap: 8 },
   catWrap:          { alignItems: 'center', gap: 5, width: 64 },
-  catImgWrap:       { width: 54, height: 54, borderRadius: 27, overflow: 'hidden', borderWidth: 2.5, borderColor: COLORS.gray150,
-                      shadowColor: COLORS.black, shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  catImgWrapActive: { borderColor: GREEN, shadowColor: GREEN, shadowOpacity: 0.35, elevation: 4 },
+  catImgWrap:       { width: 54, height: 54, alignItems: 'center', justifyContent: 'center' },
   catImg:           { width: '100%', height: '100%' },
   catLabel:         { fontSize: 10, fontWeight: TYPE.weight.bold, color: COLORS.textMedium, textAlign: 'center', fontFamily: 'Inter_700Bold' },
   catLabelActive:   { color: GREEN },

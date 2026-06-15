@@ -728,7 +728,7 @@ export default function CheckoutScreen({ route, navigation }) {
       </View>
 
       {/* ── Bottom action bar ── */}
-      <View style={[BOT.bar, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+      <View style={[BOT.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         {/* Delivering to / total */}
         {step === 1 && !showForm && selectedAddrObj && (
           <TouchableOpacity onPress={() => setAddrSheet(true)} activeOpacity={0.7}>

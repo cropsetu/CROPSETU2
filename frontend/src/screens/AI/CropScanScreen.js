@@ -1443,7 +1443,7 @@ const SC = StyleSheet.create({
   // Step bar
   stepBar: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 24, paddingVertical: 14,
+    paddingHorizontal: 24, paddingTop: 10, paddingBottom: 8,
   },
   stepDot: {
     width: 26, height: 26, borderRadius: 13,
@@ -1457,14 +1457,14 @@ const SC = StyleSheet.create({
   stepLineDone:    { backgroundColor: COLORS.greenBright },
 
   // Scroll content
-  scrollContent: { paddingHorizontal: 18, paddingTop: 18 },
+  scrollContent: { paddingHorizontal: 18, paddingTop: 4 },
   farmBanner: { marginBottom: 18 },
 
   // Section label
   sectionLabel: {
     fontSize: 13, fontWeight: '800', color: COLORS.gray700dark,
     letterSpacing: 0.6, textTransform: 'uppercase',
-    marginBottom: 10, marginTop: 20,
+    marginBottom: 10, marginTop: 14,
   },
 
   // Crop tile grid — 4 columns, copies OnboardingProfileScreen pattern
