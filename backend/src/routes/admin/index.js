@@ -29,7 +29,6 @@ import aiRoutes from './ai.routes.js';
 import { schemesRouter, mspRouter, cropMasterRouter, pestAlertsRouter, mandiRouter } from './cms.routes.js';
 import broadcastRoutes from './broadcast.routes.js';
 import notificationTemplatesRoutes from './notificationTemplates.routes.js';
-import { flagsRouter, healthRouter, queuesRouter } from './ops.routes.js';
 import { flagsRouter, healthRouter, queuesRouter, jobsRouter, errorLogsRouter } from './ops.routes.js';
 import { consentsRouter, erasureRouter, auditRouter } from './compliance.routes.js';
 import settingsRoutes from './settings.routes.js';

@@ -4,20 +4,13 @@ import {
   Beef, Tractor, HardHat, CalendarCheck, MessageSquare, MessagesSquare, UsersRound,
   Cpu, Coins, FlaskConical, Activity, Landmark, IndianRupee, Sprout, Bug, RefreshCw,
   Megaphone, Flag, Fingerprint, ShieldAlert, FileCheck2, Trash2, History,
-  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Undo2, type LucideIcon,
-  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Wallet, type LucideIcon,
-  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, PackageX, type LucideIcon,
-  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, ListTodo, AlertTriangle, type LucideIcon,
-  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Radar, type LucideIcon,
+  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog,
+  Undo2, Wallet, PackageX, Scale, ListTodo, AlertTriangle, Radar, type LucideIcon,
 } from 'lucide-react';
 
-/** `scope`, when set, gates the item/group to admins holding that RBAC sub-scope. */
-  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Scale, type LucideIcon,
-} from 'lucide-react';
-
-// `scope` (optional) gates the item/group behind an admin RBAC sub-role. Items
-// without a scope are visible to every admin. Gating is cosmetic — the server
-// enforces scopes on every route.
+/** `scope`, when set, gates the item/group behind an admin RBAC sub-role. Items
+ * without a scope are visible to every admin. Gating is cosmetic — the server
+ * enforces scopes on every route. */
 export interface NavItem { label: string; to: string; icon: LucideIcon; keywords?: string; scope?: string }
 export interface NavGroup { title: string; items: NavItem[]; scope?: string }
 

@@ -2195,6 +2195,8 @@ enum PayoutStatus {
   PROCESSING
   PAID
   FAILED
+}
+
 // ── Dispute resolution (WI-6) — Animal Trade / Rent booking / Order disputes ──
 // A dispute is a support/moderation case opened against a transaction. `refId`
 // points at the underlying record by `type` (a Chat/AnimalListing for ANIMAL_TRADE,
@@ -2232,6 +2234,8 @@ enum DisputeStatus {
   INVESTIGATING
   RESOLVED
   CLOSED
+}
+
 // Reusable, multilingual push-notification template. titleI18n/bodyI18n hold the
 // 9 supported languages (en + hi/mr/ta/kn/ml/te/bn/gu/pa) as JSON maps keyed by
 // language code; a broadcast may resolve its title/body from a template by `key`.

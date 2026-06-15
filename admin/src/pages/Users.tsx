@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Eye, EyeOff, LogOut, ScanEye, UserCog } from 'lucide-react';
-import { ArrowLeft, Eye, EyeOff, LogOut, UserCog, Radar } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, LogOut, ScanEye, UserCog, Radar } from 'lucide-react';
 import { apiGet, apiPatch, apiPost, errorMessage } from '../lib/api';
 import { useKeyset } from '../lib/useKeyset';
 import { PageHeader, Card, Button, StatusBadge, Badge, Spinner, ErrorState, Select } from '../components/ui';
