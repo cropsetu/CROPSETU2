@@ -34,6 +34,32 @@ function getLLM() {
   return _llm;
 }
 
+// Tolerant JSON extraction from a (Gemini-via-OpenAI-compat) completion. The model
+// usually honours response_format:json_object, but on truncation (finish_reason
+// 'length') or an occasional ```-fenced reply a naive JSON.parse throws "Expected
+// double-quoted property name…". Try a direct parse, then a fenced/substring
+// recovery, and on failure surface finish_reason so a truncated reply (→ raise
+// max_tokens) is distinguishable from malformed output.
+function parseModelJson(completion, label) {
+  const choice = completion?.choices?.[0];
+  const raw = (choice?.message?.content || '').trim();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    let body = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const s = body.indexOf('{');
+    const e = body.lastIndexOf('}');
+    if (s !== -1 && e > s) body = body.slice(s, e + 1);
+    try {
+      return JSON.parse(body);
+    } catch (err) {
+      const reason = choice?.finish_reason || 'unknown';
+      const hint = reason === 'length' ? ' (response truncated — raise max_tokens)' : '';
+      throw new Error(`${label}: unparseable model JSON [finish_reason=${reason}]${hint}`);
+    }
+  }
+}
+
 // ── 30-min cache (stampede-guarded: single-flight + jittered TTL) ──────────────
 const cache = new Map();
 const CACHE_TTL = 30 * 60 * 1000;
@@ -254,12 +280,11 @@ export async function getMarketPrices(commodity = 'Tomato', state = 'Maharashtra
         model: MARKET_LLM_MODEL,
         messages: [{ role: 'user', content: buildPricePrompt(commodity, state, city) }],
         temperature: 0.4,
-        max_tokens: 600,
+        max_tokens: 1500,
         response_format: { type: 'json_object' },
       });
 
-      const raw    = completion.choices[0]?.message?.content || '{}';
-      const parsed = JSON.parse(raw);
+      const parsed = parseModelJson(completion, 'price');
 
       const result = {
         crop:           commodity,
@@ -343,11 +368,11 @@ Return ONLY this JSON:
         model: MARKET_LLM_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
-        max_tokens: 500,
+        max_tokens: 1200,
         response_format: { type: 'json_object' },
       });
 
-      const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
+      const parsed = parseModelJson(completion, 'commodity-detail');
       const result = { commodity, state, ...parsed, generatedAt: new Date().toISOString() };
       cacheSet(key, result);
       await redisSet(key, result, CACHE_TTL);
@@ -431,8 +456,7 @@ Return ONLY valid JSON (no other text):
         response_format: { type: 'json_object' },
       });
 
-      const raw    = completion.choices[0]?.message?.content || '{}';
-      const parsed = JSON.parse(raw);
+      const parsed = parseModelJson(completion, 'forecast');
 
       // Validate we got a usable forecast array
       if (!Array.isArray(parsed.forecast) || parsed.forecast.length === 0) {
