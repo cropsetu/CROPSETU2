@@ -249,7 +249,7 @@ export default function MyFarmHomeScreen({ navigation }) {
       )}
 
       {/* AI Insights */}
-      <SectionLabel title="AI insights" badge="FarmMind" />
+      <SectionLabel title="AI insights" badge="CropSetu AI" />
       {insights.length === 0 ? (
         <GlassCard style={styles.section}>
           <View style={styles.insightEmptyRow}>
@@ -257,7 +257,7 @@ export default function MyFarmHomeScreen({ navigation }) {
               <Ionicons name="sparkles" size={14} color={COSMIC.INVERSE} />
             </View>
             <Text style={[styles.emptyText, { flex: 1 }]}>
-              Log a few activities and FarmMind will tailor advice to your plot, variety and weather.
+              Log a few activities and CropSetu AI will tailor advice to your plot, variety and weather.
             </Text>
           </View>
         </GlassCard>
@@ -449,7 +449,7 @@ function EmptyFeed({ onStart }) {
       </View>
       <Text style={styles.emptyHeading}>Your farm diary starts here</Text>
       <Text style={styles.emptyText}>
-        Log each day's work. The more you log, the smarter FarmMind gets.
+        Log each day's work. The more you log, the smarter CropSetu AI gets.
       </Text>
       <GlowButton label="Pick an activity" icon="add-circle-outline" variant="primary" onPress={onStart} style={{ marginTop: 10 }} size="sm" />
     </View>

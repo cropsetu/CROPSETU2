@@ -440,8 +440,7 @@ export default function ProfileScreen({ navigation }) {
             <View style={S.quickGrid}>
               <QuickTile index={0} icon="leaf"     label="My Farms"               color={COLORS.primary} onPress={() => navigation.navigate('FarmList')} />
               <QuickTile index={1} icon="cart"     label={t('myOrders')}          color={D.green}  onPress={() => navigation.navigate('MyOrders')} />
-              <QuickTile index={2} icon="bookmark" label={t('savedPosts')}        color={D.gold}   onPress={() => navigation.navigate('SavedPosts')} />
-              <QuickTile index={3} icon="paw"      label={t('profile.myListings')} color={D.amber}  onPress={() => navigation.navigate('MyAnimalListings')} />
+              <QuickTile index={2} icon="paw"      label={t('profile.myListings')} color={D.amber}  onPress={() => navigation.navigate('MyAnimalListings')} />
             </View>
           </SectionCard>
 
@@ -538,7 +537,7 @@ export default function ProfileScreen({ navigation }) {
                 style={S.sellerBanner}
               >
                 <View style={S.sellerIconWrap}>
-                  <Ionicons name={isSeller ? 'storefront' : 'add-circle'} size={24} color={COLORS.white} />
+                  <Ionicons name={isSeller ? 'storefront' : 'add-circle'} size={22} color={COLORS.white} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={S.sellerTitle}>
@@ -836,12 +835,13 @@ const S = StyleSheet.create({
   schemesTitle: { fontSize: 16, fontFamily: KFONT.displaySemi, color: KHET.white, letterSpacing: -0.3 },
   schemesSub: { fontSize: 12, color: 'rgba(255,255,255,0.85)', fontFamily: KFONT.sans, marginTop: 3 },
 
+  // Mirrors schemeBanner exactly (same metrics + shadow) so the two banners
+  // read as the same size; only the gradient colour differs.
   sellerBanner: {
     flexDirection: 'row', alignItems: 'center',
     gap: 14, paddingHorizontal: 20, paddingVertical: 18,
     borderRadius: 20, marginBottom: 14,
-    shadowColor: '#E65100', shadowOpacity: 0.15, shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }, elevation: 4,
+    ...KSHADOW.elegant,
   },
   sellerIconWrap: {
     width: 44, height: 44, borderRadius: 14,
@@ -849,7 +849,7 @@ const S = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   sellerTitle: { fontSize: 16, fontFamily: KFONT.displaySemi, color: KHET.white, letterSpacing: -0.3 },
-  sellerSub: { fontSize: 12, color: 'rgba(255,255,255,0.9)', fontFamily: KFONT.sans, marginTop: 3 },
+  sellerSub: { fontSize: 12, color: 'rgba(255,255,255,0.85)', fontFamily: KFONT.sans, marginTop: 3 },
   bannerArrow: {
     width: 34, height: 34, borderRadius: 17,
     backgroundColor: 'rgba(255,255,255,0.2)',

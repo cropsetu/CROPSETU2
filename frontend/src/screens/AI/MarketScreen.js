@@ -859,7 +859,7 @@ export default function MarketScreen({ navigation }) {
                 style={M.askBtnGradient}
               >
                 <Ionicons name="chatbubble-ellipses-outline" size={18} color={COLORS.white} />
-                <Text style={M.askBtnText}>Ask FarmMind about {selectedCrop}</Text>
+                <Text style={M.askBtnText}>Ask CropSetu AI about {selectedCrop}</Text>
                 <Ionicons name="arrow-forward" size={16} color="rgba(255,255,255,0.7)" />
               </LinearGradient>
             </Pressable>

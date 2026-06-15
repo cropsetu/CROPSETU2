@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Auth flow — KhetAI design (ported from the Lovable "dharti-connect-hub" project).
+// Auth flow — CropSetu design (ported from the Lovable "dharti-connect-hub" project).
 // Three steps: WELCOME (pre-login) → PHONE (mobile entry) → OTP (6-digit verify).
 // Real OTP backend logic (sendOtp / verifyOtp) is preserved. The phone field is
 // uncontrolled (ref-based) to dodge the New-Architecture Android caret-reset bug;
@@ -18,13 +18,14 @@ import {
   Platform,
   Image,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { isValidPhone, isValidOtp } from '../../utils/validators';
+import { isValidPhone, isValidOtp, normalizePhone } from '../../utils/validators';
 import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 
 const HERO = require('../../../assets/khet/welcome-hero.jpg');
@@ -120,7 +121,10 @@ export default function LoginScreen() {
   }
 
   function handlePhoneChange(v) {
-    const digits = v.replace(/\D/g, '').slice(0, 10);
+    // Normalise first: strips spaces/punctuation and a pasted +91 country code or
+    // leading-0 trunk prefix, then cap at the 10-digit national number. Pasting
+    // "+91 98765 43210" or "098765 43210" now yields the correct number.
+    const digits = normalizePhone(v).slice(0, 10);
     phoneValueRef.current = digits;
     const ready = digits.length === 10;
     setPhoneReady((r) => (r === ready ? r : ready));
@@ -128,13 +132,29 @@ export default function LoginScreen() {
   }
 
   function handleOtpChange(i, v) {
-    const ch = v.replace(/\D/g, '').slice(-1);
+    if (errorMsg) setErrorMsg(null);
+    const digits = v.replace(/\D/g, '');
+
+    // Paste or SMS auto-fill drops the whole code into one box — spread the digits
+    // across the boxes from the current index instead of keeping only the last one.
+    if (digits.length > 1) {
+      setOtpDigits((prev) => {
+        const next = [...prev];
+        for (let k = 0; k < digits.length && i + k < OTP_LEN; k++) next[i + k] = digits[k];
+        return next;
+      });
+      const filledTo = Math.min(i + digits.length, OTP_LEN);
+      otpRefs.current[filledTo >= OTP_LEN ? OTP_LEN - 1 : filledTo]?.focus();
+      return;
+    }
+
+    // Single character (typing) or empty string (backspace clears the box).
+    const ch = digits.slice(-1);
     setOtpDigits((prev) => {
       const next = [...prev];
       next[i] = ch;
       return next;
     });
-    if (errorMsg) setErrorMsg(null);
     if (ch && i < OTP_LEN - 1) otpRefs.current[i + 1]?.focus();
   }
 
@@ -231,8 +251,12 @@ function Blobs() {
 
 // ── Welcome (pre-login) ──────────────────────────────────────────────────────
 function WelcomeView({ insets, onStart }) {
+  const { height } = useWindowDimensions();
+  // Web uses document-scroll globally (see App.js), so this full-bleed landing
+  // screen must clamp to the viewport — otherwise the page scrolls. Native: flex:1.
+  const lockViewport = Platform.OS === 'web' ? { height, overflow: 'hidden' } : null;
   return (
-    <View style={sty.root}>
+    <View style={[sty.root, lockViewport]}>
       <StatusBar style="light" />
       <Image source={HERO} style={StyleSheet.absoluteFill} resizeMode="cover" />
       <LinearGradient
@@ -247,7 +271,7 @@ function WelcomeView({ insets, onStart }) {
       <View style={[sty.topbar, { paddingTop: insets.top + 8 }]}>
         <View style={sty.glassPill}>
           <Ionicons name="leaf" size={15} color={KHET.primaryGlow} />
-          <Text style={sty.glassPillTxt}>KhetAI</Text>
+          <Text style={sty.glassPillTxt}>CropSetu</Text>
         </View>
         <View style={sty.glassPill}>
           <Ionicons name="language" size={13} color="#fff" />
@@ -255,19 +279,8 @@ function WelcomeView({ insets, onStart }) {
         </View>
       </View>
 
-      {/* Bottom content panel */}
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={[sty.welcomeBody, { paddingBottom: insets.bottom + 24 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={sty.badgePillDark}>
-          <Ionicons name="sparkles" size={11} color={KHET.primaryGlow} />
-          <Text style={sty.badgePillDarkTxt}>Powered by on-device AI</Text>
-          <View style={sty.dotSep} />
-          <Text style={sty.badgePillDarkTxt}>2,00,000+ farmers</Text>
-        </View>
-
+      {/* Bottom content panel — fixed (no scroll); content sits at the bottom over the hero. */}
+      <View style={[sty.welcomeBody, { paddingBottom: insets.bottom + 24 }]}>
         <Text style={sty.heroTitle}>
           Your farm,{'\n'}
           <Text style={sty.heroTitleItalic}>smarter every season.</Text>
@@ -296,7 +309,7 @@ function WelcomeView({ insets, onStart }) {
           <Ionicons name="shield-checkmark" size={12} color="rgba(255,255,255,0.6)" />
           <Text style={sty.termsTxt}>By continuing you agree to our Terms & Privacy</Text>
         </View>
-      </ScrollView>
+      </View>
     </View>
   );
 }
@@ -323,7 +336,7 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
             </TouchableOpacity>
             <View style={sty.brandRow}>
               <Ionicons name="leaf" size={15} color={KHET.primary} />
-              <Text style={sty.brandTxt}>KhetAI</Text>
+              <Text style={sty.brandTxt}>CropSetu</Text>
             </View>
             <View style={{ width: 40 }} />
           </View>
@@ -362,7 +375,7 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
                 placeholder="98765 43210"
                 placeholderTextColor="rgba(87,104,90,0.5)"
                 keyboardType="number-pad"
-                maxLength={10}
+                maxLength={15}
                 defaultValue={phoneDisplay}
                 onChangeText={onChange}
                 onFocus={() => { onFocus(); scrollDown(); }}
@@ -407,6 +420,11 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
 function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, phoneDisplay, resendIn, complete, onBack, onChange, onKey, onVerify, onResend }) {
   const scrollRef = useRef(null);
   const scrollDown = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
+  // Size the six boxes explicitly from the viewport. (flex:1 + aspectRatio:1 makes
+  // react-native-web blow one box up to fill the whole screen.) 48 = body padding,
+  // 50 = five 10px gaps; capped at 58 so the boxes don't grow huge on web/tablet.
+  const { width } = useWindowDimensions();
+  const otpBoxSize = Math.min(58, Math.floor((width - 48 - 50) / 6));
   // Once all six digits are in (auto-fill or manual), no more typing is needed —
   // hide the keyboard so the Verify button is revealed.
   useEffect(() => { if (complete) Keyboard.dismiss(); }, [complete]);
@@ -432,7 +450,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             </TouchableOpacity>
             <View style={sty.brandRow}>
               <Ionicons name="leaf" size={15} color={KHET.primary} />
-              <Text style={sty.brandTxt}>KhetAI</Text>
+              <Text style={sty.brandTxt}>CropSetu</Text>
             </View>
             <View style={sty.onlinePill}>
               <Ionicons name="wifi" size={12} color={KHET.primary} />
@@ -462,7 +480,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
                 <TextInput
                   key={i}
                   ref={(el) => { otpRefs.current[i] = el; }}
-                  style={[sty.otpBox, d ? sty.otpBoxFilled : null]}
+                  style={[sty.otpBox, { width: otpBoxSize, height: otpBoxSize }, d ? sty.otpBoxFilled : null]}
                   keyboardType="number-pad"
                   maxLength={1}
                   value={d}
@@ -556,22 +574,7 @@ const sty = StyleSheet.create({
     paddingVertical: 7,
   },
   glassPillTxt: { color: '#fff', fontSize: 13, fontFamily: KFONT.sansSemi },
-  welcomeBody: { flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: 24, paddingTop: '60%' },
-  badgePillDark: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 22,
-  },
-  badgePillDarkTxt: { color: '#fff', fontSize: 11, fontFamily: KFONT.sansMed },
-  dotSep: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.4)', marginHorizontal: 2 },
+  welcomeBody: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 24 },
   heroTitle: { color: '#fff', fontSize: 44, lineHeight: 46, fontFamily: KFONT.display, letterSpacing: -0.5 },
   heroTitleItalic: { color: KHET.primaryGlow, fontFamily: KFONT.displayItalic, fontStyle: 'italic' },
   heroDesc: { color: 'rgba(255,255,255,0.82)', fontSize: 15, lineHeight: 23, marginTop: 16, fontFamily: KFONT.sans },
@@ -695,7 +698,17 @@ const sty = StyleSheet.create({
   inputCardFocused: { borderColor: KHET.primary, borderWidth: 2 },
   ccChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: KHET.secondary, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
   ccTxt: { color: KHET.secondaryForeground, fontSize: 14, fontFamily: KFONT.sansSemi },
-  phoneInput: { flex: 1, paddingHorizontal: 8, paddingVertical: 12, fontSize: 18, color: KHET.foreground, fontFamily: KFONT.sansSemi, letterSpacing: 1 },
+  phoneInput: {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 12,
+    fontSize: 18,
+    color: KHET.foreground,
+    fontFamily: KFONT.sansSemi,
+    letterSpacing: 1,
+    // The input card border shows focus; kill the web default outline.
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : null),
+  },
 
   privacyBox: {
     flexDirection: 'row',
@@ -728,10 +741,8 @@ const sty = StyleSheet.create({
   footerStrong: { color: KHET.foreground, fontFamily: KFONT.sansSemi },
 
   // ── OTP boxes ──
-  otpRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginTop: 36 },
+  otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 36 },
   otpBox: {
-    flex: 1,
-    aspectRatio: 1,
     borderRadius: 16,
     backgroundColor: KHET.card,
     textAlign: 'center',
@@ -741,6 +752,8 @@ const sty = StyleSheet.create({
     borderWidth: 1,
     borderColor: KHET.border,
     ...KSHADOW.soft,
+    // The box border shows fill/focus; kill the web default outline.
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : null),
   },
   otpBoxFilled: { borderColor: KHET.primary, borderWidth: 2 },
   autofillBanner: {

@@ -97,7 +97,7 @@ function ChatHeader({ insets, onMenuPress, onNewChatPress }) {
             <Sprout size={16} color={BG} strokeWidth={2.6} />
           </LinearGradient>
           <View>
-            <Text style={H.title}>KrishiAI</Text>
+            <Text style={H.title}>CropSetu AI</Text>
             <Text style={H.sub}>Farmer's assistant</Text>
           </View>
         </View>
@@ -458,7 +458,7 @@ function Sidebar({ isOpen, onClose, sessions, historyLoading, onSessionPress, on
             <LinearGradient colors={[PRIMARY, ACCENT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={SB.panelAvatar}>
               <Sprout size={14} color={BG} strokeWidth={2.6} />
             </LinearGradient>
-            <Text style={SB.panelTitle}>KrishiAI</Text>
+            <Text style={SB.panelTitle}>CropSetu AI</Text>
           </View>
           <TouchableOpacity onPress={onClose} style={SB.closeBtn} activeOpacity={0.7}>
             <CloseIcon size={20} color={MUTED} strokeWidth={2.2} />
@@ -583,7 +583,7 @@ export default function AIChatScreen({ navigation, route }) {
   const [messages, setMessages]     = useState([{
     id: '0',
     role: 'ai',
-    text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm KrishiAI, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field."),
+    text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm CropSetu AI, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field."),
   }]);
   const [input,    setInput]        = useState('');
   const [typing,   setTyping]       = useState(false);
@@ -650,14 +650,14 @@ export default function AIChatScreen({ navigation, route }) {
       if (Array.isArray(result.followUps) && result.followUps.length) aiMsg.followUps = result.followUps;
       addMessage(aiMsg);
     } catch (err) {
-      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, 'Could not reach FarmMind AI. Check your connection.')}` });
+      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, 'Could not reach CropSetu AI. Check your connection.')}` });
     } finally { setTyping(false); }
   }, [input, typing, conversationId, addMessage, getAIContext, farmContextEnabled, resolveMsgLang, responseLength, attachedImage]);
 
   // ── Reset / new chat ───────────────────────────────────────────────────────
   // Clears the on-screen conversation only — saved history stays in the sidebar.
   const resetChat = useCallback(() => {
-    setMessages([{ id: '0', role: 'ai', text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm KrishiAI, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field.") }]);
+    setMessages([{ id: '0', role: 'ai', text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm CropSetu AI, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field.") }]);
     setConvId(null);
     setInput('');
     setAttachedImage(null);

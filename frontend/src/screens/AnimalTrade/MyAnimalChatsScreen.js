@@ -33,6 +33,17 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
+// Best available label for the counterpart: real name → phone → role label.
+function peerLabel(row) {
+  const cp = row.counterpart;
+  if (cp?.name && String(cp.name).trim()) return String(cp.name).trim();
+  if (cp?.phone) {
+    const d = String(cp.phone).replace(/\D/g, '').slice(-10);
+    return d.length === 10 ? `+91 ${d.slice(0, 5)} ${d.slice(5)}` : String(cp.phone);
+  }
+  return row.role === 'buyer' ? 'Seller' : 'Buyer';
+}
+
 function ChatRow({ row, onPress }) {
   const thumb = row.listing?.images?.[0];
   const animalLine = row.listing
@@ -55,7 +66,7 @@ function ChatRow({ row, onPress }) {
       <View style={{ flex: 1, marginLeft: 12 }}>
         <View style={s.headerLine}>
           <Text style={s.name} numberOfLines={1}>
-            {row.counterpart?.name || (row.role === 'buyer' ? 'Seller' : 'Buyer')}
+            {peerLabel(row)}
           </Text>
           <Text style={s.time}>{timeAgo(last?.createdAt || row.updatedAt)}</Text>
         </View>
@@ -142,11 +153,23 @@ export default function MyAnimalChatsScreen({ navigation }) {
   }, [user?.id, fetchChats]));
 
   const openChat = (row) => {
+    // The counterpart is whoever the current user is NOT: a buyer opens a chat
+    // with the seller, the seller opens it with the buyer.
+    const peerRole = row.role === 'buyer' ? 'seller' : 'buyer';
+    const listingTitle = row.listing
+      ? `${row.listing.animal}${row.listing.breed ? ' · ' + row.listing.breed : ''}`
+      : null;
     navigation.navigate('Chat', {
       listingId: row.listingId,
-      sellerName: row.counterpart?.name || (row.role === 'buyer' ? 'Seller' : 'Buyer'),
-      sellerId: row.counterpart?.id,
       chatId: row.id,
+      peerName: row.counterpart?.name || null,
+      peerAvatar: row.counterpart?.avatar || null,
+      peerId: row.counterpart?.id || null,
+      peerPhone: row.counterpart?.phone || null,
+      peerRole,
+      listingTitle,
+      // Legacy param — keeps older code paths working.
+      sellerName: row.counterpart?.name || (peerRole === 'seller' ? 'Seller' : 'Buyer'),
     });
   };
 

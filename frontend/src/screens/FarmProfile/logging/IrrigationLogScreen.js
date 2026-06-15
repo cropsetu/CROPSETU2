@@ -290,7 +290,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
       <CelebrationSheet
         visible={celebrate}
         title="Irrigation logged ✓"
-        subtitle="Nice — FarmMind now knows about this watering. Keep the streak going!"
+        subtitle="Nice — CropSetu AI now knows about this watering. Keep the streak going!"
         streakDays={1}
         onClose={() => { setCelebrate(false); navigation.goBack(); }}
       />

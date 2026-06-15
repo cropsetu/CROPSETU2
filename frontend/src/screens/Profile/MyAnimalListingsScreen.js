@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
+import { formatLocation } from '../../utils/location';
 
 function ListingCard({ item, onDelete, onEdit }) {
   const firstImg = item.images?.[0];
@@ -35,7 +36,7 @@ function ListingCard({ item, onDelete, onEdit }) {
           </Text>
           <Text style={styles.detail}>{item.age} · {item.gender}</Text>
           <Text style={styles.location} numberOfLines={1}>
-            <Ionicons name="location-outline" size={12} color={COLORS.textMedium} /> {item.sellerLocation}
+            <Ionicons name="location-outline" size={12} color={COLORS.textMedium} /> {formatLocation(item.sellerLocation)}
           </Text>
           <Text style={styles.price}>₹{price.toLocaleString('en-IN')}</Text>
         </View>

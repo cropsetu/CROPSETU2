@@ -27,11 +27,19 @@ import {
 import { stripHtml } from '../utils/encrypt.js';
 import { haversineKm } from '../utils/geo.js';
 import { archiveResource } from '../services/softDelete.service.js';
+import { sendPushToUser } from '../services/push.service.js';
 
 const router = Router();
 router.param('id', uuidParamGuard);     // animal listing id
 router.param('chatId', uuidParamGuard); // animal chat id
 const imageUpload = createUploader(8);
+
+// Pretty Indian phone label used when a chat participant has no name set.
+function prettyPhone(p) {
+  if (!p) return null;
+  const d = String(p).replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? `+91 ${d.slice(0, 5)} ${d.slice(5)}` : String(p);
+}
 
 // ── Chat inbox (must be registered BEFORE /:id to win path matching) ─────────
 // GET /chats/my — every chat the current user is part of (as buyer OR seller),
@@ -46,8 +54,8 @@ router.get('/chats/my', authenticate, async (req, res) => {
         listing: {
           select: { id: true, animal: true, breed: true, images: true, price: true, status: true },
         },
-        buyer:  { select: { id: true, name: true, avatar: true } },
-        seller: { select: { id: true, name: true, avatar: true } },
+        buyer:  { select: { id: true, name: true, avatar: true, phone: true } },
+        seller: { select: { id: true, name: true, avatar: true, phone: true } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { updatedAt: 'desc' },
@@ -491,24 +499,61 @@ router.post('/chats/:chatId/messages', authenticate, [
 
     const text = stripHtml(req.body.text);
 
-    const [message] = await prisma.$transaction([
-      prisma.chatMessage.create({
-        data: { chatId: chat.id, senderId: me, text },
-        select: { id: true, senderId: true, text: true, imageUrl: true, readAt: true, createdAt: true },
+    // ChatMessage has no `sender` relation, so look the sender's profile up
+    // directly — run it concurrently with the insert so it adds no latency.
+    const [[message], sender] = await Promise.all([
+      prisma.$transaction([
+        prisma.chatMessage.create({
+          data: { chatId: chat.id, senderId: me, text },
+          select: { id: true, senderId: true, text: true, imageUrl: true, readAt: true, createdAt: true },
+        }),
+        prisma.chat.update({ where: { id: chat.id }, data: { updatedAt: new Date() } }),
+      ]),
+      prisma.user.findUnique({
+        where: { id: me },
+        select: { name: true, avatar: true, phone: true },
       }),
-      prisma.chat.update({ where: { id: chat.id }, data: { updatedAt: new Date() } }),
     ]);
+
+    // Who sent it, and who should be notified (the other participant).
+    const senderRole  = me === chat.buyerId ? 'buyer' : 'seller';
+    const recipientId = me === chat.buyerId ? chat.sellerId : chat.buyerId;
+    // Best label for the sender: real name → phone → (client adds role label).
+    const senderLabel = (sender?.name && sender.name.trim())
+      || prettyPhone(sender?.phone)
+      || null;
 
     // Broadcast on the socket bus so all open views update in real time:
     //   - chat.id room          → live ChatScreens already in this conversation
-    //   - user:<buyerId> room   → buyer's MyAnimalChats inbox row
-    //   - user:<sellerId> room  → seller's MyAnimalChats inbox row
+    //   - user:<buyerId> room   → buyer's MyAnimalChats inbox row + in-app banner
+    //   - user:<sellerId> room  → seller's MyAnimalChats inbox row + in-app banner
     const io = req.app.get('io');
     if (io) {
-      const payload = { ...message, chatId: chat.id };
+      const payload = {
+        id: message.id, chatId: chat.id, senderId: me, text: message.text,
+        imageUrl: message.imageUrl, readAt: message.readAt, createdAt: message.createdAt,
+        senderName:   senderLabel,
+        senderAvatar: sender?.avatar || null,
+        senderRole,
+        listingId: chat.listingId,
+      };
       io.to(chat.id).emit('new_message', payload);
       io.to(`user:${chat.buyerId}`).emit('new_message', payload);
       io.to(`user:${chat.sellerId}`).emit('new_message', payload);
+    }
+
+    // OS-level push to the recipient (WhatsApp-style). Best-effort & async:
+    // only delivers if they have a registered Expo push token, and never blocks
+    // the response. Safe no-op until push tokens are registered by the app.
+    if (recipientId) {
+      const preview = text.length > 140 ? `${text.slice(0, 137)}…` : text;
+      sendPushToUser({
+        userId: recipientId,
+        type:   'animal_chat',
+        title:  senderLabel || 'New message',
+        body:   preview,
+        data:   { kind: 'animal_chat', chatId: chat.id, listingId: chat.listingId, senderId: me },
+      }).catch(() => { /* push is best-effort */ });
     }
 
     return sendCreated(res, message);

@@ -21,11 +21,13 @@ import ScrollToTopButton from '../../components/ScrollToTopButton';
 import { useLocation } from '../../context/LocationContext';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { COLORS, TYPE, SHADOWS } from '../../constants/colors';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import TractorLoader from '../../components/ui/TractorLoader';
 import AnimalIcon from '../../components/AnimalIcons';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
+import { locationVillageTaluka } from '../../utils/location';
 
 const { width: W } = Dimensions.get('window');
 const CARD_W = (W - 14 * 2 - 10) / 2;
@@ -80,11 +82,12 @@ function CategoryPill({ item, active, onPress, t }) {
 }
 
 // ── Animal Card ───────────────────────────────────────────────────────────────
-function AnimalCard({ item, onPress, t, index = 0 }) {
+function AnimalCard({ item, onPress, t, index = 0, currentUserId }) {
+  const isOwn = !!(currentUserId && item.sellerId && currentUserId === item.sellerId);
   const imageUrl = item.images && item.images[0] ? item.images[0] : null;
   const milkStr  = item.milkYield && item.milkYield !== 'N/A' ? item.milkYield : null;
   const price    = item.price ? Number(item.price).toLocaleString() : '—';
-  const city     = item.sellerLocation ? item.sellerLocation.split(',')[0] : '—';
+  const place    = locationVillageTaluka(item.sellerLocation) || '—';
   const dist     = item.distanceKm != null ? `${item.distanceKm} km`
                  : item._dist      != null ? `${Math.round(item._dist)} km`
                  : null;
@@ -128,6 +131,12 @@ function AnimalCard({ item, onPress, t, index = 0 }) {
             <Ionicons name="shield-checkmark" size={10} color={COLORS.white} />
           </View>
         ) : null}
+        {isOwn ? (
+          <View style={S.ownBadge}>
+            <Ionicons name="person-circle" size={11} color={COLORS.white} />
+            <Text style={S.ownBadgeTxt}>Your listing</Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={S.cardBody}>
@@ -135,7 +144,7 @@ function AnimalCard({ item, onPress, t, index = 0 }) {
         <Text style={S.price}>₹{price}</Text>
         <View style={S.metaRow}>
           <Ionicons name="location-outline" size={11} color={COLORS.grayMedium} />
-          <Text style={S.metaTxt} numberOfLines={1}>{city}</Text>
+          <Text style={S.metaTxt} numberOfLines={1}>{place}</Text>
         </View>
         <View style={S.statsRow}>
           <View style={S.statItem}>
@@ -149,10 +158,17 @@ function AnimalCard({ item, onPress, t, index = 0 }) {
             </View>
           ) : null}
         </View>
-        <TouchableOpacity style={S.bookBtn} onPress={() => onPress(item)}>
-          <Ionicons name="car-outline" size={13} color={COLORS.white} />
-          <Text style={S.bookBtnTxt}>{t('animal.bookNow')}</Text>
-        </TouchableOpacity>
+        {isOwn ? (
+          <TouchableOpacity style={[S.bookBtn, S.editBtn]} onPress={() => onPress(item)}>
+            <Ionicons name="create-outline" size={13} color={COLORS.primary} />
+            <Text style={[S.bookBtnTxt, { color: COLORS.primary }]}>Edit / View</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={S.bookBtn} onPress={() => onPress(item)}>
+            <Ionicons name="car-outline" size={13} color={COLORS.white} />
+            <Text style={S.bookBtnTxt}>{t('animal.bookNow')}</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </AnimatedCard>
   );
@@ -227,12 +243,12 @@ function ListHeader({ count, sortBy, onSortChange, t }) {
 }
 
 // ── Row (2 cards) ──────────────────────────────────────────────────────────────
-function CardRow({ pair, onPress, t, rowIndex = 0 }) {
+function CardRow({ pair, onPress, t, rowIndex = 0, currentUserId }) {
   return (
     <View style={S.row}>
-      <AnimalCard item={pair[0]} onPress={onPress} t={t} index={rowIndex * 2} />
+      <AnimalCard item={pair[0]} onPress={onPress} t={t} index={rowIndex * 2} currentUserId={currentUserId} />
       {pair[1]
-        ? <AnimalCard item={pair[1]} onPress={onPress} t={t} index={rowIndex * 2 + 1} />
+        ? <AnimalCard item={pair[1]} onPress={onPress} t={t} index={rowIndex * 2 + 1} currentUserId={currentUserId} />
         : <View style={{ width: CARD_W }} />
       }
     </View>
@@ -291,6 +307,8 @@ function EmptyAnimals({ t, distanceKm, onShowAll, onPost }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function AnimalTradeHome({ navigation, route }) {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const currentUserId = user?.id;
   const insets = useSafeAreaInsets();
   const { onScroll: hideOnScroll, headerAnimatedStyle, showTopBtn } = useScrollHeader(200);
   const listRef = useRef(null);
@@ -509,7 +527,7 @@ export default function AnimalTradeHome({ navigation, route }) {
           )
         }
         renderItem={({ item: pair, index }) => (
-          <CardRow pair={pair} onPress={handleAnimalPress} t={t} rowIndex={index} />
+          <CardRow pair={pair} onPress={handleAnimalPress} t={t} rowIndex={index} currentUserId={currentUserId} />
         )}
       />
 
@@ -630,6 +648,19 @@ const S = StyleSheet.create({
     paddingVertical: 8, gap: 5,
   },
   bookBtnTxt: { color: COLORS.white, fontSize: 12, fontWeight: '800', fontFamily: 'Inter_700Bold' },
+  // "Your listing" variant — outlined instead of filled so it doesn't look like
+  // a buy-side call-to-action; tap still navigates to detail where Edit lives.
+  editBtn: {
+    backgroundColor: COLORS.surface, borderWidth: 1.5, borderColor: COLORS.primary,
+  },
+  // Top-left overlay on photo when the viewer owns this listing.
+  ownBadge: {
+    position: 'absolute', top: 8, left: 8,
+    backgroundColor: COLORS.primary, borderRadius: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  ownBadgeTxt: { color: COLORS.white, fontSize: 10, fontWeight: '700' },
 
   emptyWrap:    { alignItems: 'center', paddingTop: 48, paddingBottom: 40, paddingHorizontal: 24 },
 

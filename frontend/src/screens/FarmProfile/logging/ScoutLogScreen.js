@@ -86,7 +86,7 @@ export default function ScoutLogScreen({ navigation, route }) {
       saving={saving} canSave={canSave} onSave={handleSave}
       celebrate={celebrate}
       celebrateTitle="Scouting logged ✓"
-      celebrateSubtitle="FarmMind will factor this into advice."
+      celebrateSubtitle="CropSetu AI will factor this into advice."
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
       <SectionHeader icon="eye-outline" tint={COSMIC.SCOUT} title="What did you see?" />
