@@ -3070,6 +3070,17 @@ const PRODUCTS = [
   }
 ];
 
+// The app renders images[0] directly as a URL. We use picsum.photos — very
+// reliable, deterministic per product (seed = name hash), follows redirects to a
+// real JPG. NOTE: these are generic stock photos (not category-matched), since
+// reliable keyword-photo services were erroring. Replace with real Cloudinary
+// uploads for production-quality, category-accurate imagery.
+function imgFor(category, name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 100000;
+  return `https://picsum.photos/seed/cs${h}/600/600`;
+}
+
 async function main() {
   console.log('Seeding bighaat test products (110 across 22 categories)...');
   const cats = await prisma.category.findMany();
@@ -3087,7 +3098,7 @@ async function main() {
       const data = {
         ...item,
         categoryId,
-        images: item.images ?? [],
+        images: (item.images && item.images.length) ? item.images : [imgFor(group.category, item.name)],
         tags: item.tags ?? [],
         highlights: item.highlights ?? [],
         unit: item.unit ?? 'kg',
