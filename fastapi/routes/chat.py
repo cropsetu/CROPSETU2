@@ -31,6 +31,7 @@ async def ai_chat(request: Request):
     response_length = body.get("response_length", "short")
     mode            = body.get("mode", "text")
     image           = body.get("image")  # {"data": <base64>, "mime_type": <str>} | None
+    model_override  = body.get("model")  # admin App Settings choice (ai.model.chat) | None
 
     has_image = bool(image and isinstance(image, dict) and image.get("data"))
     # An image alone is a valid request (the farmer can attach a photo with no text).
@@ -42,6 +43,7 @@ async def ai_chat(request: Request):
             chat_with_farmmind(
                 message, history, farm_profile,
                 response_length=response_length, mode=mode, image=image,
+                model_override=model_override,
             ),
             timeout=_CHAT_BUDGET_SEC,
         )

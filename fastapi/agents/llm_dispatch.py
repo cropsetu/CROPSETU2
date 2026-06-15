@@ -138,17 +138,34 @@ _PROVIDER_KEY_ENV = {
 
 # ── Config loader ────────────────────────────────────────────────────────────
 
-def get_feature_config(feature: str) -> FeatureConfig:
+def get_feature_config(feature: str, model_override: Optional[str] = None) -> FeatureConfig:
     """Read AI_<FEATURE>_MODEL / _API_KEY from os.environ.
 
     Falls back to the baked-in Gemini default (see _DEFAULTS) for the model and
     to GEMINI_API_KEY for the key when the env var is unset.
+
+    `model_override` (WI-11) is the admin App Settings choice, forwarded per
+    request from the Express backend (body.model / params.model_diagnose /
+    params.model_treatment). When present and resolvable to a known provider it
+    takes precedence over the env/default model, and the provider-aware key
+    resolution below follows the overridden model. An unknown override is
+    IGNORED (logged) so a stray value degrades to the configured model instead of
+    failing the request — the value is already allowlisted upstream by the ENUM
+    setting, so this is defence-in-depth.
     """
     if feature not in AI_FEATURES:
         raise ValueError(f"Unknown AI feature {feature!r}. Valid: {AI_FEATURES}")
 
     default_model = _DEFAULTS[feature]
     model = (os.environ.get(f"AI_{feature}_MODEL") or default_model).strip()
+    if model_override and model_override.strip():
+        ov = model_override.strip()
+        try:
+            _detect_provider(ov)          # validate it maps to a supported provider
+            model = ov
+        except ConfigError:
+            logger.warning("Ignoring unsupported model_override %r for %s; using %s",
+                           ov, feature, model)
     # Provider-aware key (WI-11): a 'claude-*'/'gpt-*'/'llama-*' model defaults to
     # its own provider's key, not GEMINI_API_KEY. AI_<FEATURE>_API_KEY still overrides.
     provider = _detect_provider(model)
