@@ -4,7 +4,7 @@ import {
   Beef, Tractor, HardHat, CalendarCheck, MessageSquare, MessagesSquare, UsersRound,
   Cpu, Coins, FlaskConical, Activity, Landmark, IndianRupee, Sprout, Bug, RefreshCw,
   Megaphone, Flag, Fingerprint, ShieldAlert, FileCheck2, Trash2, History,
-  ToggleRight, HeartPulse, ListChecks, type LucideIcon,
+  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem { label: string; to: string; icon: LucideIcon; keywords?: string }
@@ -65,6 +65,9 @@ export const NAV: NavGroup[] = [
     { label: 'Feature Flags', to: '/flags', icon: ToggleRight },
     { label: 'API Health', to: '/health', icon: HeartPulse },
     { label: 'Queues', to: '/queues', icon: ListChecks },
+  ]},
+  { title: 'Settings', items: [
+    { label: 'App Settings', to: '/settings', icon: SlidersHorizontal, keywords: 'config env budget token limit secret runtime commission ai model gemini openai claude groq' },
   ]},
 ];
 

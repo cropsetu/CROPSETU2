@@ -10,7 +10,11 @@
  */
 import prisma from '../config/db.js';
 import { sendPushToUser } from './push.service.js';
+import { getSetting } from './settings.service.js';
 
+// Hard safety ceiling on a single broadcast's fan-out. The runtime
+// `broadcast.maxRecipients` AppSetting may LOWER this (ops tuning) but can never
+// raise it above the ceiling — unbounded fan-out stays impossible.
 export const MAX_RECIPIENTS = 5000;
 
 /** Build the User where-clause for an audience filter (active users only). */
@@ -33,11 +37,13 @@ export function estimateAudience(filters) {
  * @returns {{ estimated:number, sent:number, capped:boolean }}
  */
 export async function broadcastNotification({ filters, type = 'SYSTEM', title, body, data = {} }) {
+  const configured = await getSetting('broadcast.maxRecipients').catch(() => MAX_RECIPIENTS);
+  const cap = Math.max(1, Math.min(Number(configured) || MAX_RECIPIENTS, MAX_RECIPIENTS));
   const estimated = await estimateAudience(filters);
   const recipients = await prisma.user.findMany({
     where: audienceWhere(filters),
     select: { id: true },
-    take: MAX_RECIPIENTS,
+    take: cap,
   });
 
   let sent = 0;

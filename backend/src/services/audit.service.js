@@ -153,6 +153,7 @@ export const ADMIN_ACTIONS = {
   MANDI_SYNC_TRIGGER:   'ADMIN_MANDI_SYNC_TRIGGER',
   BROADCAST_SEND:       'ADMIN_BROADCAST_SEND',
   ERASURE_PROCESS:      'ADMIN_ERASURE_PROCESS',
+  SETTING_UPDATE:       'ADMIN_SETTING_UPDATE',      // runtime AppSetting changed from the admin panel
 };
 
 /**

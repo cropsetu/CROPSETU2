@@ -27,6 +27,7 @@ import { schemesRouter, mspRouter, cropMasterRouter, pestAlertsRouter, mandiRout
 import broadcastRoutes from './broadcast.routes.js';
 import { flagsRouter, healthRouter, queuesRouter } from './ops.routes.js';
 import { consentsRouter, erasureRouter, auditRouter } from './compliance.routes.js';
+import settingsRoutes from './settings.routes.js';
 
 const router = Router();
 
@@ -70,5 +71,7 @@ router.use('/queues', queuesRouter);
 router.use('/consents', consentsRouter);
 router.use('/erasure-requests', erasureRouter);
 router.use('/audit', auditRouter);
+// Settings (runtime config + AI model routing + env-status + AI budget)
+router.use('/settings', settingsRoutes);
 
 export default router;

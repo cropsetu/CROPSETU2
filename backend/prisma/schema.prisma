@@ -1323,6 +1323,35 @@ model FeatureFlag {
   @@map("feature_flags")
 }
 
+/// Typed runtime configuration editable from the admin panel (no redeploy, no
+/// .env on disk). SECRETS ARE NEVER STORED HERE — only non-sensitive policy
+/// (token limits, AI model routing, commission %, broadcast cap, …). See
+/// services/settings.service.js for the manifest + env fallbacks.
+model AppSetting {
+  id          String         @id @default(uuid())
+  key         String         @unique
+  value       Json
+  type        AppSettingType @default(STRING)
+  category    String         @default("general")
+  label       String?
+  description String?
+  isSecret    Boolean        @default(false)
+  updatedBy   String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([category])
+  @@map("app_settings")
+}
+
+enum AppSettingType {
+  STRING
+  NUMBER
+  BOOL
+  JSON
+  ENUM
+}
+
 model APIHealthLog {
   id               String   @id @default(uuid())
   source           String
