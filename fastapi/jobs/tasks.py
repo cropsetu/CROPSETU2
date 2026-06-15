@@ -20,21 +20,38 @@ What this task returns
 """
 from __future__ import annotations
 
-# Belt-and-suspenders: ensure fastapi/ is on sys.path BEFORE the late
-# `from orchestrator import run_diagnosis` inside the task body. jobs/
-# __init__.py already does this, but in Celery's prefork pool we've seen
-# the worker context fail to inherit it cleanly — duplicating here costs
-# nothing and removes a class of "works on my machine" bugs.
-import os as _os, sys as _sys
-_FASTAPI_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-if _FASTAPI_ROOT not in _sys.path:
-    _sys.path.insert(0, _FASTAPI_ROOT)
-del _os, _sys, _FASTAPI_ROOT
+import os
+import sys
+
+# fastapi/ project root (parent of jobs/). orchestrator, agents, config,
+# weather_service, etc. live here and must be importable by bare name — the
+# same way uvicorn imports them for the web role.
+#
+# This MUST be re-asserted at TASK RUNTIME, not only at import time. Celery
+# loads `-A jobs.queue:celery_app` and the task modules through
+# `import_from_cwd()`, whose `cwd_in_path` context manager *temporarily*
+# inserts the CWD (== fastapi/ root) into sys.path for the duration of the
+# import and then `sys.path.remove(cwd)`s it in a finally block. So at module
+# import time fastapi/ already LOOKS present (cwd_in_path put it there), the
+# `not in sys.path` guard below sees it and skips the permanent insert — and
+# the moment the import returns, cwd_in_path strips it back out. The forked
+# pool workers then inherit a sys.path with NO fastapi/, and the late
+# `from orchestrator import run_diagnosis` in the task body dies with
+# ModuleNotFoundError. run_diagnosis_task() calls this again on entry, where
+# no cwd_in_path is active, so the insert actually sticks.
+_FASTAPI_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _ensure_fastapi_root_on_path() -> None:
+    if _FASTAPI_ROOT not in sys.path:
+        sys.path.insert(0, _FASTAPI_ROOT)
+
+
+_ensure_fastapi_root_on_path()
 
 import asyncio
 import base64
 import logging
-import os
 import tempfile
 from pathlib import Path
 
@@ -115,6 +132,10 @@ def run_diagnosis_task(self, *, payload: dict) -> dict:
     diagnose stage costs real $. If the whole task fails, the client
     sees status=failed and can choose to resubmit.
     """
+    # Re-assert fastapi/ on sys.path at runtime (see module-level note): the
+    # forked pool worker may have inherited a sys.path that Celery's
+    # cwd_in_path stripped during startup, which breaks the imports below.
+    _ensure_fastapi_root_on_path()
     job_id = self.request.id
     logger.info("[Worker] start job_id=%s crop=%s", job_id, (payload.get("params") or {}).get("crop_name"))
 
