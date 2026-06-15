@@ -26,6 +26,11 @@ const redis = new Redis(ENV.REDIS_URL, {
   enableReadyCheck: false,
   lazyConnect: true,
   retryStrategy: reconnectDelay,
+  // Resolve both A and AAAA records. Railway private networking (the
+  // `*.railway.internal` hosts) is IPv6-only; ioredis defaults to `family: 4`
+  // (IPv4) and would never resolve the host — connections hang forever. `0`
+  // lets Node pick whichever the DNS returns, so IPv6-only and IPv4 both work.
+  family: 0,
 });
 
 // ── Explicit health state (CACHE-9) ──────────────────────────────────────────

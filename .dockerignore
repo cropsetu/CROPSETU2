@@ -1,0 +1,19 @@
+# Keep build contexts lean and never ship local installs / secrets.
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+**/.git
+**/.DS_Store
+**/*.log
+**/coverage
+**/.vscode
+**/.idea
+
+# Other services aren't part of the backend image.
+fastapi/
+frontend/
+docs/
+Bugs/
+scripts/

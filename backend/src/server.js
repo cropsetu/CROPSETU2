@@ -75,16 +75,29 @@ const io = new SocketIO(httpServer, {
 // ── Redis Pub/Sub adapter (enables multi-instance scaling + reliable delivery)
 // Falls back to in-memory adapter automatically if Redis is unavailable.
 // For single-instance demo deployments, Redis is not required.
+let pubClient, subClient;
 try {
-  const pubClient = new Redis(ENV.REDIS_URL, { lazyConnect: true, retryStrategy: () => null });
-  const subClient = pubClient.duplicate();
+  // family: 0 → resolve IPv6 too (Railway private networking is IPv6-only).
+  pubClient = new Redis(ENV.REDIS_URL, { lazyConnect: true, retryStrategy: () => null, connectTimeout: 5000, family: 0 });
+  subClient = pubClient.duplicate();
   pubClient.on('error', () => {});
   subClient.on('error', () => {});
-  await Promise.all([pubClient.connect(), subClient.connect()]);
+  // Hard cap the connect. This is a TOP-LEVEL await: if it hangs (e.g. Redis not
+  // reachable at boot) it blocks the whole ESM module from finishing, so
+  // httpServer.listen never runs and the deploy healthcheck fails with no logs.
+  // The race guarantees we always fall through to the in-memory adapter.
+  await Promise.race([
+    Promise.all([pubClient.connect(), subClient.connect()]),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('connect timed out')), 5000)),
+  ]);
   io.adapter(createAdapter(pubClient, subClient));
   logger.info('[Socket.IO] Redis adapter attached');
-} catch {
-  logger.warn('[Socket.IO] Redis unavailable — using in-memory adapter (single-instance mode)');
+} catch (err) {
+  pubClient?.disconnect();
+  subClient?.disconnect();
+  // logger.warn is suppressed in production here (see config/redis.js), so log at
+  // info to keep the fallback visible in prod logs.
+  logger.info('[Socket.IO] Redis adapter unavailable — using in-memory adapter (%s)', err?.message || 'no redis');
 }
 
 registerChatSocket(io);
@@ -96,28 +109,36 @@ app.set('io', io);
 // ── Start ─────────────────────────────────────────────────────────────────────
 async function start() {
   try {
-    await prisma.$connect();
-    logger.info('[DB] PostgreSQL connected');
-
-    // Seed default feature flags (no-op if already seeded)
-    await seedDefaultFlags().catch(e => logger.warn('[FeatureFlags] Seed skipped: %s', e.message));
-
-    try {
-      await redis.connect();
-      logger.info('[Redis] Connected');
-    } catch {
-      logger.warn('[Redis] Not available — continuing without cache (dev mode)');
-    }
-
-    // Subscribe for cross-instance feature-flag invalidations (no-op if Redis is
-    // down — flags then converge via the in-process TTL). Safe after the connect
-    // attempt above; it uses its own dedicated subscriber connection.
-    await initFlagInvalidationSubscriber();
-
-    httpServer.listen(ENV.PORT, () => {
+    // ── Listen FIRST ─────────────────────────────────────────────────────────
+    // The deploy healthcheck hits /healthz (dependency-free liveness), so the
+    // HTTP server must start before any DB/Redis work. Every dependency below is
+    // attached AFTER listen and NON-BLOCKING, so a slow/unreachable Redis (e.g.
+    // Railway private networking still warming up at boot) can never prevent the
+    // server from listening and never fail the healthcheck. Prisma connects
+    // lazily on first query, so warming it eagerly is a nicety, not a gate.
+    httpServer.listen(ENV.PORT, '0.0.0.0', () => {
       logger.info('[Server] FarmEasy API running on http://localhost:%d%s', ENV.PORT, ENV.API_PREFIX);
       logger.info('[Server] Environment: %s', ENV.NODE_ENV);
     });
+
+    // Warm the DB connection (non-fatal — queries connect lazily regardless).
+    prisma.$connect()
+      .then(() => logger.info('[DB] PostgreSQL connected'))
+      .catch(e => logger.error('[DB] connect failed: %s', e?.message || e));
+
+    // Seed default feature flags (no-op if already seeded). Non-blocking.
+    seedDefaultFlags().catch(e => logger.warn('[FeatureFlags] Seed skipped: %s', e.message));
+
+    // Connect the shared cache client in the BACKGROUND. Redis is optional for
+    // liveness (commands fail-open while it's down) and the client retries forever
+    // via its retryStrategy. It logs once it connects (or keeps retrying quietly).
+    redis.connect()
+      .then(() => logger.info('[Redis] Connected'))
+      .catch((e) => logger.info('[Redis] Not available at boot — retrying in background (%s)', e?.message || e));
+
+    // Subscribe for cross-instance feature-flag invalidations (no-op if Redis is
+    // down — flags then converge via the in-process TTL).
+    initFlagInvalidationSubscriber();
 
     // ── Job queue workers (in-process) ──────────────────────────────────────
     // Process queued heavy work (notification delivery, etc.) in this process so

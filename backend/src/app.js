@@ -4,6 +4,9 @@ import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
 import crypto from 'crypto';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 
 import { ENV } from './config/env.js';
 import { sendError } from './utils/response.js';
@@ -90,10 +93,25 @@ app.use(helmet());
 // Mobile apps (React Native on device) send no Origin header → always allowed.
 // Browser-based clients (admin panel, web) must be listed in ALLOWED_ORIGINS.
 // In development with no list set, all origins are allowed for convenience.
+//
+// The admin SPA is served SAME-ORIGIN from this backend. Its asset requests (Vite
+// marks bundles `crossorigin`, so they send an Origin header) and its API calls
+// carry THIS service's own origin — which must always be allowed, or the allowlist
+// below rejects them with a 500 and the panel white-screens. Railway exposes the
+// public host via RAILWAY_PUBLIC_DOMAIN / RAILWAY_STATIC_URL.
+const SELF_ORIGINS = new Set(
+  [process.env.RAILWAY_PUBLIC_DOMAIN, process.env.RAILWAY_STATIC_URL]
+    .filter(Boolean)
+    .map((d) => `https://${d}`),
+);
+
 app.use(cors({
   origin: (incomingOrigin, callback) => {
     // No Origin header → mobile app / curl / Postman → always allow
     if (!incomingOrigin) return callback(null, true);
+
+    // Same-origin (this service's own public origin) → always allow.
+    if (SELF_ORIGINS.has(incomingOrigin)) return callback(null, true);
 
     // Dev convenience: always allow loopback origins (localhost / 127.0.0.1, any
     // port) so the admin SPA (:5180), Expo web (:8081/:19006) and other local
@@ -232,6 +250,35 @@ app.get('/readyz', async (_req, res) => {
 
   res.status(ready ? 200 : 503).json({ ready, checks, metrics, cacheBySource: cache.bySource });
 });
+
+// ── Admin SPA (same-origin) ───────────────────────────────────────────────────
+// When the built admin panel (admin/dist) is present, serve it at /admin from the
+// SAME origin as the API. Same-origin keeps the auth cookies (httpOnly refresh +
+// CSRF, both SameSite=Lax) first-party, so login + silent refresh "just work" with
+// no CORS and no SameSite=None weakening — the admin client calls /api/v1/* here.
+//
+// Mounted BEFORE the rate limiter / body parser / CSRF guard: these are static GET
+// asset loads (a page pulls many hashed files) that must not be throttled or parsed.
+// The /admin path is disjoint from the /api/v1/admin API mounted below — no overlap.
+// Skipped entirely when the dist folder is absent (e.g. local dev, where the admin
+// runs on its own Vite server) so the API boots normally without it.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ADMIN_DIST_DIR = process.env.ADMIN_DIST_DIR
+  ? path.resolve(process.env.ADMIN_DIST_DIR)
+  : path.resolve(__dirname, '../../admin/dist');
+
+if (fs.existsSync(path.join(ADMIN_DIST_DIR, 'index.html'))) {
+  const sendAdminIndex = (_req, res) => {
+    res.set('Cache-Control', 'no-cache'); // always revalidate the HTML shell
+    res.sendFile(path.join(ADMIN_DIST_DIR, 'index.html'));
+  };
+  // Hashed asset files (immutable) → long cache; index.html → no-cache (handled above).
+  app.use('/admin', express.static(ADMIN_DIST_DIR, { index: false, maxAge: '1y' }));
+  // SPA fallback: client-side routes (e.g. /admin/users) resolve to the shell.
+  app.get('/admin', sendAdminIndex);
+  app.get('/admin/*', sendAdminIndex);
+  logger.info('[Admin] Serving admin SPA from %s at /admin', ADMIN_DIST_DIR);
+}
 
 // ── Global per-IP rate limit ──────────────────────────────────────────────────
 // Baseline brute-force / DDoS protection for every API route. Mounted AFTER the

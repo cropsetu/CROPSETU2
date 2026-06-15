@@ -33,8 +33,13 @@ From `admin/`:
 ```bash
 cp .env.example .env       # then edit if needed
 npm install
-npm run dev                # http://localhost:5180
+npm run dev                # http://localhost:5180/admin/  (served under /admin)
 ```
+
+> The app is served under **`/admin`** (Vite `base` + router `basename`) so the
+> backend can host the production build same-origin. See
+> [`docs/ADMIN_DEPLOY_RAILWAY.md`](../docs/ADMIN_DEPLOY_RAILWAY.md) for the Railway
+> deploy (the backend serves `admin/dist` at `/admin` — no separate service).
 
 ### Environment variables (`admin/.env`)
 
