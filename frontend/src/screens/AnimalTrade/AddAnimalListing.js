@@ -91,16 +91,23 @@ export default function AddAnimalListing({ navigation, route }) {
   const update = (key, value) => setForm(f => ({ ...f, [key]: value }));
 
   const pickPhoto = async () => {
-    if (photos.length >= 4) {
+    // Total cap of 4 across existing (edit-mode) + newly-picked photos.
+    const remaining = 4 - (existingImages.length + photos.length);
+    if (remaining <= 0) {
       Alert.alert(t('addAnimal.limitReached'), t('addAnimal.maxPhotos'));
       return;
     }
+    // Multi-select: allowsEditing is mutually exclusive with
+    // allowsMultipleSelection, so we drop the crop/aspect step here.
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true, aspect: [4, 3], quality: 0.7,
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
+      quality: 0.7,
     });
-    if (!result.canceled) {
-      setPhotos(p => [...p, result.assets[0]]);
+    if (!result.canceled && Array.isArray(result.assets)) {
+      // Append every picked asset, never exceeding the remaining slots.
+      setPhotos(p => [...p, ...result.assets].slice(0, p.length + remaining));
     }
   };
 

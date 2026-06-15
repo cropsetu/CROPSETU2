@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, Alert, Image, Animated, Dimensions,
+  SafeAreaView, Alert, Image, Animated, Dimensions, Share,
 } from 'react-native';
 import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
 import { formatLocation } from '../../utils/location';
@@ -115,6 +115,19 @@ export default function AnimalDetail({ route, navigation }) {
     });
   };
 
+  const handleShare = async () => {
+    const title = `${listing.animal || ''}${listing.breed ? ' - ' + listing.breed : ''}`.trim() || t('animalDetail.seller', 'Listing');
+    const priceLabel = listing.price ? `₹${Number(listing.price).toLocaleString()}` : '';
+    const message = [title, priceLabel && `Price: ${priceLabel}`, sellerLocation && `Location: ${sellerLocation}`]
+      .filter(Boolean)
+      .join('\n');
+    try {
+      await Share.share({ title, message });
+    } catch (e) {
+      Alert.alert(t('product.error'), String(e?.message || e));
+    }
+  };
+
   const handleChat = () => {
     const listingTitle = `${listing.animal || ''}${listing.breed ? ' · ' + listing.breed : ''}`.trim() || null;
     navigation.navigate('Chat', {
@@ -176,7 +189,7 @@ export default function AnimalDetail({ route, navigation }) {
               <TouchableOpacity style={styles.navBtn}>
                 <Ionicons name="heart-outline" size={22} color={COLORS.white} />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.navBtn}>
+              <TouchableOpacity style={styles.navBtn} onPress={handleShare}>
                 <Ionicons name="share-social-outline" size={22} color={COLORS.white} />
               </TouchableOpacity>
             </View>
@@ -412,7 +425,10 @@ const styles = StyleSheet.create({
   },
   callBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, borderWidth: 2, borderColor: COLORS.primary, borderRadius: 14, paddingVertical: 14,
+    // paddingVertical 12 + 2px border (top & bottom) = 28px, matching the
+    // chat button's gradient (paddingVertical 14, no border) so both buttons
+    // render at the exact same height. Both use flex:1 for equal width.
+    gap: 8, borderWidth: 2, borderColor: COLORS.primary, borderRadius: 14, paddingVertical: 12,
   },
   callBtnText: { fontSize: 15, fontWeight: '700', color: COLORS.primary },
   chatBtn: { flex: 1, borderRadius: 14, overflow: 'hidden' },

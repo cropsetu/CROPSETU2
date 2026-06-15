@@ -9,7 +9,7 @@ import {
   Leaf, ChevronDown, ChevronUp, ChevronRight, Check, X as CloseIcon,
   MessageSquare, ScanLine, History as HistoryIcon,
   ShieldCheck, ShoppingCart, Lightbulb, ToggleLeft, ToggleRight,
-  Volume2, Square as SquareIcon, Loader2, Trash2,
+  Volume2, Square as SquareIcon, Loader2, Trash2, Copy,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -253,7 +253,23 @@ function MessageBubble({ msg, onBuyMedicine, language, isLast, onFollowUp }) {
   const slideAnim = useRef(new Animated.Value(8)).current;
   const [ttsLoading, setTtsLoading] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
+  const [copied, setCopied] = useState(false);
   const ttsSoundRef = useRef(null);
+  const copyTimerRef = useRef(null);
+
+  // Copy the reply to the clipboard. Lazy-require expo-clipboard so a missing
+  // native module (e.g. an older build) can never crash the bubble — on any
+  // failure we just silently do nothing. Strips the **bold** markers so the
+  // pasted text is clean prose.
+  const handleCopy = async () => {
+    try {
+      const Clipboard = require('expo-clipboard');
+      await Clipboard.setStringAsync((msg.text || '').replace(/\*\*/g, ''));
+      setCopied(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
+    } catch (e) {}
+  };
   // Per-bubble audio cache. The first Listen hits Sarvam TTS; every replay
   // after that re-uses this base64 payload so we never bill the same reply
   // twice. Tied to the message's language so it stays valid even if the
@@ -266,6 +282,7 @@ function MessageBubble({ msg, onBuyMedicine, language, isLast, onFollowUp }) {
       Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start();
     return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
       // Component unmount: kill any in-flight playback so it doesn't keep
       // talking after the bubble is gone.
       const s = ttsSoundRef.current;
@@ -393,21 +410,35 @@ function MessageBubble({ msg, onBuyMedicine, language, isLast, onFollowUp }) {
           <View style={S.aiBubble}>
             <BlurView intensity={18} tint="dark" style={StyleSheet.absoluteFillObject} />
             <FormattedAIText text={msg.text} />
-            <TouchableOpacity
-              style={[S.listenBtn, ttsPlaying && S.listenBtnPlaying]}
-              onPress={playTts}
-              activeOpacity={0.7}
-              disabled={ttsLoading}
-              accessibilityRole="button"
-              accessibilityLabel={ttsPlaying ? 'Stop listening' : 'Listen to reply'}
-            >
-              {ttsLoading
-                ? <ActivityIndicator size="small" color={ACCENT} />
-                : ttsPlaying
-                ? <SquareIcon size={15} color={ACCENT} strokeWidth={2.6} fill={ACCENT} />
-                : <Volume2 size={16} color={ACCENT} strokeWidth={2.4} />}
-              <Text style={S.listenTxt}>{ttsPlaying ? 'Stop' : 'Listen'}</Text>
-            </TouchableOpacity>
+            <View style={S.actionRow}>
+              <TouchableOpacity
+                style={[S.listenBtn, ttsPlaying && S.listenBtnPlaying]}
+                onPress={playTts}
+                activeOpacity={0.7}
+                disabled={ttsLoading}
+                accessibilityRole="button"
+                accessibilityLabel={ttsPlaying ? 'Stop listening' : 'Listen to reply'}
+              >
+                {ttsLoading
+                  ? <ActivityIndicator size="small" color={ACCENT} />
+                  : ttsPlaying
+                  ? <SquareIcon size={15} color={ACCENT} strokeWidth={2.6} fill={ACCENT} />
+                  : <Volume2 size={16} color={ACCENT} strokeWidth={2.4} />}
+                <Text style={S.listenTxt}>{ttsPlaying ? 'Stop' : 'Listen'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.copyBtn, copied && S.copyBtnDone]}
+                onPress={handleCopy}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={copied ? 'Copied' : 'Copy reply'}
+              >
+                {copied
+                  ? <Check size={15} color={P_LIGHT} strokeWidth={2.8} />
+                  : <Copy size={15} color={MUTED} strokeWidth={2.4} />}
+                <Text style={[S.copyTxt, copied && { color: P_LIGHT }]}>{copied ? 'Copied' : 'Copy'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : null}
         {msg.diagnosisData && <DiagnosisCard data={msg.diagnosisData} onBuyMedicine={onBuyMedicine} />}
@@ -1100,7 +1131,7 @@ export default function AIChatScreen({ navigation, route }) {
         />
 
         {/* ── Composer (Lovable spec) ── */}
-        <View style={[C.composerWrap, { paddingBottom: Math.max(insets.bottom, 10) + 6 }]}>
+        <View style={[C.composerWrap, { paddingBottom: Math.max(insets.bottom, 8) }]}>
           {isRecording ? (
             // ── Recording state ───────────────────────────────────────────────
             <BlurView intensity={30} tint="dark" style={C.composer}>
@@ -1245,7 +1276,9 @@ const C = StyleSheet.create({
   },
   attachThumb: {
     width: 44, height: 44, borderRadius: 10,
-    borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE,
+    // Subtle neutral/translucent frame only — no green tint around the preview.
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
   attachLabel: {
     flex: 1, fontSize: 13, color: TEXT2, fontFamily: INTER_SEMI,
@@ -1349,10 +1382,14 @@ const S = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
     overflow: 'hidden',
   },
+  // Listen + Copy actions under AI messages.
+  actionRow: {
+    marginTop: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    flexWrap: 'wrap',
+  },
   // Listen button under AI messages — sized for a comfortable thumb tap.
   listenBtn: {
-    marginTop: 12,
-    alignSelf: 'flex-start',
     flexDirection: 'row', alignItems: 'center', gap: 7,
     paddingHorizontal: 14, paddingVertical: 9,
     minHeight: 36,
@@ -1360,6 +1397,26 @@ const S = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
+  },
+  // Copy button — same pill shape as Listen; flashes a green "Copied" state.
+  copyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 9,
+    minHeight: 36,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  copyBtnDone: {
+    backgroundColor: 'rgba(34,197,94,0.18)',
+    borderColor: 'rgba(34,197,94,0.45)',
+  },
+  copyTxt: {
+    fontSize: 13,
+    color: TEXT2,
+    fontFamily: INTER_SEMI,
+    letterSpacing: 0.2,
   },
   // While playing — gold accent border + soft tint so the user immediately
   // sees the bubble is "talking" and that tapping it again will stop it.
@@ -1390,6 +1447,9 @@ const S = StyleSheet.create({
   userImage: {
     width: 180, height: 135, borderRadius: 12, marginBottom: 6,
     backgroundColor: 'rgba(0,0,0,0.12)',
+    // Subtle neutral frame so the green bubble gradient doesn't read as a
+    // green border bleeding around the photo.
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
   },
 
   // Follow-up suggestion chips (rendered under the latest AI reply)

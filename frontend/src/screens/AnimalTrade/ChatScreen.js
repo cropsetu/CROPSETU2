@@ -297,7 +297,7 @@ export default function ChatScreen({ route, navigation }) {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <SafeAreaView style={styles.container} edges={[]}>
       {/* Header */}
       <View style={[styles.chatHeader, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity
@@ -378,7 +378,7 @@ export default function ChatScreen({ route, navigation }) {
         )}
 
         {/* Composer */}
-        <View style={styles.composerWrap}>
+        <View style={[styles.composerWrap, { paddingBottom: insets.bottom + 8 }]}>
           <View style={[styles.composer, focused && styles.composerFocused, disabled && styles.composerDisabled]}>
             <TextInput
               style={styles.input}
@@ -467,7 +467,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderTopWidth: 1, borderTopColor: COLORS.border,
     paddingHorizontal: 12, paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 8 : 10,
+    // paddingBottom is applied inline as `insets.bottom + 8` so the input sits
+    // just above the safe-area on every device (no fixed extra gap on top of it).
   },
   composer: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,

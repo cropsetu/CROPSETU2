@@ -49,6 +49,7 @@ import { useLanguage } from "../../context/LanguageContext";
 import { useAuth } from "../../context/AuthContext";
 import MockImagePlaceholder from "../../components/MockImagePlaceholder";
 import { COLORS, TYPE, SHADOWS } from "../../constants/colors";
+import { KHET } from "../../constants/khetTheme";
 import AnimatedScreen from "../../components/ui/AnimatedScreen";
 import TractorLoader from "../../components/ui/TractorLoader";
 import { MachineryIcon } from "../../components/MachineryIcons";
@@ -1011,24 +1012,31 @@ export default function RentHome({ navigation }) {
                   </TouchableOpacity>
                 </View>
               ) : (
-                filteredMachinery.map((item, idx) => (
-                  <MachineryCard
-                    key={item.id}
-                    item={item}
-                    index={idx}
-                    isOwner={
-                      myId != null &&
-                      (myId === item.owner?.id || myId === item.ownerId)
-                    }
-                    bookingStatus={bookingMap[item.id]}
-                    onPress={(i) =>
-                      navigation.navigate("MachineryDetail", {
-                        id: i.id,
-                        machinery: i,
-                      })
-                    }
-                  />
-                ))
+                <FlatList
+                  data={filteredMachinery}
+                  keyExtractor={(item) => String(item.id)}
+                  numColumns={2}
+                  scrollEnabled={false}
+                  contentContainerStyle={S.grid}
+                  columnWrapperStyle={S.gridRow}
+                  renderItem={({ item, index }) => (
+                    <MachineryCard
+                      item={item}
+                      index={index}
+                      isOwner={
+                        myId != null &&
+                        (myId === item.owner?.id || myId === item.ownerId)
+                      }
+                      bookingStatus={bookingMap[item.id]}
+                      onPress={(i) =>
+                        navigation.navigate("MachineryDetail", {
+                          id: i.id,
+                          machinery: i,
+                        })
+                      }
+                    />
+                  )}
+                />
               )}
             </>
           ) : (
@@ -1061,24 +1069,31 @@ export default function RentHome({ navigation }) {
                   </TouchableOpacity>
                 </View>
               ) : (
-                filteredLabour.map((item, idx) => (
-                  <WorkerCard
-                    key={item.id}
-                    item={item}
-                    index={idx}
-                    isOwner={
-                      myId != null &&
-                      (myId === item.provider?.id || myId === item.providerId)
-                    }
-                    bookingStatus={bookingMap[item.id]}
-                    onPress={(i) =>
-                      navigation.navigate("LabourDetail", {
-                        id: i.id,
-                        labour: i,
-                      })
-                    }
-                  />
-                ))
+                <FlatList
+                  data={filteredLabour}
+                  keyExtractor={(item) => String(item.id)}
+                  numColumns={2}
+                  scrollEnabled={false}
+                  contentContainerStyle={S.grid}
+                  columnWrapperStyle={S.gridRow}
+                  renderItem={({ item, index }) => (
+                    <WorkerCard
+                      item={item}
+                      index={index}
+                      isOwner={
+                        myId != null &&
+                        (myId === item.provider?.id || myId === item.providerId)
+                      }
+                      bookingStatus={bookingMap[item.id]}
+                      onPress={(i) =>
+                        navigation.navigate("LabourDetail", {
+                          id: i.id,
+                          labour: i,
+                        })
+                      }
+                    />
+                  )}
+                />
               )}
             </>
           )}
@@ -1197,8 +1212,8 @@ const S = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderWidth: 1.5,
+    borderColor: KHET.primary,
     ...SHADOWS.small,
   },
   searchInput: { flex: 1, fontSize: 14, color: COLORS.textDark, padding: 0 },
@@ -1287,10 +1302,14 @@ const S = StyleSheet.create({
   },
   distTxt: { fontSize: 10, color: COLORS.blue, fontWeight: "700" },
 
+  // 2-column grid (shop-style) — column wrapper supplies the gutter, the grid
+  // container the outer padding; cards flex:1 so each fills its half evenly.
+  grid: { paddingHorizontal: 14, paddingBottom: 4 },
+  gridRow: { gap: 12, alignItems: "stretch", marginBottom: 16 },
+
   // Machinery card
   mCard: {
-    marginHorizontal: 14,
-    marginBottom: 16,
+    flex: 1,
     backgroundColor: COLORS.surface,
     borderRadius: 22,
     overflow: "hidden",
@@ -1444,8 +1463,7 @@ const S = StyleSheet.create({
 
   // Worker card
   wCard: {
-    marginHorizontal: 14,
-    marginBottom: 12,
+    flex: 1,
     backgroundColor: COLORS.surface,
     borderRadius: 20,
     padding: 14,
