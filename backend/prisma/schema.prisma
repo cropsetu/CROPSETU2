@@ -2114,3 +2114,65 @@ model IncidentUpdate {
   @@index([createdAt])
   @@map("incident_updates")
 }
+
+// ── Seller settlement ledger & payouts (admin WI-4, scope FINANCE) ────────────
+// Append-only money ledger per seller plus the payout records computed from it.
+// `sellerId` is a User id (a seller's account) kept as a scalar — no FK relation
+// is added back onto User so this block stays purely ADDITIVE (zero edits to the
+// existing User model / no migrate reset; applied with `prisma db push`).
+
+// One immutable accounting entry against a seller's balance. SALE adds, the rest
+// (COMMISSION, REFUND, PAYOUT) subtract; ADJUSTMENT is a signed manual correction.
+// `balanceAfter` snapshots the running net balance at write time for auditability.
+model SellerLedgerEntry {
+  id           String          @id @default(uuid())
+  sellerId     String // User id of the seller this entry belongs to
+  type         LedgerEntryType
+  amount       Decimal         @db.Decimal(12, 2) // signed: positive credits the seller, negative debits
+  orderId      String? // source order when the entry derives from a sale/refund
+  balanceAfter Decimal         @db.Decimal(12, 2) // running net balance immediately after this entry
+  note         String?
+  createdBy    String? // admin User id for manual entries (null = system-generated)
+  createdAt    DateTime        @default(now())
+
+  @@index([sellerId, createdAt(sort: Desc)])
+  @@index([orderId])
+  @@index([type])
+  @@map("seller_ledger_entries")
+}
+
+enum LedgerEntryType {
+  SALE
+  COMMISSION
+  REFUND
+  PAYOUT
+  ADJUSTMENT
+}
+
+// A payout to a seller for a settlement period. Created PENDING with a matching
+// PAYOUT ledger entry; an admin then transitions it to PAID/FAILED with a method
+// + reference. `sellerId` is a User id (scalar, no relation — additive).
+model Payout {
+  id          String       @id @default(uuid())
+  sellerId    String // User id of the seller being paid
+  amount      Decimal      @db.Decimal(12, 2)
+  status      PayoutStatus @default(PENDING)
+  method      String? // e.g. 'bank_transfer', 'upi'
+  reference   String? // bank/UTR reference or failure note
+  periodFrom  DateTime // settlement window start (inclusive)
+  periodTo    DateTime // settlement window end (inclusive)
+  processedBy String? // admin User id who created / last transitioned the payout
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([sellerId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("payouts")
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+}

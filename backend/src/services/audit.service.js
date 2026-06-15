@@ -158,6 +158,9 @@ export const ADMIN_ACTIONS = {
   TEAM_INVITE:          'ADMIN_TEAM_INVITE',         // promoted a user to ADMIN + assigned scopes
   TEAM_SCOPES_UPDATE:   'ADMIN_TEAM_SCOPES_UPDATE',  // changed an admin's scopes
   TEAM_REVOKE:          'ADMIN_TEAM_REVOKE',         // demoted an admin + forced logout
+  PAYOUT_CREATE:        'ADMIN_PAYOUT_CREATE',       // generated a seller payout for a settlement period
+  PAYOUT_UPDATE:        'ADMIN_PAYOUT_UPDATE',       // transitioned a payout to PAID/FAILED (+ reference)
+  LEDGER_ADJUST:        'ADMIN_LEDGER_ADJUST',       // manual signed ADJUSTMENT entry on a seller's ledger
 };
 
 /**

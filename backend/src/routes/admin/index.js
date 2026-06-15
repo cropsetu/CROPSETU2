@@ -30,6 +30,7 @@ import { flagsRouter, healthRouter, queuesRouter } from './ops.routes.js';
 import { consentsRouter, erasureRouter, auditRouter } from './compliance.routes.js';
 import settingsRoutes from './settings.routes.js';
 import { teamRouter, meRouter } from './team.routes.js';
+import { sellersRouter, payoutsRouter } from './finance.routes.js';
 
 const router = Router();
 
@@ -67,6 +68,9 @@ router.use('/bookings', requireScope(S.SUPPORT), bookingsRouter);
 router.use('/posts', requireScope(S.CONTENT_MODERATOR), postsRouter);
 router.use('/comments', requireScope(S.CONTENT_MODERATOR), commentsRouter);
 router.use('/groups', requireScope(S.CONTENT_MODERATOR), groupsRouter);
+// Finance — seller settlement ledger & payouts
+router.use('/sellers', requireScope(S.FINANCE), sellersRouter);
+router.use('/payouts', requireScope(S.FINANCE), payoutsRouter);
 // AI operations
 router.use('/ai', requireScope(S.OPS), aiRoutes);
 // CMS
