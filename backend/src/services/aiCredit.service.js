@@ -28,11 +28,15 @@ const FREE_MONTHLY_CREDITS_ENV = ENV.AI_FREE_MONTHLY_CREDITS || 100;
 const MIN_CREDITS_PER_CALL     = ENV.AI_MIN_CREDITS_PER_CALL || 1;
 
 // Live token→credit divisor from admin settings (cached 60s in settings.service).
-// Guards a 0/NaN stored value back to the env default so a bad setting can never
-// divide-by-zero or mint infinite credits.
+// Must be > 0: a 0 divisor would divide-by-zero/mint infinite credits, and a
+// NEGATIVE divisor would silently under-charge (Math.ceil(tokens/-N) is negative,
+// so Math.max(floor, …) collapses to the floor for every call). Any non-positive
+// or non-finite value falls back to the env default.
 async function liveTokensPerCredit() {
-  try { return Number(await getSetting('ai.tokensPerCredit')) || TOKENS_PER_CREDIT_ENV; }
-  catch { return TOKENS_PER_CREDIT_ENV; }
+  try {
+    const v = Number(await getSetting('ai.tokensPerCredit'));
+    return Number.isFinite(v) && v > 0 ? v : TOKENS_PER_CREDIT_ENV;
+  } catch { return TOKENS_PER_CREDIT_ENV; }
 }
 // Live free-tier monthly grant. Allows an explicit 0 (admin disabling the free
 // grant) but rejects NaN/negative/undefined back to the env default.
@@ -78,7 +82,8 @@ export function creditsForUsage(featureType, tokensUsed = 0, tokensPerCredit = T
   if (floor === 0) return 0;                                   // rule-based / free
   const tokens = Number(tokensUsed) || 0;
   if (tokens <= 0) return floor;                               // no token data → floor
-  const perCredit = Number(tokensPerCredit) || TOKENS_PER_CREDIT_ENV;
+  const pc = Number(tokensPerCredit);
+  const perCredit = Number.isFinite(pc) && pc > 0 ? pc : TOKENS_PER_CREDIT_ENV;   // > 0 only
   return Math.max(floor, Math.ceil(tokens / perCredit));
 }
 
