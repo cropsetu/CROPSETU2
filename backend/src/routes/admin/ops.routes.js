@@ -1,25 +1,33 @@
 /**
- * Admin Ops — feature flags, external-API health, queue stats.
- *   /api/v1/admin/flags        GET list / PATCH :key (toggle)
- *   /api/v1/admin/health       GET external-API health (APIHealthLog summary)
- *   /api/v1/admin/queues       GET BullMQ job counts
+ * Admin Ops — feature flags, external-API health, queue stats, job inspection,
+ * and the server error log.
+ *   /api/v1/admin/flags          GET list / PATCH :key (toggle)
+ *   /api/v1/admin/health         GET external-API health (APIHealthLog summary)
+ *   /api/v1/admin/queues         GET BullMQ job counts
+ *   /api/v1/admin/jobs/:queue    GET recent jobs / POST :id/retry (audited)
+ *   /api/v1/admin/error-logs     GET keyset list (filter source/severity)
  *
- * ADMIN gate applied by the parent router. Flag toggles audited + cache-invalidated
- * (mirrors the existing /admin/features behaviour).
+ * ADMIN gate applied by the parent router. Flag toggles + job retries are audited;
+ * flag toggles are cache-invalidated (mirrors the existing /admin/features
+ * behaviour).
  */
 import { Router } from 'express';
 import { body, param, query } from 'express-validator';
 import prisma from '../../config/db.js';
 import { validate } from '../../middleware/validate.js';
-import { sendSuccess, sendServerError } from '../../utils/response.js';
+import { sendSuccess, sendServerError, sendError, sendNotFound } from '../../utils/response.js';
 import { invalidateCache } from '../../services/featureFlag.service.js';
-import { auditAction, AUDIT_ACTIONS } from '../../services/audit.service.js';
+import { auditAction, AUDIT_ACTIONS, ADMIN_ACTIONS } from '../../services/audit.service.js';
 import { apiHealthSummary } from '../../services/adminMetrics.service.js';
-import { getQueueStats } from '../../queue/jobQueue.js';
+import { getQueueStats, getRecentJobs, retryJob, isKnownQueue } from '../../queue/jobQueue.js';
+import { keysetList } from '../../utils/adminList.js';
+import { adminAudit, listParams, sendList } from './_helpers.js';
 
 const flagsRouter = Router();
 const healthRouter = Router();
 const queuesRouter = Router();
+const jobsRouter = Router();
+const errorLogsRouter = Router();
 
 // ── Feature flags ─────────────────────────────────────────────────────────────
 flagsRouter.get('/', async (_req, res) => {
@@ -78,4 +86,62 @@ queuesRouter.get('/', async (_req, res) => {
   }
 });
 
-export { flagsRouter, healthRouter, queuesRouter };
+// ── BullMQ job inspection + retry ─────────────────────────────────────────────
+// GET  /admin/jobs/:queue            recent jobs across states (read-only)
+// POST /admin/jobs/:queue/:id/retry  re-enqueue a single failed job (audited)
+//
+// Unknown queue → 404 (the queue set is fixed by QUEUE_NAMES). When the queue
+// layer is disabled / Redis is down the helpers return { available: false } and
+// we surface that — same contract as /queues — rather than 500-ing.
+
+jobsRouter.get('/:queue', [param('queue').isString().trim().isLength({ min: 1, max: 60 }), query('limit').optional().isInt({ min: 1, max: 100 })], validate, async (req, res) => {
+  try {
+    const { queue } = req.params;
+    if (!isKnownQueue(queue)) return sendNotFound(res, 'Queue');
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
+    const result = await getRecentJobs(queue, undefined, limit);
+    return sendSuccess(res, { queue, available: result.available, jobs: result.jobs });
+  } catch (err) {
+    return sendServerError(res, err, 'Failed to load jobs');
+  }
+});
+
+jobsRouter.post('/:queue/:id/retry', [param('queue').isString().trim().isLength({ min: 1, max: 60 }), param('id').isString().trim().isLength({ min: 1, max: 200 })], validate, async (req, res) => {
+  try {
+    const { queue, id } = req.params;
+    if (!isKnownQueue(queue)) return sendNotFound(res, 'Queue');
+    const result = await retryJob(queue, id);
+    if (result.available === false) return sendError(res, 'Queue layer unavailable — jobs run inline; nothing to retry', 409);
+    if (!result.retried) {
+      if (result.reason === 'not_found') return sendNotFound(res, 'Job');
+      return sendError(res, `Job cannot be retried (state: ${result.state ?? 'unknown'})`, 409);
+    }
+    await adminAudit(req, ADMIN_ACTIONS.JOB_RETRY, 'Job', `${queue}:${id}`, { metadata: { queue, jobId: id, jobName: result.name } });
+    return sendSuccess(res, { queue, jobId: id, retried: true });
+  } catch (err) {
+    return sendServerError(res, err, 'Failed to retry job');
+  }
+});
+
+// ── Server error log ──────────────────────────────────────────────────────────
+// Keyset list of errors captured (best-effort) by the global Express error
+// handler. Filter by ?source= (substring) and ?severity= (exact).
+errorLogsRouter.get(
+  '/',
+  [query('source').optional().isString().isLength({ max: 200 }), query('severity').optional().isString().isLength({ max: 30 }), query('limit').optional().isInt({ min: 1, max: 100 })],
+  validate,
+  async (req, res) => {
+    try {
+      const where = {};
+      if (req.query.source) where.source = { contains: String(req.query.source), mode: 'insensitive' };
+      if (req.query.severity) where.severity = String(req.query.severity);
+      const { cursor, limit } = listParams(req);
+      const page = await keysetList(prisma.errorLog, { where, cursor, limit });
+      return sendList(res, sendSuccess, page);
+    } catch (err) {
+      return sendServerError(res, err, 'Failed to load error logs');
+    }
+  },
+);
+
+export { flagsRouter, healthRouter, queuesRouter, jobsRouter, errorLogsRouter };

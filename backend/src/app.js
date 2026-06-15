@@ -359,6 +359,25 @@ app.use((err, req, res, _next) => {
   // err.message may contain DB schema info, query details, or stack traces.
   const safeMessage = err.expose ? err.message : 'Internal server error';
   sendError(res, safeMessage, err.status || 500);
+
+  // BEST-EFFORT: persist the error to ErrorLog for the admin Ops viewer. This runs
+  // AFTER the response is sent and is fully wrapped — a failed insert (table
+  // missing, DB down, bad payload) must never throw or block the response.
+  try {
+    prisma.errorLog
+      .create({
+        data: {
+          source: req.path || 'unknown',
+          severity: (err.status || 500) >= 500 ? 'error' : 'warn',
+          message: String(err?.message || 'Internal server error').slice(0, 2000),
+          stack: err?.stack ? String(err.stack).slice(0, 8000) : null,
+          context: { method: req.method, status: err.status || 500, requestId: req.id ?? null },
+        },
+      })
+      .catch(() => {});
+  } catch {
+    /* never throw from the error handler */
+  }
 });
 
 export default app;

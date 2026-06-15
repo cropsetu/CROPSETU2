@@ -19,6 +19,8 @@ import { keysetList } from '../../utils/adminList.js';
 import { adminAudit, listParams } from './_helpers.js';
 import { ADMIN_ACTIONS } from '../../services/audit.service.js';
 import { broadcastNotification } from '../../services/adminBroadcast.service.js';
+import { ENV } from '../../config/env.js';
+import logger from '../../utils/logger.js';
 
 const pick = (obj, keys) => {
   const out = {};
@@ -335,15 +337,70 @@ mandiRouter.get('/sync', [query('limit').optional().isInt({ min: 1, max: 100 })]
   }
 });
 
-// Records a manual sync trigger. Wiring the actual data.gov.in fetch worker to
-// this record is a follow-up; the row gives ops a visible, audited trigger point.
-mandiRouter.post('/sync', [body('state').optional().isString().isLength({ max: 60 }), body('commodity').optional().isString().isLength({ max: 120 })], validate, async (req, res) => {
+/**
+ * Fire a single mandi-sync fetch at the FastAPI AgriPredict service. Mirrors
+ * server.js `triggerMandiSync` (POST {commodity,state,district,max_pages}).
+ *
+ * IMPORTANT: the FastAPI `/agripredict/sync/trigger` route may NOT exist yet
+ * (flagged as possibly missing). Every failure mode — route 404, connection
+ * refused, timeout, non-2xx — is caught here and returned as `{ ok:false,
+ * error }`; this NEVER throws, so the caller can always record a clean
+ * status='failed' + errorMessage.
+ *
+ * @returns {Promise<{ ok: boolean, records?: number, error?: string }>}
+ */
+async function fetchMandiSync({ commodity, state, district = null, maxPages = 3 }) {
+  const base = ENV.AI_BACKEND_URL || 'http://localhost:8001';
+  try {
+    const resp = await fetch(`${base}/agripredict/sync/trigger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commodity, state, district, max_pages: maxPages }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!resp.ok) {
+      const detail = resp.status === 404 ? 'AgriPredict /sync/trigger not found (route missing)' : `AgriPredict returned ${resp.status}`;
+      return { ok: false, error: detail };
+    }
+    // Best-effort parse of a record count; the contract is not guaranteed.
+    let records = 0;
+    try {
+      const data = await resp.json();
+      records = Number(data?.recordsFetched ?? data?.records ?? data?.count ?? 0) || 0;
+    } catch { /* non-JSON / empty body — leave records at 0 */ }
+    return { ok: true, records };
+  } catch (err) {
+    return { ok: false, error: err?.name === 'TimeoutError' ? 'AgriPredict sync timed out' : (err?.message || 'AgriPredict sync failed') };
+  }
+}
+
+// Manual mandi-price sync trigger. Records a PriceDataSync row (status: running),
+// fires the FastAPI fetch, then settles the row to success/failed. The fetch is
+// fully guarded (see fetchMandiSync) so a missing/unreachable upstream cleanly
+// records status='failed' + errorMessage and never throws an unhandled error.
+mandiRouter.post('/sync', [body('state').optional().isString().isLength({ max: 60 }), body('commodity').optional().isString().isLength({ max: 120 }), body('district').optional({ nullable: true }).isString().isLength({ max: 60 }), body('maxPages').optional().isInt({ min: 1, max: 20 })], validate, async (req, res) => {
   try {
     const row = await prisma.priceDataSync.create({
-      data: { syncType: 'manual', state: req.body.state ?? null, commodity: req.body.commodity ?? null, status: 'queued' },
+      data: { syncType: 'manual', state: req.body.state ?? null, commodity: req.body.commodity ?? null, status: 'running' },
     });
     await adminAudit(req, ADMIN_ACTIONS.MANDI_SYNC_TRIGGER, 'PriceDataSync', row.id, { after: { syncType: 'manual', state: row.state, commodity: row.commodity } });
-    return sendCreated(res, row);
+
+    const result = await fetchMandiSync({ commodity: req.body.commodity ?? null, state: req.body.state ?? null, district: req.body.district ?? null, maxPages: req.body.maxPages ?? 3 });
+
+    let updated;
+    if (result.ok) {
+      updated = await prisma.priceDataSync.update({
+        where: { id: row.id },
+        data: { status: 'success', recordsFetched: result.records ?? 0, completedAt: new Date(), errorMessage: null },
+      });
+    } else {
+      logger.warn('[Mandi] Manual sync failed (%s/%s): %s', row.commodity ?? '*', row.state ?? '*', result.error);
+      updated = await prisma.priceDataSync.update({
+        where: { id: row.id },
+        data: { status: 'failed', completedAt: new Date(), errorMessage: String(result.error).slice(0, 500) },
+      });
+    }
+    return sendCreated(res, updated);
   } catch (err) {
     return sendServerError(res, err, 'Failed to trigger mandi sync');
   }

@@ -1394,6 +1394,26 @@ model APIHealthLog {
   @@map("api_health_logs")
 }
 
+// ── Server error log (Ops hardening) ─────────────────────────────────────────
+// Best-effort capture of every error that reaches the global Express error
+// handler, surfaced to the admin Ops error-log viewer. The write is wrapped so
+// it can NEVER throw or block the response — a failed insert just drops the row.
+// `source` is the request path; `severity` lets future emitters distinguish
+// warn/error/fatal. Indexed for the keyset list (source + createdAt DESC).
+model ErrorLog {
+  id        String   @id @default(uuid())
+  source    String
+  severity  String   @default("error")
+  message   String
+  stack     String?
+  context   Json?
+  createdAt DateTime @default(now())
+
+  @@index([source, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("error_logs")
+}
+
 model AIUsage {
   id             String   @id @default(uuid())
   userId         String

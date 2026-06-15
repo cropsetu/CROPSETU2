@@ -21,7 +21,7 @@ import BroadcastPage from './pages/Broadcast';
 import { ModerationPage, FraudPage, IncidentsPage } from './pages/TrustSafety';
 import DisputesPage from './pages/Disputes';
 import { ConsentsPage, ErasurePage, AuditPage } from './pages/Compliance';
-import { FlagsPage, HealthPage, QueuesPage } from './pages/Ops';
+import { FlagsPage, HealthPage, QueuesPage, JobsPage, ErrorLogsPage } from './pages/Ops';
 import SettingsPage from './pages/Settings';
 import TeamPage from './pages/Team';
 
@@ -86,6 +86,8 @@ export default function App() {
             <Route path="/queues" element={<QueuesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/team" element={<TeamPage />} />
+            <Route path="/jobs" element={<JobsPage />} />
+            <Route path="/error-logs" element={<ErrorLogsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         ) : (

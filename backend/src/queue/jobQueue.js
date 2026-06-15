@@ -86,6 +86,81 @@ export async function getQueueStats() {
   return out;
 }
 
+/** True only if `name` is a queue we actually run (guards arbitrary input). */
+export function isKnownQueue(name) {
+  return Object.values(QUEUE_NAMES).includes(name);
+}
+
+const JOB_STATES = ['failed', 'completed', 'active', 'waiting', 'delayed'];
+
+/** Shape a BullMQ Job into the small, JSON-safe record the admin viewer needs. */
+function shapeJob(job, state) {
+  return {
+    id: String(job.id),
+    name: job.name,
+    state,
+    attemptsMade: job.attemptsMade ?? 0,
+    failedReason: job.failedReason ?? null,
+    timestamp: job.timestamp ?? null,            // enqueued-at (epoch ms)
+    processedOn: job.processedOn ?? null,
+    finishedOn: job.finishedOn ?? null,
+  };
+}
+
+/**
+ * Recent jobs across the given states for the Ops job inspector. Read-only;
+ * returns `{ available: false }` (matching getQueueStats) when the queue layer
+ * is disabled or Redis is down, rather than throwing. The caller is responsible
+ * for rejecting an unknown queue name (see isKnownQueue).
+ *
+ * @param {string}   queueName  one of QUEUE_NAMES
+ * @param {string[]} [states]   BullMQ job states to include
+ * @param {number}   [limit]    max jobs per state (bounded)
+ */
+export async function getRecentJobs(queueName, states = JOB_STATES, limit = 50) {
+  if (!ENV.QUEUE_ENABLED || redis?.status !== 'ready') return { available: false, jobs: [] };
+  const safeStates = states.filter((s) => JOB_STATES.includes(s));
+  const take = Math.max(1, Math.min(Number(limit) || 50, 100));
+  try {
+    const queue = getQueue(queueName);
+    // Pull each state separately so we can tag every job with its state, then
+    // return the most-recently-enqueued first, capped at `take`.
+    const perState = await Promise.all(
+      safeStates.map(async (state) => {
+        const jobs = await queue.getJobs([state], 0, take - 1, false);
+        return jobs.filter(Boolean).map((job) => shapeJob(job, state));
+      }),
+    );
+    const jobs = perState
+      .flat()
+      .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
+      .slice(0, take);
+    return { available: true, jobs };
+  } catch (err) {
+    return { available: false, error: err.message, jobs: [] };
+  }
+}
+
+/**
+ * Retry a single failed job (re-enqueue it). Returns `{ available }` like the
+ * read helpers so an Ops route can report the queue-down case cleanly, plus
+ * `{ retried, reason }`. Only a job currently in the FAILED state can be retried
+ * — anything else is a no-op with a reason (never throws on that).
+ *
+ * @param {string} queueName  one of QUEUE_NAMES
+ * @param {string} jobId      the BullMQ job id
+ */
+export async function retryJob(queueName, jobId) {
+  if (!ENV.QUEUE_ENABLED || redis?.status !== 'ready') return { available: false, retried: false };
+  const queue = getQueue(queueName);
+  const job = await queue.getJob(String(jobId));
+  if (!job) return { available: true, retried: false, reason: 'not_found' };
+  const state = await job.getState();
+  if (state !== 'failed') return { available: true, retried: false, reason: 'not_failed', state };
+  await job.retry();
+  return { available: true, retried: true, jobId: String(job.id), name: job.name };
+}
+
 /** Close all producer queues (graceful shutdown). */
 export async function closeQueues() {
   await Promise.allSettled([..._queues.values()].map((q) => q.close()));

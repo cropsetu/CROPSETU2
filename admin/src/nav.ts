@@ -7,6 +7,7 @@ import {
   ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Undo2, type LucideIcon,
   ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Wallet, type LucideIcon,
   ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, PackageX, type LucideIcon,
+  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, ListTodo, AlertTriangle, type LucideIcon,
 } from 'lucide-react';
 
 /** `scope`, when set, gates the item/group to admins holding that RBAC sub-scope. */
@@ -80,6 +81,8 @@ export const NAV: NavGroup[] = [
     { label: 'Feature Flags', to: '/flags', icon: ToggleRight },
     { label: 'API Health', to: '/health', icon: HeartPulse },
     { label: 'Queues', to: '/queues', icon: ListChecks },
+    { label: 'Jobs', to: '/jobs', icon: ListTodo, keywords: 'bullmq retry failed background' },
+    { label: 'Error Logs', to: '/error-logs', icon: AlertTriangle, keywords: 'errors exceptions server' },
   ]},
   { title: 'Team & Access', scope: 'SUPER_ADMIN', items: [
     { label: 'Team', to: '/team', icon: UserCog, scope: 'SUPER_ADMIN', keywords: 'admin roles scopes invite revoke rbac permissions' },
