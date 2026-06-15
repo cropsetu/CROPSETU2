@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, Trash2, Star, StarOff, Power } from 'lucide-react';
-import { apiDelete, apiGet, apiPatch, apiPost, errorMessage } from '../lib/api';
+import { Pencil, Plus, Trash2, Star, StarOff, Power, Download, Upload, AlertTriangle } from 'lucide-react';
+import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiUpload, errorMessage } from '../lib/api';
 import { useKeyset } from '../lib/useKeyset';
 import { useInvalidateList } from '../lib/hooks';
 import { PageHeader, Card, Button, Badge, BoolBadge, Spinner, ErrorState, Field, Input, Select } from '../components/ui';
@@ -112,9 +112,23 @@ export function ProductsPage() {
   const [search, setSearch] = useState('');
   const [activeF, setActiveF] = useState('');
   const [selected, setSelected] = useState<Product | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const params = useMemo(() => { const p: Record<string, unknown> = {}; if (search) p.search = search; if (activeF) p.isActive = activeF; return p; }, [search, activeF]);
   const list = useKeyset<Product>('/admin/products', params);
+
+  // Export the CURRENTLY-FILTERED products (server streams a bounded CSV).
+  const onExport = async () => {
+    setExporting(true);
+    try {
+      await apiDownload('/admin/products/export', params, 'products.csv');
+    } catch {
+      toast.error('Failed to export products');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const patch = useMutation({
     mutationFn: (vars: { id: string; data: Record<string, unknown> }) => apiPatch(`/admin/products/${vars.id}`, vars.data),
@@ -143,7 +157,16 @@ export function ProductsPage() {
 
   return (
     <div>
-      <PageHeader title="Products" subtitle="Approve, feature, restock or remove catalogue items." />
+      <PageHeader
+        title="Products"
+        subtitle="Approve, feature, restock or remove catalogue items."
+        actions={
+          <>
+            <Button variant="secondary" onClick={onExport} loading={exporting}><Download className="h-4 w-4" /> Export CSV</Button>
+            <Button variant="primary" onClick={() => setImporting(true)}><Upload className="h-4 w-4" /> Import CSV</Button>
+          </>
+        }
+      />
       <Toolbar>
         <SearchInput value={search} onChange={setSearch} placeholder="Product name…" />
         <FilterSelect label="Active" value={activeF} onChange={setActiveF} options={[{ label: 'Active', value: 'true' }, { label: 'Inactive', value: 'false' }]} />
@@ -169,6 +192,134 @@ export function ProductsPage() {
           </div>
         )}
       </Drawer>
+
+      {importing && (
+        <ImportModal
+          onClose={() => setImporting(false)}
+          onCommitted={() => { setImporting(false); invalidate('/admin/products'); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── CSV import (dry-run preview → confirm → commit) ─────────────────────────────
+interface RowError { row: number; errors: string[] }
+interface ImportResult { commit: boolean; applied: boolean; totalRows: number; created: number; updated: number; errored: number; rowErrors: RowError[] }
+
+function ImportModal({ onClose, onCommitted }: { onClose: () => void; onCommitted: () => void }) {
+  const toast = useToast();
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<ImportResult | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Dry-run: upload, validate, report — writes nothing.
+  const dryRun = useMutation({
+    mutationFn: (f: File) => apiUpload<ImportResult>('/admin/products/import', f),
+    onSuccess: (r) => setPreview(r),
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  // Commit: re-upload with ?commit=true to apply in a transaction.
+  const commit = useMutation({
+    mutationFn: (f: File) => apiUpload<ImportResult>('/admin/products/import?commit=true', f),
+    onSuccess: (r) => { toast.success(`Imported — ${r.created} created, ${r.updated} updated${r.errored ? `, ${r.errored} skipped` : ''}`); onCommitted(); },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const onPick = (f: File | null) => { setFile(f); setPreview(null); };
+  const valid = preview ? preview.created + preview.updated : 0;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Import products (CSV)"
+      size="lg"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          {!preview
+            ? <Button variant="primary" disabled={!file} loading={dryRun.isPending} onClick={() => file && dryRun.mutate(file)}>Preview</Button>
+            : <Button variant="primary" disabled={!file || valid === 0} loading={commit.isPending} onClick={() => file && commit.mutate(file)}>
+                Confirm import ({valid} {valid === 1 ? 'row' : 'rows'})
+              </Button>}
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="CSV file" hint="Columns: id (blank = create), name, nameHi, nameMr, price, mrp, unit, stock, categoryId (id or category name), isActive, isFeatured. Export first to get the exact format.">
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="input"
+            onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+          />
+        </Field>
+
+        {preview && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2 text-sm">
+              <Badge tone="slate">{preview.totalRows} rows</Badge>
+              <Badge tone="green">{preview.created} create</Badge>
+              <Badge tone="blue">{preview.updated} update</Badge>
+              <Badge tone={preview.errored ? 'red' : 'slate'}>{preview.errored} errored</Badge>
+              <Badge tone="amber">Dry-run — nothing written yet</Badge>
+            </div>
+            {preview.rowErrors.length > 0 && (
+              <Card className="max-h-64 overflow-y-auto">
+                <table className="min-w-full divide-y divide-slate-100">
+                  <thead className="bg-slate-50"><tr><th className="table-th">Row</th><th className="table-th">Errors</th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {preview.rowErrors.map((re) => (
+                      <tr key={re.row}>
+                        <td className="table-td font-medium">{re.row}</td>
+                        <td className="table-td text-red-600">{re.errors.join('; ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            )}
+            {valid === 0 && <ErrorState message="No valid rows to import. Fix the errors above and preview again." />}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ── Low-stock alerts ───────────────────────────────────────────────────────────
+interface LowStockProduct { id: string; name: string; stock: number; isActive: boolean; category?: { name: string } | null; seller?: { id: string; name: string | null } | null }
+
+export function LowStockPage() {
+  const [threshold, setThreshold] = useState('');
+  const params = useMemo(() => { const p: Record<string, unknown> = {}; if (threshold !== '') p.threshold = threshold; return p; }, [threshold]);
+  const list = useKeyset<LowStockProduct>('/admin/inventory/alerts', params);
+
+  const columns: Column<LowStockProduct>[] = [
+    { key: 'name', header: 'Product', render: (p) => <span className="font-medium">{p.name}</span>, csv: (p) => p.name },
+    { key: 'category', header: 'Category', render: (p) => p.category?.name || '—', csv: (p) => p.category?.name || '' },
+    { key: 'seller', header: 'Seller', render: (p) => p.seller?.name || '—', csv: (p) => p.seller?.name || '' },
+    { key: 'stock', header: 'Stock', render: (p) => <Badge tone={p.stock <= 0 ? 'red' : 'amber'}>{p.stock}</Badge>, csv: (p) => String(p.stock) },
+    { key: 'isActive', header: 'Active', render: (p) => <BoolBadge value={p.isActive} />, csv: (p) => String(p.isActive) },
+  ];
+
+  return (
+    <div>
+      <PageHeader title="Low-stock alerts" subtitle="Active products at or below the low-stock threshold." />
+      <Toolbar>
+        <Field label="Threshold (override)">
+          <Input type="number" min={0} value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder="default" className="w-32" />
+        </Field>
+        {list.items.length > 0 && (
+          <span className="inline-flex items-center gap-1 self-end text-sm text-amber-600">
+            <AlertTriangle className="h-4 w-4" /> {list.items.length}{list.canNext ? '+' : ''} low-stock on this page
+          </span>
+        )}
+      </Toolbar>
+      <DataTable columns={columns} items={list.items} rowKey={(p) => p.id} isLoading={list.isLoading} isFetching={list.isFetching} error={list.error}
+        page={list.page} canPrev={list.canPrev} canNext={list.canNext} onPrev={list.prev} onNext={list.next} exportName="low-stock" emptyMessage="No low-stock products." />
     </div>
   );
 }

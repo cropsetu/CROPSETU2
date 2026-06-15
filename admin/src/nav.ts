@@ -6,6 +6,7 @@ import {
   Megaphone, Flag, Fingerprint, ShieldAlert, FileCheck2, Trash2, History,
   ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Undo2, type LucideIcon,
   ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Wallet, type LucideIcon,
+  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, PackageX, type LucideIcon,
 } from 'lucide-react';
 
 /** `scope`, when set, gates the item/group to admins holding that RBAC sub-scope. */
@@ -22,7 +23,8 @@ export const NAV: NavGroup[] = [
   ]},
   { title: 'Marketplace', items: [
     { label: 'Categories', to: '/categories', icon: Tags },
-    { label: 'Products', to: '/products', icon: Package },
+    { label: 'Products', to: '/products', icon: Package, keywords: 'catalogue import export csv bulk' },
+    { label: 'Low Stock', to: '/low-stock', icon: PackageX, scope: 'CMS_EDITOR', keywords: 'inventory alerts restock out of stock threshold' },
     { label: 'Reviews', to: '/reviews', icon: Star },
     { label: 'Orders', to: '/orders', icon: ShoppingCart, keywords: 'gmv refund payment' },
     { label: 'Returns', to: '/returns', icon: Undo2, keywords: 'rma refund return reject approve', scope: 'SUPPORT' },

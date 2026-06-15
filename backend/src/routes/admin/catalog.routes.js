@@ -94,26 +94,35 @@ categoriesRouter.delete('/:id', [param('id').isUUID()], validate, async (req, re
 // ── Products ──────────────────────────────────────────────────────────────────
 export const productsRouter = Router();
 
+// Express-validator chain for the shared product filters (list + export reuse it).
+export const productFilterValidators = [
+  query('categoryId').optional().isUUID(),
+  query('sellerId').optional().isUUID(),
+  query('isActive').optional().isBoolean(),
+  query('isFeatured').optional().isBoolean(),
+  query('search').optional().isString().isLength({ max: 100 }),
+];
+
+// Build the Prisma `where` for the product list from the filter query params.
+// Shared by GET /products and the CSV export so they always select the SAME set.
+export function buildProductWhere(q) {
+  const where = {};
+  if (q.categoryId) where.categoryId = q.categoryId;
+  if (q.sellerId) where.sellerId = q.sellerId;
+  if (q.isActive !== undefined) where.isActive = q.isActive === 'true';
+  if (q.isFeatured !== undefined) where.isFeatured = q.isFeatured === 'true';
+  const search = sanitizeSearch(q.search);
+  if (search) where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { description: { contains: search, mode: 'insensitive' } }];
+  return where;
+}
+
 productsRouter.get(
   '/',
-  [
-    query('categoryId').optional().isUUID(),
-    query('sellerId').optional().isUUID(),
-    query('isActive').optional().isBoolean(),
-    query('isFeatured').optional().isBoolean(),
-    query('search').optional().isString().isLength({ max: 100 }),
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-  ],
+  [...productFilterValidators, query('limit').optional().isInt({ min: 1, max: 100 })],
   validate,
   async (req, res) => {
     try {
-      const where = {};
-      if (req.query.categoryId) where.categoryId = req.query.categoryId;
-      if (req.query.sellerId) where.sellerId = req.query.sellerId;
-      if (req.query.isActive !== undefined) where.isActive = req.query.isActive === 'true';
-      if (req.query.isFeatured !== undefined) where.isFeatured = req.query.isFeatured === 'true';
-      const search = sanitizeSearch(req.query.search);
-      if (search) where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { description: { contains: search, mode: 'insensitive' } }];
+      const where = buildProductWhere(req.query);
 
       const { cursor, limit } = listParams(req);
       const page = await keysetList(prisma.product, {

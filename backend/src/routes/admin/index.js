@@ -19,6 +19,7 @@ import metricsRoutes from './metrics.routes.js';
 import usersRoutes from './users.routes.js';
 import kycRoutes from './kyc.routes.js';
 import { categoriesRouter, productsRouter, reviewsRouter } from './catalog.routes.js';
+import { productsCsvRouter, productsImportRouter, inventoryRouter } from './catalogIo.routes.js';
 import ordersRoutes from './orders.routes.js';
 import returnsRoutes from './returns.routes.js';
 import { animalsRouter, machineryRouter, labourRouter, bookingsRouter } from './listings.routes.js';
@@ -54,7 +55,12 @@ router.use('/users', requireScope(S.SUPPORT), usersRoutes);
 router.use('/kyc', requireScope(S.KYC_REVIEWER), kycRoutes);
 // Commerce
 router.use('/categories', requireScope(S.CMS_EDITOR), categoriesRouter);
+// Bulk catalog I/O — mounted on /products BEFORE productsRouter so /products/export
+// and /products/import resolve here (and not to productsRouter's GET /:id).
+router.use('/products', requireScope(S.CMS_EDITOR), productsCsvRouter);
+router.use('/products', requireScope(S.CMS_EDITOR), productsImportRouter);
 router.use('/products', requireScope(S.CMS_EDITOR), productsRouter);
+router.use('/inventory', requireScope(S.CMS_EDITOR), inventoryRouter);
 router.use('/reviews', requireScope(S.CONTENT_MODERATOR), reviewsRouter);
 router.use('/orders', requireScope(S.SUPPORT), ordersRoutes);
 // Returns / RMA + richer order ops (SUPPORT scope)

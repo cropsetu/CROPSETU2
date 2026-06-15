@@ -9,7 +9,7 @@ import LoginPage from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import { UsersPage, UserDetailPage } from './pages/Users';
 import { KycPage, KycDetailPage } from './pages/Kyc';
-import { CategoriesPage, ProductsPage, ReviewsPage } from './pages/Catalog';
+import { CategoriesPage, ProductsPage, ReviewsPage, LowStockPage } from './pages/Catalog';
 import OrdersPage from './pages/Orders';
 import ReturnsPage from './pages/Returns';
 import FinancePage from './pages/Finance';
@@ -51,6 +51,7 @@ export default function App() {
             <Route path="/kyc/:userId" element={<KycDetailPage />} />
             <Route path="/categories" element={<CategoriesPage />} />
             <Route path="/products" element={<ProductsPage />} />
+            <Route path="/low-stock" element={<LowStockPage />} />
             <Route path="/reviews" element={<ReviewsPage />} />
             <Route path="/orders" element={<OrdersPage />} />
             <Route path="/returns" element={<ReturnsPage />} />

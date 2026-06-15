@@ -130,6 +130,7 @@ export const ADMIN_ACTIONS = {
   CATEGORY_DELETE:      'ADMIN_CATEGORY_DELETE',
   PRODUCT_UPDATE:       'ADMIN_PRODUCT_UPDATE',
   PRODUCT_DELETE:       'ADMIN_PRODUCT_DELETE',
+  PRODUCT_IMPORT:       'ADMIN_PRODUCT_IMPORT',         // bulk CSV catalog import (committed)
   REVIEW_DELETE:        'ADMIN_REVIEW_DELETE',
   ORDER_UPDATE:         'ADMIN_ORDER_UPDATE',
   RETURN_UPDATE:        'ADMIN_RETURN_UPDATE',          // returns / RMA approve / reject / refund
