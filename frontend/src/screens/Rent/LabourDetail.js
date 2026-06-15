@@ -312,7 +312,7 @@ export default function LabourDetail({ route, navigation }) {
       </ScrollView>
 
       {/* ── Bottom action — owner edits; everyone else calls ── */}
-      <View style={[D.bottomBar, { paddingBottom: insets.bottom + 10 }]}>
+      <View style={[D.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         {isOwner ? (
           <View style={[D.bottomCallBtn, D.bottomOwnerBtn]}>
             <Ionicons name="person-circle-outline" size={22} color={COLORS.primary} />

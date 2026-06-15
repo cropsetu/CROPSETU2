@@ -10,6 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SHADOWS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import AnimalIcon from '../../components/AnimalIcons';
 
@@ -65,6 +66,7 @@ export default function AnimalDetail({ route, navigation }) {
   const { listing } = route.params;
   const { t } = useLanguage();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const scrollY   = useRef(new Animated.Value(0)).current;
   const contentAnim = useRef(new Animated.Value(0)).current;
 
@@ -307,7 +309,7 @@ export default function AnimalDetail({ route, navigation }) {
       {/* Bottom Action Buttons — owner sees Edit / Inbox; everyone else sees
           Call / Chat. We deliberately hide Call+Chat for the owner because
           they can't transact with themselves. */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         {isOwner ? (
           <>
             <TouchableOpacity style={styles.callBtn} onPress={handleEdit}>

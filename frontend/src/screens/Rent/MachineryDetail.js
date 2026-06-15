@@ -639,7 +639,7 @@ export default function MachineryDetail({ route, navigation }) {
       </ScrollView>
 
       {/* ── Bottom bar ── */}
-      <View style={[D.bottomBar, { paddingBottom: insets.bottom + 10 }]}>
+      <View style={[D.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         {isOwner ? (
           <TouchableOpacity
             style={[D.bookBtn2, { flex: 1 }]}
