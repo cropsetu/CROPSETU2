@@ -140,7 +140,7 @@ export default function FarmDetailScreen({ navigation, route }) {
         {/* ── Insights ─────────────────────────────────────── */}
         {insights.length > 0 && (
           <>
-            <SectionLabel title="Today's insights" badge="FarmMind" />
+            <SectionLabel title="Today's insights" badge="CropSetu AI" />
             <GlassCard variant="plain" style={styles.section} padding={0}>
               {insights.map((ins, i) => (
                 <View key={i} style={[styles.insightRow, i > 0 && styles.insightRowBordered]}>
@@ -214,12 +214,12 @@ export default function FarmDetailScreen({ navigation, route }) {
         </GlassCard>
 
         {/* ── AI Actions ──────────────────────────────────── */}
-        <SectionLabel title="Ask FarmMind" badge="AI" />
+        <SectionLabel title="Ask CropSetu AI" badge="AI" />
         <View style={[styles.section, styles.predGrid]}>
           <PredCard
             icon="chatbubble-ellipses"
             tint={COSMIC.PRIMARY}
-            title={t('farmProfile.askFarmMind') || 'Ask FarmMind'}
+            title={t('farmProfile.askFarmMind') || 'Ask CropSetu AI'}
             sub={t('farmProfile.chatAboutFarm') || 'Personal advisory for this farm'}
             onPress={() => navigation.navigate('AIAssistant', {
               screen: 'AIChat',
@@ -277,7 +277,7 @@ function HeroCard({ farm, isActive, onSetActive }) {
         {isActive ? (
           <View style={styles.activePill}>
             <Ionicons name="star" size={10} color={COSMIC.INVERSE} />
-            <Text style={styles.activePillText}>Active · FarmMind uses this data</Text>
+            <Text style={styles.activePillText}>Active · CropSetu AI uses this data</Text>
           </View>
         ) : (
           <Pressable onPress={onSetActive} style={({ pressed }) => [styles.setActiveBtn, pressed && { opacity: 0.7 }]}>
@@ -403,7 +403,7 @@ function computeInsights(farm, soil, cycles) {
   if (soil?.nitrogenRating === 'low') {
     out.push({ icon: 'alert-circle', color: COSMIC.DANGER,
       text: 'Soil nitrogen is low — consider applying Urea or FYM before next sowing.',
-      action: 'Ask FarmMind' });
+      action: 'Ask CropSetu AI' });
   }
   if (soil?.phRating === 'acidic') {
     out.push({ icon: 'flask', color: COSMIC.WARN,
@@ -422,7 +422,7 @@ function computeInsights(farm, soil, cycles) {
   }
   if (cycles.length === 0) {
     out.push({ icon: 'leaf-outline', color: COSMIC.PRIMARY,
-      text: 'No active crops yet. Ask FarmMind which crop suits your soil & season.',
+      text: 'No active crops yet. Ask CropSetu AI which crop suits your soil & season.',
       action: 'Get crop advice' });
   }
   return out;

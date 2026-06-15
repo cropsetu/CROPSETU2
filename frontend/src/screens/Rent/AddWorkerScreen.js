@@ -51,36 +51,43 @@ function FieldInput({ label, value, onChangeText, placeholder, keyboardType, mul
   );
 }
 
-export default function AddWorkerScreen({ navigation }) {
+export default function AddWorkerScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { t }         = useLanguage();
   const { coords: gpsCoords } = useLocation();
 
-  const [workerType,    setWorkerType]    = useState('individual'); // individual | group
-  const [name,          setName]          = useState('');
-  const [leader,        setLeader]        = useState('');
-  const [groupName,     setGroupName]     = useState('');
-  const [groupSize,     setGroupSize]     = useState('1');
-  const [skills,        setSkills]        = useState([]);
-  const [experience,    setExperience]    = useState('');
-  const [description,   setDescription]  = useState('');
-  const [languages,     setLanguages]     = useState([]);
-  const [pricePerDay,   setPricePerDay]   = useState('');
-  const [pricePerHour,  setPricePerHour]  = useState('');
-  const [phone,         setPhone]         = useState('');
-  const [availableFrom, setAvailableFrom] = useState('');
-  const [availableTo,   setAvailableTo]   = useState('');
-  const [location,      setLocation]      = useState('');
-  const [district,      setDistrict]      = useState('');
-  const [photo,         setPhoto]         = useState(null); // { uri, url }
-  const [images,        setImages]        = useState([]);   // { uri, url }
-  const [video,         setVideo]         = useState(null); // { uri, url }
-  const [lat,           setLat]           = useState(null);
-  const [lng,           setLng]           = useState(null);
+  // Edit mode: opened from "My Rent Listings → Edit". Prefill from the listing
+  // and PUT on save instead of POST. (Mirrors AddMachineryScreen.)
+  const existing = route?.params?.listing  || null;
+  const editMode = route?.params?.editMode || false;
+
+  const [workerType,    setWorkerType]    = useState(
+    existing ? ((existing.groupName || (existing.groupSize ?? 1) > 1) ? 'group' : 'individual') : 'individual'
+  ); // individual | group
+  const [name,          setName]          = useState(existing?.name        || '');
+  const [leader,        setLeader]        = useState(existing?.leader      || '');
+  const [groupName,     setGroupName]     = useState(existing?.groupName   || '');
+  const [groupSize,     setGroupSize]     = useState(existing?.groupSize != null ? String(existing.groupSize) : '1');
+  const [skills,        setSkills]        = useState(existing?.skills      || []);
+  const [experience,    setExperience]    = useState(existing?.experience  || '');
+  const [description,   setDescription]  = useState(existing?.description || '');
+  const [languages,     setLanguages]     = useState(existing?.languages   || []);
+  const [pricePerDay,   setPricePerDay]   = useState(existing?.pricePerDay  != null ? String(existing.pricePerDay)  : '');
+  const [pricePerHour,  setPricePerHour]  = useState(existing?.pricePerHour != null ? String(existing.pricePerHour) : '');
+  const [phone,         setPhone]         = useState(existing?.phone       || '');
+  const [availableFrom, setAvailableFrom] = useState(existing?.availableFrom ? existing.availableFrom.slice(0, 10) : '');
+  const [availableTo,   setAvailableTo]   = useState(existing?.availableTo   ? existing.availableTo.slice(0, 10)   : '');
+  const [location,      setLocation]      = useState(existing?.location    || '');
+  const [district,      setDistrict]      = useState(existing?.district    || '');
+  const [photo,         setPhoto]         = useState(existing?.image ? { uri: existing.image, url: existing.image } : null); // { uri, url }
+  const [images,        setImages]        = useState((existing?.images || []).map(url => ({ uri: url, url })));   // { uri, url }
+  const [video,         setVideo]         = useState(existing?.videos?.[0] ? { uri: existing.videos[0], url: existing.videos[0] } : null); // { uri, url }
+  const [lat,           setLat]           = useState(existing?.lat ?? null);
+  const [lng,           setLng]           = useState(existing?.lng ?? null);
   const gpsLoading = false; // GPS fetched globally at app start
   const [uploading,     setUploading]     = useState(false);
   const [submitting,    setSubmitting]    = useState(false);
-  // Success popup state: { name } when shown, null when hidden.
+  // Success popup state: { name, mode } when shown, null when hidden.
   const [success,       setSuccess]       = useState(null);
 
   // ── Use global GPS from LocationContext ──────────────────────────────────
@@ -188,31 +195,37 @@ export default function AddWorkerScreen({ navigation }) {
     setUploading(false);
     setSubmitting(true);
 
-    try {
-      await api.post('/rent/labour', {
-        name:         name.trim(),
-        leader:       workerType === 'group' ? (leader.trim() || name.trim()) : name.trim(),
-        groupName:    workerType === 'group' ? groupName.trim() : null,
-        skills,
-        experience:   experience.trim() || null,
-        description:  description.trim() || null,
-        languages,
-        pricePerDay,
-        pricePerHour: pricePerHour || null,
-        groupSize:    workerType === 'group' ? parseInt(groupSize) || 1 : 1,
-        image:        photoUrl,
-        images:       imageUrls,
-        videos:       videoUrl ? [videoUrl] : [],
-        phone:        phone.trim() || null,
-        location:     location.trim(),
-        district:     district.trim(),
-        availableFrom: availableFrom || null,
-        availableTo:  availableTo   || null,
-        lat:          lat  ?? null,
-        lng:          lng  ?? null,
-      });
+    const payload = {
+      name:         name.trim(),
+      leader:       workerType === 'group' ? (leader.trim() || name.trim()) : name.trim(),
+      groupName:    workerType === 'group' ? groupName.trim() : null,
+      skills,
+      experience:   experience.trim() || null,
+      description:  description.trim() || null,
+      languages,
+      pricePerDay,
+      pricePerHour: pricePerHour || null,
+      groupSize:    workerType === 'group' ? parseInt(groupSize) || 1 : 1,
+      image:        photoUrl,
+      images:       imageUrls,
+      videos:       videoUrl ? [videoUrl] : [],
+      phone:        phone.trim() || null,
+      location:     location.trim(),
+      district:     district.trim(),
+      availableFrom: availableFrom || null,
+      availableTo:  availableTo   || null,
+      lat:          lat  ?? null,
+      lng:          lng  ?? null,
+    };
 
-      setSuccess({ name: name.trim() });
+    try {
+      if (editMode && existing?.id) {
+        await api.put(`/rent/labour/${existing.id}`, payload);
+        setSuccess({ name: name.trim(), mode: 'update' });
+      } else {
+        await api.post('/rent/labour', payload);
+        setSuccess({ name: name.trim(), mode: 'create' });
+      }
     } catch (err) {
       const msg = err.response?.data?.error?.message || t('rent.error');
       Alert.alert(t('rent.error'), msg);
@@ -233,8 +246,8 @@ export default function AddWorkerScreen({ navigation }) {
           <Ionicons name="arrow-back" size={22} color={COLORS.charcoal} />
         </TouchableOpacity>
         <View>
-          <Text style={S.headerTitle}>{t('rent.registerAsWorker')}</Text>
-          <Text style={S.headerSub}>{t('rent.findWageWork')}</Text>
+          <Text style={S.headerTitle}>{editMode ? t('rent.editListing') : t('rent.registerAsWorker')}</Text>
+          <Text style={S.headerSub}>{editMode ? t('rent.updateWorkerSub', 'Update your worker profile') : t('rent.findWageWork')}</Text>
         </View>
       </View>
 
@@ -440,7 +453,7 @@ export default function AddWorkerScreen({ navigation }) {
               : <>
                   <Ionicons name="checkmark-circle" size={20} color={COLORS.white} />
                   <Text style={S.submitTxt}>
-                    {uploading ? t('rent.uploadingMedia') : t('rent.registerGoLive')}
+                    {uploading ? t('rent.uploadingMedia') : editMode ? t('rent.saveChanges') : t('rent.registerGoLive')}
                   </Text>
                 </>
             }
@@ -462,8 +475,8 @@ export default function AddWorkerScreen({ navigation }) {
             <View style={S.successIconCircle}>
               <Ionicons name="checkmark" size={42} color={COLORS.white} />
             </View>
-            <Text style={S.successTitle}>{t('rent.registeredTitle')}</Text>
-            <Text style={S.successBody}>{t('rent.registeredMsg')}</Text>
+            <Text style={S.successTitle}>{success?.mode === 'update' ? t('rent.updatedTitle') : t('rent.registeredTitle')}</Text>
+            <Text style={S.successBody}>{success?.mode === 'update' ? t('rent.updatedMsg') : t('rent.registeredMsg')}</Text>
             {success?.name ? (
               <View style={S.successPill}>
                 <Ionicons name="person" size={14} color={COLORS.primary} />

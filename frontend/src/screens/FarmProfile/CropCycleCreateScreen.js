@@ -195,7 +195,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
               })}
               {filteredCrops.length === 0 && (
                 <View style={styles.cropEmpty}>
-                  <Text style={styles.mutedText}>No crops match "{query}". Tell FarmMind and we'll add it.</Text>
+                  <Text style={styles.mutedText}>No crops match "{query}". Tell CropSetu AI and we'll add it.</Text>
                 </View>
               )}
             </View>

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// KhetAI auth theme — exact port of the Lovable design system (dharti-connect-hub).
+// CropSetu auth theme — exact port of the Lovable design system (dharti-connect-hub).
 // oklch tokens from src/styles.css converted to sRGB hex. Used only by the
 // pre-login / phone / OTP auth screens so it doesn't disturb the app-wide palette.
 // ─────────────────────────────────────────────────────────────────────────────

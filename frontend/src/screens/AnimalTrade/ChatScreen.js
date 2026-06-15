@@ -14,11 +14,12 @@
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
-  TextInput, SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Image,
+  TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SHADOWS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -34,12 +35,28 @@ function formatTime(iso) {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function MessageBubble({ message, isMe, otherName, onRetry }) {
+// Pretty-print an Indian phone number as a last-resort label when a chat
+// participant hasn't set a name (OTP signups can have a null name).
+function prettyPhone(p) {
+  if (!p) return null;
+  const digits = String(p).replace(/\D/g, '');
+  if (digits.length < 10) return String(p).trim() || null;
+  const last10 = digits.slice(-10);
+  return `+91 ${last10.slice(0, 5)} ${last10.slice(5)}`;
+}
+
+function MessageBubble({ message, isMe, otherInitial, otherAvatarUri, onRetry }) {
   return (
     <View style={[styles.messagRow, isMe && styles.messageRowMe]}>
       {!isMe && (
         <View style={styles.avatarSmall}>
-          <Text style={styles.avatarSmallText}>{otherName?.charAt(0)?.toUpperCase() || 'S'}</Text>
+          {otherAvatarUri ? (
+            <Image source={{ uri: otherAvatarUri }} style={styles.avatarSmallImg} />
+          ) : otherInitial ? (
+            <Text style={styles.avatarSmallText}>{otherInitial}</Text>
+          ) : (
+            <Ionicons name="person" size={16} color={COLORS.textWhite} />
+          )}
         </View>
       )}
       <TouchableOpacity
@@ -69,10 +86,40 @@ function MessageBubble({ message, isMe, otherName, onRetry }) {
 // KeyboardAvoidingView offset on iOS without pulling in extra deps.
 const APPROX_HEADER_OFFSET = Platform.OS === 'ios' ? 88 : 0;
 
-export default function ChatScreen({ route }) {
-  const { listingId, sellerName, chatId: initialChatId } = route.params || {};
+export default function ChatScreen({ route, navigation }) {
+  const {
+    listingId, chatId: initialChatId,
+    // Counterpart info (preferred). `peerRole` is what the OTHER person is
+    // relative to this listing — 'seller' when a buyer opens the chat, 'buyer'
+    // when the seller opens it from their inbox.
+    peerName, peerAvatar, peerRole, peerPhone, listingTitle,
+    // Legacy param kept for backward-compatibility with older navigations.
+    sellerName,
+  } = route.params || {};
   const { t } = useLanguage();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+
+  // ── Resolve who we're talking to (never the current user) ───────────────────
+  // NOTE: t() returns the KEY itself when a translation is missing, so the
+  // fallback MUST be passed as t()'s 2nd argument (not `t(key) || 'x'`).
+  const roleLabel = peerRole === 'seller' ? t('chat.seller', 'Seller')
+                  : peerRole === 'buyer'  ? t('chat.buyer',  'Buyer')
+                  : null;
+  // Prefer a real name; if the counterpart never set one, fall back to their
+  // phone number (a usable identifier) before the generic role label.
+  const realName =
+    (peerName   && String(peerName).trim()) ||
+    (sellerName && String(sellerName).trim() && sellerName !== 'Buyer' && sellerName !== 'Seller' ? String(sellerName).trim() : '') ||
+    '';
+  const phoneLabel = prettyPhone(peerPhone);
+  const peerDisplayName = realName || phoneLabel || roleLabel || t('chat.conversation', 'Conversation');
+  // Only treat the avatar as an image when it's an actual URL — listings store
+  // initials (e.g. "RK") in this field, which must render as a letter instead.
+  const peerAvatarUri = typeof peerAvatar === 'string' && /^https?:\/\//i.test(peerAvatar) ? peerAvatar : null;
+  // Letter avatar only when we have a real name; otherwise a person icon.
+  const peerInitial = realName ? realName.charAt(0).toUpperCase() : null;
+  const headerSubtitle = roleLabel || listingTitle || null;
 
   const [chatId,    setChatId]    = useState(initialChatId || null);
   const [messages,  setMessages]  = useState([]);
@@ -250,18 +297,30 @@ export default function ChatScreen({ route }) {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
       {/* Header */}
-      <View style={styles.chatHeader}>
+      <View style={[styles.chatHeader, { paddingTop: insets.top + 8 }]}>
+        <TouchableOpacity
+          onPress={() => navigation?.goBack?.()}
+          style={styles.backBtn}
+          accessibilityLabel={t('common.back', 'Back')}
+        >
+          <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
+        </TouchableOpacity>
         <View style={styles.chatAvatar}>
-          <Text style={styles.chatAvatarText}>{sellerName?.charAt(0)?.toUpperCase() || '?'}</Text>
+          {peerAvatarUri ? (
+            <Image source={{ uri: peerAvatarUri }} style={styles.chatAvatarImg} />
+          ) : peerInitial ? (
+            <Text style={styles.chatAvatarText}>{peerInitial}</Text>
+          ) : (
+            <Ionicons name="person" size={22} color={COLORS.textWhite} />
+          )}
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.chatName} numberOfLines={1}>{sellerName || 'Conversation'}</Text>
-          <View style={styles.onlineRow}>
-            <View style={styles.onlineDot} />
-            <Text style={styles.onlineText}>{t('chat.online') || 'Online'}</Text>
-          </View>
+          <Text style={styles.chatName} numberOfLines={1}>{peerDisplayName}</Text>
+          {headerSubtitle ? (
+            <Text style={styles.chatSubtitle} numberOfLines={1}>{headerSubtitle}</Text>
+          ) : null}
         </View>
       </View>
 
@@ -296,7 +355,8 @@ export default function ChatScreen({ route }) {
               <MessageBubble
                 message={item}
                 isMe={item.senderId === user?.id}
-                otherName={sellerName}
+                otherInitial={peerInitial}
+                otherAvatarUri={peerAvatarUri}
                 onRetry={retryFailed}
               />
             )}
@@ -310,7 +370,7 @@ export default function ChatScreen({ route }) {
                 </View>
                 <Text style={styles.emptyTitle}>Say hello 👋</Text>
                 <Text style={styles.emptyHint}>
-                  Send a message to start the conversation with {sellerName || 'the seller'}.
+                  Send a message to start the conversation with {peerDisplayName}.
                 </Text>
               </View>
             }
@@ -366,13 +426,13 @@ const styles = StyleSheet.create({
   center:    { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 10 },
 
   // ── Header ──
-  chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, padding: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  chatAvatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
+  chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.surface, paddingHorizontal: 10, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  backBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  chatAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  chatAvatarImg: { width: 44, height: 44, borderRadius: 22 },
   chatAvatarText: { fontSize: 18, fontWeight: '800', color: COLORS.textWhite },
   chatName: { fontSize: 17, fontWeight: '700', color: COLORS.textDark },
-  onlineRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-  onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.success },
-  onlineText: { fontSize: 13, color: COLORS.success, fontWeight: '600' },
+  chatSubtitle: { fontSize: 13, color: COLORS.textMedium, fontWeight: '600', marginTop: 2 },
 
   // ── Messages list ──
   messagesList:      { padding: 16, paddingBottom: 12 },
@@ -381,7 +441,8 @@ const styles = StyleSheet.create({
   // ── Bubbles ──
   messagRow:        { flexDirection: 'row', marginBottom: 12, alignItems: 'flex-end', gap: 8 },
   messageRowMe:     { flexDirection: 'row-reverse' },
-  avatarSmall:      { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.primaryLight, justifyContent: 'center', alignItems: 'center' },
+  avatarSmall:      { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.primaryLight, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  avatarSmallImg:   { width: 32, height: 32, borderRadius: 16 },
   avatarSmallText:  { fontSize: 13, fontWeight: '700', color: COLORS.textWhite },
 
   bubble:        { maxWidth: '78%', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14 },

@@ -12,6 +12,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { prepareImageForFormData } from '../../utils/mediaCompressor';
+import { formatLocation } from '../../utils/location';
 
 const ANIMAL_TYPE_KEYS = ['animalCow', 'animalBuffalo', 'animalGoat', 'animalBullock', 'animalSheep', 'animalPig', 'animalHorse', 'animalCamel'];
 // English values used for form submission (backend expects English)
@@ -58,8 +59,8 @@ export default function AddAnimalListing({ navigation, route }) {
   // images stay attached unless removed.
   const editing = route?.params?.listing || null;
 
-  const defaultLocation = editing?.sellerLocation
-    || [user?.village, user?.taluka, user?.district, user?.city, user?.state].filter(Boolean).join('');
+  const defaultLocation = formatLocation(editing?.sellerLocation)
+    || [user?.village, user?.taluka, user?.district, user?.city, user?.state].filter(Boolean).join(', ');
 
   // Extract numeric milk yield ("12 Litre/Day" → "12") for editing.
   const parseMilkYield = (s) => (s ? String(s).replace(/[^\d.]/g, '') : '');
@@ -73,7 +74,7 @@ export default function AddAnimalListing({ navigation, route }) {
     milkYield: parseMilkYield(editing.milkYield),
     price: editing.price != null ? String(editing.price) : '',
     description: editing.description || '',
-    location: editing.sellerLocation || defaultLocation,
+    location: formatLocation(editing.sellerLocation) || defaultLocation,
     vaccinated: Array.isArray(editing.tags) && editing.tags.includes('Vaccinated'),
   } : {
     animal: '', breed: '', age: '', gender: 'Female', weight: '',

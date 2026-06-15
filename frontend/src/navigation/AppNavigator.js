@@ -7,6 +7,7 @@ import { useRef, useEffect, useCallback } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import linking from './linking';
+import { navigationRef } from './navigationRef';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -393,7 +394,7 @@ function AnimalTradeNavigator() {
       <AnimalStack.Screen name="AnimalDetail"     component={AnimalDetail}     options={{ title: t('animalDetail.animalDetails') }} />
       <AnimalStack.Screen name="AddAnimalListing" component={AddAnimalListing} options={{ title: t('sellYourAnimal') }} />
       <AnimalStack.Screen name="MyAnimalChats"    component={MyAnimalChatsScreen} options={{ headerShown: false }} />
-      <AnimalStack.Screen name="Chat"             component={ChatScreen}       options={({ route }) => ({ title: route.params?.sellerName || t('nav.chat') })} />
+      <AnimalStack.Screen name="Chat"             component={ChatScreen}       options={{ headerShown: false }} />
     </AnimalStack.Navigator>
   );
 }
@@ -499,7 +500,7 @@ export default function AppNavigator() {
   }, []);
 
   return (
-    <NavigationContainer linking={linking} onStateChange={() => markActivity()}>
+    <NavigationContainer ref={navigationRef} linking={linking} onStateChange={() => markActivity()}>
       <Tab.Navigator
         tabBar={(props) => <ImmersiveTabBar {...props} />}
         screenOptions={{ headerShown: false }}

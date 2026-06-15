@@ -131,7 +131,7 @@ export default function FarmListScreen({ navigation }) {
               <Ionicons name="leaf" size={24} color={COSMIC.PRIMARY} />
             </View>
             <Text style={styles.emptyTitle}>No farms yet</Text>
-            <Text style={styles.emptyText}>Add your first farm and let FarmMind tune advisory to your soil, water and crop.</Text>
+            <Text style={styles.emptyText}>Add your first farm and let CropSetu AI tune advisory to your soil, water and crop.</Text>
             <GlowButton label="Add a farm" icon="add" variant="primary" onPress={goAdd} style={{ marginTop: 12, minWidth: 180 }} size="sm" />
           </View>
         }
