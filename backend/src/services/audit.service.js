@@ -162,6 +162,8 @@ export const ADMIN_ACTIONS = {
   PAYOUT_CREATE:        'ADMIN_PAYOUT_CREATE',       // generated a seller payout for a settlement period
   PAYOUT_UPDATE:        'ADMIN_PAYOUT_UPDATE',       // transitioned a payout to PAID/FAILED (+ reference)
   LEDGER_ADJUST:        'ADMIN_LEDGER_ADJUST',       // manual signed ADJUSTMENT entry on a seller's ledger
+  DISPUTE_CREATE:       'ADMIN_DISPUTE_CREATE',      // admin/support opens a dispute case
+  DISPUTE_UPDATE:       'ADMIN_DISPUTE_UPDATE',      // assign / status change / resolution
 };
 
 /**

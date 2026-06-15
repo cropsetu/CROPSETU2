@@ -631,7 +631,7 @@ model Post {
   city         String?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
-  deletedAt    DateTime?      // soft-delete tombstone — non-null rows are hidden from all reads
+  deletedAt    DateTime? // soft-delete tombstone — non-null rows are hidden from all reads
   comments     Comment[]
   bookmarks    PostBookmark[]
   likes        PostLike[]
@@ -1481,8 +1481,8 @@ model FarmCropCycle {
   seedBrand            String?
   seedSource           String?
   seedQuantityKg       Float?
-  seedCostPerKgInr     Decimal? @db.Decimal(12, 2)
-  seedTotalCostInr     Decimal? @db.Decimal(14, 2)
+  seedCostPerKgInr     Decimal?  @db.Decimal(12, 2)
+  seedTotalCostInr     Decimal?  @db.Decimal(14, 2)
   seedTreatment        String?
   seedTreatmentProduct String?
   seedPurchaseDate     DateTime?
@@ -1512,8 +1512,8 @@ model FarmCropCycle {
 
   // Sale
   saleSoldQuantityKg  Float?
-  salePricePerKgInr   Decimal? @db.Decimal(12, 2)
-  saleTotalRevenueInr Decimal? @db.Decimal(14, 2)
+  salePricePerKgInr   Decimal?  @db.Decimal(12, 2)
+  saleTotalRevenueInr Decimal?  @db.Decimal(14, 2)
   saleBuyerType       String?
   saleBuyerName       String?
   saleDate            DateTime?
@@ -1655,7 +1655,7 @@ model FarmerPrediction {
   actionItems    String[]
   modelUsed      String?
   confidence     Float?
-  costInr        Decimal? @db.Decimal(12, 4)
+  costInr        Decimal?       @db.Decimal(12, 4)
   latencyMs      Int?
   validUntil     DateTime?
   isStale        Boolean        @default(false)
@@ -2175,4 +2175,41 @@ enum PayoutStatus {
   PROCESSING
   PAID
   FAILED
+// ── Dispute resolution (WI-6) — Animal Trade / Rent booking / Order disputes ──
+// A dispute is a support/moderation case opened against a transaction. `refId`
+// points at the underlying record by `type` (a Chat/AnimalListing for ANIMAL_TRADE,
+// a Booking for RENT_BOOKING, an Order for ORDER) — kept as a loose scalar (NOT a
+// hard FK) so a dispute survives the deletion of the thing it references and so
+// one model spans three heterogeneous targets. Linked context is resolved on read
+// (with PII masked). Created/triaged by admins/support; see disputes.routes.js.
+model Dispute {
+  id          String        @id @default(uuid())
+  type        DisputeType
+  refId       String // id of the Chat/AnimalListing (ANIMAL_TRADE) | Booking (RENT_BOOKING) | Order (ORDER)
+  raisedBy    String // user id who raised it
+  againstUser String? // user id the dispute is against (optional)
+  reason      String
+  status      DisputeStatus @default(OPEN)
+  resolution  String? // moderator resolution note (set on RESOLVED/CLOSED)
+  assignedTo  String? // admin user id the case is assigned to
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("disputes")
+}
+
+enum DisputeType {
+  ANIMAL_TRADE
+  RENT_BOOKING
+  ORDER
+}
+
+enum DisputeStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  CLOSED
 }

@@ -10,6 +10,12 @@ import {
 } from 'lucide-react';
 
 /** `scope`, when set, gates the item/group to admins holding that RBAC sub-scope. */
+  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Scale, type LucideIcon,
+} from 'lucide-react';
+
+// `scope` (optional) gates the item/group behind an admin RBAC sub-role. Items
+// without a scope are visible to every admin. Gating is cosmetic — the server
+// enforces scopes on every route.
 export interface NavItem { label: string; to: string; icon: LucideIcon; keywords?: string; scope?: string }
 export interface NavGroup { title: string; items: NavItem[]; scope?: string }
 
@@ -61,6 +67,7 @@ export const NAV: NavGroup[] = [
   ]},
   { title: 'Trust & Safety', items: [
     { label: 'Moderation', to: '/moderation', icon: Flag },
+    { label: 'Disputes', to: '/disputes', icon: Scale, keywords: 'dispute animal trade rent booking order resolution', scope: 'CONTENT_MODERATOR' },
     { label: 'Fraud Clusters', to: '/fraud', icon: Fingerprint, keywords: 'device multi-account' },
     { label: 'Incidents', to: '/incidents', icon: ShieldAlert, keywords: 'breach dpdp sla' },
   ]},
@@ -83,3 +90,15 @@ export const NAV: NavGroup[] = [
 ];
 
 export const ALL_NAV_ITEMS: NavItem[] = NAV.flatMap((g) => g.items);
+
+/** Keep only nav items the predicate admits; drop now-empty groups. */
+export function visibleNav(canSee: (item: NavItem) => boolean): NavGroup[] {
+  return NAV
+    .map((g) => ({ ...g, items: g.items.filter(canSee) }))
+    .filter((g) => g.items.length > 0);
+}
+
+/** Flat list of nav items the predicate admits (for the ⌘K palette). */
+export function visibleNavItems(canSee: (item: NavItem) => boolean): NavItem[] {
+  return ALL_NAV_ITEMS.filter(canSee);
+}

@@ -32,6 +32,7 @@ import { consentsRouter, erasureRouter, auditRouter } from './compliance.routes.
 import settingsRoutes from './settings.routes.js';
 import { teamRouter, meRouter } from './team.routes.js';
 import { sellersRouter, payoutsRouter } from './finance.routes.js';
+import disputesRoutes from './disputes.routes.js';
 
 const router = Router();
 
@@ -77,6 +78,8 @@ router.use('/groups', requireScope(S.CONTENT_MODERATOR), groupsRouter);
 // Finance — seller settlement ledger & payouts
 router.use('/sellers', requireScope(S.FINANCE), sellersRouter);
 router.use('/payouts', requireScope(S.FINANCE), payoutsRouter);
+// Dispute resolution (WI-6) — gated behind the CONTENT_MODERATOR sub-role scope.
+router.use('/disputes', requireScope(S.CONTENT_MODERATOR), disputesRoutes);
 // AI operations
 router.use('/ai', requireScope(S.OPS), aiRoutes);
 // CMS

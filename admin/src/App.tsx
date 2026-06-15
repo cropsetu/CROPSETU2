@@ -19,6 +19,7 @@ import { AiUsagePage, AiCreditsPage, FeedbackPage, ReportsPage } from './pages/A
 import { SchemesPage, MspPage, CropMasterPage, PestAlertsPage, MandiSyncPage } from './pages/Cms';
 import BroadcastPage from './pages/Broadcast';
 import { ModerationPage, FraudPage, IncidentsPage } from './pages/TrustSafety';
+import DisputesPage from './pages/Disputes';
 import { ConsentsPage, ErasurePage, AuditPage } from './pages/Compliance';
 import { FlagsPage, HealthPage, QueuesPage } from './pages/Ops';
 import SettingsPage from './pages/Settings';
@@ -74,6 +75,7 @@ export default function App() {
             <Route path="/mandi-sync" element={<MandiSyncPage />} />
             <Route path="/broadcast" element={<BroadcastPage />} />
             <Route path="/moderation" element={<ModerationPage />} />
+            <Route path="/disputes" element={<DisputesPage />} />
             <Route path="/fraud" element={<FraudPage />} />
             <Route path="/incidents" element={<IncidentsPage />} />
             <Route path="/consents" element={<ConsentsPage />} />
