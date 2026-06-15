@@ -158,8 +158,10 @@ def get_feature_config(feature: str, model_override: Optional[str] = None) -> Fe
 
     default_model = _DEFAULTS[feature]
     model = (os.environ.get(f"AI_{feature}_MODEL") or default_model).strip()
-    if model_override and model_override.strip():
-        ov = model_override.strip()
+    # str() coerces any non-string body value (number/object) to a harmless string
+    # so a malformed override degrades to the configured model instead of raising.
+    ov = str(model_override or "").strip()
+    if ov:
         try:
             _detect_provider(ov)          # validate it maps to a supported provider
             model = ov

@@ -462,8 +462,8 @@ async def _voice_reply(message, history, farm_profile, response_length, model_ov
             "token_info": usage, "followUps": follow_ups}
 
 
-async def _vision_reply(message, history, farm_profile, image, response_length, mode, model_override=None):
-    cfg = get_feature_config("CHAT_VISION", model_override=model_override)
+async def _vision_reply(message, history, farm_profile, image, response_length, mode):
+    cfg = get_feature_config("CHAT_VISION")  # vision uses its own model, not ai.model.chat
     images_b64 = [{"data": image["data"], "mime_type": image.get("mime_type", "image/jpeg")}]
     question = (message or "").strip() or "Please look at this image and tell me what is relevant for my farm."
     user_prompt = f"{_format_history(history[-20:])}Farmer: {question}\nFarmMind:"
@@ -521,8 +521,11 @@ async def chat_with_farmmind(
     )
 
     if has_image:
-        return await _vision_reply(message, history, farm_profile, image, response_length, mode,
-                                   model_override=model_override)
+        # ai.model.chat is the "Text chat model" — deliberately NOT applied to the
+        # image/vision branch, which needs a vision-capable model. Vision keeps its
+        # own configured CHAT_VISION model so a text-only chat pick (e.g. a Groq
+        # llama id) can't silently break image chat.
+        return await _vision_reply(message, history, farm_profile, image, response_length, mode)
     if mode == "voice":
         return await _voice_reply(message, history, farm_profile, response_length,
                                   model_override=model_override)

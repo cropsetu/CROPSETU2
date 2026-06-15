@@ -21,12 +21,13 @@ router = APIRouter(tags=["SoilOCR"])
 async def soil_card_ocr(request: Request):
     body = await request.json()
     image = body.get("image")  # {"data": <base64>, "mime_type": <str>}
+    model_override = body.get("model")  # admin App Settings choice (ai.model.soilOcr) | None
 
     if not (image and isinstance(image, dict) and image.get("data")):
         return JSONResponse({"success": False, "error": "image is required"}, status_code=400)
 
     try:
-        result = await extract_soil_card(image)
+        result = await extract_soil_card(image, model_override=model_override)
         return JSONResponse({"success": True, "data": result})
     except Exception as exc:  # noqa: BLE001
         logger.error("[SoilOCR] Error: %s", exc, exc_info=True)
