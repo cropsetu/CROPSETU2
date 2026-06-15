@@ -38,6 +38,12 @@ _PRICING = {
     # bills $0 and breaks the daily spend cap. Verify against OpenAI's rates.
     "gpt-4o":                      {"input": 0.0025,  "output": 0.01},
     "gpt-4o-mini":                 {"input": 0.00015, "output": 0.0006},
+    # Anthropic (Claude) — multi-provider routing (WI-11). USD per 1K tokens
+    # (Anthropic publishes per-MTok: Opus 4.8 $5/$25, Sonnet 4.6 $3/$15,
+    # Haiku 4.5 $1/$5 → ÷1000 here). Verify against current rates.
+    "claude-opus-4-8":             {"input": 0.005,   "output": 0.025},
+    "claude-sonnet-4-6":           {"input": 0.003,   "output": 0.015},
+    "claude-haiku-4-5":            {"input": 0.001,   "output": 0.005},
 }
 
 _GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -472,4 +478,142 @@ async def call_openai_vision(
         usage.get("completion_tokens", 0),
     )
     return text, tok
+
+
+# ── OpenAI text (multi-provider routing, WI-11) ──────────────────────────────
+# Same OpenAI-compatible /chat/completions shape as Groq, but against OpenAI's
+# endpoint + key. Lets AI_<FEATURE>_MODEL (or the admin model setting) select a
+# 'gpt-*' model for text features like chat.
+
+async def call_openai_text(
+    system_prompt: str,
+    user_prompt: str,
+    openai_api_key: str,
+    *,
+    model: str = "gpt-4o",
+    max_tokens: int = 4096,
+    temperature: float = 0.3,
+) -> tuple[str, dict]:
+    """Call OpenAI's chat API (OpenAI-compatible). Returns (raw_text, token_info)."""
+    headers = {
+        "Authorization": f"Bearer {openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    client = get_openai()
+    for attempt in range(2):
+        resp = await client.post(_OPENAI_BASE, headers=headers, json=payload, timeout=90)
+        if resp.status_code in (429, 500, 502, 503, 504):
+            if attempt == 0:
+                logger.warning("OpenAI text %s (attempt 1, model=%s) — quick 2s retry",
+                               resp.status_code, model)
+                await asyncio.sleep(2.0)
+                continue
+            logger.error("[OpenAI] %s HTTP %d — %s", model, resp.status_code,
+                         (resp.text or "")[:300])
+            resp.raise_for_status()
+        if resp.status_code >= 400:
+            logger.error("[OpenAI] %s HTTP %d — %s", model, resp.status_code,
+                         (resp.text or "")[:300])
+            resp.raise_for_status()
+        break
+    else:
+        raise RuntimeError(f"OpenAI {model} transient-failed after 2 retries")
+
+    data = resp.json()
+    try:
+        text = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError):
+        logger.error("Unexpected OpenAI response: %s", json.dumps(data)[:500])
+        raise ValueError("Empty or malformed OpenAI response")
+    usage = data.get("usage", {})
+    return text, _make_token_info(model, usage.get("prompt_tokens", 0),
+                                  usage.get("completion_tokens", 0))
+
+
+# ── Anthropic (Claude) — text + vision via the official SDK (WI-11) ───────────
+# Anthropic's Messages API is NOT OpenAI-compatible: the system prompt is a
+# top-level `system=` param (not a message), the reply is a list of content
+# blocks, and usage is input_tokens/output_tokens. `temperature` is intentionally
+# NOT forwarded — Opus 4.8 / 4.7 reject it (HTTP 400). AsyncAnthropic fits the
+# existing async dispatch; the `anthropic` package's deps (httpx, jiter, distro,
+# anyio, sniffio, pydantic) are already pinned in requirements.txt.
+
+def _anthropic_text_from(resp) -> str:
+    return "".join(
+        getattr(b, "text", "") for b in resp.content
+        if getattr(b, "type", None) == "text"
+    )
+
+
+async def call_anthropic_text(
+    system_prompt: str,
+    user_prompt: str,
+    anthropic_api_key: str,
+    *,
+    model: str = "claude-opus-4-8",
+    max_tokens: int = 4096,
+    temperature: float = 0.3,  # accepted for signature parity; NOT sent to Claude
+) -> tuple[str, dict]:
+    """Call Anthropic Claude (text) via the official SDK. Returns (raw_text, token_info)."""
+    from anthropic import AsyncAnthropic
+
+    client = AsyncAnthropic(api_key=anthropic_api_key)
+    resp = await client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+    text = _anthropic_text_from(resp)
+    if not text:
+        logger.error("Empty Anthropic response: %s", str(resp)[:500])
+        raise ValueError("Empty or malformed Anthropic response")
+    return text, _make_token_info(model, resp.usage.input_tokens, resp.usage.output_tokens)
+
+
+async def call_anthropic_vision(
+    system_prompt: str,
+    user_prompt: str,
+    images_b64: list[dict],       # [{"data": str, "mime_type": str}]
+    anthropic_api_key: str,
+    *,
+    model: str = "claude-opus-4-8",
+    max_tokens: int = 4096,
+    temperature: float = 0.3,  # accepted for signature parity; NOT sent to Claude
+) -> tuple[str, dict]:
+    """Call Anthropic Claude (vision) via the official SDK. Returns (raw_text, token_info)."""
+    from anthropic import AsyncAnthropic
+
+    content: list[dict] = [{"type": "text", "text": user_prompt}]
+    for img in images_b64:
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": img["mime_type"],
+                "data": img["data"],
+            },
+        })
+
+    client = AsyncAnthropic(api_key=anthropic_api_key)
+    resp = await client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=system_prompt,
+        messages=[{"role": "user", "content": content}],
+    )
+    text = _anthropic_text_from(resp)
+    if not text:
+        logger.error("Empty Anthropic vision response: %s", str(resp)[:500])
+        raise ValueError("Empty or malformed Anthropic response")
+    return text, _make_token_info(model, resp.usage.input_tokens, resp.usage.output_tokens)
 
