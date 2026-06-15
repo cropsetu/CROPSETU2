@@ -28,6 +28,7 @@ import CosmicHeader from './ui/CosmicHeader';
 import GlassCard from './ui/GlassCard';
 import CropIcon from '../../components/CropIcons';
 import * as farmApi from '../../services/farmApi';
+import { useLanguage } from '../../context/LanguageContext';
 import { COSMIC, CR, CS, CT } from './theme/cosmicTheme';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -63,6 +64,7 @@ function collectPhotos(cycle) {
 }
 
 export default function GrowthStoryScreen({ navigation, route }) {
+  const { t } = useLanguage();
   const { cycleId } = route.params || {};
   const [cycle, setCycle] = useState(route.params?.cycle || null);
   const [loading, setLoading] = useState(!route.params?.cycle);
@@ -88,7 +90,7 @@ export default function GrowthStoryScreen({ navigation, route }) {
   if (loading) {
     return (
       <CosmicScreen>
-        <CosmicHeader title="Growth story" />
+        <CosmicHeader title={t('growthStory.title')} />
         <View style={styles.center}><ActivityIndicator size="large" color={COSMIC.PRIMARY} /></View>
       </CosmicScreen>
     );
@@ -96,20 +98,20 @@ export default function GrowthStoryScreen({ navigation, route }) {
   if (!cycle) {
     return (
       <CosmicScreen>
-        <CosmicHeader title="Growth story" />
-        <View style={styles.center}><Text style={styles.muted}>Cycle not found.</Text></View>
+        <CosmicHeader title={t('growthStory.title')} />
+        <View style={styles.center}><Text style={styles.muted}>{t('growthStory.cycleNotFound')}</Text></View>
       </CosmicScreen>
     );
   }
 
-  const cropName = cycle.cropName || 'Crop';
+  const cropName = cycle.cropName || t('growthStory.cropFallback');
   const hero = STAGES[currentIdx];
   // The farmer's most recent photo headlines the hero when present.
   const heroPhoto = photos[photos.length - 1] || null;
 
   return (
     <CosmicScreen edges={{ top: false, bottom: false }} scroll>
-      <CosmicHeader title="Growth story" subtitle={`${cropName}${cycle.variety ? ` · ${cycle.variety}` : ''}`} />
+      <CosmicHeader title={t('growthStory.title')} subtitle={`${cropName}${cycle.variety ? ` · ${cycle.variety}` : ''}`} />
 
       {/* ── Hero: the crop "today" ───────────────────────────── */}
       <View style={styles.heroWrap}>
@@ -120,19 +122,19 @@ export default function GrowthStoryScreen({ navigation, route }) {
         >
           <View style={styles.heroStagePill}>
             <View style={styles.heroDot} />
-            <Text style={styles.heroStageTxt}>{hero.label}</Text>
+            <Text style={styles.heroStageTxt}>{t(`growthStory.stage.${hero.key}`)}</Text>
           </View>
           <Text style={styles.heroTitle} numberOfLines={1}>
-            {das != null ? `Day ${das}` : 'Not sown yet'}
+            {das != null ? t('growthStory.dayCount', { das }) : t('growthStory.notSownYet')}
           </Text>
           <Text style={styles.heroSub} numberOfLines={1}>
-            {das != null ? `${cropName} · ${cycle.season || ''} ${cycle.year || ''}`.trim() : `${cropName} · planning stage`}
+            {das != null ? `${cropName} · ${cycle.season || ''} ${cycle.year || ''}`.trim() : `${cropName} · ${t('growthStory.planningStage')}`}
           </Text>
         </LinearGradient>
       </View>
 
       {/* ── Your field photos ────────────────────────────────── */}
-      <SectionLabel title="Your field photos" />
+      <SectionLabel title={t('growthStory.yourFieldPhotos')} />
       {photos.length === 0 ? (
         <GlassCard style={styles.section}>
           <View style={styles.photoEmpty}>
@@ -140,7 +142,7 @@ export default function GrowthStoryScreen({ navigation, route }) {
               <Ionicons name="camera-outline" size={18} color={COSMIC.PRIMARY} />
             </View>
             <Text style={styles.photoEmptyTxt}>
-              Add a photo when you log an activity and it will appear here, building a real picture story of your crop's season.
+              {t('growthStory.photoEmpty')}
             </Text>
           </View>
         </GlassCard>
@@ -153,7 +155,7 @@ export default function GrowthStoryScreen({ navigation, route }) {
       )}
 
       {/* ── Stage filmstrip ──────────────────────────────────── */}
-      <SectionLabel title="Season timeline" />
+      <SectionLabel title={t('growthStory.seasonTimeline')} />
       <View style={styles.section}>
         {STAGES.map((s, i) => {
           const status = i < currentIdx ? 'done' : i === currentIdx ? 'now' : 'upcoming';
@@ -175,12 +177,12 @@ export default function GrowthStoryScreen({ navigation, route }) {
                 <StageScene stage={s} cropName={cropName} height={64} width={64} rounded />
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <View style={styles.tlTitleRow}>
-                    <Text style={styles.tlTitle}>{s.label}</Text>
+                    <Text style={styles.tlTitle}>{t(`growthStory.stage.${s.key}`)}</Text>
                     <StatusPill status={status} />
                   </View>
                   <Text style={styles.tlMeta} numberOfLines={1}>
-                    {reachedDas != null ? `around day ${reachedDas}` : 'before sowing'}
-                    {status === 'now' && das != null ? ` · you're on day ${das}` : ''}
+                    {reachedDas != null ? t('growthStory.aroundDay', { das: reachedDas }) : t('growthStory.beforeSowing')}
+                    {status === 'now' && das != null ? t('growthStory.youreOnDay', { das }) : ''}
                   </Text>
                 </View>
               </View>
@@ -194,15 +196,14 @@ export default function GrowthStoryScreen({ navigation, route }) {
         <View style={styles.noteRow}>
           <Ionicons name="sparkles-outline" size={15} color={COSMIC.PRIMARY} />
           <Text style={styles.noteTxt}>
-            Each scene is illustrated from your crop and stage. As you log activities with photos, your own
-            field pictures take over the story. Photorealistic AI stage images are on the way.
+            {t('growthStory.note')}
           </Text>
         </View>
       </GlassCard>
 
       <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.backLink, pressed && { opacity: 0.7 }]}>
         <Ionicons name="arrow-back" size={15} color={COSMIC.PRIMARY} />
-        <Text style={styles.backLinkTxt}>Back to cycle</Text>
+        <Text style={styles.backLinkTxt}>{t('growthStory.backToCycle')}</Text>
       </Pressable>
 
       <View style={{ height: 24 }} />
@@ -250,10 +251,11 @@ function SectionLabel({ title }) {
 }
 
 function StatusPill({ status }) {
+  const { t } = useLanguage();
   const map = {
-    done:     { txt: 'Done',     bg: COSMIC.PRIMARY_SOFT, fg: COSMIC.PRIMARY },
-    now:      { txt: 'Now',      bg: COSMIC.ACCENT_SOFT,  fg: COSMIC.ACCENT_DK },
-    upcoming: { txt: 'Upcoming', bg: COSMIC.SURFACE_HI,   fg: COSMIC.TEXT_3 },
+    done:     { txt: t('growthStory.statusDone'),     bg: COSMIC.PRIMARY_SOFT, fg: COSMIC.PRIMARY },
+    now:      { txt: t('growthStory.statusNow'),      bg: COSMIC.ACCENT_SOFT,  fg: COSMIC.ACCENT_DK },
+    upcoming: { txt: t('growthStory.statusUpcoming'), bg: COSMIC.SURFACE_HI,   fg: COSMIC.TEXT_3 },
   }[status];
   return (
     <View style={[styles.statusPill, { backgroundColor: map.bg }]}>

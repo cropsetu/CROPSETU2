@@ -11,25 +11,28 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
+import DashboardStatIcon from '../../components/DashboardStatIcons';
 
 const STATUS_META = {
-  PENDING:    { label: 'Pending',    color: COLORS.gold, bg: COLORS.goldPale },
-  CONFIRMED:  { label: 'Confirmed',  color: COLORS.blue, bg: COLORS.bluePale },
-  SHIPPED:    { label: 'Shipped',    color: COLORS.violet, bg: COLORS.violetPale },
-  DELIVERED:  { label: 'Delivered',  color: COLORS.emerald, bg: COLORS.mintPale },
-  CANCELLED:  { label: 'Cancelled',  color: COLORS.error, bg: COLORS.errorLight },
+  PENDING:    { labelKey: 'orders.statusPending',   color: COLORS.gold, bg: COLORS.goldPale },
+  CONFIRMED:  { labelKey: 'orders.statusConfirmed', color: COLORS.blue, bg: COLORS.bluePale },
+  SHIPPED:    { labelKey: 'orders.statusShipped',   color: COLORS.violet, bg: COLORS.violetPale },
+  DELIVERED:  { labelKey: 'orders.statusDelivered', color: COLORS.emerald, bg: COLORS.mintPale },
+  CANCELLED:  { labelKey: 'orders.statusCancelled', color: COLORS.error, bg: COLORS.errorLight },
 };
 
 function StatusBadge({ status }) {
-  const meta = STATUS_META[status] || { label: status, color: COLORS.textMedium, bg: COLORS.grayBg };
+  const { t } = useLanguage();
+  const meta = STATUS_META[status] || { labelKey: null, color: COLORS.textMedium, bg: COLORS.grayBg };
   return (
     <View style={[styles.badge, { backgroundColor: meta.bg }]}>
-      <Text style={[styles.badgeTxt, { color: meta.color }]}>{meta.label}</Text>
+      <Text style={[styles.badgeTxt, { color: meta.color }]}>{meta.labelKey ? t(meta.labelKey) : status}</Text>
     </View>
   );
 }
 
 function OrderCard({ order }) {
+  const { t } = useLanguage();
   const firstItem  = order.items?.[0];
   const productImg = firstItem?.product?.images?.[0];
   const extraCount = (order.items?.length || 1) - 1;
@@ -53,10 +56,10 @@ function OrderCard({ order }) {
         )}
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={styles.productName} numberOfLines={2}>
-            {firstItem?.product?.name || 'Product'}
+            {firstItem?.product?.name || t('diagnosis.productCol')}
           </Text>
           {extraCount > 0 && (
-            <Text style={styles.moreItems}>+{extraCount} more item{extraCount > 1 ? 's' : ''}</Text>
+            <Text style={styles.moreItems}>{extraCount > 1 ? t('orders.moreItemsPlural', { count: extraCount }) : t('orders.moreItem', { count: extraCount })}</Text>
           )}
         </View>
       </View>
@@ -96,7 +99,7 @@ export default function MyOrdersScreen({ navigation }) {
       setHasMore(Boolean(meta.nextCursor));
       setCursor(meta.nextCursor || null);
     } catch (e) {
-      setError(e?.response?.data?.error?.message || 'Failed to load orders');
+      setError(e?.response?.data?.error?.message || t('orders.loadFailed'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -128,7 +131,7 @@ export default function MyOrdersScreen({ navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Orders</Text>
+        <Text style={styles.headerTitle}>{t('myOrders')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -137,7 +140,7 @@ export default function MyOrdersScreen({ navigation }) {
           <Ionicons name="alert-circle-outline" size={48} color={COLORS.error} />
           <Text style={styles.errorTxt}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={() => fetchOrders(1)}>
-            <Text style={styles.retryTxt}>Retry</Text>
+            <Text style={styles.retryTxt}>{t('profile.retry')}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -155,9 +158,9 @@ export default function MyOrdersScreen({ navigation }) {
           ListFooterComponent={hasMore ? <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 16 }} /> : null}
           ListEmptyComponent={
             <View style={styles.center}>
-              <Ionicons name="cart-outline" size={64} color={COLORS.gray175} />
-              <Text style={styles.emptyTitle}>No orders yet</Text>
-              <Text style={styles.emptySubtitle}>Your AgriStore orders will appear here</Text>
+              <DashboardStatIcon type="orders" size={72} />
+              <Text style={styles.emptyTitle}>{t('profile.noOrdersYet')}</Text>
+              <Text style={styles.emptySubtitle}>{t('profile.ordersAppearHere')}</Text>
             </View>
           }
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}

@@ -52,6 +52,7 @@ import { COLORS, TYPE, SHADOWS } from "../../constants/colors";
 import AnimatedScreen from "../../components/ui/AnimatedScreen";
 import TractorLoader from "../../components/ui/TractorLoader";
 import { MachineryIcon } from "../../components/MachineryIcons";
+import { LabourIcon } from "../../components/LabourIcon";
 
 const { width: W } = Dimensions.get("window");
 const GREEN = COLORS.primary;
@@ -994,11 +995,7 @@ export default function RentHome({ navigation }) {
               {filteredMachinery.length === 0 ? (
                 <View style={S.emptyWrap}>
                   <View style={S.emptyIconBg}>
-                    <Ionicons
-                      name="construct-outline"
-                      size={36}
-                      color={GREEN}
-                    />
+                    <MachineryIcon type="tractor" size={56} />
                   </View>
                   <Text style={S.emptyTitle}>{t("ai.comingSoon")}</Text>
                   <Text style={S.emptyTxt}>{t("rent.noMachinery")}</Text>
@@ -1048,7 +1045,7 @@ export default function RentHome({ navigation }) {
               {filteredLabour.length === 0 ? (
                 <View style={S.emptyWrap}>
                   <View style={S.emptyIconBg}>
-                    <Ionicons name="people-outline" size={36} color={GREEN} />
+                    <LabourIcon size={56} />
                   </View>
                   <Text style={S.emptyTitle}>{t("ai.comingSoon")}</Text>
                   <Text style={S.emptyTxt}>{t("rent.noWorkersFound")}</Text>
@@ -1098,11 +1095,11 @@ export default function RentHome({ navigation }) {
               activeOpacity={0.9}
             >
               <View style={S.listBannerLeft}>
-                <Ionicons
-                  name={tab === "machinery" ? "construct" : "person-add"}
-                  size={28}
-                  color={GREEN}
-                />
+                {tab === "machinery" ? (
+                  <MachineryIcon type="tractor" size={36} />
+                ) : (
+                  <LabourIcon size={36} />
+                )}
                 <View style={{ flex: 1 }}>
                   <Text style={S.listBannerTitle}>
                     {tab === "machinery"

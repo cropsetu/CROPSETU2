@@ -17,12 +17,12 @@ import { Haptics } from '../../../utils/haptics';
 
 // A few common "other" activities as quick suggestions; the farmer can type any name.
 const SUGGESTIONS = [
-  { key: 'mulching',     label: 'Mulching' },
-  { key: 'staking',      label: 'Staking / training' },
-  { key: 'bird_scaring', label: 'Bird scaring' },
-  { key: 'thinning',     label: 'Thinning' },
-  { key: 'gap_filling',  label: 'Gap filling' },
-  { key: 'mandi_visit',  label: 'Mandi visit' },
+  { key: 'mulching',     labelKey: 'customActivity.suggestMulching' },
+  { key: 'staking',      labelKey: 'customActivity.suggestStaking' },
+  { key: 'bird_scaring', labelKey: 'customActivity.suggestBirdScaring' },
+  { key: 'thinning',     labelKey: 'customActivity.suggestThinning' },
+  { key: 'gap_filling',  labelKey: 'customActivity.suggestGapFilling' },
+  { key: 'mandi_visit',  labelKey: 'customActivity.suggestMandiVisit' },
 ];
 
 export default function CustomActivityLogScreen({ navigation, route }) {
@@ -39,8 +39,8 @@ export default function CustomActivityLogScreen({ navigation, route }) {
   const canSave = name.trim().length > 0;
 
   const handleSave = useCallback(async () => {
-    if (!canSave) { Haptics.error?.(); Alert.alert('Name it', 'Give this activity a short name.'); return; }
-    if (!cycleId) { Alert.alert('Pick a crop cycle', 'Start a crop cycle first to log against it.'); return; }
+    if (!canSave) { Haptics.error?.(); Alert.alert(t('customActivity.nameItTitle'), t('customActivity.nameItMsg')); return; }
+    if (!cycleId) { Alert.alert(t('customActivity.pickCycleTitle'), t('customActivity.pickCycleMsg')); return; }
     setSaving(true);
     try {
       await farmApi.addActivity(cycleId, {
@@ -56,49 +56,49 @@ export default function CustomActivityLogScreen({ navigation, route }) {
       setCelebrate(true);
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || 'Could not save.');
+      Alert.alert(t('login.error') || 'Error', e.message || t('customActivity.couldNotSave'));
     } finally {
       setSaving(false);
     }
   }, [canSave, cycleId, name, cost, notes, t]);
 
   const subtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'}${cycleId ? ' · active cycle' : ''}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || t('customActivity.farmFallback')}${cycleId ? t('customActivity.activeCycleSuffix') : ''}`
     : undefined;
 
   return (
     <LoggerScaffold
-      title="Custom activity" subtitle={subtitle}
-      footerLabel="Log activity" footerIcon="sparkles-outline"
+      title={t('customActivity.screenTitle')} subtitle={subtitle}
+      footerLabel={t('customActivity.logActivity')} footerIcon="sparkles-outline"
       saving={saving} canSave={canSave} onSave={handleSave}
       celebrate={celebrate}
-      celebrateTitle="Activity logged ✓"
-      celebrateSubtitle="Added to this cycle's timeline."
+      celebrateTitle={t('customActivity.celebrateTitle')}
+      celebrateSubtitle={t('customActivity.celebrateSubtitle')}
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
-      <SectionHeader icon="create-outline" tint={COSMIC.PRIMARY} title="What did you do?" />
+      <SectionHeader icon="create-outline" tint={COSMIC.PRIMARY} title={t('customActivity.whatDidYouDo')} />
       <Card>
         <LabeledInput
-          label="Activity name"
+          label={t('customActivity.activityName')}
           value={name}
           onChangeText={setName}
-          placeholder="e.g. Mulching, bird scaring…"
+          placeholder={t('customActivity.activityNamePlaceholder')}
           autoCapitalize="sentences"
         />
       </Card>
 
-      <SectionHeader icon="flash-outline" tint={COSMIC.PRIMARY_LT} title="Quick pick" optional />
+      <SectionHeader icon="flash-outline" tint={COSMIC.PRIMARY_LT} title={t('customActivity.quickPick')} optional />
       <ChipRow
-        items={SUGGESTIONS}
+        items={SUGGESTIONS.map((s) => ({ key: s.key, label: t(s.labelKey) }))}
         value={null}
-        onChange={(k) => { const s = SUGGESTIONS.find((x) => x.key === k); if (s) setName(s.label); }}
+        onChange={(k) => { const s = SUGGESTIONS.find((x) => x.key === k); if (s) setName(t(s.labelKey)); }}
         tint={COSMIC.PRIMARY}
       />
 
-      <SectionHeader icon="cash-outline" tint={COSMIC.EXPENSE} title="Cost (₹)" optional />
+      <SectionHeader icon="cash-outline" tint={COSMIC.EXPENSE} title={t('customActivity.costRupees')} optional />
       <Card><BigNumberInput value={cost} onChange={setCost} unit="₹" keyboardType="decimal-pad" tint={COSMIC.EXPENSE} /></Card>
 
-      <SectionHeader icon="document-text-outline" tint={COSMIC.TEXT_3} title="Notes" optional />
+      <SectionHeader icon="document-text-outline" tint={COSMIC.TEXT_3} title={t('customActivity.notes')} optional />
       <Card><NotesField value={notes} onChange={setNotes} /></Card>
     </LoggerScaffold>
   );

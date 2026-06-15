@@ -35,6 +35,7 @@ function formatTime(iso) {
 }
 
 function MessageBubble({ message, isMe, otherName, onRetry }) {
+  const { t } = useLanguage();
   return (
     <View style={[styles.messagRow, isMe && styles.messageRowMe]}>
       {!isMe && (
@@ -55,7 +56,7 @@ function MessageBubble({ message, isMe, otherName, onRetry }) {
           {message.pending ? (
             <Ionicons name="time-outline" size={11} color={isMe ? COLORS.primaryPale : COLORS.textLight} style={{ marginLeft: 4 }} />
           ) : message.failed ? (
-            <Text style={styles.failedHint}>· tap to retry</Text>
+            <Text style={styles.failedHint}>· {t('chat.tapToRetry')}</Text>
           ) : isMe ? (
             <Ionicons name="checkmark-done" size={12} color={message.readAt ? '#7DD3FC' : COLORS.primaryPale} style={{ marginLeft: 4 }} />
           ) : null}
@@ -97,11 +98,11 @@ export default function ChatScreen({ route }) {
         cid = data?.data?.id;
         setChatId(cid);
       }
-      if (!cid) throw new Error('Failed to open chat');
+      if (!cid) throw new Error(t('chat.failedToOpen'));
       const { data: msgs } = await api.get(`/animals/chats/${cid}/messages`, { params: { limit: 100 } });
       setMessages(msgs?.data || []);
     } catch (e) {
-      setError(e?.response?.data?.error?.message || e?.message || 'Failed to open chat');
+      setError(e?.response?.data?.error?.message || e?.message || t('chat.failedToOpen'));
     } finally {
       setLoading(false);
     }
@@ -257,7 +258,7 @@ export default function ChatScreen({ route }) {
           <Text style={styles.chatAvatarText}>{sellerName?.charAt(0)?.toUpperCase() || '?'}</Text>
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.chatName} numberOfLines={1}>{sellerName || 'Conversation'}</Text>
+          <Text style={styles.chatName} numberOfLines={1}>{sellerName || t('chat.conversation')}</Text>
           <View style={styles.onlineRow}>
             <View style={styles.onlineDot} />
             <Text style={styles.onlineText}>{t('chat.online') || 'Online'}</Text>
@@ -274,14 +275,14 @@ export default function ChatScreen({ route }) {
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" color={COLORS.primary} />
-            <Text style={styles.mutedTxt}>Loading conversation…</Text>
+            <Text style={styles.mutedTxt}>{t('chat.loadingConversation')}</Text>
           </View>
         ) : error ? (
           <View style={styles.center}>
             <Ionicons name="alert-circle-outline" size={48} color={COLORS.error} />
             <Text style={styles.errorTxt}>{error}</Text>
             <TouchableOpacity style={styles.retryBtn} onPress={init}>
-              <Text style={styles.retryTxt}>Retry</Text>
+              <Text style={styles.retryTxt}>{t('chat.retry')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -308,9 +309,9 @@ export default function ChatScreen({ route }) {
                 <View style={styles.emptyIcon}>
                   <Ionicons name="chatbubble-ellipses-outline" size={36} color={COLORS.primary} />
                 </View>
-                <Text style={styles.emptyTitle}>Say hello 👋</Text>
+                <Text style={styles.emptyTitle}>{t('chat.sayHello')}</Text>
                 <Text style={styles.emptyHint}>
-                  Send a message to start the conversation with {sellerName || 'the seller'}.
+                  {t('chat.startConversation', { name: sellerName || t('chat.theSeller') })}
                 </Text>
               </View>
             }
@@ -324,7 +325,7 @@ export default function ChatScreen({ route }) {
               style={styles.input}
               placeholder={
                 disabled
-                  ? 'Loading…'
+                  ? t('chat.loadingShort')
                   : (t('chat.typePlaceholder') || 'Type a message…')
               }
               placeholderTextColor={COLORS.textLight}
@@ -343,7 +344,7 @@ export default function ChatScreen({ route }) {
               style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
               onPress={() => sendMessage(inputText)}
               disabled={!canSend}
-              accessibilityLabel="Send message"
+              accessibilityLabel={t('chat.sendMessage')}
             >
               {sending
                 ? <ActivityIndicator color={COLORS.textWhite} size="small" />

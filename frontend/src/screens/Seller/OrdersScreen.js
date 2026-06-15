@@ -9,6 +9,7 @@ import { Haptics } from '../../utils/haptics';
 import { COLORS, SHADOWS, RADIUS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
 import api from '../../services/api';
+import DashboardStatIcon from '../../components/DashboardStatIcons';
 
 const STATUS_FLOW = ['PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED'];
 const STATUS_COLOR = {
@@ -20,12 +21,12 @@ const STATUS_COLOR = {
   REFUNDED:  COLORS.gray550,
 };
 const STATUS_ICON = {
-  PENDING:   'time-outline',
-  CONFIRMED: 'checkmark-circle-outline',
-  SHIPPED:   'car-outline',
-  DELIVERED: 'bag-check-outline',
-  CANCELLED: 'close-circle-outline',
-  REFUNDED:  'return-up-back-outline',
+  PENDING:   'time',
+  CONFIRMED: 'checkmark-circle',
+  SHIPPED:   'car',
+  DELIVERED: 'bag-check',
+  CANCELLED: 'close-circle',
+  REFUNDED:  'return-up-back',
 };
 const STATUS_LABELS = ['All', 'PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED'];
 
@@ -33,7 +34,7 @@ function StatusBadge({ status }) {
   const color = STATUS_COLOR[status] || COLORS.gray550;
   return (
     <View style={[ob.badge, { backgroundColor: color + '18' }]}>
-      <Ionicons name={STATUS_ICON[status] || 'ellipse-outline'} size={12} color={color} />
+      <Ionicons name={STATUS_ICON[status] || 'ellipse'} size={16} color={color} />
       <Text style={[ob.badgeTxt, { color }]}>{status}</Text>
     </View>
   );
@@ -266,7 +267,7 @@ export default function OrdersScreen() {
           }
           ListEmptyComponent={
             <View style={s.empty}>
-              <Ionicons name="receipt-outline" size={64} color={COLORS.gray175} />
+              <DashboardStatIcon type="orders" size={72} />
               <Text style={s.emptyTitle}>{t('orders.noOrdersFound')}</Text>
               <Text style={s.emptyText}>
                 {filter === 'All'

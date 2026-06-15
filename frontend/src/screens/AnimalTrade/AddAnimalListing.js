@@ -12,18 +12,24 @@ import { useLanguage } from '../../context/LanguageContext';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { prepareImageForFormData } from '../../utils/mediaCompressor';
+import AnimalIcon from '../../components/AnimalIcons';
 
 const ANIMAL_TYPE_KEYS = ['animalCow', 'animalBuffalo', 'animalGoat', 'animalBullock', 'animalSheep', 'animalPig', 'animalHorse', 'animalCamel'];
 // English values used for form submission (backend expects English)
 const ANIMAL_TYPE_VALUES = ['Cow', 'Buffalo', 'Goat', 'Bullock', 'Sheep', 'Pig', 'Horse', 'Camel'];
 
-function SelectChip({ label, selected, onPress }) {
+function SelectChip({ label, selected, onPress, iconType }) {
   return (
     <TouchableOpacity
       style={[styles.chip, selected && styles.chipActive]}
       onPress={onPress}
       activeOpacity={0.8}
     >
+      {iconType ? (
+        <View style={styles.chipIcon}>
+          <AnimalIcon type={iconType} size={22} />
+        </View>
+      ) : null}
       <Text style={[styles.chipText, selected && styles.chipTextActive]}>{label}</Text>
     </TouchableOpacity>
   );
@@ -253,7 +259,7 @@ export default function AddAnimalListing({ navigation, route }) {
           <Text style={styles.sectionTitle}>{t('addAnimal.animalTypeSection')}</Text>
           <View style={styles.chipGrid}>
             {ANIMAL_TYPE_KEYS.map((tKey, idx) => (
-              <SelectChip key={tKey} label={t('addAnimal.' + tKey)} selected={form.animal === ANIMAL_TYPE_VALUES[idx]} onPress={() => update('animal', ANIMAL_TYPE_VALUES[idx])} />
+              <SelectChip key={tKey} label={t('addAnimal.' + tKey)} iconType={ANIMAL_TYPE_VALUES[idx]} selected={form.animal === ANIMAL_TYPE_VALUES[idx]} onPress={() => update('animal', ANIMAL_TYPE_VALUES[idx])} />
             ))}
           </View>
         </View>
@@ -387,11 +393,11 @@ export default function AddAnimalListing({ navigation, route }) {
               <Ionicons name="checkmark" size={42} color={COLORS.white} />
             </View>
             <Text style={styles.successTitle}>
-              {success?.mode === 'update' ? 'Listing Updated!' : t('listingPosted') || 'Listing Posted!'}
+              {success?.mode === 'update' ? t('addAnimal.listingUpdated') : t('listingPosted') || 'Listing Posted!'}
             </Text>
             <Text style={styles.successBody}>
               {success?.mode === 'update'
-                ? 'Your changes have been saved.'
+                ? t('addAnimal.changesSaved')
                 : (t('listingPostedMsg') || 'Your animal listing is now live. Buyers can contact you shortly.')}
             </Text>
             {success?.animal ? (
@@ -410,7 +416,7 @@ export default function AddAnimalListing({ navigation, route }) {
                   navigation.goBack();
                 }}
               >
-                <Text style={styles.successBtnTextSecondary}>Close</Text>
+                <Text style={styles.successBtnTextSecondary}>{t('addAnimal.close')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.successBtn, styles.successBtnPrimary]}
@@ -420,7 +426,7 @@ export default function AddAnimalListing({ navigation, route }) {
                   navigation.navigate('AnimalTradeHome', { freshListingId: id, ts: Date.now() });
                 }}
               >
-                <Text style={styles.successBtnTextPrimary}>View Animals</Text>
+                <Text style={styles.successBtnTextPrimary}>{t('addAnimal.viewAnimals')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -446,7 +452,8 @@ const styles = StyleSheet.create({
   photoAddText: { fontSize: 11, color: COLORS.primary, fontWeight: '600' },
 
   chipGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 },
-  chip:          { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.background },
+  chip:          { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.background },
+  chipIcon:      { marginRight: 7 },
   chipActive:    { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   chipText:      { fontSize: 14, fontWeight: '600', color: COLORS.textMedium },
   chipTextActive:{ color: COLORS.textWhite },

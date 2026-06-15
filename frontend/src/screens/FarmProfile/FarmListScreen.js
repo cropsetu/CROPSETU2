@@ -16,6 +16,7 @@ import CosmicScreen from './ui/CosmicScreen';
 import CosmicHeader from './ui/CosmicHeader';
 import GlassCard from './ui/GlassCard';
 import GlowButton from './ui/GlowButton';
+import { CropIcon } from '../../components/CropIcons';
 import { useMultiFarm } from '../../context/MultiFarmContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { COSMIC, CR, CS, GLOW, GRADIENT } from './theme/cosmicTheme';
@@ -42,7 +43,7 @@ export default function FarmListScreen({ navigation }) {
 
   const handleLongPress = useCallback((farm) => {
     Haptics.medium?.();
-    Alert.alert(farm.farmName || farm.farmAlias || `Farm ${farm.farmNumber}`, '', [
+    Alert.alert(farm.farmName || farm.farmAlias || t('farmProfile.farmNumberLabel', { number: farm.farmNumber }), '', [
       { text: t('farmProfile.setActive') || 'Set active', onPress: () => { Haptics.success?.(); switchActiveFarm(farm.id); } },
       { text: t('edit') || 'Edit', onPress: () => goEdit(farm) },
       { text: t('delete') || 'Delete', style: 'destructive', onPress: () => {
@@ -76,12 +77,12 @@ export default function FarmListScreen({ navigation }) {
             <View style={styles.body}>
               <View style={styles.topRow}>
                 <Text style={styles.name} numberOfLines={1}>
-                  {farm.farmName || farm.farmAlias || `Farm ${farm.farmNumber}`}
+                  {farm.farmName || farm.farmAlias || t('farmProfile.farmNumberLabel', { number: farm.farmNumber })}
                 </Text>
                 {isActive && (
                   <View style={styles.activeBadge}>
                     <Ionicons name="star" size={9} color={COSMIC.INVERSE} />
-                    <Text style={styles.activeText}>Active</Text>
+                    <Text style={styles.activeText}>{t('farmProfile.active')}</Text>
                   </View>
                 )}
               </View>
@@ -99,7 +100,7 @@ export default function FarmListScreen({ navigation }) {
                 {farm.landSizeAcres > 0 && <Tag label={`${farm.landSizeAcres} ac`} color={COSMIC.PRIMARY} />}
                 {farm.soilType && <Tag label={(farm.soilType || '').replace(/_/g, ' ').toLowerCase()} color={soilColor} capitalize />}
                 {farm.irrigationSystem && <Tag label={farm.irrigationSystem.toLowerCase()} color={COSMIC.INFO} capitalize />}
-                {cropCount > 0 && <Tag label={`${cropCount} ${cropCount === 1 ? 'crop' : 'crops'}`} color={COSMIC.ACCENT} />}
+                {cropCount > 0 && <Tag label={`${cropCount} ${cropCount === 1 ? t('farmProfile.cropSingular') : t('farmProfile.cropPlural')}`} color={COSMIC.ACCENT} />}
               </View>
             </View>
             <View style={styles.chev}>
@@ -115,7 +116,7 @@ export default function FarmListScreen({ navigation }) {
     <CosmicScreen edges={{ top: false, bottom: true }}>
       <CosmicHeader
         title={t('farmProfile.myFarms') || 'My farms'}
-        subtitle={farms.length > 0 ? `${farms.length} ${farms.length === 1 ? 'farm' : 'farms'} · long-press to edit` : undefined}
+        subtitle={farms.length > 0 ? `${farms.length} ${farms.length === 1 ? t('farmProfile.farmSingular') : t('farmProfile.farmPlural')} · ${t('farmProfile.longPressToEdit')}` : undefined}
       />
       <FlatList
         data={farms}
@@ -128,11 +129,11 @@ export default function FarmListScreen({ navigation }) {
         ListEmptyComponent={
           <View style={styles.empty}>
             <View style={styles.emptyBubble}>
-              <Ionicons name="leaf" size={24} color={COSMIC.PRIMARY} />
+              <CropIcon crop="Wheat" size={28} />
             </View>
-            <Text style={styles.emptyTitle}>No farms yet</Text>
-            <Text style={styles.emptyText}>Add your first farm and let FarmMind tune advisory to your soil, water and crop.</Text>
-            <GlowButton label="Add a farm" icon="add" variant="primary" onPress={goAdd} style={{ marginTop: 12, minWidth: 180 }} size="sm" />
+            <Text style={styles.emptyTitle}>{t('farmProfile.noFarms')}</Text>
+            <Text style={styles.emptyText}>{t('farmProfile.emptyHint')}</Text>
+            <GlowButton label={t('farmProfile.addAFarm')} icon="add" variant="primary" onPress={goAdd} style={{ marginTop: 12, minWidth: 180 }} size="sm" />
           </View>
         }
       />
@@ -153,12 +154,13 @@ function Tag({ label, color, capitalize }) {
 }
 
 function AddFab({ onPress }) {
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const handle = () => { Haptics.medium?.(); onPress && onPress(); };
   return (
     <Pressable
       onPress={handle}
-      accessibilityLabel="Add farm"
+      accessibilityLabel={t('farmProfile.addFarm')}
       style={({ pressed }) => [
         styles.fab,
         { bottom: 20 + insets.bottom },

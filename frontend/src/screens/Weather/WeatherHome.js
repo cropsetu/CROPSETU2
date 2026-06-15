@@ -26,6 +26,7 @@ import { fetchWeatherForCurrentLocation, formatLastUpdated } from '../../service
 import { useLanguage } from '../../context/LanguageContext';
 import { COLORS } from '../../constants/colors';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import { WeatherIcon } from '../../components/WeatherIcons';
 
 const { width: W, height: H } = Dimensions.get('window');
 const CARD_W = (W - 32 - 10) / 2;
@@ -199,11 +200,7 @@ function SectionHeader({ title }) {
 const HourlyItem = memo(({ item, nowLabel }) => (
   <View style={[S.hourlyItem, item.isNow && S.hourlyItemNow]}>
     <Text style={[S.hourlyTime, item.isNow && S.hourlyTimeNow]}>{item.isNow ? nowLabel : item.time}</Text>
-    <Ionicons
-      name={`${item.conditionIcon}-outline`}
-      size={20}
-      color={item.isNow ? COLORS.white : COLORS.primaryLight}
-    />
+    <WeatherIcon condition={item.conditionIcon} size={26} animated={false} />
     <Text style={[S.hourlyTemp, item.isNow && S.hourlyTempNow]}>{item.temperature}°</Text>
     {item.precipitationProbability > 0 && (
       <View style={S.rainRow}>
@@ -222,7 +219,7 @@ const DailyRow = memo(({ item, isToday }) => {
   return (
     <View style={[S.dailyRow, isToday && S.dailyRowToday]}>
       <Text style={[S.dailyDay, isToday && S.dailyDayToday]}>{item.dateLabel}</Text>
-      <Ionicons name={`${item.conditionIcon}-outline`} size={22} color={isToday ? COLORS.primary : COLORS.textMedium} />
+      <WeatherIcon condition={item.conditionIcon} size={26} animated={false} />
       <View style={S.dailyTempWrap}>
         <Text style={S.dailyLow}>{item.minTemp}°</Text>
         {/* Temperature bar */}
@@ -523,7 +520,10 @@ export default function WeatherHome({ navigation, embeddedInHub }) {
 
           {/* Main temp */}
           <Text style={S.heroTemp}>{current.temperature}°C</Text>
-          <Text style={S.heroCond}>{current.condition}</Text>
+          <View style={S.heroCondRow}>
+            <WeatherIcon condition={current.condition || current.conditionIcon} size={60} animated />
+            <Text style={S.heroCond}>{current.condition}</Text>
+          </View>
 
           {/* Secondary stats row */}
           <View style={S.heroStats}>
@@ -968,7 +968,8 @@ const S = StyleSheet.create({
   heroLoc:      { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.82)', letterSpacing: 1.1 },
   staleBadge:   { fontSize: 10, color: 'rgba(255,255,255,0.55)', fontStyle: 'italic' },
   heroTemp:     { fontSize: 64, fontWeight: '900', color: COLORS.white, lineHeight: 70 },
-  heroCond:     { fontSize: 15, color: 'rgba(255,255,255,0.80)', marginTop: 2, marginBottom: 14 },
+  heroCondRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, marginBottom: 14 },
+  heroCond:     { fontSize: 15, color: 'rgba(255,255,255,0.80)' },
   heroStats:    { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 0 },
   heroStat:     { flexDirection: 'row', alignItems: 'center', gap: 4 },
   heroStatTxt:  { fontSize: 12, color: 'rgba(255,255,255,0.80)', fontWeight: '500' },

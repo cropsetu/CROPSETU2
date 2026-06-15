@@ -19,6 +19,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
 import { SHADOWS } from '../../constants/colors';
+import { MachineryIcon } from '../../components/MachineryIcons';
+import { LabourIcon } from '../../components/LabourIcon';
 
 const ORANGE = COLORS.cta;
 const RED    = COLORS.error;
@@ -153,7 +155,9 @@ function MyBookingCard({ item, t }) {
           ? <Image source={{ uri: thumb }} style={S.myThumb} />
           : (
             <View style={[S.myThumb, { backgroundColor: COLORS.primary + '15', justifyContent: 'center', alignItems: 'center' }]}>
-              <Ionicons name={item.machineryListing ? 'construct-outline' : 'people-outline'} size={22} color={COLORS.primary} />
+              {item.machineryListing
+                ? <MachineryIcon type="tractor" size={22} />
+                : <LabourIcon size={22} animated={false} />}
             </View>
           )
         }

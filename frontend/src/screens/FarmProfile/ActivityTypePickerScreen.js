@@ -62,7 +62,7 @@ export default function ActivityTypePickerScreen({ navigation, route }) {
   const { farmId, cycleId, plotId } = route.params || {};
 
   const contextSubtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'} · ${cycleId ? 'this cycle' : (farmId ? 'this farm' : 'all farms')}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || t('myFarm.v2.picker.farmFallback', 'Farm')} · ${cycleId ? t('myFarm.v2.picker.scopeThisCycle', 'this cycle') : (farmId ? t('myFarm.v2.picker.scopeThisFarm', 'this farm') : t('myFarm.v2.picker.scopeAllFarms', 'all farms'))}`
     : undefined;
 
   const pick = (type) => {
@@ -78,8 +78,8 @@ export default function ActivityTypePickerScreen({ navigation, route }) {
       return;
     }
     Alert.alert(
-      `${TYPE_LABELS[type] || type} log`,
-      'Open a crop cycle first, then log this activity from the cycle screen.',
+      t('myFarm.v2.picker.logTitle', { label: TYPE_LABELS[type] || type }),
+      t('myFarm.v2.picker.logHint', 'Open a crop cycle first, then log this activity from the cycle screen.'),
     );
   };
 
@@ -98,9 +98,9 @@ export default function ActivityTypePickerScreen({ navigation, route }) {
           <View style={styles.introBubble}>
             <Ionicons name="hand-left-outline" size={18} color={COSMIC.PRIMARY} />
           </View>
-          <Text style={styles.introTitle}>Pick what you did today</Text>
+          <Text style={styles.introTitle}>{t('myFarm.v2.picker.introTitle', 'Pick what you did today')}</Text>
           <Text style={styles.introText}>
-            Tap any activity — fields, photos and cost will be captured for that log.
+            {t('myFarm.v2.picker.introText', 'Tap any activity — fields, photos and cost will be captured for that log.')}
           </Text>
         </View>
 

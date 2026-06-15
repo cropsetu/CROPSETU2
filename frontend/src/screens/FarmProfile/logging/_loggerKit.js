@@ -24,15 +24,41 @@ import GlowButton from '../ui/GlowButton';
 import CelebrationSheet from '../ui/CelebrationSheet';
 import { COSMIC, CR, CS } from '../theme/cosmicTheme';
 import { Haptics } from '../../../utils/haptics';
+import { useLanguage } from '../../../context/LanguageContext';
+import { ActivityIcon } from '../../../components/ActivityIcons';
+
+// Conservative colourisation for the shared SectionHeader (used by 9 loggers).
+// Only Ionicon names that map UNAMBIGUOUSLY to a single activity illustration
+// are upgraded; every other name falls through to the flat <Ionicons> below so
+// no logger screen can break.
+const SECTION_ACTIVITY = {
+  'water-outline': 'IRRIGATION', // irrigation log — method section
+  'eye-outline':   'SCOUT',      // scout log — what did you see
+  'cut-outline':   'PRUNING',    // pruning log — secateurs reads as pruning
+};
+
+// Low-literacy users read a solid, colourful glyph far better than a thin outline.
+// Prefer the FILLED Ionicon variant everywhere in the logger kit. Falls back to the
+// given name (and Ionicons simply renders nothing for an unknown name — never crashes).
+const fillIcon = (name) => {
+  if (!name) return 'ellipse';
+  return name.endsWith('-outline') ? name.replace(/-outline$/, '') : name;
+};
 
 export function SectionHeader({ icon, tint = COSMIC.PRIMARY, title, optional }) {
+  const { t } = useLanguage();
+  const activityType = SECTION_ACTIVITY[icon];
   return (
     <View style={k.secHeader}>
       <View style={[k.secIcon, { backgroundColor: tint + '28', borderColor: tint + '55' }]}>
-        <Ionicons name={icon} size={16} color={tint} />
+        {activityType ? (
+          <ActivityIcon type={activityType} size={16} animated={false} />
+        ) : (
+          <Ionicons name={fillIcon(icon)} size={16} color={tint} />
+        )}
       </View>
       <Text style={k.secTitle}>{title}</Text>
-      {optional && <Text style={k.optional}>Optional</Text>}
+      {optional && <Text style={k.optional}>{t('logger.optional')}</Text>}
     </View>
   );
 }
@@ -56,7 +82,7 @@ export function TileGrid({ items, value, onChange, columns = 2 }) {
             ]}
           >
             <View style={[k.tileIcon, { backgroundColor: color + '33', borderColor: color + '55' }]}>
-              <Ionicons name={it.icon || 'ellipse-outline'} size={22} color={color} />
+              <Ionicons name={fillIcon(it.icon)} size={24} color={color} />
             </View>
             <Text style={[k.tileLabel, sel && { color, fontFamily: 'PlusJakartaSans_700Bold' }]} numberOfLines={1}>{it.label}</Text>
             {sel && (
@@ -93,7 +119,7 @@ export function ChipRow({ items, value, onChange, multi = false, tint = COSMIC.I
             onPress={() => toggle(it.key)}
             style={[k.chip, { backgroundColor: sel ? tint + '1A' : COSMIC.SURFACE, borderColor: sel ? tint : COSMIC.BORDER }]}
           >
-            {it.icon && <Ionicons name={it.icon} size={15} color={sel ? tint : COSMIC.TEXT_2} />}
+            {it.icon && <Ionicons name={fillIcon(it.icon)} size={15} color={sel ? tint : COSMIC.TEXT_2} />}
             <Text style={[k.chipText, sel && { color: tint, fontFamily: 'PlusJakartaSans_700Bold' }]}>{it.label}</Text>
           </Pressable>
         );
@@ -128,14 +154,15 @@ export function LabeledInput({ label, ...props }) {
   );
 }
 
-export function NotesField({ value, onChange, placeholder = 'Any observation…' }) {
+export function NotesField({ value, onChange, placeholder }) {
+  const { t } = useLanguage();
   return (
     <>
-      <Text style={k.subLabel}>Notes</Text>
+      <Text style={k.subLabel}>{t('logger.notes')}</Text>
       <TextInput
         value={value}
         onChangeText={onChange}
-        placeholder={placeholder}
+        placeholder={placeholder ?? t('logger.anyObservation')}
         placeholderTextColor={COSMIC.MUTED}
         style={[k.input, { minHeight: 80, textAlignVertical: 'top' }]}
         multiline
@@ -156,6 +183,7 @@ export function LoggerScaffold({
   title, subtitle, footerLabel, footerIcon = 'checkmark-circle', saving, canSave, onSave,
   celebrate, celebrateTitle, celebrateSubtitle, onCelebrateClose, children,
 }) {
+  const { t } = useLanguage();
   return (
     <CosmicScreen edges={{ top: false, bottom: false }}>
       <CosmicHeader title={title} subtitle={subtitle} />
@@ -166,7 +194,7 @@ export function LoggerScaffold({
         </ScrollView>
         <View style={k.footer}>
           <GlowButton
-            label={saving ? 'Saving…' : footerLabel}
+            label={saving ? t('farmProfile.saving') : footerLabel}
             icon={footerIcon}
             variant="primary"
             full

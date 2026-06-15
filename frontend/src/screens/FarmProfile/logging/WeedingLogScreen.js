@@ -34,9 +34,11 @@ export default function WeedingLogScreen({ navigation, route }) {
 
   const canSave = !!method;
 
+  const methods = METHODS.map((m) => ({ ...m, label: t(`weedingLog.method_${m.key}`) }));
+
   const handleSave = useCallback(async () => {
-    if (!canSave) { Haptics.error?.(); Alert.alert('Missing info', 'Pick a weeding method.'); return; }
-    if (!cycleId) { Alert.alert('Pick a crop cycle', 'Start a crop cycle first to log against it.'); return; }
+    if (!canSave) { Haptics.error?.(); Alert.alert(t('weedingLog.missingInfo'), t('weedingLog.pickMethodMsg')); return; }
+    if (!cycleId) { Alert.alert(t('weedingLog.pickCycle'), t('weedingLog.pickCycleMsg')); return; }
     setSaving(true);
     try {
       await farmApi.addActivity(cycleId, { type: 'WEEDING', title: method, notes: notes || null, fields: { method } });
@@ -47,33 +49,33 @@ export default function WeedingLogScreen({ navigation, route }) {
       setCelebrate(true);
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || 'Could not save.');
+      Alert.alert(t('login.error') || t('weedingLog.error'), e.message || t('weedingLog.couldNotSave'));
     } finally {
       setSaving(false);
     }
   }, [canSave, cycleId, method, labour, notes, t]);
 
   const subtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'}${cycleId ? ' · active cycle' : ''}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || t('weedingLog.farm')}${cycleId ? ` · ${t('weedingLog.activeCycle')}` : ''}`
     : undefined;
 
   return (
     <LoggerScaffold
-      title="Log weeding" subtitle={subtitle}
-      footerLabel="Log weeding" footerIcon="cut-outline"
+      title={t('weedingLog.title')} subtitle={subtitle}
+      footerLabel={t('weedingLog.title')} footerIcon="cut-outline"
       saving={saving} canSave={canSave} onSave={handleSave}
       celebrate={celebrate}
-      celebrateTitle="Weeding logged ✓"
-      celebrateSubtitle="Tracked against this cycle's activity feed."
+      celebrateTitle={t('weedingLog.celebrateTitle')}
+      celebrateSubtitle={t('weedingLog.celebrateSubtitle')}
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
-      <SectionHeader icon="cut-outline" tint={COSMIC.WEEDING} title="Method" />
-      <TileGrid items={METHODS} value={method} onChange={(v) => setMethod(v)} columns={3} />
+      <SectionHeader icon="cut-outline" tint={COSMIC.WEEDING} title={t('weedingLog.method')} />
+      <TileGrid items={methods} value={method} onChange={(v) => setMethod(v)} columns={3} />
 
-      <SectionHeader icon="cash-outline" tint={COSMIC.WEEDING} title="Labour cost" optional />
+      <SectionHeader icon="cash-outline" tint={COSMIC.WEEDING} title={t('weedingLog.labourCost')} optional />
       <Card><BigNumberInput value={labour} onChange={setLabour} unit="₹" tint={COSMIC.WEEDING} /></Card>
 
-      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title="Notes" optional />
+      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title={t('weedingLog.notes')} optional />
       <Card><NotesField value={notes} onChange={setNotes} /></Card>
     </LoggerScaffold>
   );

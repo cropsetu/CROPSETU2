@@ -24,6 +24,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { isValidPhone, isValidOtp } from '../../utils/validators';
 import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 
@@ -35,6 +36,7 @@ const OTP_LEN = 6;
 const RESEND_SECONDS = 30;
 
 export default function LoginScreen() {
+  const { t } = useLanguage();
   const { sendOtp, verifyOtp } = useAuth();
   const insets = useSafeAreaInsets();
 
@@ -73,7 +75,7 @@ export default function LoginScreen() {
     if (loading || resendIn > 0) return;
     const phone = phoneValueRef.current;
     if (!isValidPhone(phone)) {
-      setErrorMsg('Enter a valid 10-digit mobile number.');
+      setErrorMsg(t('checkout.invalidPhoneMsg'));
       return;
     }
     setLoading(true);
@@ -94,7 +96,7 @@ export default function LoginScreen() {
     } catch (err) {
       const retryAfter = Number(err?.response?.headers?.['retry-after']);
       if (Number.isFinite(retryAfter) && retryAfter > 0) setResendIn(Math.min(Math.ceil(retryAfter), 300));
-      setErrorMsg(err.userMessage || err.response?.data?.error?.message || 'Could not send OTP. Please try again.');
+      setErrorMsg(err.userMessage || err.response?.data?.error?.message || t('login.otpSendError'));
     } finally {
       setLoading(false);
     }
@@ -110,7 +112,7 @@ export default function LoginScreen() {
       await verifyOtp(phoneDisplay || phoneValueRef.current, c);
       // RootNavigator routes on success.
     } catch (err) {
-      setErrorMsg(err.userMessage || err.response?.data?.error?.message || 'Invalid or expired code.');
+      setErrorMsg(err.userMessage || err.response?.data?.error?.message || t('login.invalidOrExpiredCode'));
       setOtpDigits(Array(OTP_LEN).fill(''));
       setAutoFilled(false);
       otpRefs.current[0]?.focus();
@@ -231,6 +233,7 @@ function Blobs() {
 
 // ── Welcome (pre-login) ──────────────────────────────────────────────────────
 function WelcomeView({ insets, onStart }) {
+  const { t } = useLanguage();
   return (
     <View style={sty.root}>
       <StatusBar style="light" />
@@ -263,18 +266,18 @@ function WelcomeView({ insets, onStart }) {
       >
         <View style={sty.badgePillDark}>
           <Ionicons name="sparkles" size={11} color={KHET.primaryGlow} />
-          <Text style={sty.badgePillDarkTxt}>Powered by on-device AI</Text>
+          <Text style={sty.badgePillDarkTxt}>{t('login.poweredByOnDeviceAI')}</Text>
           <View style={sty.dotSep} />
-          <Text style={sty.badgePillDarkTxt}>2,00,000+ farmers</Text>
+          <Text style={sty.badgePillDarkTxt}>{t('login.farmerCount')}</Text>
         </View>
 
         <Text style={sty.heroTitle}>
-          Your farm,{'\n'}
-          <Text style={sty.heroTitleItalic}>smarter every season.</Text>
+          {t('login.heroTitleLine1')}{'\n'}
+          <Text style={sty.heroTitleItalic}>{t('login.heroTitleLine2')}</Text>
         </Text>
 
         <Text style={sty.heroDesc}>
-          Diagnose crop disease from a photo, talk to your personal AI agronomist, and track mandi prices — all in your language.
+          {t('login.heroDesc')}
         </Text>
 
         <View style={sty.langRow}>
@@ -284,17 +287,17 @@ function WelcomeView({ insets, onStart }) {
             </View>
           ))}
           <View style={sty.langChip}>
-            <Text style={[sty.langChipTxt, { opacity: 0.8 }]}>+3 more</Text>
+            <Text style={[sty.langChipTxt, { opacity: 0.8 }]}>{t('login.plusMoreLangs')}</Text>
           </View>
         </View>
 
         <View style={{ marginTop: 28 }}>
-          <GradientButton label="Get started" sublabel="/ शुरू करें" onPress={onStart} />
+          <GradientButton label={t('login.getStartedBtn')} sublabel="/ शुरू करें" onPress={onStart} />
         </View>
 
         <View style={sty.termsRow}>
           <Ionicons name="shield-checkmark" size={12} color="rgba(255,255,255,0.6)" />
-          <Text style={sty.termsTxt}>By continuing you agree to our Terms & Privacy</Text>
+          <Text style={sty.termsTxt}>{t('login.termsAndPrivacy')}</Text>
         </View>
       </ScrollView>
     </View>
@@ -303,6 +306,7 @@ function WelcomeView({ insets, onStart }) {
 
 // ── Phone (mobile entry) ─────────────────────────────────────────────────────
 function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneDisplay, onBack, onChange, onFocus, onBlur, onSubmit }) {
+  const { t } = useLanguage();
   const scrollRef = useRef(null);
   const scrollDown = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
   return (
@@ -331,13 +335,13 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
           <View style={{ marginTop: 24 }}>
             <View style={sty.accentPill}>
               <Ionicons name="sparkles" size={11} color={KHET.primary} />
-              <Text style={sty.accentPillTxt}>Secure AI verification</Text>
+              <Text style={sty.accentPillTxt}>{t('login.secureAIVerification')}</Text>
             </View>
 
             <View style={sty.progressRow}>
               <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={sty.progFill} />
               <View style={sty.progEmpty} />
-              <Text style={sty.progTxt}>Step 1 of 2</Text>
+              <Text style={sty.progTxt}>{t('login.step1of2')}</Text>
             </View>
 
             <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sty.iconSquare}>
@@ -345,13 +349,13 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
             </LinearGradient>
 
             <Text style={sty.title}>
-              What's your{'\n'}
-              <Text style={sty.titleItalic}>mobile number?</Text>
+              {t('login.phoneTitleLine1')}{'\n'}
+              <Text style={sty.titleItalic}>{t('login.phoneTitleLine2')}</Text>
             </Text>
-            <Text style={sty.subtle}>We'll send a 6-digit OTP on your number to verify it's really you.</Text>
+            <Text style={sty.subtle}>{t('login.phoneSubtle')}</Text>
             <Text style={[sty.subtle, { marginTop: 4 }]}>आपका मोबाइल नंबर क्या है?</Text>
 
-            <Text style={sty.fieldLabel}>MOBILE NUMBER</Text>
+            <Text style={sty.fieldLabel}>{t('login.mobileNumberLabel')}</Text>
             <View style={[sty.inputCard, phoneFocused && sty.inputCardFocused]}>
               <View style={sty.ccChip}>
                 <Text style={{ fontSize: 16 }}>🇮🇳</Text>
@@ -381,12 +385,12 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
             ) : (
               <View style={sty.privacyBox}>
                 <Ionicons name="shield-checkmark" size={15} color={KHET.primary} />
-                <Text style={sty.privacyTxt}>Your number stays private. Never shared or sold.</Text>
+                <Text style={sty.privacyTxt}>{t('login.numberPrivate')}</Text>
               </View>
             )}
 
             <GradientButton
-              label="Send OTP / OTP भेजें"
+              label={t('login.sendOtpBtn')}
               onPress={onSubmit}
               loading={loading}
               disabled={loading || !phoneReady}
@@ -395,7 +399,7 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
           </View>
 
           <Text style={sty.footerTerms}>
-            By continuing you agree to our <Text style={sty.footerStrong}>Terms</Text> & <Text style={sty.footerStrong}>Privacy Policy</Text>
+            {t('login.byContinuingPrefix')} <Text style={sty.footerStrong}>{t('login.termsShort')}</Text> & <Text style={sty.footerStrong}>{t('login.privacyPolicy')}</Text>
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -405,6 +409,7 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
 
 // ── OTP (verify) ─────────────────────────────────────────────────────────────
 function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, phoneDisplay, resendIn, complete, onBack, onChange, onKey, onVerify, onResend }) {
+  const { t } = useLanguage();
   const scrollRef = useRef(null);
   const scrollDown = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
   // Once all six digits are in (auto-fill or manual), no more typing is needed —
@@ -436,7 +441,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             </View>
             <View style={sty.onlinePill}>
               <Ionicons name="wifi" size={12} color={KHET.primary} />
-              <Text style={sty.onlinePillTxt}>Online</Text>
+              <Text style={sty.onlinePillTxt}>{t('chat.online')}</Text>
             </View>
           </View>
 
@@ -444,16 +449,16 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             <View style={sty.progressRow}>
               <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={sty.progFill} />
               <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={sty.progFill} />
-              <Text style={sty.progTxt}>Step 2 of 2</Text>
+              <Text style={sty.progTxt}>{t('login.step2of2')}</Text>
             </View>
 
             <Text style={sty.title}>
-              Enter the{'\n'}
-              <Text style={sty.titleItalic}>6-digit code</Text>
+              {t('login.otpTitleLine1')}{'\n'}
+              <Text style={sty.titleItalic}>{t('login.otpTitleLine2')}</Text>
             </Text>
             <Text style={sty.subtle}>
-              Sent to <Text style={sty.subtleStrong}>{masked}</Text>
-              <Text onPress={onBack} style={sty.changeLink}>  Change</Text>
+              {t('login.sentToPrefix')} <Text style={sty.subtleStrong}>{masked}</Text>
+              <Text onPress={onBack} style={sty.changeLink}>{`  ${t('checkout.change')}`}</Text>
             </Text>
 
             {/* OTP boxes */}
@@ -481,7 +486,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             {autoFilled && (
               <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sty.autofillBanner}>
                 <Ionicons name="sparkles" size={13} color={KHET.primaryForeground} />
-                <Text style={sty.autofillTxt}>Auto-filled from SMS</Text>
+                <Text style={sty.autofillTxt}>{t('login.autoFilledFromSms')}</Text>
               </LinearGradient>
             )}
 
@@ -495,7 +500,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
               ) : loading ? (
                 <View style={sty.verifyingBox}>
                   <ActivityIndicator size="small" color={KHET.primary} />
-                  <Text style={sty.verifyingTxt}>Verifying code…</Text>
+                  <Text style={sty.verifyingTxt}>{t('login.verifyingCode')}</Text>
                 </View>
               ) : null}
             </View>
@@ -504,17 +509,17 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             <View style={{ marginTop: 8, alignItems: 'center' }}>
               {resendIn > 0 ? (
                 <Text style={sty.subtle}>
-                  Resend OTP in <Text style={sty.subtleStrong}>{mm}:{ss}</Text>
+                  {t('login.resendOtpInPrefix')} <Text style={sty.subtleStrong}>{mm}:{ss}</Text>
                 </Text>
               ) : (
                 <TouchableOpacity onPress={onResend} disabled={loading}>
-                  <Text style={sty.resendLink}>Resend OTP / दोबारा भेजें</Text>
+                  <Text style={sty.resendLink}>{t('login.resendOtpBtn')}</Text>
                 </TouchableOpacity>
               )}
             </View>
 
             <GradientButton
-              label={loading ? 'Verifying…' : 'Verify OTP'}
+              label={loading ? t('login.verifyingShort') : t('login.verifyOtpBtn')}
               onPress={onVerify}
               loading={loading}
               disabled={!complete || loading}
@@ -522,7 +527,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             />
           </View>
 
-          <Text style={sty.footerTerms}>Didn't get the code? Check your SMS inbox or try again in a moment.</Text>
+          <Text style={sty.footerTerms}>{t('login.didntGetCodeHint')}</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </LinearGradient>

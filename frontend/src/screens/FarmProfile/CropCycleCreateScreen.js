@@ -220,7 +220,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
     <CosmicScreen edges={{ top: false, bottom: false }}>
       <CosmicHeader
         title={t('nav.newCropCycle') || 'Plan a crop cycle'}
-        subtitle={cropLabel ? `${cropLabel}${area ? ` · ${area} ac` : ''}` : 'Set up before you sow'}
+        subtitle={cropLabel ? `${cropLabel}${area ? ` · ${area} ac` : ''}` : t('farmProfile.cropCycleSetupSub')}
       />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -232,15 +232,14 @@ export default function CropCycleCreateScreen({ navigation, route }) {
           {/* ── Intro (Login-style accent pill + serif title) ── */}
           <View style={styles.accentPill}>
             <Ionicons name="sparkles" size={11} color={COSMIC.PRIMARY} />
-            <Text style={styles.accentPillTxt}>Plan before you sow</Text>
+            <Text style={styles.accentPillTxt}>{t('farmProfile.cropCyclePlanPill')}</Text>
           </View>
           <Text style={styles.heroTitle}>
-            Let's plan this{'\n'}
-            <Text style={styles.heroTitleItalic}>season's crop.</Text>
+            {t('farmProfile.cropCycleHeroLine1')}{'\n'}
+            <Text style={styles.heroTitleItalic}>{t('farmProfile.cropCycleHeroLine2')}</Text>
           </Text>
           <Text style={styles.heroSub}>
-            Capture the field's history, preparation and seed — before the first seed goes in. You can log
-            land-prep, sowing and every activity afterwards.
+            {t('farmProfile.cropCycleHeroSub')}
           </Text>
 
           {/* progress bar */}
@@ -252,16 +251,16 @@ export default function CropCycleCreateScreen({ navigation, route }) {
                 style={[styles.progressFill, { width: `${Math.max(8, progress * 100)}%` }]}
               />
             </View>
-            <Text style={styles.progressTxt}>{requiredDone}/3 basics</Text>
+            <Text style={styles.progressTxt}>{t('farmProfile.cropCycleProgress', { done: requiredDone })}</Text>
           </View>
 
           {/* ── 1 · Crop picker ─────────────────────────────── */}
-          <SectionHeader n="1" tint={COSMIC.PRIMARY} title="Which crop?" />
+          <SectionHeader n="1" tint={COSMIC.PRIMARY} title={t('farmProfile.cropCycleWhichCrop')} />
           <GlassCard variant="plain" style={styles.section}>
             <View style={styles.searchRow}>
               <Ionicons name="search" size={16} color={COSMIC.MUTED} />
               <TextInput
-                placeholder="Search: bhendi, kapas, soya…"
+                placeholder={t('farmProfile.cropCycleSearchPlaceholder')}
                 placeholderTextColor={COSMIC.MUTED}
                 value={query}
                 onChangeText={setQuery}
@@ -307,14 +306,14 @@ export default function CropCycleCreateScreen({ navigation, route }) {
               })}
               {filteredCrops.length === 0 && (
                 <View style={styles.cropEmpty}>
-                  <Text style={styles.mutedText}>No crop matches "{query}".</Text>
+                  <Text style={styles.mutedText}>{t('farmProfile.cropCycleNoMatch', { query })}</Text>
                   {query.trim().length > 1 && (
                     <Pressable
                       onPress={() => { Haptics.selection?.(); setCrop(query.trim()); setQuery(''); }}
                       style={styles.addCustomBtn}
                     >
                       <Ionicons name="add-circle" size={16} color={COSMIC.PRIMARY} />
-                      <Text style={styles.addCustomTxt}>Add "{query.trim()}" as my crop</Text>
+                      <Text style={styles.addCustomTxt}>{t('farmProfile.cropCycleAddCustom', { query: query.trim() })}</Text>
                     </Pressable>
                   )}
                 </View>
@@ -325,7 +324,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
             {isCustomCrop && (
               <View style={styles.customSelected}>
                 <Ionicons name="leaf" size={16} color={COSMIC.PRIMARY} />
-                <Text style={styles.customSelectedTxt} numberOfLines={1}>{cropLabel} · custom crop</Text>
+                <Text style={styles.customSelectedTxt} numberOfLines={1}>{t('farmProfile.cropCycleCustomCrop', { crop: cropLabel })}</Text>
                 <Pressable onPress={() => setCrop('')} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
                   <Ionicons name="close-circle" size={18} color={COSMIC.MUTED} />
                 </Pressable>
@@ -334,7 +333,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
           </GlassCard>
 
           {/* ── 2 · Season ──────────────────────────────────── */}
-          <SectionHeader n="2" tint={COSMIC.IRRIGATION} title="Season" />
+          <SectionHeader n="2" tint={COSMIC.IRRIGATION} title={t('farmProfile.cropCycleSeason')} />
           <View style={[styles.section, styles.seasonGrid]}>
             {SEASONS.map((s) => {
               const sel = season === s.key;
@@ -361,7 +360,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
           </View>
 
           {/* ── 3 · Area ────────────────────────────────────── */}
-          <SectionHeader n="3" tint={COSMIC.ACCENT_DK} title="Area allocated" />
+          <SectionHeader n="3" tint={COSMIC.ACCENT_DK} title={t('farmProfile.cropCycleAreaAllocated')} />
           <GlassCard variant="plain" style={styles.section}>
             <View style={styles.areaRow}>
               <TextInput
@@ -373,14 +372,14 @@ export default function CropCycleCreateScreen({ navigation, route }) {
                 style={styles.areaInput}
               />
               <View style={styles.areaUnitPill}>
-                <Text style={styles.areaUnitText}>ACRES</Text>
+                <Text style={styles.areaUnitText}>{t('farmProfile.cropCycleAcresUnit')}</Text>
               </View>
             </View>
-            <Text style={styles.mutedText}>Regional units (bigha, guntha) coming soon.</Text>
+            <Text style={styles.mutedText}>{t('farmProfile.cropCycleRegionalUnits')}</Text>
           </GlassCard>
 
           {/* ── 4 · Variety & type ──────────────────────────── */}
-          <SectionHeader n="4" tint={COSMIC.PRIMARY} title="Variety & type" optional />
+          <SectionHeader n="4" tint={COSMIC.PRIMARY} title={t('farmProfile.cropCycleVarietyType')} optional />
           <GlassCard variant="plain" style={styles.section}>
             <TextInput
               value={variety}
@@ -402,7 +401,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
               ))}
               <Chip
                 icon="nutrition-outline"
-                label="Organic"
+                label={t('farmProfile.cropCycleOrganic')}
                 tint={COSMIC.SOWING}
                 selected={organic}
                 onPress={() => { Haptics.selection?.(); setOrganic((o) => !o); }}
@@ -411,9 +410,9 @@ export default function CropCycleCreateScreen({ navigation, route }) {
           </GlassCard>
 
           {/* ── 5 · Field history (previous crop) ───────────── */}
-          <SectionHeader n="5" tint={COSMIC.LAND_PREP} title="How was this field cultivated before?" optional />
+          <SectionHeader n="5" tint={COSMIC.LAND_PREP} title={t('farmProfile.cropCycleFieldHistory')} optional />
           <GlassCard variant="plain" style={styles.section}>
-            <Text style={styles.helpText}>Last season's crop helps plan rotation, nutrients and pest risk.</Text>
+            <Text style={styles.helpText}>{t('farmProfile.cropCycleFieldHistoryHelp')}</Text>
             <View style={styles.chipWrap}>
               {PREV_CROPS.map((c) => (
                 <Chip
@@ -425,7 +424,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
                 />
               ))}
               <Chip
-                label="Fallow / first time"
+                label={t('cropCycleCreate.fallowFirstTime')}
                 tint={COSMIC.LAND_PREP}
                 selected={prevCrop === 'Fallow / first time'}
                 onPress={() => { Haptics.selection?.(); setPrevCrop(prevCrop === 'Fallow / first time' ? '' : 'Fallow / first time'); }}
@@ -434,7 +433,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
             <TextInput
               value={PREV_CROPS.includes(prevCrop) || prevCrop === 'Fallow / first time' ? '' : prevCrop}
               onChangeText={setPrevCrop}
-              placeholder="…or type the previous crop"
+              placeholder={t('farmProfile.cropCyclePrevCropPlaceholder')}
               placeholderTextColor={COSMIC.MUTED}
               style={[styles.input, { marginTop: 10 }]}
               autoCapitalize="words"
@@ -442,9 +441,9 @@ export default function CropCycleCreateScreen({ navigation, route }) {
           </GlassCard>
 
           {/* ── 6 · Field preparation ───────────────────────── */}
-          <SectionHeader n="6" tint={COSMIC.LAND_PREP} title="Field preparation" optional />
+          <SectionHeader n="6" tint={COSMIC.LAND_PREP} title={t('farmProfile.cropCycleFieldPrep')} optional />
           <GlassCard variant="plain" style={styles.section}>
-            <Text style={styles.helpText}>What's done or planned to ready the field (tap all that apply).</Text>
+            <Text style={styles.helpText}>{t('farmProfile.cropCycleFieldPrepHelp')}</Text>
             <View style={styles.chipWrap}>
               {FIELD_PREP.map((p) => (
                 <Chip
@@ -460,7 +459,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
           </GlassCard>
 
           {/* ── 7 · Water source ────────────────────────────── */}
-          <SectionHeader n="7" tint={COSMIC.IRRIGATION} title="Water source" optional />
+          <SectionHeader n="7" tint={COSMIC.IRRIGATION} title={t('farmProfile.cropCycleWaterSource')} optional />
           <GlassCard variant="plain" style={styles.section}>
             <View style={styles.chipWrap}>
               {WATER_SOURCES.map((w) => (
@@ -477,7 +476,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
           </GlassCard>
 
           {/* ── 8 · Seed details ────────────────────────────── */}
-          <SectionHeader n="8" tint={COSMIC.ACCENT_DK} title="Seed details" optional />
+          <SectionHeader n="8" tint={COSMIC.ACCENT_DK} title={t('farmProfile.cropCycleSeedDetails')} optional />
           <GlassCard variant="plain" style={styles.section}>
             <TextInput
               value={seedBrand}
@@ -487,7 +486,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
               style={[styles.input, { marginBottom: 10 }]}
               autoCapitalize="words"
             />
-            <Text style={styles.subLabel}>SEED SOURCE</Text>
+            <Text style={styles.subLabel}>{t('farmProfile.cropCycleSeedSource')}</Text>
             <View style={styles.chipWrap}>
               {SEED_SOURCES.map((s) => (
                 <Chip
@@ -502,22 +501,22 @@ export default function CropCycleCreateScreen({ navigation, route }) {
 
             <View style={[styles.row2, { marginTop: 12 }]}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.subLabel}>SEED RATE (KG)</Text>
+                <Text style={styles.subLabel}>{t('farmProfile.cropCycleSeedRate')}</Text>
                 <TextInput
                   value={seedRate}
                   onChangeText={setSeedRate}
-                  placeholder="e.g. 30"
+                  placeholder={t('farmProfile.cropCycleSeedRatePlaceholder')}
                   placeholderTextColor={COSMIC.MUTED}
                   keyboardType="decimal-pad"
                   style={styles.input}
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.subLabel}>SEED COST (₹)</Text>
+                <Text style={styles.subLabel}>{t('farmProfile.cropCycleSeedCost')}</Text>
                 <TextInput
                   value={seedCost}
                   onChangeText={setSeedCost}
-                  placeholder="e.g. 3200"
+                  placeholder={t('farmProfile.cropCycleSeedCostPlaceholder')}
                   placeholderTextColor={COSMIC.MUTED}
                   keyboardType="numeric"
                   style={styles.input}
@@ -525,18 +524,18 @@ export default function CropCycleCreateScreen({ navigation, route }) {
               </View>
             </View>
 
-            <Text style={[styles.subLabel, { marginTop: 12 }]}>SEED TREATMENT</Text>
+            <Text style={[styles.subLabel, { marginTop: 12 }]}>{t('farmProfile.cropCycleSeedTreatment')}</Text>
             <View style={styles.chipWrap}>
               <Chip
                 icon="shield-checkmark-outline"
-                label="Treated"
+                label={t('farmProfile.cropCycleTreated')}
                 tint={COSMIC.FERTILIZER}
                 selected={treated === 'treated'}
                 onPress={() => { Haptics.selection?.(); setTreated(treated === 'treated' ? null : 'treated'); }}
               />
               <Chip
                 icon="close-circle-outline"
-                label="Not treated"
+                label={t('farmProfile.cropCycleNotTreated')}
                 selected={treated === 'untreated'}
                 onPress={() => { Haptics.selection?.(); setTreated(treated === 'untreated' ? null : 'untreated'); }}
               />
@@ -557,7 +556,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
                 <TextInput
                   value={TREATMENT_PRODUCTS.includes(treatProduct) ? '' : treatProduct}
                   onChangeText={setTreatProduct}
-                  placeholder="…or type the treatment product"
+                  placeholder={t('farmProfile.cropCycleTreatmentPlaceholder')}
                   placeholderTextColor={COSMIC.MUTED}
                   style={[styles.input, { marginTop: 10 }]}
                 />
@@ -579,7 +578,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
                     {cropLabel}{variety ? ` · ${variety}` : ''}
                   </Text>
                   <Text style={styles.summaryMeta} numberOfLines={1}>
-                    {[season, area ? `${area} ac` : null, prevCrop ? `after ${prevCrop}` : null].filter(Boolean).join(' · ') || 'Pick season & area'}
+                    {[season, area ? `${area} ac` : null, prevCrop ? t('farmProfile.cropCycleAfterPrev', { crop: prevCrop }) : null].filter(Boolean).join(' · ') || t('farmProfile.cropCyclePickSeasonArea')}
                   </Text>
                 </View>
               </View>
@@ -592,7 +591,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
         {/* ── Footer (gradient Start button) ───────────────── */}
         <View style={styles.footer}>
           <GlowButton
-            label={saving ? 'Starting…' : (t('farmProfile.startCropCycle') || 'Start crop cycle')}
+            label={saving ? t('farmProfile.cropCycleStarting') : (t('farmProfile.startCropCycle') || 'Start crop cycle')}
             iconRight="arrow-forward"
             variant="primary"
             size="lg"
@@ -610,13 +609,14 @@ export default function CropCycleCreateScreen({ navigation, route }) {
 // Sub-components
 // ──────────────────────────────────────────────────────────────────────────────
 function SectionHeader({ n, tint, title, optional }) {
+  const { t } = useLanguage();
   return (
     <View style={styles.secHeader}>
       <View style={[styles.secNum, { backgroundColor: tint }]}>
         <Text style={styles.secNumTxt}>{n}</Text>
       </View>
       <Text style={styles.secTitle} numberOfLines={2}>{title}</Text>
-      {optional && <Text style={styles.optional}>Optional</Text>}
+      {optional && <Text style={styles.optional}>{t('farmProfile.cropCycleOptional')}</Text>}
     </View>
   );
 }

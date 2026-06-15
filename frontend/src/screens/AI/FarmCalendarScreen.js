@@ -19,6 +19,7 @@ import {
   updateCalendarTask, getCrops,
 } from '../../services/aiApi';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import ActivityIcon from '../../components/ActivityIcons';
 
 const STATUS_CONFIG = {
   upcoming:   { color: COLORS.textMedium, icon: 'time-outline' },
@@ -269,7 +270,7 @@ export default function FarmCalendarScreen({ navigation }) {
             contentContainerStyle={S.listContent}
             ListEmptyComponent={
               <View style={S.centered}>
-                <Ionicons name="calendar-outline" size={48} color={COLORS.oliveGreen} />
+                <ActivityIcon type="OTHER" size={48} animated={false} />
                 <Text style={S.emptyTxt}>{t('farmCalendar.noTasksForToday')}</Text>
                 <Text style={S.emptySub}>{t('farmCalendar.createFromTab')}</Text>
               </View>
@@ -309,7 +310,7 @@ export default function FarmCalendarScreen({ navigation }) {
             )}
             ListEmptyComponent={
               <View style={S.centered}>
-                <Ionicons name="calendar-outline" size={48} color={COLORS.oliveGreen} />
+                <ActivityIcon type="OTHER" size={48} animated={false} />
                 <Text style={S.emptyTxt}>{t('farmCalendar.noCalendarsYet')}</Text>
                 <TouchableOpacity style={S.createBtnSmall} onPress={() => setTab('create')}>
                   <Text style={S.createBtnSmallTxt}>{t('farmCalendar.createNew')}</Text>

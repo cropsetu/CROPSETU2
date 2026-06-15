@@ -17,13 +17,13 @@ const INTER_REG = 'Inter_400Regular';
 const INTER_SEMI = 'Inter_600SemiBold';
 const INTER_BOLD = 'Inter_700Bold';
 
-// Auto-detect: AIChatScreen detects each message's script and replies in the
-// matching language. Stored as the magic string 'auto' on chatLanguage.
-const AUTO = { code: 'auto', name: 'Auto-detect', nativeName: 'Auto-detect', flag: '🌐' };
-
-export default function LanguageSelector({ compact = false }) {
-  const { chatLanguage, setChatLanguage, setLanguage, LANGUAGES } = useLanguage();
+export default function LanguageSelector({ compact = false, iconOnly = false }) {
+  const { chatLanguage, setChatLanguage, setLanguage, LANGUAGES, t } = useLanguage();
   const [open, setOpen] = useState(false);
+
+  // Auto-detect: AIChatScreen detects each message's script and replies in the
+  // matching language. Stored as the magic string 'auto' on chatLanguage.
+  const AUTO = { code: 'auto', name: t('languageSelector.autoDetect'), nativeName: t('languageSelector.autoDetect'), flag: '🌐' };
 
   const current = chatLanguage === 'auto'
     ? AUTO
@@ -32,21 +32,36 @@ export default function LanguageSelector({ compact = false }) {
 
   return (
     <>
-      <TouchableOpacity
-        onPress={() => setOpen(true)}
-        activeOpacity={0.75}
-        style={styles.triggerWrap}
-      >
-        <BlurView intensity={28} tint="dark" style={styles.triggerBlur}>
-          <View style={styles.triggerRow}>
-            <Globe size={14} color="#F5B841" strokeWidth={2.2} />
-            <Text style={styles.triggerTxt} numberOfLines={1}>
-              {label}
-            </Text>
-            <ChevronDown size={14} color="rgba(255,255,255,0.55)" strokeWidth={2.2} />
-          </View>
-        </BlurView>
-      </TouchableOpacity>
+      {iconOnly ? (
+        // Header icon-button variant — fixed 38x38 circular Globe. The current
+        // language name lives only in the slide-up modal, so the header geometry
+        // stays identical regardless of which language is selected.
+        <TouchableOpacity
+          onPress={() => setOpen(true)}
+          activeOpacity={0.7}
+          style={styles.iconOnlyBtn}
+          accessibilityRole="button"
+          accessibilityLabel={`${t('language')}: ${label}`}
+        >
+          <Globe size={20} color="#F5B841" strokeWidth={2.2} />
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          onPress={() => setOpen(true)}
+          activeOpacity={0.75}
+          style={styles.triggerWrap}
+        >
+          <BlurView intensity={28} tint="dark" style={styles.triggerBlur}>
+            <View style={styles.triggerRow}>
+              <Globe size={14} color="#F5B841" strokeWidth={2.2} />
+              <Text style={styles.triggerTxt} numberOfLines={1}>
+                {label}
+              </Text>
+              <ChevronDown size={14} color="rgba(255,255,255,0.55)" strokeWidth={2.2} />
+            </View>
+          </BlurView>
+        </TouchableOpacity>
+      )}
 
       <Modal
         visible={open}
@@ -59,7 +74,7 @@ export default function LanguageSelector({ compact = false }) {
           <Pressable style={styles.sheetWrap} onPress={() => {}}>
             <BlurView intensity={60} tint="dark" style={styles.sheet}>
               <View style={styles.sheetHandle} />
-              <Text style={styles.sheetTitle}>Language</Text>
+              <Text style={styles.sheetTitle}>{t('language')}</Text>
               <FlatList
                 data={[AUTO, ...LANGUAGES]}
                 keyExtractor={(item) => item.code}
@@ -109,6 +124,10 @@ export default function LanguageSelector({ compact = false }) {
 }
 
 const styles = StyleSheet.create({
+  iconOnlyBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    alignItems: 'center', justifyContent: 'center',
+  },
   triggerWrap: {
     borderRadius: 999,
     overflow: 'hidden',

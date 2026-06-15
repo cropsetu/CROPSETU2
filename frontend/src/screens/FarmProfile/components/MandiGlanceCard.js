@@ -13,6 +13,7 @@ import { Sparkline } from '../../../components/charts';
 import SpeakerButton from '../ui/SpeakerButton';
 import GlassCard from '../ui/GlassCard';
 import { COSMIC, CR, CT } from '../theme/cosmicTheme';
+import { useLanguage } from '../../../context/LanguageContext';
 
 const fmtDate = (iso) => {
   if (!iso) return '';
@@ -21,6 +22,7 @@ const fmtDate = (iso) => {
 };
 
 export default function MandiGlanceCard({ cropName, district, state, salePricePerKgInr }) {
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [best, setBest] = useState(null);
   const [others, setOthers] = useState([]);
@@ -53,7 +55,7 @@ export default function MandiGlanceCard({ cropName, district, state, salePricePe
   if (loading) {
     return (
       <GlassCard style={styles.card}>
-        <View style={styles.headRow}><Text style={styles.title}>Mandi price</Text></View>
+        <View style={styles.headRow}><Text style={styles.title}>{t('mspTracker.mandiPrice')}</Text></View>
         <ActivityIndicator color={COSMIC.PRIMARY} style={{ marginVertical: 8 }} />
       </GlassCard>
     );
@@ -65,13 +67,18 @@ export default function MandiGlanceCard({ cropName, district, state, salePricePe
   const sale = Number(salePricePerKgInr) || 0;
   const diffPct = sale > 0 && perKg > 0 ? Math.round(((sale - perKg) / perKg) * 100) : null;
   const speakText =
-    `${cropName} sells for about ${Math.round(modal)} rupees per quintal at ${best.market} mandi`
-    + (diffPct != null ? `. Your sale was ${Math.abs(diffPct)} percent ${diffPct >= 0 ? 'above' : 'below'} this.` : '.');
+    t('mandiGlance.speakPrice', { crop: cropName, price: Math.round(modal), market: best.market })
+    + (diffPct != null
+      ? t('mandiGlance.speakComparison', {
+          percent: Math.abs(diffPct),
+          direction: diffPct >= 0 ? t('mandiGlance.above') : t('mandiGlance.below'),
+        })
+      : '.');
 
   return (
     <GlassCard style={styles.card}>
       <View style={styles.headRow}>
-        <Text style={styles.title}>Mandi price</Text>
+        <Text style={styles.title}>{t('mspTracker.mandiPrice')}</Text>
         <View style={styles.headRight}>
           <View style={styles.liveDot} />
           <Text style={styles.liveText}>Agmarknet</Text>
@@ -99,7 +106,11 @@ export default function MandiGlanceCard({ cropName, district, state, salePricePe
             color={diffPct >= 0 ? COSMIC.PRIMARY : COSMIC.DANGER}
           />
           <Text style={[styles.cmpText, { color: diffPct >= 0 ? COSMIC.PRIMARY : COSMIC.DANGER }]}>
-            Your sale (₹{sale}/kg) was {Math.abs(diffPct)}% {diffPct >= 0 ? 'above' : 'below'} this mandi
+            {t('mandiGlance.saleComparison', {
+              sale,
+              percent: Math.abs(diffPct),
+              direction: diffPct >= 0 ? t('mandiGlance.above') : t('mandiGlance.below'),
+            })}
           </Text>
         </View>
       )}

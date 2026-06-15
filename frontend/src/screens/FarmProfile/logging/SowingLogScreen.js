@@ -26,6 +26,8 @@ export default function SowingLogScreen({ navigation, route }) {
   const { activeFarm } = useMultiFarm();
   const { cycleId } = route.params || {};
 
+  const methodItems = METHODS.map((m) => ({ ...m, label: t(`sowingLog.method_${m.key}`) }));
+
   const [method, setMethod]   = useState(null);
   const [seedKg, setSeedKg]   = useState('');
   const [labour, setLabour]   = useState('');
@@ -36,8 +38,8 @@ export default function SowingLogScreen({ navigation, route }) {
   const canSave = !!method;
 
   const handleSave = useCallback(async () => {
-    if (!canSave) { Haptics.error?.(); Alert.alert('Missing info', 'Pick a sowing method.'); return; }
-    if (!cycleId) { Alert.alert('Pick a crop cycle', 'Start a crop cycle first to log against it.'); return; }
+    if (!canSave) { Haptics.error?.(); Alert.alert(t('sowingLog.missingInfoTitle'), t('sowingLog.missingInfoBody')); return; }
+    if (!cycleId) { Alert.alert(t('sowingLog.pickCycleTitle'), t('sowingLog.pickCycleBody')); return; }
     setSaving(true);
     try {
       await farmApi.addActivity(cycleId, {
@@ -57,36 +59,36 @@ export default function SowingLogScreen({ navigation, route }) {
       setCelebrate(true);
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || 'Could not save.');
+      Alert.alert(t('login.error') || 'Error', e.message || t('sowingLog.couldNotSave'));
     } finally {
       setSaving(false);
     }
   }, [canSave, cycleId, method, seedKg, labour, notes, t]);
 
   const subtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'}${cycleId ? ' · active cycle' : ''}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || t('nav.farm')}${cycleId ? ` · ${t('sowingLog.activeCycle')}` : ''}`
     : undefined;
 
   return (
     <LoggerScaffold
-      title="Log sowing" subtitle={subtitle}
-      footerLabel="Log sowing" footerIcon="leaf-outline"
+      title={t('sowingLog.title')} subtitle={subtitle}
+      footerLabel={t('sowingLog.title')} footerIcon="leaf-outline"
       saving={saving} canSave={canSave} onSave={handleSave}
       celebrate={celebrate}
-      celebrateTitle="Sowing logged ✓"
-      celebrateSubtitle="Stage moved to Sowing."
+      celebrateTitle={t('sowingLog.celebrateTitle')}
+      celebrateSubtitle={t('sowingLog.celebrateSubtitle')}
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
-      <SectionHeader icon="leaf-outline" tint={COSMIC.SOWING} title="Method" />
-      <TileGrid items={METHODS} value={method} onChange={setMethod} columns={2} />
+      <SectionHeader icon="leaf-outline" tint={COSMIC.SOWING} title={t('sowingLog.sectionMethod')} />
+      <TileGrid items={methodItems} value={method} onChange={setMethod} columns={2} />
 
-      <SectionHeader icon="nutrition-outline" tint={COSMIC.SOWING} title="Seed used (kg)" optional />
+      <SectionHeader icon="nutrition-outline" tint={COSMIC.SOWING} title={t('sowingLog.sectionSeedUsed')} optional />
       <Card><BigNumberInput value={seedKg} onChange={setSeedKg} unit="KG" keyboardType="decimal-pad" tint={COSMIC.SOWING} /></Card>
 
-      <SectionHeader icon="people-outline" tint={COSMIC.EXPENSE} title="Labour cost ₹" optional />
+      <SectionHeader icon="people-outline" tint={COSMIC.EXPENSE} title={t('sowingLog.sectionLabourCost')} optional />
       <Card><BigNumberInput value={labour} onChange={setLabour} unit="₹" keyboardType="decimal-pad" tint={COSMIC.EXPENSE} /></Card>
 
-      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title="Notes" optional />
+      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title={t('sowingLog.sectionNotes')} optional />
       <Card><NotesField value={notes} onChange={setNotes} /></Card>
     </LoggerScaffold>
   );

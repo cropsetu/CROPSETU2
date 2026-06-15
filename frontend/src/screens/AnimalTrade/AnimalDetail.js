@@ -10,6 +10,7 @@ import { COLORS, SHADOWS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import AnimalIcon from '../../components/AnimalIcons';
 
 const { width: W } = Dimensions.get('window');
 const HERO_H = 300;
@@ -135,7 +136,7 @@ export default function AnimalDetail({ route, navigation }) {
               ? <Image source={{ uri: imageUrl }} style={styles.heroImg} resizeMode="cover" />
               : (
                 <View style={[styles.heroImg, styles.heroFallback]}>
-                  <Ionicons name="paw" size={90} color={COLORS.primary + '60'} />
+                  <AnimalIcon type={listing.animalType || listing.animal || listing.category || 'Cow'} size={140} />
                 </View>
               )
             }
@@ -269,12 +270,12 @@ export default function AnimalDetail({ route, navigation }) {
           <>
             <TouchableOpacity style={styles.callBtn} onPress={handleEdit}>
               <Ionicons name="create-outline" size={20} color={COLORS.primary} />
-              <Text style={styles.callBtnText}>Edit Listing</Text>
+              <Text style={styles.callBtnText}>{t('rent.editListing')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.chatBtn} onPress={handleViewInbox}>
               <LinearGradient colors={[COLORS.primary, COLORS.greenDeep]} style={styles.chatGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
                 <Ionicons name="chatbubbles" size={20} color={COLORS.white} />
-                <Text style={styles.chatBtnText}>View Inbox</Text>
+                <Text style={styles.chatBtnText}>{t('animalDetail.viewInbox')}</Text>
               </LinearGradient>
             </TouchableOpacity>
           </>

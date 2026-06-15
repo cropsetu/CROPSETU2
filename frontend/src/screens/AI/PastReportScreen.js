@@ -136,7 +136,7 @@ function pickReportFields(row) {
   };
 }
 
-function buildReportHTML(row, fields) {
+function buildReportHTML(row, fields, t) {
   const generatedAt = formatDate(row.createdAt);
   const escape = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const li = arr => (arr || []).map(x => `<li>${escape(x)}</li>`).join('');
@@ -159,34 +159,34 @@ function buildReportHTML(row, fields) {
   .ctx span { margin-right: 12px; }
   footer { margin-top: 28px; font-size: 10px; color: #9CA3AF; border-top: 1px solid #E5E7EB; padding-top: 10px; }
 </style></head><body>
-  <h1>CropSetu — Crop Disease Report</h1>
-  <div class="meta">Generated on ${escape(generatedAt)}</div>
+  <h1>CropSetu — ${t('pastReportPdf.title')}</h1>
+  <div class="meta">${t('pastReportPdf.generatedOn')} ${escape(generatedAt)}</div>
 
   <div class="ctx">
-    <span><b>Crop:</b> ${escape(row.cropType || '—')}</span>
-    <span><b>Stage:</b> ${escape(row.growthStage || '—')}</span>
-    ${row.variety ? `<span><b>Variety:</b> ${escape(row.variety)}</span>` : ''}
-    ${row.pincode ? `<span><b>PIN:</b> ${escape(row.pincode)}</span>` : ''}
+    <span><b>${t('pastReportPdf.crop')}</b> ${escape(row.cropType || '—')}</span>
+    <span><b>${t('pastReportPdf.stage')}</b> ${escape(row.growthStage || '—')}</span>
+    ${row.variety ? `<span><b>${t('pastReportPdf.variety')}</b> ${escape(row.variety)}</span>` : ''}
+    ${row.pincode ? `<span><b>${t('pastReportPdf.pin')}</b> ${escape(row.pincode)}</span>` : ''}
   </div>
 
   <div class="hero">
     <div class="disease">${escape(fields.diseaseName)}</div>
     ${fields.scientific ? `<div class="sci">${escape(fields.scientific)}</div>` : ''}
     <div class="pills">
-      <span class="pill">Confidence ${fields.confidencePct}%</span>
-      <span class="pill">Risk ${escape(fields.riskLevel)}</span>
+      <span class="pill">${t('pastReportPdf.confidence')} ${fields.confidencePct}%</span>
+      <span class="pill">${t('pastReportPdf.risk')} ${escape(fields.riskLevel)}</span>
     </div>
   </div>
 
-  ${fields.summary ? `<h2>Summary</h2><p class="summary">${escape(fields.summary)}</p>` : ''}
+  ${fields.summary ? `<h2>${t('pastReportPdf.summary')}</h2><p class="summary">${escape(fields.summary)}</p>` : ''}
 
-  ${fields.immediateActions.length ? `<h2>Immediate actions</h2><ul>${li(fields.immediateActions)}</ul>` : ''}
-  ${fields.treatmentList.length ? `<h2>Recommended treatment</h2><ul>${li(fields.treatmentList)}</ul>` : ''}
-  ${fields.organicList.length ? `<h2>Organic treatment</h2><ul>${li(fields.organicList)}</ul>` : ''}
-  ${fields.culturalList?.length ? `<h2>Cultural controls</h2><ul>${li(fields.culturalList)}</ul>` : ''}
-  ${fields.preventionList.length ? `<h2>Prevention</h2><ul>${li(fields.preventionList)}</ul>` : ''}
+  ${fields.immediateActions.length ? `<h2>${t('pastReportPdf.immediateActions')}</h2><ul>${li(fields.immediateActions)}</ul>` : ''}
+  ${fields.treatmentList.length ? `<h2>${t('pastReportPdf.recommendedTreatment')}</h2><ul>${li(fields.treatmentList)}</ul>` : ''}
+  ${fields.organicList.length ? `<h2>${t('pastReportPdf.organicTreatment')}</h2><ul>${li(fields.organicList)}</ul>` : ''}
+  ${fields.culturalList?.length ? `<h2>${t('pastReportPdf.culturalControls')}</h2><ul>${li(fields.culturalList)}</ul>` : ''}
+  ${fields.preventionList.length ? `<h2>${t('pastReportPdf.prevention')}</h2><ul>${li(fields.preventionList)}</ul>` : ''}
 
-  <footer>CropSetu AI Diagnosis · This report is for guidance only. Confirm with a local agronomist for critical decisions.</footer>
+  <footer>CropSetu AI Diagnosis · ${t('pastReportPdf.disclaimer')}</footer>
 </body></html>`;
 }
 
@@ -220,7 +220,7 @@ export default function PastReportScreen({ navigation, route }) {
     setDownloading(true);
     try {
       const fields = pickReportFields(row);
-      const html = buildReportHTML(row, fields);
+      const html = buildReportHTML(row, fields, t);
       const { uri } = await Print.printToFileAsync({ html, base64: false });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
@@ -333,7 +333,7 @@ export default function PastReportScreen({ navigation, route }) {
           <View style={S.heroPills}>
             <View style={S.pill}>
               <Ionicons name="checkmark-circle" size={11} color={COLORS.primary} />
-              <Text style={S.pillTxt}>{fields.confidencePct}% confidence</Text>
+              <Text style={S.pillTxt}>{t('myFarm.insights.confidence', { pct: fields.confidencePct })}</Text>
             </View>
             <View style={S.pill}>
               <Ionicons name="time-outline" size={11} color={COLORS.textMedium} />

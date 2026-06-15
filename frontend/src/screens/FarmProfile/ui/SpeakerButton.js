@@ -12,7 +12,7 @@ import { COSMIC, CR } from '../theme/cosmicTheme';
 import { Haptics } from '../../../utils/haptics';
 
 export default function SpeakerButton({ text, size = 18, tint = COSMIC.PRIMARY, style }) {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const [on, setOn] = useState(false);
 
   useEffect(() => () => stopSpeaking(), []);
@@ -33,7 +33,7 @@ export default function SpeakerButton({ text, size = 18, tint = COSMIC.PRIMARY, 
     <Pressable
       onPress={toggle}
       hitSlop={8}
-      accessibilityLabel="Read aloud"
+      accessibilityLabel={t('speakerButton.readAloud', 'Read aloud')}
       style={({ pressed }) => [
         styles.btn,
         { backgroundColor: tint + '18', borderColor: tint + '40' },

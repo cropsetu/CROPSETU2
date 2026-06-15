@@ -39,20 +39,20 @@ import { Haptics } from '../../utils/haptics';
 
 // Soil swatches — earth gradients keyed to the Prisma SoilType enum.
 const SOILS = [
-  { key: 'BLACK_COTTON', label: 'Black cotton', sk: 'black',    bg: ['#4B3B32', '#1E1611'] },
-  { key: 'RED',          label: 'Red',          sk: 'red',      bg: ['#D66842', '#8B3520'] },
-  { key: 'ALLUVIAL',     label: 'Alluvial',     sk: 'alluvial', bg: ['#E2B576', '#B8935A'] },
-  { key: 'SANDY',        label: 'Sandy',        sk: 'sandy',    bg: ['#F1D69F', '#C9B07A'] },
-  { key: 'CLAY_LOAM',    label: 'Clay loam',    sk: 'clay',     bg: ['#A38E7A', '#6B5D4B'] },
-  { key: 'LATERITE',     label: 'Laterite',     sk: 'laterite', bg: ['#E08A3C', '#A0522D'] },
-  { key: 'UNKNOWN',      label: 'Not sure',     sk: null,       bg: ['#4B4A47', '#2A2927'] },
+  { key: 'BLACK_COTTON', labelKey: 'farmProfile.soilBlackCotton', sk: 'black',    bg: ['#4B3B32', '#1E1611'] },
+  { key: 'RED',          labelKey: 'crops.soilRed',               sk: 'red',      bg: ['#D66842', '#8B3520'] },
+  { key: 'ALLUVIAL',     labelKey: 'crops.soilAlluvial',          sk: 'alluvial', bg: ['#E2B576', '#B8935A'] },
+  { key: 'SANDY',        labelKey: 'crops.soilSandy',             sk: 'sandy',    bg: ['#F1D69F', '#C9B07A'] },
+  { key: 'CLAY_LOAM',    labelKey: 'farmProfile.soilClayLoam',    sk: 'clay',     bg: ['#A38E7A', '#6B5D4B'] },
+  { key: 'LATERITE',     labelKey: 'crops.soilLaterite',          sk: 'laterite', bg: ['#E08A3C', '#A0522D'] },
+  { key: 'UNKNOWN',      labelKey: 'crops.soilNotSure',           sk: null,       bg: ['#4B4A47', '#2A2927'] },
 ];
 
 const IRRS = [
-  { key: 'DRIP',      label: 'Drip',      ik: 'drip',      color: '#60A5FA' },
-  { key: 'SPRINKLER', label: 'Sprinkler', ik: 'sprinkler', color: '#38BDF8' },
-  { key: 'FLOOD',     label: 'Flood',     ik: 'flood',     color: '#A7E4F1' },
-  { key: 'RAINFED',   label: 'Rainfed',   ik: 'rainfed',   color: '#F5B841' },
+  { key: 'DRIP',      labelKey: 'crops.irrDrip',      ik: 'drip',      color: '#60A5FA' },
+  { key: 'SPRINKLER', labelKey: 'crops.irrSprinkler', ik: 'sprinkler', color: '#38BDF8' },
+  { key: 'FLOOD',     labelKey: 'crops.irrFlood',     ik: 'flood',     color: '#A7E4F1' },
+  { key: 'RAINFED',   labelKey: 'crops.irrRainfed',   ik: 'rainfed',   color: '#F5B841' },
 ];
 
 export default function FarmAddEditScreen({ navigation, route }) {
@@ -121,7 +121,7 @@ export default function FarmAddEditScreen({ navigation, route }) {
     <CosmicScreen backgroundVariant="default" edges={{ top: false, bottom: false }}>
       <CosmicHeader
         title={isEdit ? (t('nav.editFarm') || 'Edit farm') : (t('nav.addFarm') || 'Add farm')}
-        subtitle={isEdit ? 'Update farm details' : 'Takes under 3 minutes'}
+        subtitle={isEdit ? t('farmProfile.updateFarmDetails') : t('farmProfile.addFarmSubtitle')}
       />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -131,8 +131,8 @@ export default function FarmAddEditScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
         >
           {/* ── 1. Identity ─────────────────────────────────────────────── */}
-          <SectionCard icon="leaf-outline" iconTint={COSMIC.PRIMARY_LT} title="Farm identity">
-            <Field label="Farm nickname">
+          <SectionCard icon="leaf-outline" iconTint={COSMIC.PRIMARY_LT} title={t('farmProfile.farmIdentity')}>
+            <Field label={t('farmProfile.farmNickname')}>
               <CosmicInput
                 value={form.farmName}
                 onChangeText={(v) => u('farmName', v)}
@@ -143,7 +143,7 @@ export default function FarmAddEditScreen({ navigation, route }) {
           </SectionCard>
 
           {/* ── 2. Location ─────────────────────────────────────────────── */}
-          <SectionCard icon="location-outline" iconTint={COSMIC.INFO} title="Location">
+          <SectionCard icon="location-outline" iconTint={COSMIC.INFO} title={t('location')}>
             <Field label={t('farmProfile.state') || 'State'}>
               <CosmicPicker
                 title={t('farmProfile.selectState') || 'Select state'}
@@ -232,14 +232,14 @@ export default function FarmAddEditScreen({ navigation, route }) {
               />
               <Text style={styles.gpsText} numberOfLines={1}>
                 {form.latitude != null
-                  ? `Pin set · ${form.latitude.toFixed(4)}, ${form.longitude.toFixed(4)}`
+                  ? t('farmProfile.gpsPinSet', { lat: form.latitude.toFixed(4), lng: form.longitude.toFixed(4) })
                   : (t('farmProfile.captureGps') || 'Drop a GPS pin on this farm')}
               </Text>
             </Pressable>
           </SectionCard>
 
           {/* ── 3. Land & soil ──────────────────────────────────────────── */}
-          <SectionCard icon="layers-outline" iconTint={COSMIC.ACCENT} title="Land & soil">
+          <SectionCard icon="layers-outline" iconTint={COSMIC.ACCENT} title={t('farmProfile.landAndSoil')}>
             <Field label={t('farmProfile.landSizeLabel') || 'Total land size (acres)'}>
               <CosmicInput
                 value={form.landSizeAcres}
@@ -250,7 +250,7 @@ export default function FarmAddEditScreen({ navigation, route }) {
               />
             </Field>
 
-            <Text style={styles.subLabel}>Soil type</Text>
+            <Text style={styles.subLabel}>{t('farmProfile.soilType')}</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -281,7 +281,7 @@ export default function FarmAddEditScreen({ navigation, route }) {
                       )}
                     </View>
                     <Text style={[styles.soilLabel, selected && { color: COSMIC.PRIMARY_LT, fontFamily: 'PlusJakartaSans_700Bold' }]} numberOfLines={2}>
-                      {soil.label}
+                      {t(soil.labelKey)}
                     </Text>
                   </Pressable>
                 );
@@ -290,7 +290,7 @@ export default function FarmAddEditScreen({ navigation, route }) {
           </SectionCard>
 
           {/* ── 4. Water ────────────────────────────────────────────────── */}
-          <SectionCard icon="water-outline" iconTint={COSMIC.INFO} title="Water source">
+          <SectionCard icon="water-outline" iconTint={COSMIC.INFO} title={t('farmProfile.waterSource')}>
             <View style={styles.irrGrid}>
               {IRRS.map((irr) => {
                 const selected = form.irrigationSystem === irr.key;
@@ -310,7 +310,7 @@ export default function FarmAddEditScreen({ navigation, route }) {
                         : <Ionicons name="options" size={22} color={irr.color} />}
                     </View>
                     <Text style={[styles.irrLabel, selected && { color: irr.color, fontFamily: 'PlusJakartaSans_700Bold' }]}>
-                      {irr.label}
+                      {t(irr.labelKey)}
                     </Text>
                     {selected && (
                       <View style={[styles.irrCheck, { backgroundColor: irr.color }]}>
@@ -329,7 +329,7 @@ export default function FarmAddEditScreen({ navigation, route }) {
         {/* ── Save footer ────────────────────────────────────────────── */}
         <View style={styles.footer}>
           <GlowButton
-            label={saving ? 'Saving…' : (isEdit ? (t('farmProfile.updateFarm') || 'Update farm') : (t('farmProfile.saveFarm') || 'Save farm'))}
+            label={saving ? t('farmProfile.saving') : (isEdit ? (t('farmProfile.updateFarm') || 'Update farm') : (t('farmProfile.saveFarm') || 'Save farm'))}
             icon={isEdit ? 'checkmark' : 'add-circle-outline'}
             variant="primary"
             loading={saving}

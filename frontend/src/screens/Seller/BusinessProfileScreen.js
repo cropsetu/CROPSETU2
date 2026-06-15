@@ -273,7 +273,7 @@ export default function BusinessProfileScreen({ navigation }) {
 
             <FormField label={t('sellerBizProfile.state')}>
               <View style={f.readOnly}>
-                <Text style={f.readOnlyTxt}>Maharashtra</Text>
+                <Text style={f.readOnlyTxt}>{t('scope.state')}</Text>
               </View>
             </FormField>
 
@@ -302,7 +302,7 @@ export default function BusinessProfileScreen({ navigation }) {
               <TextF
                 value={form.village}
                 onChangeText={set('village')}
-                placeholder="e.g. Kalamb, Wadgaon Sheri"
+                placeholder={t('sellerBizProfile.villagePlaceholder')}
               />
             </FormField>
           </View>

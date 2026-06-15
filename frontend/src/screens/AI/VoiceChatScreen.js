@@ -1,5 +1,5 @@
 /**
- * VoiceChatScreen — ChatGPT-style immersive voice conversation with FarmMind AI
+ * VoiceChatScreen — ChatGPT-style immersive voice conversation with Krushi Intelligence
  *
  * Full-screen holographic particle sphere as centerpiece.
  * Gradient-colored particles (green → teal → cyan → blue).
@@ -18,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
 import { WebView } from 'react-native-webview';
 import { sendVoiceChatMessage, textToSpeech } from '../../services/aiApi';
@@ -582,6 +583,27 @@ export default function VoiceChatScreen({ navigation }) {
     }
   }
 
+  // ── Stop TTS playback ───────────────────────────────────────────────────────
+  // Hard-stop + unload the active sound so audio never bleeds into the next
+  // screen. Used by the blur cleanup and the Back / end-call / switch-to-chat taps.
+  const stopPlayback = useCallback(async () => {
+    if (soundRef.current) {
+      try { await soundRef.current.stopAsync(); } catch {}
+      try { await soundRef.current.unloadAsync(); } catch {}
+      soundRef.current = null;
+    }
+    setIsPlaying(false);
+  }, []);
+
+  // Stop playback (and the mic) whenever the screen loses focus — not just on
+  // full unmount — so navigating away immediately silences the assistant.
+  useFocusEffect(
+    useCallback(() => () => {
+      stopPlayback();
+      cancelRecording?.();
+    }, [stopPlayback, cancelRecording])
+  );
+
   // Status hint — minimal, action-only. Shown below the sphere when idle/listening;
   // hidden while the AI reply types in at the top.
   const statusText = isRecording ? 'Listening…'
@@ -618,10 +640,11 @@ export default function VoiceChatScreen({ navigation }) {
           pointerEvents="none"
         />
 
-        {/* ── TOP overlay: proper back button only ── */}
+        {/* ── TOP overlay: back button + Krushi Vaani brand ── */}
         <View style={[S.topOverlay, { paddingTop: insets.top + 10 }]} pointerEvents="box-none">
           <TouchableOpacity
             onPress={() => {
+              stopPlayback();
               if (isRecording) cancelRecording();
               navigation.goBack();
             }}
@@ -631,6 +654,12 @@ export default function VoiceChatScreen({ navigation }) {
           >
             <ArrowLeft size={22} color="#F0FDF4" strokeWidth={2.2} />
           </TouchableOpacity>
+          <View style={S.brandBlock} pointerEvents="none">
+            <Text style={S.brandTitle}>{t('voiceChat.brand', 'Krushi Vaani')}</Text>
+            {(language === 'hi' || language === 'mr') ? (
+              <Text style={S.brandSubtitle}>कृषि वाणी</Text>
+            ) : null}
+          </View>
         </View>
 
         {/* ── TOP: AI reply types in here and flows downward ── */}
@@ -665,7 +694,10 @@ export default function VoiceChatScreen({ navigation }) {
             <View style={S.controlsRow}>
               <TouchableOpacity
                 style={S.ghostBtn}
-                onPress={() => navigation.replace('AIChat')}
+                onPress={() => {
+                  stopPlayback();
+                  navigation.replace('AIChat');
+                }}
                 activeOpacity={0.7}
               >
                 <MessageSquare size={20} color="rgba(255,255,255,0.85)" strokeWidth={2.2} />
@@ -691,6 +723,7 @@ export default function VoiceChatScreen({ navigation }) {
               <TouchableOpacity
                 style={S.ghostBtn}
                 onPress={() => {
+                  stopPlayback();
                   if (isRecording) cancelRecording();
                   navigation.goBack();
                 }}
@@ -731,6 +764,19 @@ const S = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+  },
+  brandBlock: {
+    marginLeft: 12, justifyContent: 'center',
+  },
+  brandTitle: {
+    fontSize: 17, color: '#F0FDF4', letterSpacing: 0.3,
+    fontFamily: INTER_BOLD,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8,
+  },
+  brandSubtitle: {
+    fontSize: 11, color: 'rgba(240,253,244,0.7)', letterSpacing: 0.5,
+    fontFamily: INTER_REG, marginTop: 1,
   },
 
   // ── TOP: AI reply types in here (Perplexity-style), flows downward ──

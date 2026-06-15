@@ -309,7 +309,7 @@ export default function SellerProfileScreen({ navigation }) {
         <View style={{ padding: 16 }}>
           <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
             <Ionicons name="arrow-back-outline" size={20} color={COLORS.error} />
-            <Text style={s.logoutTxt}>Back to CropSetu</Text>
+            <Text style={s.logoutTxt}>{t('sellerProfile.backToCropSetu')}</Text>
           </TouchableOpacity>
         </View>
 

@@ -82,7 +82,7 @@ export default function FarmDetailScreen({ navigation, route }) {
   if (loading) {
     return (
       <CosmicScreen>
-        <CosmicHeader title="Loading…" />
+        <CosmicHeader title={t('loading')} />
         <View style={styles.centerWrap}>
           <ActivityIndicator size="large" color={COSMIC.PRIMARY} />
         </View>
@@ -92,11 +92,11 @@ export default function FarmDetailScreen({ navigation, route }) {
   if (!farm) {
     return (
       <CosmicScreen>
-        <CosmicHeader title="Not found" />
+        <CosmicHeader title={t('farmProfile.notFound')} />
         <View style={styles.centerWrap}>
           <Ionicons name="leaf-outline" size={48} color={COSMIC.MUTED} />
           <Text style={[styles.mutedText, { marginTop: 14 }]}>{t('farmProfile.notFound') || 'Farm not found.'}</Text>
-          <GlowButton label="Go back" variant="glass" onPress={() => navigation.goBack()} style={{ marginTop: 16 }} />
+          <GlowButton label={t('farmProfile.goBack')} variant="glass" onPress={() => navigation.goBack()} style={{ marginTop: 16 }} />
         </View>
       </CosmicScreen>
     );
@@ -108,13 +108,13 @@ export default function FarmDetailScreen({ navigation, route }) {
   const cycles      = farm.cropCycles || [];
   const activeCycles    = cycles.filter((c) => c.status !== 'COMPLETED');
   const completedCycles = cycles.filter((c) => c.status === 'COMPLETED');
-  const insights    = computeInsights(farm, soil, cycles);
+  const insights    = computeInsights(farm, soil, cycles, t);
 
   const farmName    = farm.farmName || farm.farmAlias || `Farm ${farm.farmNumber}`;
   const location    = [farm.village, farm.taluka, farm.district].filter(Boolean).join(', ');
 
   const editRight = (
-    <CosmicHeader.IconButton icon="create-outline" onPress={onEdit} accessibilityLabel="Edit farm" />
+    <CosmicHeader.IconButton icon="create-outline" onPress={onEdit} accessibilityLabel={t('farmProfile.editFarm')} />
   );
 
   return (
@@ -137,12 +137,13 @@ export default function FarmDetailScreen({ navigation, route }) {
           farm={farm}
           isActive={isActive}
           onSetActive={onSetActive}
+          t={t}
         />
 
         {/* ── Insights ─────────────────────────────────────── */}
         {insights.length > 0 && (
           <>
-            <SectionLabel title="Today's insights" badge="FarmMind" />
+            <SectionLabel title={t('farmProfile.todaysInsights')} badge="Krushi AI" />
             <GlassCard variant="plain" style={styles.section} padding={0}>
               {insights.map((ins, i) => (
                 <View key={i} style={[styles.insightRow, i > 0 && styles.insightRowBordered]}>
@@ -168,21 +169,21 @@ export default function FarmDetailScreen({ navigation, route }) {
 
         {/* ── Active crop cycles ──────────────────────────── */}
         <SectionLabel
-          title="Active crops"
-          action={{ label: activeCycles.length ? 'Add cycle' : 'Start a cycle', onPress: onAdd }}
+          title={t('farmProfile.activeCrops')}
+          action={{ label: activeCycles.length ? t('farmProfile.addCycle') : t('farmProfile.startACycle'), onPress: onAdd }}
         />
         {activeCycles.length === 0 ? (
           <GlassCard variant="plain" style={styles.section}>
             <View style={styles.emptyCyclesRow}>
               <View style={[styles.bigBubble, GLOW.green]}>
-                <Ionicons name="leaf" size={26} color={COSMIC.INVERSE} />
+                <CropIcon crop="Wheat" size={26} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sectionHeading}>{completedCycles.length ? 'No active crops' : 'No crop cycles yet'}</Text>
-                <Text style={styles.mutedText}>Start a cycle to track stage, budget, sprays and sales.</Text>
+                <Text style={styles.sectionHeading}>{completedCycles.length ? t('farmProfile.noActiveCrops') : t('farmProfile.noCropCyclesYet')}</Text>
+                <Text style={styles.mutedText}>{t('farmProfile.startCycleHint')}</Text>
               </View>
             </View>
-            <GlowButton label="Start a crop cycle" icon="leaf-outline" variant="primary" full onPress={onAdd} style={{ marginTop: 14 }} />
+            <GlowButton label={t('farmProfile.startACropCycle')} icon="leaf-outline" variant="primary" full onPress={onAdd} style={{ marginTop: 14 }} />
           </GlassCard>
         ) : (
           <View style={styles.section}>
@@ -195,7 +196,7 @@ export default function FarmDetailScreen({ navigation, route }) {
         {/* ── History (completed cycles) ──────────────────── */}
         {completedCycles.length > 0 && (
           <>
-            <SectionLabel title={`History · ${completedCycles.length} completed`} />
+            <SectionLabel title={t('farmProfile.historyCompleted', { count: completedCycles.length })} />
             <View style={styles.section}>
               {completedCycles.map((c) => (
                 <CycleRow key={c.id} cycle={c} onPress={() => navigation.navigate('CropCycleDetail', { cycleId: c.id })} />
@@ -205,7 +206,7 @@ export default function FarmDetailScreen({ navigation, route }) {
         )}
 
         {/* ── Soil health ─────────────────────────────────── */}
-        <SectionLabel title="Soil health" action={!soil ? { label: 'Upload report', onPress: () => navigation.navigate('AIAssistant', { screen: 'SoilHealth' }) } : undefined} />
+        <SectionLabel title={t('farmProfile.soilHealth')} action={!soil ? { label: t('farmProfile.uploadReport'), onPress: () => navigation.navigate('AIAssistant', { screen: 'SoilHealth' }) } : undefined} />
         <GlassCard variant="plain" style={styles.section}>
           {soil ? (
             <View style={styles.soilRow}>
@@ -221,19 +222,19 @@ export default function FarmDetailScreen({ navigation, route }) {
                 <Ionicons name="document-text-outline" size={22} color={COSMIC.TEXT_2} />
               </View>
               <Text style={[styles.mutedText, { flex: 1 }]}>
-                No soil health report yet. Uploading a Soil Health Card unlocks pH-aware fertilizer advisories.
+                {t('farmProfile.noSoilReportHint')}
               </Text>
             </View>
           )}
         </GlassCard>
 
         {/* ── AI Actions ──────────────────────────────────── */}
-        <SectionLabel title="Ask FarmMind" badge="AI" />
+        <SectionLabel title={t('farmProfile.askFarmMind')} badge="AI" />
         <View style={[styles.section, styles.predGrid]}>
           <PredCard
             icon="chatbubble-ellipses"
             tint={COSMIC.PRIMARY}
-            title={t('farmProfile.askFarmMind') || 'Ask FarmMind'}
+            title={t('farmProfile.askFarmMind') || 'Ask Krushi Intelligence'}
             sub={t('farmProfile.chatAboutFarm') || 'Personal advisory for this farm'}
             onPress={() => navigation.navigate('AIAssistant', {
               screen: 'AIChat',
@@ -272,7 +273,7 @@ export default function FarmDetailScreen({ navigation, route }) {
 // ──────────────────────────────────────────────────────────────────────────────
 // Hero card — matches MyFarmHome hero visual language.
 // ──────────────────────────────────────────────────────────────────────────────
-function HeroCard({ farm, isActive, onSetActive }) {
+function HeroCard({ farm, isActive, onSetActive, t }) {
   const acres  = Number(farm.landSizeAcres || 0);
   const soilLbl = (farm.soilType || 'unknown').replace(/_/g, ' ').toLowerCase();
   const irrLbl  = (farm.irrigationSystem || 'rainfed').toLowerCase();
@@ -281,22 +282,22 @@ function HeroCard({ farm, isActive, onSetActive }) {
     <View style={styles.heroOuter}>
       <GlassCard variant="bordered" padding={14}>
         <View style={styles.heroStatsRow}>
-          <HeroStat icon="resize-outline" label="acres" value={acres > 0 ? acres.toFixed(2) : '—'} />
+          <HeroStat icon="resize-outline" label={t('farmProfile.acresLabel')} value={acres > 0 ? acres.toFixed(2) : '—'} />
           <View style={styles.heroDivider} />
-          <HeroStat icon="layers-outline" label="soil"  value={soilLbl} capitalize />
+          <HeroStat icon="layers-outline" label={t('farmProfile.soilLabel')}  value={soilLbl} capitalize />
           <View style={styles.heroDivider} />
-          <HeroStat icon="water-outline"  label="water" value={irrLbl} capitalize />
+          <HeroStat icon="water-outline"  label={t('farmProfile.waterLabel')} value={irrLbl} capitalize />
         </View>
 
         {isActive ? (
           <View style={styles.activePill}>
             <Ionicons name="star" size={10} color={COSMIC.INVERSE} />
-            <Text style={styles.activePillText}>Active · FarmMind uses this data</Text>
+            <Text style={styles.activePillText}>{t('farmProfile.activeFarmMindUses')}</Text>
           </View>
         ) : (
           <Pressable onPress={onSetActive} style={({ pressed }) => [styles.setActiveBtn, pressed && { opacity: 0.7 }]}>
             <Ionicons name="star-outline" size={12} color={COSMIC.ACCENT} />
-            <Text style={styles.setActiveText}>Set as active farm</Text>
+            <Text style={styles.setActiveText}>{t('farmProfile.setAsActiveFarm')}</Text>
           </Pressable>
         )}
       </GlassCard>
@@ -412,32 +413,32 @@ function SectionLabel({ title, action, badge }) {
 // ──────────────────────────────────────────────────────────────────────────────
 // Insight heuristics — placeholder until v2 context-aware backend lands.
 // ──────────────────────────────────────────────────────────────────────────────
-function computeInsights(farm, soil, cycles) {
+function computeInsights(farm, soil, cycles, t) {
   const out = [];
   if (soil?.nitrogenRating === 'low') {
     out.push({ icon: 'alert-circle', color: COSMIC.DANGER,
-      text: 'Soil nitrogen is low — consider applying Urea or FYM before next sowing.',
-      action: 'Ask FarmMind' });
+      text: t('farmProfile.insightLowNitrogen'),
+      action: t('farmProfile.askFarmMind') });
   }
   if (soil?.phRating === 'acidic') {
     out.push({ icon: 'flask', color: COSMIC.WARN,
-      text: 'Soil is acidic (pH < 6.5). Lime application ~2 qtl/acre helps.',
-      action: 'How to apply lime?' });
+      text: t('farmProfile.insightAcidicSoil'),
+      action: t('farmProfile.insightHowToApplyLime') });
   }
   if (farm.irrigationSystem === 'RAINFED') {
     out.push({ icon: 'rainy-outline', color: COSMIC.INFO,
-      text: 'Rainfed farm — monitor IMD forecasts closely before sowing.',
-      action: 'Open weather' });
+      text: t('farmProfile.insightRainfed'),
+      action: t('farmProfile.insightOpenWeather') });
   }
   if (!soil) {
     out.push({ icon: 'document-text-outline', color: COSMIC.ACCENT,
-      text: 'Upload a Soil Health Card for precise fertilizer advice.',
-      action: 'Upload now' });
+      text: t('farmProfile.insightUploadShc'),
+      action: t('farmProfile.insightUploadNow') });
   }
   if (cycles.length === 0) {
     out.push({ icon: 'leaf-outline', color: COSMIC.PRIMARY,
-      text: 'No active crops yet. Ask FarmMind which crop suits your soil & season.',
-      action: 'Get crop advice' });
+      text: t('farmProfile.insightNoCrops'),
+      action: t('farmProfile.insightGetCropAdvice') });
   }
   return out;
 }

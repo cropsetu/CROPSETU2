@@ -9,6 +9,7 @@ import { Haptics } from '../../utils/haptics';
 import { COLORS, SHADOWS, RADIUS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
 import api from '../../services/api';
+import StoreCategoryIcon from '../../components/StoreCategoryIcons';
 
 const UNIT_LABELS = { kg: 'kg', g: 'g', litre: 'L', ml: 'ml', piece: 'pc', bag: 'bag', packet: 'pkt', acre: 'acre', quintal: 'qtl' };
 
@@ -216,7 +217,7 @@ export default function MyProductsScreen({ navigation }) {
         }
         ListEmptyComponent={
           <View style={s.empty}>
-            <Ionicons name="storefront-outline" size={64} color={COLORS.gray175} />
+            <StoreCategoryIcon type="bag" size={72} />
             <Text style={s.emptyTitle}>{t('myProducts.noProducts')}</Text>
             <Text style={s.emptyText}>{t('myProducts.noProductsSub')}</Text>
           </View>

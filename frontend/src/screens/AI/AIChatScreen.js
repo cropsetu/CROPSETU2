@@ -10,6 +10,7 @@ import {
   MessageSquare, ScanLine, History as HistoryIcon,
   ShieldCheck, ShoppingCart, Lightbulb, ToggleLeft, ToggleRight,
   Volume2, Square as SquareIcon, Loader2, Trash2,
+  Copy, Check as CheckIcon,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -81,13 +82,17 @@ function humanReadableError(err, fallback = 'Something went wrong. Please try ag
 // ── Header: logo badge + title + LanguageSelector  (direct port of Lovable)
 // ─────────────────────────────────────────────────────────────────────────────
 function ChatHeader({ insets, onMenuPress, onNewChatPress }) {
+  const { language, t } = useLanguage();
+  const showDevanagari = language === 'hi' || language === 'mr';
   return (
     <BlurView intensity={30} tint="dark" style={[H.wrap, { paddingTop: insets.top + 10 }]}>
       <View style={H.row}>
+        {/* Left zone — fixed-size menu icon */}
         <TouchableOpacity onPress={onMenuPress} style={H.iconBtn} activeOpacity={0.7}>
           <Menu size={22} color={TEXT} strokeWidth={2.2} />
         </TouchableOpacity>
 
+        {/* Center zone — brand (flex-shrink, single line) */}
         <View style={H.brand}>
           <LinearGradient
             colors={[PRIMARY, ACCENT, ACCENT]}
@@ -96,17 +101,23 @@ function ChatHeader({ insets, onMenuPress, onNewChatPress }) {
           >
             <Sprout size={16} color={BG} strokeWidth={2.6} />
           </LinearGradient>
-          <View>
-            <Text style={H.title}>KrishiAI</Text>
-            <Text style={H.sub}>Farmer's assistant</Text>
+          <View style={H.brandText}>
+            <Text style={H.title} numberOfLines={1}>Krushi Gyaan</Text>
+            {showDevanagari ? (
+              <Text style={H.sub} numberOfLines={1}>कृषि ज्ञान</Text>
+            ) : (
+              <Text style={H.sub} numberOfLines={1}>{t('aiChat.farmerAssistant', "Farmer's assistant")}</Text>
+            )}
           </View>
         </View>
 
-        <LanguageSelector />
-
-        <TouchableOpacity onPress={onNewChatPress} style={H.iconBtn} activeOpacity={0.7}>
-          <PenSquare size={18} color={TEXT} strokeWidth={2.2} />
-        </TouchableOpacity>
+        {/* Right zone — fixed-size icon button cluster */}
+        <View style={H.rightCluster}>
+          <LanguageSelector iconOnly />
+          <TouchableOpacity onPress={onNewChatPress} style={H.iconBtn} activeOpacity={0.7}>
+            <PenSquare size={18} color={TEXT} strokeWidth={2.2} />
+          </TouchableOpacity>
+        </View>
       </View>
     </BlurView>
   );
@@ -137,6 +148,7 @@ function TypingDots() {
 }
 
 function DiagnosisCard({ data, onBuyMedicine }) {
+  const { t } = useLanguage();
   const sevColor = { low: PRIMARY, moderate: ACCENT, high: DANGER, critical: '#B91C1C' }[data.severity] || MUTED;
   const steps = Array.isArray(data.treatment)
     ? data.treatment
@@ -150,12 +162,12 @@ function DiagnosisCard({ data, onBuyMedicine }) {
         <View style={[S.diagSevDot, { backgroundColor: sevColor }]} />
         <Text style={S.diagName}>{data.disease || data.name}</Text>
         <View style={[S.diagConf, { backgroundColor: `${sevColor}18` }]}>
-          <Text style={[S.diagConfText, { color: sevColor }]}>{data.confidence}% match</Text>
+          <Text style={[S.diagConfText, { color: sevColor }]}>{t('aiChat.matchPct', { pct: data.confidence })}</Text>
         </View>
       </View>
       <View style={S.diagMeta}><Leaf size={12} color={MUTED} strokeWidth={2.2} /><Text style={S.diagMetaText}>{data.crop ? `${data.crop} · ` : ''}{data.severity}</Text></View>
       <View style={S.diagDivider} />
-      <Text style={S.diagSectionLabel}>Treatment Plan</Text>
+      <Text style={S.diagSectionLabel}>{t('aiChat.treatmentPlan', 'Treatment Plan')}</Text>
       {steps.map((step, i) => (
         <View key={i} style={S.diagStep}>
           <View style={S.diagStepNum}><Text style={S.diagStepNumText}>{i + 1}</Text></View>
@@ -166,7 +178,7 @@ function DiagnosisCard({ data, onBuyMedicine }) {
       <TouchableOpacity style={S.buyBtn} onPress={onBuyMedicine} activeOpacity={0.8}>
         <LinearGradient colors={[USER_A, USER_B]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={S.buyBtnGrad}>
           <ShoppingCart size={14} color={COLORS.white} strokeWidth={2.4} />
-          <Text style={S.buyBtnText}>Buy Products</Text>
+          <Text style={S.buyBtnText}>{t('aiChat.buyProductsShort', 'Buy Products')}</Text>
         </LinearGradient>
       </TouchableOpacity>
     </View>
@@ -174,17 +186,18 @@ function DiagnosisCard({ data, onBuyMedicine }) {
 }
 
 function MarketCard({ data }) {
+  const { t } = useLanguage();
   const prices  = data.prices || [];
   const insight = data.insight || data.sellingAdvice || '';
   const metaRows = [
     data.msp         && { label: 'MSP',         value: data.msp },
-    data.marketRange && { label: 'Market range', value: data.marketRange },
-    data.trend       && { label: 'Trend',        value: data.trend },
-    data.bestMarket  && { label: 'Best market',  value: data.bestMarket },
+    data.marketRange && { label: t('aiChat.marketRange', 'Market range'), value: data.marketRange },
+    data.trend       && { label: t('aiChat.trend', 'Trend'),        value: data.trend },
+    data.bestMarket  && { label: t('aiChat.bestMarket', 'Best market'),  value: data.bestMarket },
   ].filter(Boolean);
   return (
     <View style={S.mktCard}>
-      <Text style={S.mktCrop}>{data.crop} Prices Today</Text>
+      <Text style={S.mktCrop}>{t('aiChat.pricesToday', { crop: data.crop })}</Text>
       {prices.map((p, i) => <View key={i} style={S.mktRow}><Text style={S.mktMandi}>{p.mandi}</Text><Text style={S.mktPrice}>₹{(p.price || 0).toLocaleString()}</Text></View>)}
       {metaRows.map((r, i) => <View key={i} style={S.mktRow}><Text style={S.mktMandi}>{r.label}</Text><Text style={S.mktPrice}>{r.value}</Text></View>)}
       {!!insight && <View style={S.mktTip}><Lightbulb size={12} color={ACCENT} strokeWidth={2.2} /><Text style={S.mktTipText}>{insight}</Text></View>}
@@ -248,11 +261,14 @@ function FormattedAIText({ text }) {
 // ── MessageBubble: user = gradient pill / AI = glass pill with Listen button
 // ─────────────────────────────────────────────────────────────────────────────
 function MessageBubble({ msg, onBuyMedicine, language, isLast, onFollowUp }) {
+  const { t } = useLanguage();
   const isUser = msg.role === 'user';
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(8)).current;
   const [ttsLoading, setTtsLoading] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef(null);
   const ttsSoundRef = useRef(null);
   // Per-bubble audio cache. The first Listen hits Sarvam TTS; every replay
   // after that re-uses this base64 payload so we never bill the same reply
@@ -276,8 +292,27 @@ function MessageBubble({ msg, onBuyMedicine, language, isLast, onFollowUp }) {
           try { await s.unloadAsync(); } catch {}
         })();
       }
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     };
   }, []);
+
+  // Copy the reply to the clipboard. Strip markdown bold markers so the pasted
+  // text reads naturally, then flash "Copied" for ~1.5s.
+  const copyText = async () => {
+    if (!msg.text) return;
+    try {
+      // Lazy-require so a missing native module (e.g. a dev build that predates
+      // expo-clipboard) degrades only this copy button instead of crashing the
+      // whole app at startup. Rebuild the native app to enable copy.
+      const Clipboard = require('expo-clipboard');
+      await Clipboard.setStringAsync(String(msg.text || '').replace(/\*\*/g, ''));
+      setCopied(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      if (__DEV__) console.warn('[Copy] failed:', err?.message || err);
+    }
+  };
 
   // Stop currently-playing TTS (if any). Safe to call when nothing is playing.
   const stopTts = async () => {
@@ -376,7 +411,7 @@ function MessageBubble({ msg, onBuyMedicine, language, isLast, onFollowUp }) {
           {msg.isVoice && (
             <View style={S.voiceTag}>
               <Mic size={10} color="rgba(12,36,21,0.85)" strokeWidth={2.4} />
-              <Text style={S.voiceTagText}>voice</Text>
+              <Text style={S.voiceTagText}>{t('aiChat.voiceTag', 'voice')}</Text>
             </View>
           )}
           {msg.imageUri ? <Image source={{ uri: msg.imageUri }} style={S.userImage} /> : null}
@@ -393,21 +428,39 @@ function MessageBubble({ msg, onBuyMedicine, language, isLast, onFollowUp }) {
           <View style={S.aiBubble}>
             <BlurView intensity={18} tint="dark" style={StyleSheet.absoluteFillObject} />
             <FormattedAIText text={msg.text} />
-            <TouchableOpacity
-              style={[S.listenBtn, ttsPlaying && S.listenBtnPlaying]}
-              onPress={playTts}
-              activeOpacity={0.7}
-              disabled={ttsLoading}
-              accessibilityRole="button"
-              accessibilityLabel={ttsPlaying ? 'Stop listening' : 'Listen to reply'}
-            >
-              {ttsLoading
-                ? <ActivityIndicator size="small" color={ACCENT} />
-                : ttsPlaying
-                ? <SquareIcon size={15} color={ACCENT} strokeWidth={2.6} fill={ACCENT} />
-                : <Volume2 size={16} color={ACCENT} strokeWidth={2.4} />}
-              <Text style={S.listenTxt}>{ttsPlaying ? 'Stop' : 'Listen'}</Text>
-            </TouchableOpacity>
+            {/* Action row — hidden while the reply is still revealing line-by-line
+                so users can't copy/play a half-rendered answer. */}
+            {!msg.streaming && (
+              <View style={S.actionRow}>
+                <TouchableOpacity
+                  style={S.listenBtn}
+                  onPress={copyText}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={copied ? t('aiChat.copied', 'Copied') : t('aiChat.copy', 'Copy')}
+                >
+                  {copied
+                    ? <CheckIcon size={15} color={ACCENT} strokeWidth={2.6} />
+                    : <Copy size={15} color={ACCENT} strokeWidth={2.4} />}
+                  <Text style={S.listenTxt}>{copied ? t('aiChat.copied', 'Copied') : t('aiChat.copy', 'Copy')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[S.listenBtn, ttsPlaying && S.listenBtnPlaying]}
+                  onPress={playTts}
+                  activeOpacity={0.7}
+                  disabled={ttsLoading}
+                  accessibilityRole="button"
+                  accessibilityLabel={ttsPlaying ? t('aiChat.stopListening', 'Stop listening') : t('aiChat.listenToReply', 'Listen to reply')}
+                >
+                  {ttsLoading
+                    ? <ActivityIndicator size="small" color={ACCENT} />
+                    : ttsPlaying
+                    ? <SquareIcon size={15} color={ACCENT} strokeWidth={2.6} fill={ACCENT} />
+                    : <Volume2 size={16} color={ACCENT} strokeWidth={2.4} />}
+                  <Text style={S.listenTxt}>{ttsPlaying ? t('aiChat.stop', 'Stop') : t('aiChat.listen', 'Listen')}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         ) : null}
         {msg.diagnosisData && <DiagnosisCard data={msg.diagnosisData} onBuyMedicine={onBuyMedicine} />}
@@ -435,6 +488,7 @@ function MessageBubble({ msg, onBuyMedicine, language, isLast, onFollowUp }) {
 
 // ── Sidebar (opens from Menu or History tab) ─────────────────────────────────
 function Sidebar({ isOpen, onClose, sessions, historyLoading, onSessionPress, onNewChat, onDeleteSession, insets }) {
+  const { t } = useLanguage();
   const translateX     = useRef(new Animated.Value(-W * 0.82)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
 
@@ -458,7 +512,7 @@ function Sidebar({ isOpen, onClose, sessions, historyLoading, onSessionPress, on
             <LinearGradient colors={[PRIMARY, ACCENT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={SB.panelAvatar}>
               <Sprout size={14} color={BG} strokeWidth={2.6} />
             </LinearGradient>
-            <Text style={SB.panelTitle}>KrishiAI</Text>
+            <Text style={SB.panelTitle} numberOfLines={1}>Krushi Gyaan</Text>
           </View>
           <TouchableOpacity onPress={onClose} style={SB.closeBtn} activeOpacity={0.7}>
             <CloseIcon size={20} color={MUTED} strokeWidth={2.2} />
@@ -468,18 +522,18 @@ function Sidebar({ isOpen, onClose, sessions, historyLoading, onSessionPress, on
         <TouchableOpacity style={SB.newChatBtn} onPress={() => { onNewChat(); onClose(); }} activeOpacity={0.8}>
           <LinearGradient colors={[USER_A, USER_B]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={SB.newChatGrad}>
             <Plus size={18} color="#fff" strokeWidth={2.6} />
-            <Text style={SB.newChatText}>New Chat</Text>
+            <Text style={SB.newChatText}>{t('aiChat.newChat', 'New Chat')}</Text>
           </LinearGradient>
         </TouchableOpacity>
 
-        <Text style={SB.sectionLabel}>Recent History</Text>
+        <Text style={SB.sectionLabel}>{t('aiChat.recentHistory', 'Recent History')}</Text>
         {historyLoading ? (
           <View style={SB.loaderRow}>
             <ActivityIndicator color={PRIMARY} size="small" />
-            <Text style={SB.loaderText}>Loading…</Text>
+            <Text style={SB.loaderText}>{t('loading', 'Loading…')}</Text>
           </View>
         ) : sessions.length === 0 ? (
-          <Text style={SB.emptyText}>No conversations yet</Text>
+          <Text style={SB.emptyText}>{t('aiChat.noConversations', 'No conversations yet')}</Text>
         ) : (
           <FlatList
             windowSize={5}
@@ -501,20 +555,20 @@ function Sidebar({ isOpen, onClose, sessions, historyLoading, onSessionPress, on
                         : <MessageSquare size={16} color={ACCENT} strokeWidth={2.2} />}
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={SB.sessionTitle} numberOfLines={1}>{item.title || 'AI Chat'}</Text>
-                      <Text style={SB.sessionMeta}>{dateStr} · {item._count?.messages || item.messages?.length || 0} msgs</Text>
+                      <Text style={SB.sessionTitle} numberOfLines={1}>{item.title || t('aiChat.sessionUntitled', 'AI Chat')}</Text>
+                      <Text style={SB.sessionMeta}>{t('aiChat.sessionMeta', { date: dateStr, count: item._count?.messages || item.messages?.length || 0 })}</Text>
                     </View>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={SB.trashBtn}
                     onPress={() => {
                       Alert.alert(
-                        'Delete conversation?',
-                        `"${item.title || 'AI Chat'}" will be removed from your history. This cannot be undone.`,
+                        t('aiChat.deleteConvTitle', 'Delete conversation?'),
+                        t('aiChat.deleteConvBody', { title: item.title || t('aiChat.sessionUntitled', 'AI Chat') }),
                         [
-                          { text: 'Cancel', style: 'cancel' },
+                          { text: t('cancel', 'Cancel'), style: 'cancel' },
                           {
-                            text: 'Delete',
+                            text: t('aiChat.delete', 'Delete'),
                             style: 'destructive',
                             onPress: () => onDeleteSession?.(item),
                           },
@@ -583,7 +637,7 @@ export default function AIChatScreen({ navigation, route }) {
   const [messages, setMessages]     = useState([{
     id: '0',
     role: 'ai',
-    text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm KrishiAI, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field."),
+    text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm Krushi Intelligence, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field."),
   }]);
   const [input,    setInput]        = useState('');
   const [typing,   setTyping]       = useState(false);
@@ -592,6 +646,9 @@ export default function AIChatScreen({ navigation, route }) {
   const [attachedImage, setAttachedImage] = useState(null); // { uri, base64, mime_type }
   const flatRef    = useRef(null);
   const lastSentAt = useRef(0);
+  // Holds the active line-by-line reveal interval so we can clear it when a new
+  // message starts or the screen unmounts.
+  const revealTimerRef = useRef(null);
 
   const [isRecording,  setIsRecording]  = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -612,6 +669,47 @@ export default function AIChatScreen({ navigation, route }) {
     setMessages(prev => [...prev, { id, ...msg }]);
   }, []);
 
+  // Append an AI reply that reveals itself ChatGPT-style: store the full text on
+  // the message but render it one line at a time (~150ms/line). The message
+  // carries `streaming:true` until fully revealed, which hides its Copy/Listen
+  // action row so users can't act on a half-shown answer.
+  const revealMessageProgressively = useCallback((msg) => {
+    // A brand-new reveal starts → kill any reveal still in flight.
+    if (revealTimerRef.current) { clearInterval(revealTimerRef.current); revealTimerRef.current = null; }
+
+    const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+    const full = msg.text || '';
+    const lines = full.split('\n');
+
+    // Nothing to animate (empty / single line) → render immediately, no streaming.
+    if (lines.length <= 1) {
+      setMessages(prev => [...prev, { id, ...msg, text: full, streaming: false }]);
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 60);
+      return;
+    }
+
+    // Seed with the first line, streaming flag on; full text stashed for safety.
+    setMessages(prev => [...prev, { id, ...msg, text: lines[0], fullText: full, streaming: true }]);
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 60);
+
+    let shown = 1;
+    revealTimerRef.current = setInterval(() => {
+      shown += 1;
+      const done = shown >= lines.length;
+      const partial = lines.slice(0, shown).join('\n');
+      setMessages(prev => prev.map(m =>
+        m.id === id ? { ...m, text: done ? full : partial, streaming: !done } : m
+      ));
+      flatRef.current?.scrollToEnd({ animated: true });
+      if (done) { clearInterval(revealTimerRef.current); revealTimerRef.current = null; }
+    }, 150);
+  }, []);
+
+  // Unmount safety — never leave a reveal interval ticking after the screen goes.
+  useEffect(() => () => {
+    if (revealTimerRef.current) { clearInterval(revealTimerRef.current); revealTimerRef.current = null; }
+  }, []);
+
   const sendMessage = useCallback(async (text) => {
     const msg = text || input.trim();
     // Capture (and clear) any attached photo up-front so a slow request can't
@@ -621,7 +719,7 @@ export default function AIChatScreen({ navigation, route }) {
     SoundEffects.send();
     const now = Date.now();
     if (now - lastSentAt.current < 6000) {
-      addMessage({ role: 'ai', text: `Please wait ${Math.ceil((6000 - (now - lastSentAt.current)) / 1000)}s before sending another message.` });
+      addMessage({ role: 'ai', text: t('aiChat.rateLimitWait', { seconds: Math.ceil((6000 - (now - lastSentAt.current)) / 1000) }) });
       return;
     }
     lastSentAt.current = now;
@@ -648,16 +746,16 @@ export default function AIChatScreen({ navigation, route }) {
       // diagnosis lives in the dedicated Crop Scan flow.
       const aiMsg = { role: 'ai', text: result.reply, lang: msgLang };
       if (Array.isArray(result.followUps) && result.followUps.length) aiMsg.followUps = result.followUps;
-      addMessage(aiMsg);
+      revealMessageProgressively(aiMsg);
     } catch (err) {
-      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, 'Could not reach FarmMind AI. Check your connection.')}` });
+      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, t('aiChat.errReachAI', 'Could not reach Krushi Intelligence. Check your connection.'))}` });
     } finally { setTyping(false); }
-  }, [input, typing, conversationId, addMessage, getAIContext, farmContextEnabled, resolveMsgLang, responseLength, attachedImage]);
+  }, [input, typing, conversationId, addMessage, revealMessageProgressively, getAIContext, farmContextEnabled, resolveMsgLang, responseLength, attachedImage]);
 
   // ── Reset / new chat ───────────────────────────────────────────────────────
   // Clears the on-screen conversation only — saved history stays in the sidebar.
   const resetChat = useCallback(() => {
-    setMessages([{ id: '0', role: 'ai', text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm KrishiAI, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field.") }]);
+    setMessages([{ id: '0', role: 'ai', text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm Krushi Intelligence, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field.") }]);
     setConvId(null);
     setInput('');
     setAttachedImage(null);
@@ -683,18 +781,18 @@ export default function AIChatScreen({ navigation, route }) {
     try {
       const c = await compressImage(asset.uri, { needBase64: true });
       const base64 = c?.base64;
-      if (!base64) { Alert.alert('Photo', 'Could not read that image. Please try another.'); return; }
+      if (!base64) { Alert.alert(t('aiChat.photoTitle', 'Photo'), t('aiChat.photoReadError', 'Could not read that image. Please try another.')); return; }
       setAttachedImage({ uri: c?.uri || asset.uri, base64, mime_type: 'image/jpeg' });
     } catch (e) {
       if (__DEV__) console.warn('[AIChat] image compress failed', e?.message);
-      Alert.alert('Photo', 'Could not process that image. Please try another.');
+      Alert.alert(t('aiChat.photoTitle', 'Photo'), t('aiChat.photoProcessError', 'Could not process that image. Please try another.'));
     }
   }, []);
 
   const pickFromCamera = useCallback(async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Camera Permission', 'Please allow camera access in Settings → Apps → CropSetu → Permissions.');
+      Alert.alert(t('aiChat.cameraPermTitle', 'Camera Permission'), t('aiChat.cameraPermMsg', 'Please allow camera access in Settings → Apps → CropSetu → Permissions.'));
       return;
     }
     const res = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', quality: 0.85, allowsEditing: true, aspect: [4, 3] });
@@ -704,7 +802,7 @@ export default function AIChatScreen({ navigation, route }) {
   const pickFromGallery = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Photos Permission', 'Please allow photo access in Settings → Apps → CropSetu → Permissions.');
+      Alert.alert(t('aiChat.photosPermTitle', 'Photos Permission'), t('aiChat.photosPermMsg', 'Please allow photo access in Settings → Apps → CropSetu → Permissions.'));
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.85 });
@@ -728,7 +826,7 @@ export default function AIChatScreen({ navigation, route }) {
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Microphone Permission', 'Please allow microphone access in Settings → Apps → CropSetu → Permissions.');
+        Alert.alert(t('aiChat.micPermTitle', 'Microphone Permission'), t('aiChat.micPermSettingsMsg', 'Please allow microphone access in Settings → Apps → CropSetu → Permissions.'));
         return;
       }
       await Audio.setAudioModeAsync({
@@ -805,7 +903,7 @@ export default function AIChatScreen({ navigation, route }) {
       setIsRecording(true); setAudioLevel(0);
     } catch (err) {
       console.error('[Recording] startRecording failed:', err?.message || err);
-      Alert.alert('Recording Error', `Could not start microphone.\n${err?.message || 'Please check microphone permissions and try again.'}`);
+      Alert.alert(t('aiChat.recErrorTitle', 'Recording Error'), t('aiChat.recStartError', { reason: err?.message || t('aiChat.recCheckPerms', 'Please check microphone permissions and try again.') }));
     } finally {
       recordingLockRef.current = false;
     }
@@ -849,7 +947,7 @@ export default function AIChatScreen({ navigation, route }) {
       // If STT returned nothing meaningful (user said nothing), skip the user
       // bubble and just surface a hint so they know to try again.
       if (!transcribed) {
-        addMessage({ role: 'ai', text: '🎙 I didn’t catch that — try speaking a bit closer to the mic.' });
+        addMessage({ role: 'ai', text: `🎙 ${t('aiChat.didntCatch', 'I didn’t catch that — try speaking a bit closer to the mic.')}` });
       } else {
         addMessage({ role: 'user', text: transcribed, isVoice: true });
         const aiMsg = {
@@ -860,13 +958,13 @@ export default function AIChatScreen({ navigation, route }) {
           lang: (result.detectedLanguage || '').split('-')[0] || undefined,
         };
         if (Array.isArray(result.followUps) && result.followUps.length) aiMsg.followUps = result.followUps;
-        addMessage(aiMsg);
+        revealMessageProgressively(aiMsg);
       }
     } catch (err) {
       recordRef.current = null;
-      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, 'Processing failed. Please try again.')}` });
+      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, t('aiChat.processingFailed', 'Processing failed. Please try again.'))}` });
     } finally { setIsProcessing(false); }
-  }, [conversationId, addMessage, getAIContext, language, chatLanguage]);
+  }, [conversationId, addMessage, revealMessageProgressively, getAIContext, language, chatLanguage]);
 
   const cancelRecording = useCallback(async () => {
     if (maxDurationTimerRef.current) {
@@ -926,8 +1024,8 @@ export default function AIChatScreen({ navigation, route }) {
         return next.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
       });
       Alert.alert(
-        'Could not delete',
-        err?.response?.data?.error?.message || err?.message || 'Please check your connection and try again.'
+        t('aiChat.deleteFailedTitle', 'Could not delete'),
+        err?.response?.data?.error?.message || err?.message || t('aiChat.checkConnection', 'Please check your connection and try again.')
       );
     }
   }, [conversationId, t]);
@@ -964,6 +1062,10 @@ export default function AIChatScreen({ navigation, route }) {
   useEffect(() => {
     if (!flatRef.current || messages.length === 0) return;
     const lastMsg = messages[messages.length - 1];
+    // While an AI reply is still revealing line-by-line, the reveal handler owns
+    // the scroll (scrollToEnd each tick) — don't fight it by jumping to the user
+    // message. Once streaming settles this effect re-runs and lands properly.
+    if (lastMsg.streaming) return;
     if (lastMsg.role === 'user' || typing) {
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
     } else if (lastMsg.role === 'ai') {
@@ -999,7 +1101,7 @@ export default function AIChatScreen({ navigation, route }) {
             <TouchableOpacity style={[S.farmBarInner, { flex: 1 }]} onPress={() => farmContextEnabled && setFarmPickerOpen(!farmPickerOpen)} activeOpacity={farmContextEnabled ? 0.7 : 1}>
               <Leaf size={14} color={farmContextEnabled ? P_LIGHT : MUTED} strokeWidth={2.2} />
               <Text style={[S.farmBarName, !farmContextEnabled && { color: MUTED }]} numberOfLines={1}>
-                {farmContextEnabled ? (activeFarm?.farmName || activeFarm?.farmAlias || 'Select Farm') : 'Farm context off'}
+                {farmContextEnabled ? (activeFarm?.farmName || activeFarm?.farmAlias || t('aiChat.selectFarm', 'Select Farm')) : t('aiChat.farmContextOff', 'Farm context off')}
               </Text>
               {farmContextEnabled && (
                 <>
@@ -1021,7 +1123,7 @@ export default function AIChatScreen({ navigation, route }) {
                 ? <ToggleRight size={16} color={P_LIGHT} strokeWidth={2.2} style={{ marginRight: 4 }} />
                 : <ToggleLeft size={16} color={MUTED} strokeWidth={2.2} style={{ marginRight: 4 }} />}
               <Text style={[S.farmBarPillText, { color: farmContextEnabled ? P_LIGHT : MUTED }]}>
-                {farmContextEnabled ? 'ON' : 'OFF'}
+                {farmContextEnabled ? t('aiChat.toggleOn', 'ON') : t('aiChat.toggleOff', 'OFF')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1057,14 +1159,14 @@ export default function AIChatScreen({ navigation, route }) {
         >
           <View style={S.farmBarInner}>
             <Plus size={14} color={ACCENT} strokeWidth={2.4} />
-            <Text style={[S.farmBarName, { color: ACCENT }]}>Add your farm for personalized AI advice</Text>
+            <Text style={[S.farmBarName, { color: ACCENT }]}>{t('aiChat.addFarmHint', 'Add your farm for personalized AI advice')}</Text>
             <ChevronRight size={14} color={ACCENT} strokeWidth={2.2} />
           </View>
         </TouchableOpacity>
       )}
 
       {/* ── Chat + Composer ── */}
-      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: 'transparent' }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: 'transparent' }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <FlatList
           windowSize={5}
           maxToRenderPerBatch={10}
@@ -1107,7 +1209,7 @@ export default function AIChatScreen({ navigation, route }) {
               <View style={C.recordRow}>
                 <PulseDot />
                 <View style={C.recordMid}>
-                  <Text style={C.recordLabel}>Listening… auto-stops on silence</Text>
+                  <Text style={C.recordLabel}>{t('aiChat.listeningAutoStop', 'Listening… auto-stops on silence')}</Text>
                   <VoiceWaveform amplitude={audioLevel} bars={28} height={20} />
                 </View>
                 <TouchableOpacity style={C.stopBtn} onPress={stopAndSend} activeOpacity={0.85}>
@@ -1122,7 +1224,7 @@ export default function AIChatScreen({ navigation, route }) {
                 <View style={C.attachRow}>
                   <Image source={{ uri: attachedImage.uri }} style={C.attachThumb} />
                   <Text style={C.attachLabel} numberOfLines={1}>{t('aiChat.photoAttached', 'Photo attached')}</Text>
-                  <TouchableOpacity onPress={() => setAttachedImage(null)} style={C.attachClose} activeOpacity={0.7} accessibilityLabel="Remove photo">
+                  <TouchableOpacity onPress={() => setAttachedImage(null)} style={C.attachClose} activeOpacity={0.7} accessibilityLabel={t('aiChat.removePhoto', 'Remove photo')}>
                     <CloseIcon size={16} color={MUTED} strokeWidth={2.4} />
                   </TouchableOpacity>
                 </View>
@@ -1139,7 +1241,7 @@ export default function AIChatScreen({ navigation, route }) {
 
                 <TextInput
                   style={C.textInput}
-                  placeholder={attachedImage ? t('aiChat.photoNote', 'Add a note (optional)…') : 'Type a message…'}
+                  placeholder={attachedImage ? t('aiChat.photoNote', 'Add a note (optional)…') : t('aiChat.typeMessage', 'Type a message…')}
                   placeholderTextColor={MUTED}
                   value={input}
                   onChangeText={setInput}
@@ -1214,7 +1316,9 @@ const H = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'transparent',
   },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, flexShrink: 1, minWidth: 0 },
+  brandText: { flexShrink: 1, minWidth: 0 },
+  rightCluster: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
   logoBadge: {
     width: 36, height: 36, borderRadius: 18,
     alignItems: 'center', justifyContent: 'center',
@@ -1269,6 +1373,9 @@ const C = StyleSheet.create({
     maxHeight: 120, minHeight: 40,
     paddingVertical: 8, paddingHorizontal: 6,
     fontFamily: INTER_REG,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'top',
   },
   micBtn: {
     width: 40, height: 40, borderRadius: 20,
@@ -1349,10 +1456,13 @@ const S = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
     overflow: 'hidden',
   },
-  // Listen button under AI messages — sized for a comfortable thumb tap.
-  listenBtn: {
+  // Copy + Listen action row under AI messages.
+  actionRow: {
     marginTop: 12,
-    alignSelf: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
+  // Copy / Listen button — sized for a comfortable thumb tap. Shared pill visual.
+  listenBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 7,
     paddingHorizontal: 14, paddingVertical: 9,
     minHeight: 36,

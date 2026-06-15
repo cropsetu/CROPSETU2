@@ -12,6 +12,14 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { COSMIC, CR, CT, GLOW } from '../theme/cosmicTheme';
+import { ActivityIcon } from '../../../components/ActivityIcons';
+
+// Stages that have a clean, recognisable activity illustration. Stages without
+// a matching ActivityIcon (Plan/Prep/Fruit/Mature) keep the plain dot.
+const STAGE_ACTIVITY = {
+  SOWING:    'SOWING',
+  HARVESTED: 'HARVEST',
+};
 
 const STAGES = [
   { key: 'PLANNING',   label: 'Plan' },
@@ -42,6 +50,8 @@ export default function StageTimelineBar({ currentStage = 'PLANNING', das = null
             ? [styles.dot, styles.dotPast]
             : [styles.dot, styles.dotFuture];
 
+          const activityType = STAGE_ACTIVITY[s.key];
+
           return (
             <View key={s.key} style={styles.step}>
               <View style={styles.connectorRow}>
@@ -50,6 +60,13 @@ export default function StageTimelineBar({ currentStage = 'PLANNING', das = null
                   {isCurrent && <View style={styles.dotInner} />}
                 </View>
                 <View style={[styles.connector, i === STAGES.length - 1 && { opacity: 0 }, isPast && styles.connectorActive]} />
+                {/* Tiny realistic icon for stages that map cleanly to an activity;
+                    absolutely centred so it never shifts the dot/connector geometry. */}
+                {activityType && (
+                  <View pointerEvents="none" style={styles.stageIcon}>
+                    <ActivityIcon type={activityType} size={16} animated={false} />
+                  </View>
+                )}
               </View>
               <Text style={[styles.label, isCurrent && styles.labelCurrent, isPast && styles.labelPast]} numberOfLines={1}>
                 {s.label}
@@ -80,6 +97,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: 48,
+  },
+  stageIcon: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   connector: {
     flex: 1,

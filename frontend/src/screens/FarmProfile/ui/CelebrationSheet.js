@@ -12,6 +12,7 @@ import { COSMIC, CR, CS, CT } from '../theme/cosmicTheme';
 import GlowButton from './GlowButton';
 import StreakBadge from './StreakBadge';
 import { Haptics } from '../../../utils/haptics';
+import { useLanguage } from '../../../context/LanguageContext';
 
 const { height: H } = Dimensions.get('window');
 
@@ -25,6 +26,7 @@ export default function CelebrationSheet({
   actionLabel,
   onAction,
 }) {
+  const { t } = useLanguage();
   const slide  = useRef(new Animated.Value(1)).current;
   const fade   = useRef(new Animated.Value(0)).current;
   const bounce = useRef(new Animated.Value(0.85)).current;
@@ -38,8 +40,8 @@ export default function CelebrationSheet({
       Animated.spring(bounce, { toValue: 1, speed: 12, bounciness: 8, useNativeDriver: true }),
     ]).start();
     if (autoHideMs > 0) {
-      const t = setTimeout(() => onClose && onClose(), autoHideMs);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => onClose && onClose(), autoHideMs);
+      return () => clearTimeout(timer);
     }
   }, [visible]);
 
@@ -65,7 +67,7 @@ export default function CelebrationSheet({
             <FarmerIllo size={72} />
           </Animated.View>
 
-          <Text style={styles.title} numberOfLines={2}>{title || 'Logged!'}</Text>
+          <Text style={styles.title} numberOfLines={2}>{title || t('celebrationSheet.loggedTitle')}</Text>
           {!!subtitle && <Text style={styles.subtitle} numberOfLines={3}>{subtitle}</Text>}
 
           {typeof streakDays === 'number' && streakDays > 0 && (
@@ -77,7 +79,7 @@ export default function CelebrationSheet({
           {actionLabel ? (
             <GlowButton label={actionLabel} variant="primary" full style={{ marginTop: 14 }} onPress={() => { onAction && onAction(); close(); }} />
           ) : (
-            <GlowButton label="Done" variant="glass" full style={{ marginTop: 14 }} onPress={close} />
+            <GlowButton label={t('rent.done')} variant="glass" full style={{ marginTop: 14 }} onPress={close} />
           )}
         </Animated.View>
       </Animated.View>

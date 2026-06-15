@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Gauge, ChevronDown, Check } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../../../context/LanguageContext';
 
 const { height: H } = Dimensions.get('window');
@@ -27,6 +28,7 @@ const OPTIONS = [
 
 export default function ResponseLengthSelector({ compact = false }) {
   const { responseLength, setResponseLength } = useLanguage();
+  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
 
   const current = OPTIONS.find((o) => o.code === responseLength) || OPTIONS[0];
@@ -70,7 +72,7 @@ export default function ResponseLengthSelector({ compact = false }) {
         statusBarTranslucent
       >
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-          <Pressable style={styles.sheetWrap} onPress={() => {}}>
+          <Pressable style={[styles.sheetWrap, { paddingBottom: insets.bottom + 24 }]} onPress={() => {}}>
             <BlurView intensity={60} tint="dark" style={styles.sheet}>
               <View style={styles.sheetHandle} />
               <Text style={styles.sheetTitle}>RESPONSE LENGTH</Text>
@@ -145,7 +147,7 @@ const styles = StyleSheet.create({
   },
   sheetWrap: {
     paddingHorizontal: 14,
-    paddingBottom: 22,
+    // paddingBottom is applied inline as insets.bottom + 24 to clear the home indicator
   },
   sheet: {
     borderRadius: 22,
