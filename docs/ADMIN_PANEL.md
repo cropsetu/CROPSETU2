@@ -385,6 +385,67 @@ Production deploy (same-origin on Railway) is covered in
 
 ## 9. Known follow-ups
 
-- **Admin sub-roles** — single `ADMIN` today; add `adminScopes` to gate sub-routers (§2).
-- **Mandi sync worker** — `POST /admin/mandi/sync` records the trigger row; wiring it to the
-  actual data.gov.in fetch is pending.
+- **Admin sub-roles** — ✅ shipped in v2 (WI-2): `User.adminScopes` + `requireScope` gate
+  every sub-router. See §10.
+- **Mandi sync worker** — `POST /admin/mandi/sync` now attempts the FastAPI fetch (WI-9), but
+  the FastAPI `/agripredict/sync/trigger` route is still missing, so it records `failed`
+  cleanly until that route exists.
+
+---
+
+## 10. Admin panel v2 — runtime settings, RBAC, and 8 new domains (WI-1…WI-10)
+
+A second build cycle (on `main`) added a runtime-config layer, fine-grained admin RBAC, and
+eight new operational domains. All follow the §2–§4 patterns (server-enforced gate, keyset
+lists, masked PII + audited reveal, audited mutations, `prisma db push` for new tables).
+
+### RBAC scopes (WI-2)
+`User.adminScopes String[]` gates each sub-router via `requireScope(scope)` in
+`routes/admin/index.js`, resolved once per request by `loadAdminContext` (→ `req.admin`).
+**An ADMIN with an empty `adminScopes` is treated as SUPER_ADMIN**, so existing admins keep
+full access (zero migration). Manage via `/admin/team` (SUPER_ADMIN only); the SPA
+cosmetically hides nav the admin lacks scope for (`lib/scopes.ts` + `GET /admin/me`).
+
+| Scope | Sub-routers gated |
+|---|---|
+| `SUPER_ADMIN` | team, settings, consents, erasure-requests, audit |
+| `SUPPORT` | users, orders, bookings, returns, activity |
+| `KYC_REVIEWER` | kyc |
+| `CMS_EDITOR` | categories, products, schemes, msp, crop-master, pest-alerts, mandi |
+| `CONTENT_MODERATOR` | reviews, animals, machinery, labour, posts, comments, groups, notifications, disputes |
+| `OPS` | ai, flags, health, queues, jobs, error-logs |
+| `FINANCE` | sellers, payouts |
+
+### New API surface (all behind the gate + a scope)
+| Area (WI) | Key routes | New tables | Audit actions |
+|---|---|---|---|
+| Settings (WI-1) | `GET /settings`, `PATCH /settings/:key`, `GET /settings/env-status`, `GET /settings/budget` | `app_settings` | `ADMIN_SETTING_UPDATE` |
+| Team (WI-2) | `GET /me`, `GET /team`, `POST /team/invite`, `PATCH /team/:id/scopes`, `POST /team/:id/revoke` | `User.adminScopes` | `ADMIN_TEAM_*` |
+| Returns (WI-3) | `GET/PATCH /returns(/:id)`, `GET /orders/:id/timeline`, partial refund on `PATCH /orders/:id` | `return_requests` | `ADMIN_RETURN_UPDATE` |
+| Finance (WI-4) | `GET /sellers/:id/ledger`, `GET/POST /payouts`, `PATCH /payouts/:id` | `seller_ledger_entries`, `payouts` | `ADMIN_PAYOUT_*`, `ADMIN_LEDGER_ADJUST` |
+| Catalog I/O (WI-5) | `GET /products/export`, `POST /products/import`, `GET /inventory/alerts` | — | `ADMIN_PRODUCT_IMPORT` |
+| Disputes (WI-6) | `GET /disputes(/:id)`, `POST /disputes`, `PATCH /disputes/:id` | `disputes` | `ADMIN_DISPUTE_*` |
+| Impersonation (WI-7) | `POST /users/:id/impersonate` — read-only context, **no user token minted** | — | `ADMIN_IMPERSONATE` |
+| Notifications (WI-8) | CRUD `/notification-templates`, `GET /notifications/history`, `templateKey` on broadcasts | `notification_templates`, `broadcast_logs` | `ADMIN_NOTIFICATION_TEMPLATE_*` |
+| Ops (WI-9) | `GET /jobs/:queue`, `POST /jobs/:queue/:id/retry`, `GET /error-logs` | `error_logs` | `ADMIN_JOB_RETRY` |
+| Activity 360 (WI-10) | `GET /activity`, `/activity/users/:id`, `/activity/conversations/:id` (+voice) — masked content + audited reveal | — (reads existing) | reuses `ADMIN_PII_REVEAL` |
+
+### New SPA pages / nav groups
+Settings · Team & Access · Returns · Finance · Disputes · Activity (Feed + per-user 360) ·
+Templates/History (in Broadcast) · Jobs + Error Logs (in Ops) · Low-stock + Import/Export
+(in Catalog) · "View as user" (on Users detail). All nav items/groups are scope-gated.
+
+### Runtime settings (`settings.service.js` manifest — NEVER stores secrets)
+AI budget cap, free daily limits, tokens-per-credit, **per-service AI model routing**
+(`ai.model.chat/diagnose/treatment/soilOcr/voiceStt`), `marketplace.commissionRatePct`,
+`catalog.lowStockThreshold`, `broadcast.maxRecipients`, maintenance mode.
+`GET /settings/env-status` reports expected env vars **present/absent only**.
+
+### Caveats / open follow-ups
+- **WI-11 (pending): AI model routing is selection-only.** The dropdowns store + audit the
+  choice, but FastAPI `llm_dispatch` still reads its own env and only accepts `gemini-*` —
+  live routing to Claude/OpenAI/Groq needs the FastAPI provider work.
+- **WI-5:** `Product` stores only `nameHi`/`nameMr`; CSV round-trips all 9 lang headers but
+  fills 2 (the rest live on `Category`). **WI-8:** push `failed` counts are best-effort;
+  multi-language broadcasts default to `en`. **WI-4:** ledger auto-seeding from completed
+  orders is a follow-up (manual `ADJUSTMENT` works today).
