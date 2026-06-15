@@ -4,6 +4,7 @@ import {
   SafeAreaView, Alert, Image, Animated, Dimensions,
 } from 'react-native';
 import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
+import { formatLocation } from '../../utils/location';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SHADOWS } from '../../constants/colors';
@@ -69,7 +70,18 @@ export default function AnimalDetail({ route, navigation }) {
 
   const imageUrl = listing.images && listing.images[0] ? listing.images[0] : null;
   const postedLabel = formatPostedDate(listing);
+  const sellerLocation = formatLocation(listing.sellerLocation);
   const hasMilk = listing.milkYield && listing.milkYield !== 'N/A';
+
+  // Real API listings carry the seller under a nested `seller` relation
+  // ({ id, name, avatar }); the mock fallback uses flat `sellerName`/`sellerAvatar`.
+  // Resolve both so the seller's real name + photo always show (and flow into chat).
+  const sellerName = listing.seller?.name || listing.sellerName || t('animalDetail.seller', 'Seller');
+  const sellerAvatarRaw = listing.seller?.avatar || listing.sellerAvatarUrl || null;
+  const sellerAvatarUri = typeof sellerAvatarRaw === 'string' && /^https?:\/\//i.test(sellerAvatarRaw) ? sellerAvatarRaw : null;
+  const sellerInitials = (!sellerAvatarUri && listing.sellerAvatar)
+    ? listing.sellerAvatar
+    : (sellerName.trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'S');
 
   // Key highlights strip (top 3 available facts) — keeps the screen feeling
   // full even when a listing is missing some optional fields.
@@ -104,10 +116,18 @@ export default function AnimalDetail({ route, navigation }) {
   };
 
   const handleChat = () => {
+    const listingTitle = `${listing.animal || ''}${listing.breed ? ' · ' + listing.breed : ''}`.trim() || null;
     navigation.navigate('Chat', {
       listingId: listing.id,
-      sellerName: listing.sellerName,
-      sellerId: listing.sellerId || listing.id,
+      // The counterpart here is always the seller (a buyer is reaching out).
+      // Pass the RAW name (null when unset) so the chat can fall back to phone.
+      peerName: listing.seller?.name || listing.sellerName || null,
+      // Only a real URL is used as an image; initials render as a letter.
+      peerAvatar: sellerAvatarUri,
+      peerId: listing.sellerId || listing.seller?.id || listing.id,
+      peerPhone: listing.seller?.phone || listing.sellerPhone || null,
+      peerRole: 'seller',
+      listingTitle,
     });
   };
 
@@ -231,16 +251,25 @@ export default function AnimalDetail({ route, navigation }) {
             <Text style={styles.sectionTitle}>{t('animalDetail.sellerInfo')}</Text>
             <View style={styles.sellerInfo}>
               <View style={styles.sellerAvatar}>
-                <Text style={styles.sellerAvatarText}>{listing.sellerAvatar}</Text>
+                {sellerAvatarUri ? (
+                  <Image source={{ uri: sellerAvatarUri }} style={styles.sellerAvatarImg} />
+                ) : (
+                  <Text style={styles.sellerAvatarText}>{sellerInitials}</Text>
+                )}
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sellerName}>{listing.sellerName}</Text>
-                <View style={styles.locationRow}>
-                  <Ionicons name="location" size={14} color={COLORS.textLight} />
-                  <Text style={styles.locationText}>{listing.sellerLocation}</Text>
-                </View>
+                <Text style={styles.sellerName} numberOfLines={1}>{sellerName}</Text>
+                {sellerLocation ? (
+                  <View style={styles.locationRow}>
+                    <Ionicons name="location" size={13} color={COLORS.primary} />
+                    <Text style={styles.locationText} numberOfLines={2}>{sellerLocation}</Text>
+                  </View>
+                ) : null}
                 {postedLabel ? (
-                  <Text style={styles.postedDate}>{t('animalDetail.postedDate', { date: postedLabel })}</Text>
+                  <View style={styles.postedRow}>
+                    <Ionicons name="time-outline" size={13} color={COLORS.textLight} />
+                    <Text style={styles.postedDate}>{t('animalDetail.postedDate', { date: postedLabel })}</Text>
+                  </View>
                 ) : null}
               </View>
               {listing.verified && (
@@ -356,13 +385,18 @@ const styles = StyleSheet.create({
   description: { fontSize: 15, color: COLORS.textMedium, lineHeight: 24 },
 
   sellerCard: { backgroundColor: COLORS.surface, borderRadius: 16, padding: 16, marginBottom: 16, ...SHADOWS.small },
-  sellerInfo: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  sellerAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
+  sellerInfo: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
+  sellerAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  sellerAvatarImg: { width: 52, height: 52, borderRadius: 26 },
   sellerAvatarText: { fontSize: 18, fontWeight: '800', color: COLORS.textWhite },
   sellerName: { fontSize: 17, fontWeight: '700', color: COLORS.textDark },
-  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  locationText: { fontSize: 13, color: COLORS.textLight },
-  postedDate: { fontSize: 12, color: COLORS.textLight, marginTop: 4 },
+  locationRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6, alignSelf: 'flex-start',
+    backgroundColor: COLORS.greenPale, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8,
+  },
+  locationText: { flexShrink: 1, fontSize: 13, color: COLORS.textMedium, fontWeight: '600' },
+  postedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  postedDate: { fontSize: 12, color: COLORS.textLight },
   verifiedSmall: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.greenPale, justifyContent: 'center', alignItems: 'center' },
 
   tipsCard: { flexDirection: 'row', gap: 12, backgroundColor: COLORS.yellowWarm, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: COLORS.warning + '60' },

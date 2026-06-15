@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Auth flow — KhetAI design (ported from the Lovable "dharti-connect-hub" project).
+// Auth flow — CropSetu design (ported from the Lovable "dharti-connect-hub" project).
 // Three steps: WELCOME (pre-login) → PHONE (mobile entry) → OTP (6-digit verify).
 // Real OTP backend logic (sendOtp / verifyOtp) is preserved. The phone field is
 // uncontrolled (ref-based) to dodge the New-Architecture Android caret-reset bug;
@@ -18,14 +18,14 @@ import {
   Platform,
   Image,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { useLanguage } from '../../context/LanguageContext';
-import { isValidPhone, isValidOtp } from '../../utils/validators';
+import { isValidPhone, isValidOtp, normalizePhone } from '../../utils/validators';
 import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 
 const HERO = require('../../../assets/khet/welcome-hero.jpg');
@@ -36,7 +36,6 @@ const OTP_LEN = 6;
 const RESEND_SECONDS = 30;
 
 export default function LoginScreen() {
-  const { t } = useLanguage();
   const { sendOtp, verifyOtp } = useAuth();
   const insets = useSafeAreaInsets();
 
@@ -75,7 +74,7 @@ export default function LoginScreen() {
     if (loading || resendIn > 0) return;
     const phone = phoneValueRef.current;
     if (!isValidPhone(phone)) {
-      setErrorMsg(t('checkout.invalidPhoneMsg'));
+      setErrorMsg('Enter a valid 10-digit mobile number.');
       return;
     }
     setLoading(true);
@@ -96,7 +95,7 @@ export default function LoginScreen() {
     } catch (err) {
       const retryAfter = Number(err?.response?.headers?.['retry-after']);
       if (Number.isFinite(retryAfter) && retryAfter > 0) setResendIn(Math.min(Math.ceil(retryAfter), 300));
-      setErrorMsg(err.userMessage || err.response?.data?.error?.message || t('login.otpSendError'));
+      setErrorMsg(err.userMessage || err.response?.data?.error?.message || 'Could not send OTP. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -112,7 +111,7 @@ export default function LoginScreen() {
       await verifyOtp(phoneDisplay || phoneValueRef.current, c);
       // RootNavigator routes on success.
     } catch (err) {
-      setErrorMsg(err.userMessage || err.response?.data?.error?.message || t('login.invalidOrExpiredCode'));
+      setErrorMsg(err.userMessage || err.response?.data?.error?.message || 'Invalid or expired code.');
       setOtpDigits(Array(OTP_LEN).fill(''));
       setAutoFilled(false);
       otpRefs.current[0]?.focus();
@@ -122,7 +121,10 @@ export default function LoginScreen() {
   }
 
   function handlePhoneChange(v) {
-    const digits = v.replace(/\D/g, '').slice(0, 10);
+    // Normalise first: strips spaces/punctuation and a pasted +91 country code or
+    // leading-0 trunk prefix, then cap at the 10-digit national number. Pasting
+    // "+91 98765 43210" or "098765 43210" now yields the correct number.
+    const digits = normalizePhone(v).slice(0, 10);
     phoneValueRef.current = digits;
     const ready = digits.length === 10;
     setPhoneReady((r) => (r === ready ? r : ready));
@@ -130,13 +132,29 @@ export default function LoginScreen() {
   }
 
   function handleOtpChange(i, v) {
-    const ch = v.replace(/\D/g, '').slice(-1);
+    if (errorMsg) setErrorMsg(null);
+    const digits = v.replace(/\D/g, '');
+
+    // Paste or SMS auto-fill drops the whole code into one box — spread the digits
+    // across the boxes from the current index instead of keeping only the last one.
+    if (digits.length > 1) {
+      setOtpDigits((prev) => {
+        const next = [...prev];
+        for (let k = 0; k < digits.length && i + k < OTP_LEN; k++) next[i + k] = digits[k];
+        return next;
+      });
+      const filledTo = Math.min(i + digits.length, OTP_LEN);
+      otpRefs.current[filledTo >= OTP_LEN ? OTP_LEN - 1 : filledTo]?.focus();
+      return;
+    }
+
+    // Single character (typing) or empty string (backspace clears the box).
+    const ch = digits.slice(-1);
     setOtpDigits((prev) => {
       const next = [...prev];
       next[i] = ch;
       return next;
     });
-    if (errorMsg) setErrorMsg(null);
     if (ch && i < OTP_LEN - 1) otpRefs.current[i + 1]?.focus();
   }
 
@@ -233,9 +251,12 @@ function Blobs() {
 
 // ── Welcome (pre-login) ──────────────────────────────────────────────────────
 function WelcomeView({ insets, onStart }) {
-  const { t } = useLanguage();
+  const { height } = useWindowDimensions();
+  // Web uses document-scroll globally (see App.js), so this full-bleed landing
+  // screen must clamp to the viewport — otherwise the page scrolls. Native: flex:1.
+  const lockViewport = Platform.OS === 'web' ? { height, overflow: 'hidden' } : null;
   return (
-    <View style={sty.root}>
+    <View style={[sty.root, lockViewport]}>
       <StatusBar style="light" />
       <Image source={HERO} style={StyleSheet.absoluteFill} resizeMode="cover" />
       <LinearGradient
@@ -250,7 +271,7 @@ function WelcomeView({ insets, onStart }) {
       <View style={[sty.topbar, { paddingTop: insets.top + 8 }]}>
         <View style={sty.glassPill}>
           <Ionicons name="leaf" size={15} color={KHET.primaryGlow} />
-          <Text style={sty.glassPillTxt}>KhetAI</Text>
+          <Text style={sty.glassPillTxt}>CropSetu</Text>
         </View>
         <View style={sty.glassPill}>
           <Ionicons name="language" size={13} color="#fff" />
@@ -258,26 +279,15 @@ function WelcomeView({ insets, onStart }) {
         </View>
       </View>
 
-      {/* Bottom content panel */}
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={[sty.welcomeBody, { paddingBottom: insets.bottom + 24 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={sty.badgePillDark}>
-          <Ionicons name="sparkles" size={11} color={KHET.primaryGlow} />
-          <Text style={sty.badgePillDarkTxt}>{t('login.poweredByOnDeviceAI')}</Text>
-          <View style={sty.dotSep} />
-          <Text style={sty.badgePillDarkTxt}>{t('login.farmerCount')}</Text>
-        </View>
-
+      {/* Bottom content panel — fixed (no scroll); content sits at the bottom over the hero. */}
+      <View style={[sty.welcomeBody, { paddingBottom: insets.bottom + 24 }]}>
         <Text style={sty.heroTitle}>
-          {t('login.heroTitleLine1')}{'\n'}
-          <Text style={sty.heroTitleItalic}>{t('login.heroTitleLine2')}</Text>
+          Your farm,{'\n'}
+          <Text style={sty.heroTitleItalic}>smarter every season.</Text>
         </Text>
 
         <Text style={sty.heroDesc}>
-          {t('login.heroDesc')}
+          Diagnose crop disease from a photo, talk to your personal AI agronomist, and track mandi prices — all in your language.
         </Text>
 
         <View style={sty.langRow}>
@@ -287,26 +297,25 @@ function WelcomeView({ insets, onStart }) {
             </View>
           ))}
           <View style={sty.langChip}>
-            <Text style={[sty.langChipTxt, { opacity: 0.8 }]}>{t('login.plusMoreLangs')}</Text>
+            <Text style={[sty.langChipTxt, { opacity: 0.8 }]}>+3 more</Text>
           </View>
         </View>
 
         <View style={{ marginTop: 28 }}>
-          <GradientButton label={t('login.getStartedBtn')} sublabel="/ शुरू करें" onPress={onStart} />
+          <GradientButton label="Get started" sublabel="/ शुरू करें" onPress={onStart} />
         </View>
 
         <View style={sty.termsRow}>
           <Ionicons name="shield-checkmark" size={12} color="rgba(255,255,255,0.6)" />
-          <Text style={sty.termsTxt}>{t('login.termsAndPrivacy')}</Text>
+          <Text style={sty.termsTxt}>By continuing you agree to our Terms & Privacy</Text>
         </View>
-      </ScrollView>
+      </View>
     </View>
   );
 }
 
 // ── Phone (mobile entry) ─────────────────────────────────────────────────────
 function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneDisplay, onBack, onChange, onFocus, onBlur, onSubmit }) {
-  const { t } = useLanguage();
   const scrollRef = useRef(null);
   const scrollDown = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
   return (
@@ -327,7 +336,7 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
             </TouchableOpacity>
             <View style={sty.brandRow}>
               <Ionicons name="leaf" size={15} color={KHET.primary} />
-              <Text style={sty.brandTxt}>KhetAI</Text>
+              <Text style={sty.brandTxt}>CropSetu</Text>
             </View>
             <View style={{ width: 40 }} />
           </View>
@@ -335,13 +344,13 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
           <View style={{ marginTop: 24 }}>
             <View style={sty.accentPill}>
               <Ionicons name="sparkles" size={11} color={KHET.primary} />
-              <Text style={sty.accentPillTxt}>{t('login.secureAIVerification')}</Text>
+              <Text style={sty.accentPillTxt}>Secure AI verification</Text>
             </View>
 
             <View style={sty.progressRow}>
               <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={sty.progFill} />
               <View style={sty.progEmpty} />
-              <Text style={sty.progTxt}>{t('login.step1of2')}</Text>
+              <Text style={sty.progTxt}>Step 1 of 2</Text>
             </View>
 
             <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sty.iconSquare}>
@@ -349,13 +358,13 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
             </LinearGradient>
 
             <Text style={sty.title}>
-              {t('login.phoneTitleLine1')}{'\n'}
-              <Text style={sty.titleItalic}>{t('login.phoneTitleLine2')}</Text>
+              What's your{'\n'}
+              <Text style={sty.titleItalic}>mobile number?</Text>
             </Text>
-            <Text style={sty.subtle}>{t('login.phoneSubtle')}</Text>
+            <Text style={sty.subtle}>We'll send a 6-digit OTP on your number to verify it's really you.</Text>
             <Text style={[sty.subtle, { marginTop: 4 }]}>आपका मोबाइल नंबर क्या है?</Text>
 
-            <Text style={sty.fieldLabel}>{t('login.mobileNumberLabel')}</Text>
+            <Text style={sty.fieldLabel}>MOBILE NUMBER</Text>
             <View style={[sty.inputCard, phoneFocused && sty.inputCardFocused]}>
               <View style={sty.ccChip}>
                 <Text style={{ fontSize: 16 }}>🇮🇳</Text>
@@ -366,7 +375,7 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
                 placeholder="98765 43210"
                 placeholderTextColor="rgba(87,104,90,0.5)"
                 keyboardType="number-pad"
-                maxLength={10}
+                maxLength={15}
                 defaultValue={phoneDisplay}
                 onChangeText={onChange}
                 onFocus={() => { onFocus(); scrollDown(); }}
@@ -385,12 +394,12 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
             ) : (
               <View style={sty.privacyBox}>
                 <Ionicons name="shield-checkmark" size={15} color={KHET.primary} />
-                <Text style={sty.privacyTxt}>{t('login.numberPrivate')}</Text>
+                <Text style={sty.privacyTxt}>Your number stays private. Never shared or sold.</Text>
               </View>
             )}
 
             <GradientButton
-              label={t('login.sendOtpBtn')}
+              label="Send OTP / OTP भेजें"
               onPress={onSubmit}
               loading={loading}
               disabled={loading || !phoneReady}
@@ -399,7 +408,7 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
           </View>
 
           <Text style={sty.footerTerms}>
-            {t('login.byContinuingPrefix')} <Text style={sty.footerStrong}>{t('login.termsShort')}</Text> & <Text style={sty.footerStrong}>{t('login.privacyPolicy')}</Text>
+            By continuing you agree to our <Text style={sty.footerStrong}>Terms</Text> & <Text style={sty.footerStrong}>Privacy Policy</Text>
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -409,9 +418,13 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
 
 // ── OTP (verify) ─────────────────────────────────────────────────────────────
 function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, phoneDisplay, resendIn, complete, onBack, onChange, onKey, onVerify, onResend }) {
-  const { t } = useLanguage();
   const scrollRef = useRef(null);
   const scrollDown = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
+  // Size the six boxes explicitly from the viewport. (flex:1 + aspectRatio:1 makes
+  // react-native-web blow one box up to fill the whole screen.) 48 = body padding,
+  // 50 = five 10px gaps; capped at 58 so the boxes don't grow huge on web/tablet.
+  const { width } = useWindowDimensions();
+  const otpBoxSize = Math.min(58, Math.floor((width - 48 - 50) / 6));
   // Once all six digits are in (auto-fill or manual), no more typing is needed —
   // hide the keyboard so the Verify button is revealed.
   useEffect(() => { if (complete) Keyboard.dismiss(); }, [complete]);
@@ -437,11 +450,11 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             </TouchableOpacity>
             <View style={sty.brandRow}>
               <Ionicons name="leaf" size={15} color={KHET.primary} />
-              <Text style={sty.brandTxt}>KhetAI</Text>
+              <Text style={sty.brandTxt}>CropSetu</Text>
             </View>
             <View style={sty.onlinePill}>
               <Ionicons name="wifi" size={12} color={KHET.primary} />
-              <Text style={sty.onlinePillTxt}>{t('chat.online')}</Text>
+              <Text style={sty.onlinePillTxt}>Online</Text>
             </View>
           </View>
 
@@ -449,16 +462,16 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             <View style={sty.progressRow}>
               <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={sty.progFill} />
               <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={sty.progFill} />
-              <Text style={sty.progTxt}>{t('login.step2of2')}</Text>
+              <Text style={sty.progTxt}>Step 2 of 2</Text>
             </View>
 
             <Text style={sty.title}>
-              {t('login.otpTitleLine1')}{'\n'}
-              <Text style={sty.titleItalic}>{t('login.otpTitleLine2')}</Text>
+              Enter the{'\n'}
+              <Text style={sty.titleItalic}>6-digit code</Text>
             </Text>
             <Text style={sty.subtle}>
-              {t('login.sentToPrefix')} <Text style={sty.subtleStrong}>{masked}</Text>
-              <Text onPress={onBack} style={sty.changeLink}>{`  ${t('checkout.change')}`}</Text>
+              Sent to <Text style={sty.subtleStrong}>{masked}</Text>
+              <Text onPress={onBack} style={sty.changeLink}>  Change</Text>
             </Text>
 
             {/* OTP boxes */}
@@ -467,7 +480,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
                 <TextInput
                   key={i}
                   ref={(el) => { otpRefs.current[i] = el; }}
-                  style={[sty.otpBox, d ? sty.otpBoxFilled : null]}
+                  style={[sty.otpBox, { width: otpBoxSize, height: otpBoxSize }, d ? sty.otpBoxFilled : null]}
                   keyboardType="number-pad"
                   maxLength={1}
                   value={d}
@@ -486,7 +499,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             {autoFilled && (
               <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sty.autofillBanner}>
                 <Ionicons name="sparkles" size={13} color={KHET.primaryForeground} />
-                <Text style={sty.autofillTxt}>{t('login.autoFilledFromSms')}</Text>
+                <Text style={sty.autofillTxt}>Auto-filled from SMS</Text>
               </LinearGradient>
             )}
 
@@ -500,7 +513,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
               ) : loading ? (
                 <View style={sty.verifyingBox}>
                   <ActivityIndicator size="small" color={KHET.primary} />
-                  <Text style={sty.verifyingTxt}>{t('login.verifyingCode')}</Text>
+                  <Text style={sty.verifyingTxt}>Verifying code…</Text>
                 </View>
               ) : null}
             </View>
@@ -509,17 +522,17 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             <View style={{ marginTop: 8, alignItems: 'center' }}>
               {resendIn > 0 ? (
                 <Text style={sty.subtle}>
-                  {t('login.resendOtpInPrefix')} <Text style={sty.subtleStrong}>{mm}:{ss}</Text>
+                  Resend OTP in <Text style={sty.subtleStrong}>{mm}:{ss}</Text>
                 </Text>
               ) : (
                 <TouchableOpacity onPress={onResend} disabled={loading}>
-                  <Text style={sty.resendLink}>{t('login.resendOtpBtn')}</Text>
+                  <Text style={sty.resendLink}>Resend OTP / दोबारा भेजें</Text>
                 </TouchableOpacity>
               )}
             </View>
 
             <GradientButton
-              label={loading ? t('login.verifyingShort') : t('login.verifyOtpBtn')}
+              label={loading ? 'Verifying…' : 'Verify OTP'}
               onPress={onVerify}
               loading={loading}
               disabled={!complete || loading}
@@ -527,7 +540,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             />
           </View>
 
-          <Text style={sty.footerTerms}>{t('login.didntGetCodeHint')}</Text>
+          <Text style={sty.footerTerms}>Didn't get the code? Check your SMS inbox or try again in a moment.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </LinearGradient>
@@ -561,22 +574,7 @@ const sty = StyleSheet.create({
     paddingVertical: 7,
   },
   glassPillTxt: { color: '#fff', fontSize: 13, fontFamily: KFONT.sansSemi },
-  welcomeBody: { flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: 24, paddingTop: '60%' },
-  badgePillDark: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 22,
-  },
-  badgePillDarkTxt: { color: '#fff', fontSize: 11, fontFamily: KFONT.sansMed },
-  dotSep: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.4)', marginHorizontal: 2 },
+  welcomeBody: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 24 },
   heroTitle: { color: '#fff', fontSize: 44, lineHeight: 46, fontFamily: KFONT.display, letterSpacing: -0.5 },
   heroTitleItalic: { color: KHET.primaryGlow, fontFamily: KFONT.displayItalic, fontStyle: 'italic' },
   heroDesc: { color: 'rgba(255,255,255,0.82)', fontSize: 15, lineHeight: 23, marginTop: 16, fontFamily: KFONT.sans },
@@ -700,7 +698,17 @@ const sty = StyleSheet.create({
   inputCardFocused: { borderColor: KHET.primary, borderWidth: 2 },
   ccChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: KHET.secondary, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
   ccTxt: { color: KHET.secondaryForeground, fontSize: 14, fontFamily: KFONT.sansSemi },
-  phoneInput: { flex: 1, paddingHorizontal: 8, paddingVertical: 12, fontSize: 18, color: KHET.foreground, fontFamily: KFONT.sansSemi, letterSpacing: 1 },
+  phoneInput: {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 12,
+    fontSize: 18,
+    color: KHET.foreground,
+    fontFamily: KFONT.sansSemi,
+    letterSpacing: 1,
+    // The input card border shows focus; kill the web default outline.
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : null),
+  },
 
   privacyBox: {
     flexDirection: 'row',
@@ -733,10 +741,8 @@ const sty = StyleSheet.create({
   footerStrong: { color: KHET.foreground, fontFamily: KFONT.sansSemi },
 
   // ── OTP boxes ──
-  otpRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginTop: 36 },
+  otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 36 },
   otpBox: {
-    flex: 1,
-    aspectRatio: 1,
     borderRadius: 16,
     backgroundColor: KHET.card,
     textAlign: 'center',
@@ -746,6 +752,8 @@ const sty = StyleSheet.create({
     borderWidth: 1,
     borderColor: KHET.border,
     ...KSHADOW.soft,
+    // The box border shows fill/focus; kill the web default outline.
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : null),
   },
   otpBoxFilled: { borderColor: KHET.primary, borderWidth: 2 },
   autofillBanner: {

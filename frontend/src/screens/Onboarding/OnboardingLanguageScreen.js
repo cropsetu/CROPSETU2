@@ -1,6 +1,6 @@
 /**
  * OnboardingLanguageScreen — Screen 1/2: Pick your language.
- * KhetAI theme: forest-green gradient surface, Fraunces serif headline,
+ * CropSetu theme: forest-green gradient surface, Fraunces serif headline,
  * Plus Jakarta Sans cards, single-green selection, gradient CTA. Staggered
  * card entrance + press-scale motion preserved. Logic unchanged.
  */

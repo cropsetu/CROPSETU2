@@ -18,9 +18,6 @@ import { EntrySlide, D } from '../../components/ui/ImmersiveKit';
 import { COLORS } from '../../constants/colors';
 import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
-import AnimalIcon from '../../components/AnimalIcons';
-import MachineryIcon from '../../components/MachineryIcons';
-import DashboardStatIcon from '../../components/DashboardStatIcons';
 import Svg, { Circle, Defs, RadialGradient as SvgRadialGradient, Stop, Path } from 'react-native-svg';
 
 function HeroBgDecoration() {
@@ -69,7 +66,7 @@ function SectionHeader({ title, icon, iconColor }) {
   );
 }
 
-function RowItem({ icon, renderIcon, iconColor, label, subtitle, onPress, showArrow = true, rightElement, isLast }) {
+function RowItem({ icon, iconColor, label, subtitle, onPress, showArrow = true, rightElement, isLast }) {
   const color = iconColor || KHET.primary;
   return (
     <TouchableOpacity
@@ -78,7 +75,7 @@ function RowItem({ icon, renderIcon, iconColor, label, subtitle, onPress, showAr
       activeOpacity={0.6}
     >
       <View style={[S.rowIcon, { backgroundColor: color + '18' }]}>
-        {renderIcon ? renderIcon() : <Ionicons name={icon} size={18} color={color} />}
+        <Ionicons name={icon} size={18} color={color} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={S.rowLabel}>{label}</Text>
@@ -91,12 +88,12 @@ function RowItem({ icon, renderIcon, iconColor, label, subtitle, onPress, showAr
   );
 }
 
-function QuickTile({ icon, renderIcon, label, color, onPress, index = 0 }) {
+function QuickTile({ icon, label, color, onPress, index = 0 }) {
   return (
     <EntrySlide delay={index * 80} fromY={20} style={{ flex: 1 }}>
       <TouchableOpacity style={S.quickTile} onPress={onPress} activeOpacity={0.7}>
         <View style={[S.quickIcon, { backgroundColor: color + '18' }]}>
-          {renderIcon ? renderIcon() : <Ionicons name={icon} size={24} color={color} />}
+          <Ionicons name={icon} size={24} color={color} />
         </View>
         <Text style={S.quickLabel} numberOfLines={2}>{label}</Text>
       </TouchableOpacity>
@@ -212,10 +209,10 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
 }
 
 const STAT_CONFIGS = [
-  { key: 'animalListings', labelKey: 'profile.animals', color: D.amber, render: () => <AnimalIcon type="Cow" size={28} /> },
-  { key: 'orders',         labelKey: 'profile.orders',  color: D.green, render: () => <DashboardStatIcon type="orders" size={28} animated={false} /> },
+  { key: 'animalListings', labelKey: 'profile.animals', icon: 'paw-outline',       color: D.amber },
+  { key: 'orders',         labelKey: 'profile.orders',  icon: 'cart-outline',      color: D.green },
   // Rentals = machinery + labour listings the user has created (value computed in render)
-  { key: 'rentListings',   labelKey: 'profile.rentals', color: D.cyan,  render: () => <MachineryIcon type="tractor" size={28} /> },
+  { key: 'rentListings',   labelKey: 'profile.rentals', icon: 'construct-outline', color: D.cyan },
 ];
 
 export default function ProfileScreen({ navigation }) {
@@ -396,7 +393,7 @@ export default function ProfileScreen({ navigation }) {
                 </View>
               </TouchableOpacity>
 
-              <Text style={S.heroName}>{user?.name || t('aiHome.farmer')}</Text>
+              <Text style={S.heroName}>{user?.name || 'Farmer'}</Text>
               {user?.phone && <Text style={S.heroPhone}>{user.phone}</Text>}
               {(user?.city || user?.district) && (
                 <View style={S.locRow}>
@@ -429,7 +426,7 @@ export default function ProfileScreen({ navigation }) {
               {STAT_CONFIGS.map((stat, i) => (
                 <View key={stat.key} style={[S.statCell, i < STAT_CONFIGS.length - 1 && S.statCellBorder]}>
                   <View style={[S.statIcon, { backgroundColor: stat.color + '16' }]}>
-                    {stat.render()}
+                    <Ionicons name={stat.icon} size={20} color={stat.color} />
                   </View>
                   <Text style={S.statValue}>{stat.key === 'rentListings' ? rentListingCount : (counts[stat.key] ?? 0)}</Text>
                   <Text style={S.statLabel}>{t(stat.labelKey)}</Text>
@@ -441,10 +438,9 @@ export default function ProfileScreen({ navigation }) {
           <SectionCard delay={60}>
             <SectionHeader title={t('profile.quickActions')} icon="flash-outline" iconColor={D.gold} />
             <View style={S.quickGrid}>
-              <QuickTile index={0} icon="leaf"     label={t('farmProfile.myFarms')}               color={COLORS.primary} onPress={() => navigation.navigate('FarmList')} />
-              <QuickTile index={1} renderIcon={() => <DashboardStatIcon type="orders" size={30} animated={false} />} label={t('myOrders')}          color={D.green}  onPress={() => navigation.navigate('MyOrders')} />
-              <QuickTile index={2} icon="bookmark" label={t('savedPosts')}        color={D.gold}   onPress={() => navigation.navigate('SavedPosts')} />
-              <QuickTile index={3} renderIcon={() => <AnimalIcon type="Cow" size={30} />} label={t('profile.myListings')} color={D.amber}  onPress={() => navigation.navigate('MyAnimalListings')} />
+              <QuickTile index={0} icon="leaf"     label="My Farms"               color={COLORS.primary} onPress={() => navigation.navigate('FarmList')} />
+              <QuickTile index={1} icon="cart"     label={t('myOrders')}          color={D.green}  onPress={() => navigation.navigate('MyOrders')} />
+              <QuickTile index={2} icon="paw"      label={t('profile.myListings')} color={D.amber}  onPress={() => navigation.navigate('MyAnimalListings')} />
             </View>
           </SectionCard>
 
@@ -455,7 +451,7 @@ export default function ProfileScreen({ navigation }) {
             <RowItem
               icon="globe-outline" iconColor={D.cyan}
               label={t('profile.selectState')}
-              subtitle={selectedState ? `${selectedState} · ${currentLang?.nativeName || t('languages.english')}` : currentLang?.nativeName || t('languages.english')}
+              subtitle={selectedState ? `${selectedState} · ${currentLang?.nativeName || 'English'}` : currentLang?.nativeName || 'English'}
               onPress={() => setShowStateModal(true)}
             />
             <RowItem
@@ -471,7 +467,7 @@ export default function ProfileScreen({ navigation }) {
                 />
               }
             />
-            <RowItem icon="shield-checkmark-outline" iconColor={D.purple} label={t('profile.privacyCenter')} subtitle={t('profile.privacySub')} onPress={() => Alert.alert(t('profile.privacyCenter'), t('profile.privacyCenterMsg'))} isLast />
+            <RowItem icon="shield-checkmark-outline" iconColor={D.purple} label={t('profile.privacyCenter')} subtitle={t('profile.privacySub')} onPress={() => Alert.alert(t('profile.privacyCenter'), 'Your data is securely stored and never shared with third parties. We follow industry-standard encryption and privacy practices.')} isLast />
           </SectionCard>
 
           <SectionCard delay={180}>
@@ -479,7 +475,7 @@ export default function ProfileScreen({ navigation }) {
             <RowItem icon="call-outline"     iconColor={D.green}  label={t('profile.mobileNumber')} subtitle={user?.phone || '—'}                                  showArrow={false} />
             <RowItem icon="mail-outline"     iconColor={D.blue}   label={t('profile.email')}         subtitle={t('profile.notAddedYet')}                            showArrow={false} />
             <RowItem icon="business-outline" iconColor={D.cyan}   label={t('profile.district')}      subtitle={user?.district || '—'}                               showArrow={false} />
-            <RowItem icon="home-outline"     iconColor={D.green}  label={t('farmProfile.village')}                    subtitle={user?.village || '—'}                                showArrow={false} />
+            <RowItem icon="home-outline"     iconColor={D.green}  label="Village"                    subtitle={user?.village || '—'}                                showArrow={false} />
             <RowItem icon="location-outline" iconColor={D.amber}  label={t('profile.cityTown')}      subtitle={user?.city || '—'}                                   showArrow={false} />
             <RowItem icon="map-outline"      iconColor={D.indigo} label={t('profile.state')}         subtitle={user?.state || '—'}                                  showArrow={false} />
             <RowItem icon="pin-outline"      iconColor={D.gold}   label={t('profile.pincode')}       subtitle={user?.pincode || '—'}                                showArrow={false} isLast />
@@ -487,8 +483,8 @@ export default function ProfileScreen({ navigation }) {
 
           <SectionCard delay={240}>
             <SectionHeader title={t('myActivity')} icon="trending-up-outline" iconColor={D.amber} />
-            <RowItem renderIcon={() => <AnimalIcon type="Cow" size={26} />}       iconColor={D.amber} label={t('myAnimalListings')}          subtitle={t('profile.listingsCount', { count: counts.animalListings || 0 })}   onPress={() => navigation.navigate('MyAnimalListings')} />
-            <RowItem renderIcon={() => <MachineryIcon type="tractor" size={26} />} iconColor={D.cyan}  label={t('myRentListings')}            subtitle={t('profile.listingsCount', { count: rentListingCount })} onPress={() => navigation.navigate('MyRentListings')} isLast />
+            <RowItem icon="paw-outline"       iconColor={D.amber} label={t('myAnimalListings')}          subtitle={t('profile.listingsCount', { count: counts.animalListings || 0 })}   onPress={() => navigation.navigate('MyAnimalListings')} />
+            <RowItem icon="construct-outline" iconColor={D.cyan}  label={t('myRentListings')}            subtitle={t('profile.listingsCount', { count: rentListingCount })} onPress={() => navigation.navigate('MyRentListings')} isLast />
           </SectionCard>
 
           {user?.farmDetail && (
@@ -541,7 +537,7 @@ export default function ProfileScreen({ navigation }) {
                 style={S.sellerBanner}
               >
                 <View style={S.sellerIconWrap}>
-                  <Ionicons name={isSeller ? 'storefront' : 'add-circle'} size={24} color={COLORS.white} />
+                  <Ionicons name={isSeller ? 'storefront' : 'add-circle'} size={22} color={COLORS.white} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={S.sellerTitle}>
@@ -665,7 +661,7 @@ export default function ProfileScreen({ navigation }) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 }}>
               <Ionicons name="language" size={22} color={KHET.primary} />
               <Text style={{ fontSize: 15, fontFamily: KFONT.displaySemi, color: KHET.foreground, flex: 1, letterSpacing: -0.3 }}>
-                {t('profile.chooseLanguageMulti')}
+                Choose Language / भाषा चुनें / भाषा निवडा
               </Text>
             </View>
             {LANGUAGES.map((lang) => (
@@ -839,12 +835,13 @@ const S = StyleSheet.create({
   schemesTitle: { fontSize: 16, fontFamily: KFONT.displaySemi, color: KHET.white, letterSpacing: -0.3 },
   schemesSub: { fontSize: 12, color: 'rgba(255,255,255,0.85)', fontFamily: KFONT.sans, marginTop: 3 },
 
+  // Mirrors schemeBanner exactly (same metrics + shadow) so the two banners
+  // read as the same size; only the gradient colour differs.
   sellerBanner: {
     flexDirection: 'row', alignItems: 'center',
     gap: 14, paddingHorizontal: 20, paddingVertical: 18,
     borderRadius: 20, marginBottom: 14,
-    shadowColor: '#E65100', shadowOpacity: 0.15, shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }, elevation: 4,
+    ...KSHADOW.elegant,
   },
   sellerIconWrap: {
     width: 44, height: 44, borderRadius: 14,
@@ -852,7 +849,7 @@ const S = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   sellerTitle: { fontSize: 16, fontFamily: KFONT.displaySemi, color: KHET.white, letterSpacing: -0.3 },
-  sellerSub: { fontSize: 12, color: 'rgba(255,255,255,0.9)', fontFamily: KFONT.sans, marginTop: 3 },
+  sellerSub: { fontSize: 12, color: 'rgba(255,255,255,0.85)', fontFamily: KFONT.sans, marginTop: 3 },
   bannerArrow: {
     width: 34, height: 34, borderRadius: 17,
     backgroundColor: 'rgba(255,255,255,0.2)',

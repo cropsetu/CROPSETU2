@@ -82,7 +82,7 @@ export default function FarmDetailScreen({ navigation, route }) {
   if (loading) {
     return (
       <CosmicScreen>
-        <CosmicHeader title={t('loading')} />
+        <CosmicHeader title="Loading…" />
         <View style={styles.centerWrap}>
           <ActivityIndicator size="large" color={COSMIC.PRIMARY} />
         </View>
@@ -92,11 +92,11 @@ export default function FarmDetailScreen({ navigation, route }) {
   if (!farm) {
     return (
       <CosmicScreen>
-        <CosmicHeader title={t('farmProfile.notFound')} />
+        <CosmicHeader title="Not found" />
         <View style={styles.centerWrap}>
           <Ionicons name="leaf-outline" size={48} color={COSMIC.MUTED} />
           <Text style={[styles.mutedText, { marginTop: 14 }]}>{t('farmProfile.notFound') || 'Farm not found.'}</Text>
-          <GlowButton label={t('farmProfile.goBack')} variant="glass" onPress={() => navigation.goBack()} style={{ marginTop: 16 }} />
+          <GlowButton label="Go back" variant="glass" onPress={() => navigation.goBack()} style={{ marginTop: 16 }} />
         </View>
       </CosmicScreen>
     );
@@ -106,15 +106,13 @@ export default function FarmDetailScreen({ navigation, route }) {
   const isActive    = farm.id === activeFarmId;
   const soil        = (farm.soilReports || [])[0] || null;
   const cycles      = farm.cropCycles || [];
-  const activeCycles    = cycles.filter((c) => c.status !== 'COMPLETED');
-  const completedCycles = cycles.filter((c) => c.status === 'COMPLETED');
-  const insights    = computeInsights(farm, soil, cycles, t);
+  const insights    = computeInsights(farm, soil, cycles);
 
   const farmName    = farm.farmName || farm.farmAlias || `Farm ${farm.farmNumber}`;
   const location    = [farm.village, farm.taluka, farm.district].filter(Boolean).join(', ');
 
   const editRight = (
-    <CosmicHeader.IconButton icon="create-outline" onPress={onEdit} accessibilityLabel={t('farmProfile.editFarm')} />
+    <CosmicHeader.IconButton icon="create-outline" onPress={onEdit} accessibilityLabel="Edit farm" />
   );
 
   return (
@@ -137,13 +135,12 @@ export default function FarmDetailScreen({ navigation, route }) {
           farm={farm}
           isActive={isActive}
           onSetActive={onSetActive}
-          t={t}
         />
 
         {/* ── Insights ─────────────────────────────────────── */}
         {insights.length > 0 && (
           <>
-            <SectionLabel title={t('farmProfile.todaysInsights')} badge="Krushi AI" />
+            <SectionLabel title="Today's insights" badge="CropSetu AI" />
             <GlassCard variant="plain" style={styles.section} padding={0}>
               {insights.map((ins, i) => (
                 <View key={i} style={[styles.insightRow, i > 0 && styles.insightRowBordered]}>
@@ -169,44 +166,32 @@ export default function FarmDetailScreen({ navigation, route }) {
 
         {/* ── Active crop cycles ──────────────────────────── */}
         <SectionLabel
-          title={t('farmProfile.activeCrops')}
-          action={{ label: activeCycles.length ? t('farmProfile.addCycle') : t('farmProfile.startACycle'), onPress: onAdd }}
+          title="Active crops"
+          action={{ label: cycles.length ? 'Add cycle' : 'Start a cycle', onPress: onAdd }}
         />
-        {activeCycles.length === 0 ? (
+        {cycles.length === 0 ? (
           <GlassCard variant="plain" style={styles.section}>
             <View style={styles.emptyCyclesRow}>
               <View style={[styles.bigBubble, GLOW.green]}>
-                <CropIcon crop="Wheat" size={26} />
+                <Ionicons name="leaf" size={26} color={COSMIC.INVERSE} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sectionHeading}>{completedCycles.length ? t('farmProfile.noActiveCrops') : t('farmProfile.noCropCyclesYet')}</Text>
-                <Text style={styles.mutedText}>{t('farmProfile.startCycleHint')}</Text>
+                <Text style={styles.sectionHeading}>No crop cycles yet</Text>
+                <Text style={styles.mutedText}>Start a cycle to track stage, budget, sprays and sales.</Text>
               </View>
             </View>
-            <GlowButton label={t('farmProfile.startACropCycle')} icon="leaf-outline" variant="primary" full onPress={onAdd} style={{ marginTop: 14 }} />
+            <GlowButton label="Start a crop cycle" icon="leaf-outline" variant="primary" full onPress={onAdd} style={{ marginTop: 14 }} />
           </GlassCard>
         ) : (
           <View style={styles.section}>
-            {activeCycles.map((c) => (
+            {cycles.map((c) => (
               <CycleRow key={c.id} cycle={c} onPress={() => navigation.navigate('CropCycleDetail', { cycleId: c.id })} />
             ))}
           </View>
         )}
 
-        {/* ── History (completed cycles) ──────────────────── */}
-        {completedCycles.length > 0 && (
-          <>
-            <SectionLabel title={t('farmProfile.historyCompleted', { count: completedCycles.length })} />
-            <View style={styles.section}>
-              {completedCycles.map((c) => (
-                <CycleRow key={c.id} cycle={c} onPress={() => navigation.navigate('CropCycleDetail', { cycleId: c.id })} />
-              ))}
-            </View>
-          </>
-        )}
-
         {/* ── Soil health ─────────────────────────────────── */}
-        <SectionLabel title={t('farmProfile.soilHealth')} action={!soil ? { label: t('farmProfile.uploadReport'), onPress: () => navigation.navigate('AIAssistant', { screen: 'SoilHealth' }) } : undefined} />
+        <SectionLabel title="Soil health" action={!soil ? { label: 'Upload report', onPress: () => navigation.navigate('AIAssistant', { screen: 'SoilHealth' }) } : undefined} />
         <GlassCard variant="plain" style={styles.section}>
           {soil ? (
             <View style={styles.soilRow}>
@@ -222,19 +207,19 @@ export default function FarmDetailScreen({ navigation, route }) {
                 <Ionicons name="document-text-outline" size={22} color={COSMIC.TEXT_2} />
               </View>
               <Text style={[styles.mutedText, { flex: 1 }]}>
-                {t('farmProfile.noSoilReportHint')}
+                No soil health report yet. Uploading a Soil Health Card unlocks pH-aware fertilizer advisories.
               </Text>
             </View>
           )}
         </GlassCard>
 
         {/* ── AI Actions ──────────────────────────────────── */}
-        <SectionLabel title={t('farmProfile.askFarmMind')} badge="AI" />
+        <SectionLabel title="Ask CropSetu AI" badge="AI" />
         <View style={[styles.section, styles.predGrid]}>
           <PredCard
             icon="chatbubble-ellipses"
             tint={COSMIC.PRIMARY}
-            title={t('farmProfile.askFarmMind') || 'Ask Krushi Intelligence'}
+            title={t('farmProfile.askFarmMind') || 'Ask CropSetu AI'}
             sub={t('farmProfile.chatAboutFarm') || 'Personal advisory for this farm'}
             onPress={() => navigation.navigate('AIAssistant', {
               screen: 'AIChat',
@@ -273,7 +258,7 @@ export default function FarmDetailScreen({ navigation, route }) {
 // ──────────────────────────────────────────────────────────────────────────────
 // Hero card — matches MyFarmHome hero visual language.
 // ──────────────────────────────────────────────────────────────────────────────
-function HeroCard({ farm, isActive, onSetActive, t }) {
+function HeroCard({ farm, isActive, onSetActive }) {
   const acres  = Number(farm.landSizeAcres || 0);
   const soilLbl = (farm.soilType || 'unknown').replace(/_/g, ' ').toLowerCase();
   const irrLbl  = (farm.irrigationSystem || 'rainfed').toLowerCase();
@@ -282,22 +267,22 @@ function HeroCard({ farm, isActive, onSetActive, t }) {
     <View style={styles.heroOuter}>
       <GlassCard variant="bordered" padding={14}>
         <View style={styles.heroStatsRow}>
-          <HeroStat icon="resize-outline" label={t('farmProfile.acresLabel')} value={acres > 0 ? acres.toFixed(2) : '—'} />
+          <HeroStat icon="resize-outline" label="acres" value={acres > 0 ? acres.toFixed(2) : '—'} />
           <View style={styles.heroDivider} />
-          <HeroStat icon="layers-outline" label={t('farmProfile.soilLabel')}  value={soilLbl} capitalize />
+          <HeroStat icon="layers-outline" label="soil"  value={soilLbl} capitalize />
           <View style={styles.heroDivider} />
-          <HeroStat icon="water-outline"  label={t('farmProfile.waterLabel')} value={irrLbl} capitalize />
+          <HeroStat icon="water-outline"  label="water" value={irrLbl} capitalize />
         </View>
 
         {isActive ? (
           <View style={styles.activePill}>
             <Ionicons name="star" size={10} color={COSMIC.INVERSE} />
-            <Text style={styles.activePillText}>{t('farmProfile.activeFarmMindUses')}</Text>
+            <Text style={styles.activePillText}>Active · CropSetu AI uses this data</Text>
           </View>
         ) : (
           <Pressable onPress={onSetActive} style={({ pressed }) => [styles.setActiveBtn, pressed && { opacity: 0.7 }]}>
             <Ionicons name="star-outline" size={12} color={COSMIC.ACCENT} />
-            <Text style={styles.setActiveText}>{t('farmProfile.setAsActiveFarm')}</Text>
+            <Text style={styles.setActiveText}>Set as active farm</Text>
           </Pressable>
         )}
       </GlassCard>
@@ -413,32 +398,32 @@ function SectionLabel({ title, action, badge }) {
 // ──────────────────────────────────────────────────────────────────────────────
 // Insight heuristics — placeholder until v2 context-aware backend lands.
 // ──────────────────────────────────────────────────────────────────────────────
-function computeInsights(farm, soil, cycles, t) {
+function computeInsights(farm, soil, cycles) {
   const out = [];
   if (soil?.nitrogenRating === 'low') {
     out.push({ icon: 'alert-circle', color: COSMIC.DANGER,
-      text: t('farmProfile.insightLowNitrogen'),
-      action: t('farmProfile.askFarmMind') });
+      text: 'Soil nitrogen is low — consider applying Urea or FYM before next sowing.',
+      action: 'Ask CropSetu AI' });
   }
   if (soil?.phRating === 'acidic') {
     out.push({ icon: 'flask', color: COSMIC.WARN,
-      text: t('farmProfile.insightAcidicSoil'),
-      action: t('farmProfile.insightHowToApplyLime') });
+      text: 'Soil is acidic (pH < 6.5). Lime application ~2 qtl/acre helps.',
+      action: 'How to apply lime?' });
   }
   if (farm.irrigationSystem === 'RAINFED') {
     out.push({ icon: 'rainy-outline', color: COSMIC.INFO,
-      text: t('farmProfile.insightRainfed'),
-      action: t('farmProfile.insightOpenWeather') });
+      text: 'Rainfed farm — monitor IMD forecasts closely before sowing.',
+      action: 'Open weather' });
   }
   if (!soil) {
     out.push({ icon: 'document-text-outline', color: COSMIC.ACCENT,
-      text: t('farmProfile.insightUploadShc'),
-      action: t('farmProfile.insightUploadNow') });
+      text: 'Upload a Soil Health Card for precise fertilizer advice.',
+      action: 'Upload now' });
   }
   if (cycles.length === 0) {
     out.push({ icon: 'leaf-outline', color: COSMIC.PRIMARY,
-      text: t('farmProfile.insightNoCrops'),
-      action: t('farmProfile.insightGetCropAdvice') });
+      text: 'No active crops yet. Ask CropSetu AI which crop suits your soil & season.',
+      action: 'Get crop advice' });
   }
   return out;
 }
@@ -463,13 +448,13 @@ const styles = StyleSheet.create({
     borderColor: COSMIC.BORDER,
   },
   heroStatCol: { flex: 1, alignItems: 'center', gap: 2, paddingHorizontal: 4 },
-  heroStatValue: { fontSize: 15, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_800ExtraBold' },
+  heroStatValue: { fontSize: 15, color: COSMIC.TEXT, fontFamily: 'Inter_800ExtraBold' },
   heroStatLabel: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontFamily: 'Inter_600SemiBold',
   },
   heroDivider: { width: StyleSheet.hairlineWidth, backgroundColor: COSMIC.BORDER, marginVertical: 2 },
   activePill: {
@@ -483,7 +468,7 @@ const styles = StyleSheet.create({
     borderRadius: CR.pill,
     backgroundColor: COSMIC.PRIMARY,
   },
-  activePillText: { fontSize: 11, color: COSMIC.INVERSE, fontFamily: 'PlusJakartaSans_700Bold' },
+  activePillText: { fontSize: 11, color: COSMIC.INVERSE, fontFamily: 'Inter_700Bold' },
   setActiveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -497,7 +482,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COSMIC.ACCENT + '40',
   },
-  setActiveText: { fontSize: 12, color: COSMIC.ACCENT, fontFamily: 'PlusJakartaSans_700Bold' },
+  setActiveText: { fontSize: 12, color: COSMIC.ACCENT, fontFamily: 'Inter_700Bold' },
 
   // Sections
   sectionLabel: {
@@ -508,7 +493,7 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     gap: 8,
   },
-  sectionTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold' },
+  sectionTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold' },
   sectionBadge: {
     marginLeft: 6,
     paddingHorizontal: 6,
@@ -518,8 +503,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COSMIC.PRIMARY + '33',
   },
-  sectionBadgeText: { fontSize: 9, color: COSMIC.PRIMARY, fontFamily: 'PlusJakartaSans_700Bold', letterSpacing: 0.6 },
-  sectionAction: { fontSize: 12, color: COSMIC.PRIMARY, fontFamily: 'PlusJakartaSans_700Bold' },
+  sectionBadgeText: { fontSize: 9, color: COSMIC.PRIMARY, fontFamily: 'Inter_700Bold', letterSpacing: 0.6 },
+  sectionAction: { fontSize: 12, color: COSMIC.PRIMARY, fontFamily: 'Inter_700Bold' },
   section: { marginHorizontal: CS.base },
 
   // Insights
@@ -538,7 +523,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  insightText: { fontSize: 13, color: COSMIC.TEXT, lineHeight: 18, fontFamily: 'PlusJakartaSans_400Regular' },
+  insightText: { fontSize: 13, color: COSMIC.TEXT, lineHeight: 18, fontFamily: 'Inter_400Regular' },
 
   // Cycles
   cycleTopRow: { flexDirection: 'row', alignItems: 'center' },
@@ -553,13 +538,13 @@ const styles = StyleSheet.create({
     borderColor: COSMIC.BORDER,
     overflow: 'hidden',
   },
-  cycleTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold' },
+  cycleTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold' },
   cycleMeta: {
     fontSize: 11,
     color: COSMIC.TEXT_3,
     marginTop: 1,
     textTransform: 'capitalize',
-    fontFamily: 'PlusJakartaSans_400Regular',
+    fontFamily: 'Inter_400Regular',
   },
 
   // Empty cycle state
@@ -572,8 +557,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionHeading: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold', marginBottom: 2 },
-  mutedText: { fontSize: 12, color: COSMIC.TEXT_2, lineHeight: 17, fontFamily: 'PlusJakartaSans_400Regular' },
+  sectionHeading: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold', marginBottom: 2 },
+  mutedText: { fontSize: 12, color: COSMIC.TEXT_2, lineHeight: 17, fontFamily: 'Inter_400Regular' },
 
   // Soil badges
   soilRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
@@ -581,11 +566,11 @@ const styles = StyleSheet.create({
   sBadgeLbl: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
-  sBadgeVal: { fontSize: 15, fontFamily: 'PlusJakartaSans_800ExtraBold' },
+  sBadgeVal: { fontSize: 15, fontFamily: 'Inter_800ExtraBold' },
   sBadgePill: {
     paddingHorizontal: 5,
     paddingVertical: 1,
@@ -594,7 +579,7 @@ const styles = StyleSheet.create({
   },
   sBadgeRat: {
     fontSize: 8,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
@@ -619,6 +604,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 4,
   },
-  predTitle: { fontSize: 13, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold' },
-  predSub: { fontSize: 11, color: COSMIC.TEXT_3, fontFamily: 'PlusJakartaSans_400Regular' },
+  predTitle: { fontSize: 13, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold' },
+  predSub: { fontSize: 11, color: COSMIC.TEXT_3, fontFamily: 'Inter_400Regular' },
 });

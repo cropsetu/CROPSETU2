@@ -35,6 +35,7 @@ import LocationSync from './src/context/LocationSync';
 import { CartProvider } from './src/context/CartContext';
 import LoginScreen from './src/screens/Auth/LoginScreen';
 import RootErrorBoundary from './src/components/RootErrorBoundary';
+import InAppChatBanner from './src/components/InAppChatBanner';
 import { COLORS } from './src/constants/colors';
 
 function RootNavigator() {
@@ -83,7 +84,7 @@ export default function App() {
     Inter_600SemiBold,
     Inter_700Bold,
     Inter_800ExtraBold,
-    // KhetAI auth screens
+    // CropSetu auth screens
     Fraunces_400Regular,
     Fraunces_400Regular_Italic,
     Fraunces_600SemiBold,
@@ -127,6 +128,8 @@ export default function App() {
                     <LocationSync />
                     <StatusBar style="light" />
                     <RootNavigator />
+                    {/* WhatsApp-style in-app heads-up for new chat messages. */}
+                    <InAppChatBanner />
                   </LocationProvider>
                 </MultiFarmProvider>
               </FarmProvider>

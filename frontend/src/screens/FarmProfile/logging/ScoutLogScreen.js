@@ -43,14 +43,11 @@ export default function ScoutLogScreen({ navigation, route }) {
   const [saving, setSaving]       = useState(false);
   const [celebrate, setCelebrate] = useState(false);
 
-  const issueTypes = ISSUE_TYPES.map((it) => ({ ...it, label: t(`scoutLog.issue_${it.key}`) }));
-  const severities = SEVERITIES.map((it) => ({ ...it, label: t(`scoutLog.severity_${it.key}`) }));
-
   const canSave = !!issueType;
 
   const handleSave = useCallback(async () => {
-    if (!canSave) { Haptics.error?.(); Alert.alert(t('scoutLog.missingInfoTitle'), t('scoutLog.missingInfoBody')); return; }
-    if (!cycleId) { Alert.alert(t('scoutLog.noCycleTitle'), t('scoutLog.noCycleBody')); return; }
+    if (!canSave) { Haptics.error?.(); Alert.alert('Missing info', 'Pick what you saw.'); return; }
+    if (!cycleId) { Alert.alert('Pick a crop cycle', 'Start a crop cycle first to log against it.'); return; }
     setSaving(true);
     try {
       const affectedPct = affected ? parseFloat(affected) : null;
@@ -72,39 +69,39 @@ export default function ScoutLogScreen({ navigation, route }) {
       setCelebrate(true);
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || t('scoutLog.saveError'));
+      Alert.alert(t('login.error') || 'Error', e.message || 'Could not save.');
     } finally {
       setSaving(false);
     }
   }, [canSave, cycleId, issueType, target, severity, affected, notes, t]);
 
   const subtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || t('scoutLog.farmFallback')}${cycleId ? ` · ${t('scoutLog.activeCycle')}` : ''}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'}${cycleId ? ' · active cycle' : ''}`
     : undefined;
 
   return (
     <LoggerScaffold
-      title={t('scoutLog.title')} subtitle={subtitle}
-      footerLabel={t('scoutLog.title')} footerIcon="search-outline"
+      title="Field scouting" subtitle={subtitle}
+      footerLabel="Field scouting" footerIcon="search-outline"
       saving={saving} canSave={canSave} onSave={handleSave}
       celebrate={celebrate}
-      celebrateTitle={t('scoutLog.celebrateTitle')}
-      celebrateSubtitle={t('scoutLog.celebrateSubtitle')}
+      celebrateTitle="Scouting logged ✓"
+      celebrateSubtitle="CropSetu AI will factor this into advice."
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
-      <SectionHeader icon="eye-outline" tint={COSMIC.SCOUT} title={t('scoutLog.whatDidYouSee')} />
-      <TileGrid items={issueTypes} value={issueType} onChange={(v) => setIssueType(v || '')} columns={3} />
+      <SectionHeader icon="eye-outline" tint={COSMIC.SCOUT} title="What did you see?" />
+      <TileGrid items={ISSUE_TYPES} value={issueType} onChange={(v) => setIssueType(v || '')} columns={3} />
 
-      <SectionHeader icon="pricetag-outline" tint={COSMIC.SCOUT} title={t('scoutLog.nameTarget')} optional />
-      <Card><LabeledInput value={target} onChangeText={setTarget} placeholder={t('scoutLog.targetPlaceholder')} /></Card>
+      <SectionHeader icon="pricetag-outline" tint={COSMIC.SCOUT} title="Name / target" optional />
+      <Card><LabeledInput value={target} onChangeText={setTarget} placeholder="e.g. Aphids, Leaf curl" /></Card>
 
-      <SectionHeader icon="speedometer-outline" tint={COSMIC.SCOUT} title={t('scoutLog.severityHeader')} />
-      <TileGrid items={severities} value={severity} onChange={(v) => setSeverity(v || 'moderate')} columns={2} />
+      <SectionHeader icon="speedometer-outline" tint={COSMIC.SCOUT} title="Severity" />
+      <TileGrid items={SEVERITIES} value={severity} onChange={(v) => setSeverity(v || 'moderate')} columns={2} />
 
-      <SectionHeader icon="pie-chart-outline" tint={COSMIC.SCOUT} title={t('scoutLog.affectedPct')} optional />
+      <SectionHeader icon="pie-chart-outline" tint={COSMIC.SCOUT} title="Affected %" optional />
       <Card><BigNumberInput value={affected} onChange={setAffected} unit="%" tint={COSMIC.SCOUT} /></Card>
 
-      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title={t('scoutLog.notes')} optional />
+      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title="Notes" optional />
       <Card><NotesField value={notes} onChange={setNotes} /></Card>
     </LoggerScaffold>
   );

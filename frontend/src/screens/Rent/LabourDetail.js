@@ -21,6 +21,32 @@ import AnimatedScreen from '../../components/ui/AnimatedScreen';
 
 const { width: W } = Dimensions.get('window');
 
+// Section header with a small accent bar for visual rhythm.
+function SectionTitle({ children }) {
+  return (
+    <View style={D.sectionTitleRow}>
+      <View style={D.sectionAccent} />
+      <Text style={D.sectionTitle}>{children}</Text>
+    </View>
+  );
+}
+
+// Labelled detail row (icon chip + label + value) for the Worker Details card.
+function DetailRow({ icon, label, value, color = COLORS.primary }) {
+  if (!value) return null;
+  return (
+    <View style={D.detailRow}>
+      <View style={[D.detailIcon, { backgroundColor: color + '18' }]}>
+        <Ionicons name={icon} size={16} color={color} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={D.detailLabel}>{label}</Text>
+        <Text style={D.detailValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
 export default function LabourDetail({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const { t } = useLanguage();
@@ -127,7 +153,11 @@ export default function LabourDetail({ route, navigation }) {
             )}
           </View>
         ) : (
-          <View style={D.avatarHero}>
+          <LinearGradient
+            colors={[COLORS.primary, COLORS.greenDeep]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={D.avatarHero}
+          >
             {/* Back button for no-media path */}
             <View style={[D.galleryNav, { paddingTop: insets.top + 8 }]}>
               <TouchableOpacity onPress={() => navigation.goBack()} style={D.navBtn}>
@@ -142,7 +172,7 @@ export default function LabourDetail({ route, navigation }) {
             <View style={D.bigAvatar}>
               <Text style={D.bigAvatarTxt}>{initials}</Text>
             </View>
-          </View>
+          </LinearGradient>
         )}
 
         <View style={D.content}>
@@ -218,36 +248,51 @@ export default function LabourDetail({ route, navigation }) {
           )}
 
           {/* ── Skills ── */}
-          <Text style={D.sectionTitle}>{t('rent.skillsExpertise')}</Text>
-          <View style={D.skillsWrap}>
-            {(l.skills || []).map((s, i) => (
-              <View key={i} style={D.skillChip}>
-                <Ionicons name="checkmark-circle" size={14} color={COLORS.primary} />
-                <Text style={D.skillTxt}>{s}</Text>
+          {(l.skills || []).length > 0 && (
+            <>
+              <SectionTitle>{t('rent.skillsExpertise')}</SectionTitle>
+              <View style={D.skillsWrap}>
+                {l.skills.map((s, i) => (
+                  <View key={i} style={D.skillChip}>
+                    <Ionicons name="checkmark-circle" size={14} color={COLORS.primary} />
+                    <Text style={D.skillTxt}>{s}</Text>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
-
-          {/* ── Languages ── */}
-          {l.languages?.length > 0 && (
-            <View style={D.infoRow}>
-              <Ionicons name="chatbubble-outline" size={15} color={COLORS.grayMedium} />
-              <Text style={D.infoTxt}>{t('rent.speaks')} {l.languages.join(', ')}</Text>
-            </View>
+            </>
           )}
 
-          {/* ── Experience ── */}
-          {l.experience ? (
-            <View style={D.infoRow}>
-              <Ionicons name="ribbon-outline" size={15} color={COLORS.grayMedium} />
-              <Text style={D.infoTxt}>{l.experience}</Text>
-            </View>
+          {/* ── Worker details (experience, languages, location) ── */}
+          {(l.experience || l.languages?.length > 0 || l.location) ? (
+            <>
+              <SectionTitle>{t('rent.workerDetails', 'Worker Details')}</SectionTitle>
+              <View style={D.detailCard}>
+                <DetailRow
+                  icon="ribbon-outline"
+                  label={t('rent.experienceLabel', 'Experience')}
+                  value={l.experience}
+                  color={COLORS.primary}
+                />
+                <DetailRow
+                  icon="chatbubbles-outline"
+                  label={t('rent.languagesLabel', 'Languages')}
+                  value={l.languages?.length > 0 ? l.languages.join(', ') : null}
+                  color={COLORS.purpleDark}
+                />
+                <DetailRow
+                  icon="location-outline"
+                  label={t('rent.locationLabel', 'Location')}
+                  value={l.location ? `${l.location}${l.district ? `, ${l.district}` : ''}` : null}
+                  color={COLORS.cta}
+                />
+              </View>
+            </>
           ) : null}
 
           {/* ── Description ── */}
           {l.description ? (
             <>
-              <Text style={D.sectionTitle}>{t('rent.aboutSection')}</Text>
+              <SectionTitle>{t('rent.aboutSection')}</SectionTitle>
               <Text style={D.descTxt}>{l.description}</Text>
             </>
           ) : null}
@@ -262,12 +307,6 @@ export default function LabourDetail({ route, navigation }) {
               </Text>
             </View>
           ) : null}
-
-          {/* ── Location ── */}
-          <View style={D.locRow}>
-            <Ionicons name="location-outline" size={15} color={COLORS.grayMedium} />
-            <Text style={D.locTxt}>{l.location}{l.district ? `, ${l.district}` : ''}</Text>
-          </View>
 
         </View>
       </ScrollView>
@@ -305,15 +344,16 @@ const D = StyleSheet.create({
   navBtn:      { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', alignItems: 'center' },
 
   galImg:   { width: W },
-  dots:     { position: 'absolute', bottom: 12, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  dots:     { position: 'absolute', bottom: 28, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 6 },
   dot:      { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.5)' },
   dotActive:{ backgroundColor: COLORS.white, width: 20 },
 
-  avatarHero:    { backgroundColor: COLORS.primaryPale, paddingVertical: 36, alignItems: 'center', position: 'relative' },
-  bigAvatar:     { width: 96, height: 96, borderRadius: 48, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
-  bigAvatarTxt:  { fontSize: 34, fontWeight: '800', color: COLORS.white },
+  avatarHero:    { paddingTop: 40, paddingBottom: 48, alignItems: 'center', position: 'relative' },
+  bigAvatar:     { width: 104, height: 104, borderRadius: 52, backgroundColor: 'rgba(255,255,255,0.18)', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: 'rgba(255,255,255,0.5)' },
+  bigAvatarTxt:  { fontSize: 38, fontWeight: '800', color: COLORS.white },
 
-  content: { padding: 16 },
+  // Content sits as a rounded sheet pulled up over the gallery / avatar header.
+  content: { padding: 16, backgroundColor: COLORS.background, marginTop: -20, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
 
   nameRow:    { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14, gap: 10 },
   name:       { fontSize: 20, fontWeight: '800', color: COLORS.textDark },
@@ -336,27 +376,31 @@ const D = StyleSheet.create({
   ownerNoticeTxt: { flex: 1, fontSize: 13, color: COLORS.primary, fontWeight: '700', lineHeight: 19 },
 
   // Call CTA card
-  callCard:     { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: COLORS.primaryPale, borderRadius: 16, padding: 14, marginBottom: 20, borderWidth: 1.5, borderColor: COLORS.primary + '40' },
+  callCard:     { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: COLORS.primaryPale, borderRadius: 16, padding: 14, marginBottom: 20, borderWidth: 1.5, borderColor: COLORS.primary + '40', shadowColor: COLORS.black, shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   callCardIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
   callCardTitle:{ fontSize: 16, fontWeight: '800', color: COLORS.textDark },
   callCardSub:  { fontSize: 13, color: COLORS.primary, fontWeight: '600', marginTop: 2 },
 
-  sectionTitle: { fontSize: 16, fontWeight: '800', color: COLORS.textDark, marginBottom: 10, marginTop: 4 },
+  // Accented section header
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, marginTop: 6 },
+  sectionAccent:   { width: 3.5, height: 16, borderRadius: 2, backgroundColor: COLORS.primary },
+  sectionTitle: { fontSize: 16, fontWeight: '800', color: COLORS.textDark },
 
   skillsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   skillChip:  { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.primaryPale, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   skillTxt:   { fontSize: 12, color: COLORS.primary, fontWeight: '700' },
 
-  infoRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  infoTxt:  { fontSize: 13, color: COLORS.grayMid2, flex: 1, lineHeight: 19 },
+  // Worker details card
+  detailCard:  { backgroundColor: COLORS.white, borderRadius: 18, padding: 4, marginBottom: 16, shadowColor: COLORS.black, shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  detailRow:   { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 10 },
+  detailIcon:  { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  detailLabel: { fontSize: 11, color: COLORS.textLight, fontWeight: '600' },
+  detailValue: { fontSize: 14, color: COLORS.textDark, fontWeight: '700', marginTop: 1 },
 
   descTxt: { fontSize: 14, color: COLORS.grayMid2, lineHeight: 22, marginBottom: 16 },
 
   availWindowCard: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.primaryPale, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 14 },
   availWindowTxt:  { fontSize: 13, color: COLORS.primary, fontWeight: '700', flex: 1 },
-
-  locRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  locTxt:  { fontSize: 13, color: COLORS.textLight },
 
   bottomBar:     { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 12, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.lightGray2 },
   bottomCallBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: COLORS.primary, borderRadius: 16, paddingVertical: 15 },

@@ -31,7 +31,6 @@ import ActivityFeedItem from './ui/ActivityFeedItem';
 import StageTimelineBar from './ui/StageTimelineBar';
 import WhyThisButton from './ui/WhyThisButton';
 import { CropIcon } from '../../components/CropIcons';
-import { ActivityIcon } from '../../components/ActivityIcons';
 import { COSMIC, GLOW, CR, CS, CT } from './theme/cosmicTheme';
 
 import { useMultiFarm } from '../../context/MultiFarmContext';
@@ -44,25 +43,25 @@ import * as farmApi from '../../services/farmApi';
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-function timeAgo(iso, t) {
+function timeAgo(iso) {
   if (!iso) return '';
   const ms = Date.now() - new Date(iso).getTime();
   const m = Math.floor(ms / 60000);
-  if (m < 1) return t('myFarm.home.justNow');
-  if (m < 60) return t('myFarm.home.minutesAgo', { minutes: m });
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return t('myFarm.home.hoursAgo', { hours: h });
+  if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  if (d < 7) return t('myFarm.home.daysAgo', { days: d });
+  if (d < 7) return `${d}d ago`;
   return new Date(iso).toLocaleDateString();
 }
 
-function greetingFor(hour, t) {
-  if (hour < 5) return t('myFarm.home.greetStillWorking');
-  if (hour < 12) return t('myFarm.home.greetMorning');
-  if (hour < 17) return t('myFarm.home.greetAfternoon');
-  if (hour < 20) return t('myFarm.home.greetEvening');
-  return t('myFarm.home.greetNight');
+function greetingFor(hour) {
+  if (hour < 5) return 'Still working?';
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  if (hour < 20) return 'Good evening';
+  return 'Good night';
 }
 
 const QUICK_LOG_TYPES = ['IRRIGATION', 'FERTILIZER', 'SPRAY', 'SCOUT', 'HARVEST'];
@@ -105,13 +104,13 @@ export default function MyFarmHomeScreen({ navigation }) {
     await loadAll();
   }, [refresh, loadAll]);
 
-  const farmerName = user?.preferredName || user?.fullName?.split(' ')[0] || t('myFarm.home.defaultFarmerName');
-  const greeting = greetingFor(new Date().getHours(), t);
+  const farmerName = user?.preferredName || user?.fullName?.split(' ')[0] || 'Farmer';
+  const greeting = greetingFor(new Date().getHours());
 
-  const farmName = activeFarm?.farmName || activeFarm?.farmAlias || (activeFarm ? t('myFarm.home.farmNumber', { number: activeFarm.farmNumber }) : '');
+  const farmName = activeFarm?.farmName || activeFarm?.farmAlias || (activeFarm ? `Farm ${activeFarm.farmNumber}` : '');
   const farmLocation = activeFarm ? [activeFarm.village, activeFarm.taluka, activeFarm.district].filter(Boolean).join(', ') : '';
 
-  const recentActivities = useMemo(() => buildRecentActivities(cycles, t), [cycles, t]);
+  const recentActivities = useMemo(() => buildRecentActivities(cycles), [cycles]);
   const streakDays = useMemo(() => computeStreak(recentActivities), [recentActivities]);
 
   // Real sync state: a failed/in-flight write (writeQueue) wins over the
@@ -168,7 +167,7 @@ export default function MyFarmHomeScreen({ navigation }) {
       />
 
       {/* Quick log */}
-      <SectionLabel title={t('myFarm.home.logToday')} />
+      <SectionLabel title="Log today" />
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -178,7 +177,7 @@ export default function MyFarmHomeScreen({ navigation }) {
           <ActivityChip
             key={type}
             type={type}
-            label={activityLabel(type, t)}
+            label={activityLabel(type)}
             onPress={() => goActivityPicker(type)}
             size="md"
             style={{ marginRight: 8 }}
@@ -186,14 +185,14 @@ export default function MyFarmHomeScreen({ navigation }) {
         ))}
         <Pressable onPress={() => goActivityPicker(null)} style={styles.seeMoreChip}>
           <Ionicons name="grid-outline" size={14} color={COSMIC.TEXT_2} />
-          <Text style={styles.seeMoreText}>{t('myFarm.home.more')}</Text>
+          <Text style={styles.seeMoreText}>More</Text>
         </Pressable>
       </ScrollView>
 
       {/* Recent activity */}
       <SectionLabel
-        title={t('myFarm.home.recentActivity')}
-        action={recentActivities.length > 0 ? { label: t('rent.seeAll'), onPress: goFarmDetail } : undefined}
+        title="Recent activity"
+        action={recentActivities.length > 0 ? { label: 'See all', onPress: goFarmDetail } : undefined}
       />
       <GlassCard style={styles.section} padding={0}>
         {loadingDetail && recentActivities.length === 0 ? (
@@ -208,7 +207,7 @@ export default function MyFarmHomeScreen({ navigation }) {
                 type={a.type}
                 title={a.title}
                 subtitle={a.subtitle}
-                timeAgo={timeAgo(a.occurredAt, t)}
+                timeAgo={timeAgo(a.occurredAt)}
                 photos={a.photos || []}
                 onPress={() => goCycleDetail(a.cycleId)}
               />
@@ -219,12 +218,12 @@ export default function MyFarmHomeScreen({ navigation }) {
 
       {/* Active crops */}
       <SectionLabel
-        title={t('farmProfile.activeCrops')}
+        title="Active crops"
         action={
           cycles.length === 0 && activeFarmId
-            ? { label: t('myFarm.home.startACycle'), onPress: goCycleCreate }
+            ? { label: 'Start a cycle', onPress: goCycleCreate }
             : cycles.length > 0
-            ? { label: t('store.viewAll'), onPress: goFarmDetail }
+            ? { label: 'View all', onPress: goFarmDetail }
             : undefined
         }
       />
@@ -235,10 +234,10 @@ export default function MyFarmHomeScreen({ navigation }) {
       ) : cycles.length === 0 ? (
         <GlassCard style={styles.section}>
           <Text style={styles.emptyText}>
-            {t('myFarm.home.noCyclesYet')}
+            No crop cycles yet. Start one to unlock stage tracking, budget monitoring, and AI advisories.
           </Text>
           {!!activeFarmId && (
-            <GlowButton label={t('farmProfile.startCropCycle')} icon="leaf-outline" variant="primary" full onPress={goCycleCreate} style={{ marginTop: 10 }} />
+            <GlowButton label="Start a crop cycle" icon="leaf-outline" variant="primary" full onPress={goCycleCreate} style={{ marginTop: 10 }} />
           )}
         </GlassCard>
       ) : (
@@ -250,7 +249,7 @@ export default function MyFarmHomeScreen({ navigation }) {
       )}
 
       {/* AI Insights */}
-      <SectionLabel title={t('farmProfile.aiInsights')} badge="Krushi AI" />
+      <SectionLabel title="AI insights" badge="CropSetu AI" />
       {insights.length === 0 ? (
         <GlassCard style={styles.section}>
           <View style={styles.insightEmptyRow}>
@@ -258,7 +257,7 @@ export default function MyFarmHomeScreen({ navigation }) {
               <Ionicons name="sparkles" size={14} color={COSMIC.INVERSE} />
             </View>
             <Text style={[styles.emptyText, { flex: 1 }]}>
-              {t('myFarm.home.insightsEmpty')}
+              Log a few activities and CropSetu AI will tailor advice to your plot, variety and weather.
             </Text>
           </View>
         </GlassCard>
@@ -270,7 +269,7 @@ export default function MyFarmHomeScreen({ navigation }) {
       {farms.length > 1 && (
         <Pressable onPress={goFarmList} style={({ pressed }) => [styles.footer, pressed && { opacity: 0.75 }]}>
           <Ionicons name="layers-outline" size={16} color={COSMIC.PRIMARY} />
-          <Text style={styles.footerText}>{t('myFarm.home.viewAllFarms', { count: farms.length })}</Text>
+          <Text style={styles.footerText}>View all {farms.length} farms</Text>
           <Ionicons name="chevron-forward" size={16} color={COSMIC.PRIMARY} />
         </Pressable>
       )}
@@ -311,23 +310,22 @@ function SectionLabel({ title, action, badge }) {
 }
 
 function HeroCard({ farmName, farmLocation, farms, cycles, activeFarm, streakDays, onSwitch, onOpenFarm }) {
-  const { t } = useLanguage();
   const acres = Number(activeFarm?.landSizeAcres || 0);
 
   return (
     <Pressable onPress={onOpenFarm} style={styles.heroOuter}>
       <GlassCard variant="bordered" style={{ padding: CS.lg }}>
         <View style={styles.heroTopRow}>
-          <Text style={styles.heroLabel}>{t('myFarm.activeFarm')}</Text>
+          <Text style={styles.heroLabel}>ACTIVE FARM</Text>
           {farms.length > 1 && (
             <Pressable onPress={onSwitch} style={styles.switchPill}>
               <Ionicons name="swap-horizontal" size={12} color={COSMIC.PRIMARY} />
-              <Text style={styles.switchText}>{t('myFarm.switchFarm')}</Text>
+              <Text style={styles.switchText}>Switch</Text>
             </Pressable>
           )}
         </View>
 
-        <Text style={styles.heroName} numberOfLines={1}>{farmName || t('myFarm.home.addYourFarm')}</Text>
+        <Text style={styles.heroName} numberOfLines={1}>{farmName || 'Add your farm'}</Text>
         {!!farmLocation && (
           <View style={styles.heroLocRow}>
             <Ionicons name="location-outline" size={12} color={COSMIC.TEXT_3} />
@@ -342,11 +340,11 @@ function HeroCard({ farmName, farmLocation, farms, cycles, activeFarm, streakDay
         )}
 
         <View style={styles.heroStats}>
-          <HeroStat icon="resize-outline" value={acres > 0 ? acres.toFixed(2) : '—'} label={t('farmProfile.acres')} />
+          <HeroStat icon="resize-outline" value={acres > 0 ? acres.toFixed(2) : '—'} label="acres" />
           <View style={styles.divider} />
-          <HeroStat icon="leaf-outline" value={cycles.length} label={cycles.length === 1 ? t('ai.stepCrop') : t('myFarm.home.cropsLabel')} />
+          <HeroStat icon="leaf-outline" value={cycles.length} label={cycles.length === 1 ? 'crop' : 'crops'} />
           <View style={styles.divider} />
-          <HeroStat icon="map-outline" value={farms.length} label={farms.length === 1 ? t('nav.farm') : t('myFarm.home.farmsLabel')} />
+          <HeroStat icon="map-outline" value={farms.length} label={farms.length === 1 ? 'farm' : 'farms'} />
         </View>
       </GlassCard>
     </Pressable>
@@ -364,7 +362,6 @@ function HeroStat({ icon, value, label }) {
 }
 
 function CycleCard({ cycle, onPress }) {
-  const { t } = useLanguage();
   const stage = cycle.growthStage || 'PLANNING';
   const area = Number(cycle.areaAllocatedAcres || 0).toFixed(2);
   const budget = Number(cycle.totalInputCostInr || 0);
@@ -396,8 +393,8 @@ function CycleCard({ cycle, onPress }) {
 
         {(budget > 0 || revenue > 0) && (
           <View style={styles.cycleMoneyRow}>
-            <MoneyPill icon="arrow-down-outline" tone="expense" amount={budget} label={t('myFarm.home.spent')} />
-            <MoneyPill icon="arrow-up-outline" tone="income" amount={revenue} label={t('myFarm.home.earned')} />
+            <MoneyPill icon="arrow-down-outline" tone="expense" amount={budget} label="spent" />
+            <MoneyPill icon="arrow-up-outline" tone="income" amount={revenue} label="earned" />
           </View>
         )}
       </GlassCard>
@@ -445,33 +442,31 @@ function InsightCard({ insight, navigation }) {
 }
 
 function EmptyFeed({ onStart }) {
-  const { t } = useLanguage();
   return (
     <View style={styles.emptyFeed}>
       <View style={[styles.mediumBubble, { backgroundColor: COSMIC.PRIMARY_SOFT }]}>
-        <ActivityIcon type="OTHER" size={20} animated={false} />
+        <Ionicons name="sparkles" size={18} color={COSMIC.PRIMARY} />
       </View>
-      <Text style={styles.emptyHeading}>{t('myFarm.home.diaryStartsHere')}</Text>
+      <Text style={styles.emptyHeading}>Your farm diary starts here</Text>
       <Text style={styles.emptyText}>
-        {t('myFarm.home.diaryStartsSub')}
+        Log each day's work. The more you log, the smarter CropSetu AI gets.
       </Text>
-      <GlowButton label={t('myFarm.home.pickAnActivity')} icon="add-circle-outline" variant="primary" onPress={onStart} style={{ marginTop: 10 }} size="sm" />
+      <GlowButton label="Pick an activity" icon="add-circle-outline" variant="primary" onPress={onStart} style={{ marginTop: 10 }} size="sm" />
     </View>
   );
 }
 
 function EmptyState({ onAddFarm }) {
-  const { t } = useLanguage();
   return (
     <View style={styles.emptyRoot}>
       <View style={[styles.mediumBubble, { backgroundColor: COSMIC.PRIMARY_SOFT, width: 64, height: 64, borderRadius: 32 }]}>
-        <CropIcon crop="Wheat" size={28} />
+        <Ionicons name="leaf" size={28} color={COSMIC.PRIMARY} />
       </View>
-      <Text style={styles.emptyRootHeading}>{t('myFarm.home.setUpYourFarm')}</Text>
+      <Text style={styles.emptyRootHeading}>Set up your farm</Text>
       <Text style={[styles.emptyText, { textAlign: 'center', maxWidth: 280 }]}>
-        {t('myFarm.home.setUpYourFarmSub')}
+        Add your first farm in under 3 minutes. Name, village, size, main crop — that's all we need today.
       </Text>
-      <GlowButton label={t('myFarm.addFirstFarm')} icon="add" variant="primary" onPress={onAddFarm} style={{ marginTop: 16, minWidth: 220 }} />
+      <GlowButton label="Add your first farm" icon="add" variant="primary" onPress={onAddFarm} style={{ marginTop: 16, minWidth: 220 }} />
     </View>
   );
 }
@@ -480,16 +475,16 @@ function EmptyState({ onAddFarm }) {
 // Data helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-function activityLabel(type, t) {
+function activityLabel(type) {
   switch (type) {
-    case 'IRRIGATION': return t('myFarm.home.actWater');
-    case 'FERTILIZER': return t('myFarm.home.actFertilize');
-    case 'SPRAY': return t('myFarm.v2.activity.spray');
-    case 'SCOUT': return t('myFarm.v2.activity.scout');
-    case 'HARVEST': return t('myFarm.v2.activity.harvest');
-    case 'SOWING': return t('myFarm.home.actSow');
-    case 'LAND_PREP': return t('myFarm.home.actPrep');
-    default: return t('myFarm.home.actLog');
+    case 'IRRIGATION': return 'Water';
+    case 'FERTILIZER': return 'Fertilize';
+    case 'SPRAY': return 'Spray';
+    case 'SCOUT': return 'Scout';
+    case 'HARVEST': return 'Harvest';
+    case 'SOWING': return 'Sow';
+    case 'LAND_PREP': return 'Prep';
+    default: return 'Log';
   }
 }
 
@@ -509,7 +504,7 @@ function pickDate(entry, ...fallbacks) {
   return new Date().toISOString();
 }
 
-function buildRecentActivities(cycles, t) {
+function buildRecentActivities(cycles) {
   const rows = [];
   let i = 0;
   for (const c of cycles) {
@@ -518,31 +513,31 @@ function buildRecentActivities(cycles, t) {
       rows.push({ id: `${c.id}-${type}-${i++}-${iso}`, type, title, subtitle, occurredAt: iso, cycleId: c.id });
     };
     (c.irrigationLogs || []).slice(-3).forEach((it) =>
-      push('IRRIGATION', t('myFarm.v2.activity.irrigation'),
+      push('IRRIGATION', 'Irrigation',
         [it.method, it.durationHours ? `${it.durationHours} h` : null, it.volumeLitres ? `${it.volumeLitres} L` : null]
           .filter(Boolean).join(' · '),
         pickDate(it, fb)));
     (c.fertilizersUsed || []).slice(-3).forEach((it) =>
-      push('FERTILIZER', t('myFarm.v2.activity.fertilizer'),
+      push('FERTILIZER', 'Fertilizer',
         [it.productName || it.product || it.name, it.quantityKg ? `${it.quantityKg} kg` : null]
           .filter(Boolean).join(' · '),
         pickDate(it, fb)));
     (c.pesticidesUsed || []).slice(-3).forEach((it) =>
-      push('SPRAY', t('myFarm.v2.activity.spray'),
-        it.productName || it.product || it.name || t('myFarm.home.applied'),
+      push('SPRAY', 'Spray',
+        it.productName || it.product || it.name || 'Applied',
         pickDate(it, fb)));
     (c.observedEvents || []).slice(-3).forEach((it) =>
-      push('SCOUT', t('myFarm.home.observation'),
+      push('SCOUT', 'Observation',
         it.description || it.type || '',
         pickDate(it, fb)));
     if (c.actualHarvestDate) {
-      push('HARVEST', t('myFarm.v2.activity.harvest'),
+      push('HARVEST', 'Harvest',
         `${c.harvestYieldQuintal || c.harvestYieldKg || '—'} ${c.harvestYieldQuintal ? 'qtl' : 'kg'} · ${c.cropName}`,
         pickDate({ date: c.actualHarvestDate }, fb));
     }
     if (c.saleDate) {
-      push('SALE', t('myFarm.v2.activity.sale'),
-        `₹${c.saleTotalRevenueInr || 0} · ${c.saleBuyerName || c.saleBuyerType || t('myFarm.home.sold')}`,
+      push('SALE', 'Sale',
+        `₹${c.saleTotalRevenueInr || 0} · ${c.saleBuyerName || c.saleBuyerType || 'Sold'}`,
         pickDate({ date: c.saleDate }, fb));
     }
   }
@@ -580,13 +575,12 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 12,
     color: COSMIC.TEXT_3,
-    fontFamily: 'PlusJakartaSans_500Medium',
+    fontFamily: 'Inter_500Medium',
   },
   farmer: {
-    fontSize: 21,
+    fontSize: 18,
     color: COSMIC.TEXT,
-    fontFamily: 'Fraunces_700Bold',
-    letterSpacing: -0.3,
+    fontFamily: 'Inter_700Bold',
     marginTop: 1,
   },
 
@@ -603,7 +597,7 @@ const styles = StyleSheet.create({
   heroLabel: {
     fontSize: 10,
     color: COSMIC.PRIMARY,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
     letterSpacing: 0.8,
   },
   switchPill: {
@@ -620,13 +614,12 @@ const styles = StyleSheet.create({
   switchText: {
     color: COSMIC.PRIMARY,
     fontSize: 11,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
   },
   heroName: {
-    fontSize: 24,
+    fontSize: 22,
     color: COSMIC.TEXT,
-    fontFamily: 'Fraunces_700Bold',
-    letterSpacing: -0.4,
+    fontFamily: 'Inter_800ExtraBold',
   },
   heroLocRow: {
     flexDirection: 'row',
@@ -637,7 +630,7 @@ const styles = StyleSheet.create({
   heroLoc: {
     fontSize: 12,
     color: COSMIC.TEXT_3,
-    fontFamily: 'PlusJakartaSans_400Regular',
+    fontFamily: 'Inter_400Regular',
     flexShrink: 1,
   },
   heroStreakRow: {
@@ -659,14 +652,14 @@ const styles = StyleSheet.create({
   heroStatValue: {
     fontSize: 16,
     color: COSMIC.TEXT,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    fontFamily: 'Inter_800ExtraBold',
   },
   heroStatLabel: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontFamily: 'Inter_600SemiBold',
   },
   divider: {
     width: StyleSheet.hairlineWidth,
@@ -685,7 +678,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
   },
   sectionBadge: {
     marginLeft: 6,
@@ -699,13 +692,13 @@ const styles = StyleSheet.create({
   sectionBadgeText: {
     fontSize: 9,
     color: COSMIC.PRIMARY,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
     letterSpacing: 0.6,
   },
   sectionAction: {
     fontSize: 12,
     color: COSMIC.PRIMARY,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
   },
 
   // Quick rail
@@ -728,7 +721,7 @@ const styles = StyleSheet.create({
   seeMoreText: {
     fontSize: 12,
     color: COSMIC.TEXT_2,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontFamily: 'Inter_600SemiBold',
   },
 
   // Sections
@@ -763,13 +756,13 @@ const styles = StyleSheet.create({
   cycleCrop: {
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
   },
   cycleMeta: {
     fontSize: 12,
     color: COSMIC.TEXT_3,
     marginTop: 1,
-    fontFamily: 'PlusJakartaSans_400Regular',
+    fontFamily: 'Inter_400Regular',
   },
   cycleMoneyRow: {
     flexDirection: 'row',
@@ -787,12 +780,12 @@ const styles = StyleSheet.create({
   },
   moneyPillText: {
     fontSize: 12,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
   },
   moneyPillLabel: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
-    fontFamily: 'PlusJakartaSans_500Medium',
+    fontFamily: 'Inter_500Medium',
   },
 
   // Insights
@@ -815,7 +808,7 @@ const styles = StyleSheet.create({
   insightTitle: {
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
     flex: 1,
   },
   insightBody: {
@@ -823,7 +816,7 @@ const styles = StyleSheet.create({
     color: COSMIC.TEXT_2,
     lineHeight: 18,
     marginBottom: 6,
-    fontFamily: 'PlusJakartaSans_400Regular',
+    fontFamily: 'Inter_400Regular',
   },
   insightFooter: {
     flexDirection: 'row',
@@ -834,7 +827,7 @@ const styles = StyleSheet.create({
   insightAction: {
     fontSize: 12,
     color: COSMIC.PRIMARY,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
   },
 
   aiBubble: {
@@ -864,7 +857,7 @@ const styles = StyleSheet.create({
   emptyHeading: {
     fontSize: 15,
     color: COSMIC.TEXT,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
     textAlign: 'center',
     marginTop: 2,
   },
@@ -874,7 +867,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
     marginTop: 4,
-    fontFamily: 'PlusJakartaSans_400Regular',
+    fontFamily: 'Inter_400Regular',
   },
 
   // Empty root (no farms)
@@ -888,7 +881,7 @@ const styles = StyleSheet.create({
   emptyRootHeading: {
     fontSize: 18,
     color: COSMIC.TEXT,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    fontFamily: 'Inter_800ExtraBold',
     textAlign: 'center',
     marginTop: 10,
   },
@@ -910,6 +903,6 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 12,
     color: COSMIC.PRIMARY,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
   },
 });

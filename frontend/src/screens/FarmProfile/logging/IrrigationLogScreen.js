@@ -82,12 +82,12 @@ export default function IrrigationLogScreen({ navigation, route }) {
   const handleSave = useCallback(async () => {
     if (!canSave) {
       Haptics.error?.();
-      Alert.alert(t('irrigationLog.missingInfoTitle'), t('irrigationLog.missingInfoBody'));
+      Alert.alert('Missing info', 'Pick a method and enter duration or volume.');
       return;
     }
     if (!cycleId) {
       // v2 backend accepts plotId alone; legacy backend requires cycleId.
-      Alert.alert(t('irrigationLog.pickCycleTitle'), t('irrigationLog.pickCycleBody'));
+      Alert.alert('Pick a crop cycle', 'Logging against a specific crop cycle is needed for now. Start a cycle first.');
       return;
     }
     setSaving(true);
@@ -106,19 +106,19 @@ export default function IrrigationLogScreen({ navigation, route }) {
       setCelebrate(true);
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error'), e.message || t('irrigationLog.couldNotSave'));
+      Alert.alert(t('login.error') || 'Error', e.message || 'Could not save.');
     } finally {
       setSaving(false);
     }
   }, [canSave, cycleId, method, entryMode, durationHours, volumeLitres, waterSource, moistureBefore, fertigation, notes, t]);
 
   const subtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || t('irrigationLog.farmFallback')}${cycleId ? ` · ${t('irrigationLog.activeCycle')}` : ''}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'}${cycleId ? ' · active cycle' : ''}`
     : undefined;
 
   return (
     <CosmicScreen edges={{ top: false, bottom: false }}>
-      <CosmicHeader title={t('farmProfile.logIrrigation')} subtitle={subtitle} />
+      <CosmicHeader title="Log irrigation" subtitle={subtitle} />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
@@ -127,7 +127,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
         >
           {/* ── 1. Method ───────────────────────────────────── */}
-          <SectionHeader icon="water-outline" tint={COSMIC.IRRIGATION} title={t('irrigationLog.sectionMethod')} />
+          <SectionHeader icon="water-outline" tint={COSMIC.IRRIGATION} title="Method" />
           <View style={styles.methodGrid}>
             {METHODS.map((m) => {
               const sel = method?.key === m.key;
@@ -147,8 +147,8 @@ export default function IrrigationLogScreen({ navigation, route }) {
                   <View style={[styles.methodIcon, { backgroundColor: m.color + '33', borderColor: m.color + '55' }]}>
                     <IrrigationIcon type={m.icon} size={32} />
                   </View>
-                  <Text style={[styles.methodLabel, sel && { color: m.color, fontFamily: 'PlusJakartaSans_700Bold' }]}>
-                    {t(`irrigationLog.method_${m.key}`)}
+                  <Text style={[styles.methodLabel, sel && { color: m.color, fontFamily: 'Inter_700Bold' }]}>
+                    {m.label}
                   </Text>
                   {sel && (
                     <View style={[styles.methodCheck, { backgroundColor: m.color }]}>
@@ -161,7 +161,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
           </View>
 
           {/* ── 2. Duration or Volume ───────────────────────── */}
-          <SectionHeader icon="time-outline" tint={COSMIC.ACCENT} title={t('irrigationLog.sectionHowMuch')} />
+          <SectionHeader icon="time-outline" tint={COSMIC.ACCENT} title="How much?" />
           <GlassCard variant="plain" style={styles.section}>
             <View style={styles.toggleRow}>
               <Pressable
@@ -169,14 +169,14 @@ export default function IrrigationLogScreen({ navigation, route }) {
                 style={[styles.toggleBtn, entryMode === 'duration' && styles.toggleBtnActive]}
               >
                 <Ionicons name="time-outline" size={16} color={entryMode === 'duration' ? COSMIC.INVERSE : COSMIC.TEXT_2} />
-                <Text style={[styles.toggleText, entryMode === 'duration' && styles.toggleTextActive]}>{t('irrigationLog.hours')}</Text>
+                <Text style={[styles.toggleText, entryMode === 'duration' && styles.toggleTextActive]}>Hours</Text>
               </Pressable>
               <Pressable
                 onPress={() => { Haptics.selection?.(); setEntryMode('volume'); }}
                 style={[styles.toggleBtn, entryMode === 'volume' && styles.toggleBtnActive]}
               >
                 <Ionicons name="beaker-outline" size={16} color={entryMode === 'volume' ? COSMIC.INVERSE : COSMIC.TEXT_2} />
-                <Text style={[styles.toggleText, entryMode === 'volume' && styles.toggleTextActive]}>{t('irrigationLog.litres')}</Text>
+                <Text style={[styles.toggleText, entryMode === 'volume' && styles.toggleTextActive]}>Litres</Text>
               </Pressable>
             </View>
 
@@ -190,13 +190,13 @@ export default function IrrigationLogScreen({ navigation, route }) {
                 style={styles.bigInput}
               />
               <View style={styles.unitPill}>
-                <Text style={styles.unitText}>{entryMode === 'duration' ? t('irrigationLog.hoursUnit') : t('irrigationLog.litresUnit')}</Text>
+                <Text style={styles.unitText}>{entryMode === 'duration' ? 'HOURS' : 'LITRES'}</Text>
               </View>
             </View>
           </GlassCard>
 
           {/* ── 3. Water source ─────────────────────────────── */}
-          <SectionHeader icon="leaf-outline" tint={COSMIC.INFO} title={t('irrigationLog.sectionWaterSource')} optional />
+          <SectionHeader icon="leaf-outline" tint={COSMIC.INFO} title="Water source" optional />
           <View style={[styles.section, styles.chipRow]}>
             {SOURCES.map((s) => {
               const sel = waterSource?.key === s.key;
@@ -213,8 +213,8 @@ export default function IrrigationLogScreen({ navigation, route }) {
                   ]}
                 >
                   <Ionicons name={s.icon} size={16} color={sel ? COSMIC.INFO : COSMIC.TEXT_2} />
-                  <Text style={[styles.chipText, sel && { color: COSMIC.INFO, fontFamily: 'PlusJakartaSans_700Bold' }]}>
-                    {t(`irrigationLog.source_${s.key}`)}
+                  <Text style={[styles.chipText, sel && { color: COSMIC.INFO, fontFamily: 'Inter_700Bold' }]}>
+                    {s.label}
                   </Text>
                 </Pressable>
               );
@@ -222,7 +222,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
           </View>
 
           {/* ── 4. Moisture before ──────────────────────────── */}
-          <SectionHeader icon="analytics-outline" tint={COSMIC.PRIMARY_LT} title={t('irrigationLog.sectionMoisture')} optional />
+          <SectionHeader icon="analytics-outline" tint={COSMIC.PRIMARY_LT} title="Soil moisture before" optional />
           <View style={[styles.section, styles.moistRow]}>
             {MOISTURES.map((m) => {
               const sel = moistureBefore?.key === m.key;
@@ -239,8 +239,8 @@ export default function IrrigationLogScreen({ navigation, route }) {
                   ]}
                 >
                   <View style={[styles.moistDot, { backgroundColor: m.color }]} />
-                  <Text style={[styles.moistLabel, sel && { color: m.color, fontFamily: 'PlusJakartaSans_700Bold' }]}>
-                    {t(`irrigationLog.moisture_${m.key}`)}
+                  <Text style={[styles.moistLabel, sel && { color: m.color, fontFamily: 'Inter_700Bold' }]}>
+                    {m.label}
                   </Text>
                 </Pressable>
               );
@@ -248,7 +248,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
           </View>
 
           {/* ── 5. Fertigation + notes ─────────────────────── */}
-          <SectionHeader icon="flask-outline" tint={COSMIC.FERTILIZER} title={t('irrigationLog.sectionExtras')} optional />
+          <SectionHeader icon="flask-outline" tint={COSMIC.FERTILIZER} title="Extras" optional />
           <GlassCard variant="plain" style={styles.section}>
             <Pressable
               onPress={() => { Haptics.selection?.(); setFertigation((v) => !v); }}
@@ -257,14 +257,14 @@ export default function IrrigationLogScreen({ navigation, route }) {
               <View style={[styles.checkbox, fertigation && styles.checkboxChecked]}>
                 {fertigation && <Ionicons name="checkmark" size={14} color={COSMIC.INVERSE} />}
               </View>
-              <Text style={styles.fertText}>{t('irrigationLog.fertigationLabel')}</Text>
+              <Text style={styles.fertText}>Fertigation applied with this irrigation</Text>
             </Pressable>
 
-            <Text style={styles.subLabel}>{t('irrigationLog.notesLabel')}</Text>
+            <Text style={styles.subLabel}>Notes</Text>
             <TextInput
               value={notes}
               onChangeText={setNotes}
-              placeholder={t('irrigationLog.notesPlaceholder')}
+              placeholder="Any observation — flow rate, leaf wilting, etc."
               placeholderTextColor={COSMIC.MUTED}
               style={[styles.input, { minHeight: 88, textAlignVertical: 'top' }]}
               multiline
@@ -276,7 +276,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
 
         <View style={styles.footer}>
           <GlowButton
-            label={saving ? t('irrigationLog.saving') : t('farmProfile.logIrrigation')}
+            label={saving ? 'Saving…' : 'Log irrigation'}
             icon="water"
             variant="primary"
             full
@@ -289,8 +289,8 @@ export default function IrrigationLogScreen({ navigation, route }) {
 
       <CelebrationSheet
         visible={celebrate}
-        title={t('irrigationLog.celebrateTitle')}
-        subtitle={t('irrigationLog.celebrateSubtitle')}
+        title="Irrigation logged ✓"
+        subtitle="Nice — CropSetu AI now knows about this watering. Keep the streak going!"
         streakDays={1}
         onClose={() => { setCelebrate(false); navigation.goBack(); }}
       />
@@ -302,14 +302,13 @@ export default function IrrigationLogScreen({ navigation, route }) {
 // Shared bits
 // ──────────────────────────────────────────────────────────────────────────────
 function SectionHeader({ icon, tint, title, optional }) {
-  const { t } = useLanguage();
   return (
     <View style={styles.secHeader}>
       <View style={[styles.secIcon, { backgroundColor: tint + '28', borderColor: tint + '55' }]}>
         <Ionicons name={icon} size={16} color={tint} />
       </View>
       <Text style={styles.secTitle}>{title}</Text>
-      {optional && <Text style={styles.optional}>{t('irrigationLog.optional')}</Text>}
+      {optional && <Text style={styles.optional}>Optional</Text>}
     </View>
   );
 }
@@ -339,11 +338,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  secTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold', flex: 1 },
+  secTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold', flex: 1 },
   optional: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
-    fontFamily: 'PlusJakartaSans_500Medium',
+    fontFamily: 'Inter_500Medium',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -372,7 +371,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  methodLabel: { fontSize: 13, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_600SemiBold' },
+  methodLabel: { fontSize: 13, color: COSMIC.TEXT, fontFamily: 'Inter_600SemiBold' },
   methodCheck: {
     position: 'absolute',
     top: 4,
@@ -404,8 +403,8 @@ const styles = StyleSheet.create({
     borderRadius: CR.sm,
   },
   toggleBtnActive: { backgroundColor: COSMIC.PRIMARY },
-  toggleText: { fontSize: 12, color: COSMIC.TEXT_2, fontFamily: 'PlusJakartaSans_600SemiBold' },
-  toggleTextActive: { color: COSMIC.INVERSE, fontFamily: 'PlusJakartaSans_700Bold' },
+  toggleText: { fontSize: 12, color: COSMIC.TEXT_2, fontFamily: 'Inter_600SemiBold' },
+  toggleTextActive: { color: COSMIC.INVERSE, fontFamily: 'Inter_700Bold' },
 
   // Big input
   bigInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
@@ -419,7 +418,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 24,
     color: COSMIC.TEXT,
-    fontFamily: 'PlusJakartaSans_800ExtraBold',
+    fontFamily: 'Inter_800ExtraBold',
     textAlign: 'center',
     letterSpacing: 0.6,
   },
@@ -434,7 +433,7 @@ const styles = StyleSheet.create({
   unitText: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'PlusJakartaSans_700Bold',
+    fontFamily: 'Inter_700Bold',
     letterSpacing: 0.6,
   },
 
@@ -450,7 +449,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.2,
     minHeight: 32,
   },
-  chipText: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_600SemiBold' },
+  chipText: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'Inter_600SemiBold' },
 
   // Moisture stoplight
   moistRow: { flexDirection: 'row', gap: 8 },
@@ -465,7 +464,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   moistDot: { width: 10, height: 10, borderRadius: 5 },
-  moistLabel: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_600SemiBold' },
+  moistLabel: { fontSize: 12, color: COSMIC.TEXT, fontFamily: 'Inter_600SemiBold' },
 
   // Fertigation row
   fertRow: {
@@ -486,13 +485,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkboxChecked: { backgroundColor: COSMIC.PRIMARY, borderColor: COSMIC.PRIMARY },
-  fertText: { fontSize: 13, color: COSMIC.TEXT, flex: 1, fontFamily: 'PlusJakartaSans_400Regular' },
+  fertText: { fontSize: 13, color: COSMIC.TEXT, flex: 1, fontFamily: 'Inter_400Regular' },
 
   // Notes
   subLabel: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
+    fontFamily: 'Inter_600SemiBold',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
     marginTop: 10,
@@ -507,7 +506,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COSMIC.TEXT,
     backgroundColor: COSMIC.SURFACE,
-    fontFamily: 'PlusJakartaSans_500Medium',
+    fontFamily: 'Inter_500Medium',
     minHeight: 44,
   },
 

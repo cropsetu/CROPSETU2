@@ -19,7 +19,6 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { connectSocket } from '../../services/socket';
-import AnimalIcon from '../../components/AnimalIcons';
 
 function timeAgo(iso) {
   if (!iso) return '';
@@ -34,16 +33,26 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
+// Best available label for the counterpart: real name → phone → role label.
+function peerLabel(row) {
+  const cp = row.counterpart;
+  if (cp?.name && String(cp.name).trim()) return String(cp.name).trim();
+  if (cp?.phone) {
+    const d = String(cp.phone).replace(/\D/g, '').slice(-10);
+    return d.length === 10 ? `+91 ${d.slice(0, 5)} ${d.slice(5)}` : String(cp.phone);
+  }
+  return row.role === 'buyer' ? 'Seller' : 'Buyer';
+}
+
 function ChatRow({ row, onPress }) {
-  const { t } = useLanguage();
   const thumb = row.listing?.images?.[0];
   const animalLine = row.listing
     ? `${row.listing.animal}${row.listing.breed ? ' · ' + row.listing.breed : ''}`
-    : t('animalChats.listingRemoved');
+    : 'Listing removed';
   const last = row.lastMessage;
   const lastText = last
-    ? (last.imageUrl ? t('animalChats.photo') : (last.mine ? t('animalChats.youPrefix') : '') + (last.text || ''))
-    : t('animalChats.tapToStart');
+    ? (last.imageUrl ? '📷 Photo' : (last.mine ? 'You: ' : '') + (last.text || ''))
+    : 'Tap to start the conversation';
 
   return (
     <TouchableOpacity style={s.row} onPress={() => onPress(row)} activeOpacity={0.7}>
@@ -51,13 +60,13 @@ function ChatRow({ row, onPress }) {
         <Image source={{ uri: thumb }} style={s.thumb} />
       ) : (
         <View style={[s.thumb, s.thumbPlaceholder]}>
-          <AnimalIcon type="All" size={48} />
+          <Ionicons name="paw-outline" size={26} color={COLORS.textMedium} />
         </View>
       )}
       <View style={{ flex: 1, marginLeft: 12 }}>
         <View style={s.headerLine}>
           <Text style={s.name} numberOfLines={1}>
-            {row.counterpart?.name || (row.role === 'buyer' ? t('animalChats.seller') : t('animalChats.buyer'))}
+            {peerLabel(row)}
           </Text>
           <Text style={s.time}>{timeAgo(last?.createdAt || row.updatedAt)}</Text>
         </View>
@@ -82,7 +91,7 @@ export default function MyAnimalChatsScreen({ navigation }) {
       const { data } = await api.get('/animals/chats/my');
       setRows(data.data || []);
     } catch (e) {
-      setError(e?.response?.data?.error?.message || t('animalChats.loadFailed'));
+      setError(e?.response?.data?.error?.message || 'Failed to load chats');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -144,11 +153,23 @@ export default function MyAnimalChatsScreen({ navigation }) {
   }, [user?.id, fetchChats]));
 
   const openChat = (row) => {
+    // The counterpart is whoever the current user is NOT: a buyer opens a chat
+    // with the seller, the seller opens it with the buyer.
+    const peerRole = row.role === 'buyer' ? 'seller' : 'buyer';
+    const listingTitle = row.listing
+      ? `${row.listing.animal}${row.listing.breed ? ' · ' + row.listing.breed : ''}`
+      : null;
     navigation.navigate('Chat', {
       listingId: row.listingId,
-      sellerName: row.counterpart?.name || (row.role === 'buyer' ? t('animalChats.seller') : t('animalChats.buyer')),
-      sellerId: row.counterpart?.id,
       chatId: row.id,
+      peerName: row.counterpart?.name || null,
+      peerAvatar: row.counterpart?.avatar || null,
+      peerId: row.counterpart?.id || null,
+      peerPhone: row.counterpart?.phone || null,
+      peerRole,
+      listingTitle,
+      // Legacy param — keeps older code paths working.
+      sellerName: row.counterpart?.name || (peerRole === 'seller' ? 'Seller' : 'Buyer'),
     });
   };
 
@@ -171,7 +192,7 @@ export default function MyAnimalChatsScreen({ navigation }) {
           <Ionicons name="alert-circle-outline" size={48} color={COLORS.error} />
           <Text style={s.errorTxt}>{error}</Text>
           <TouchableOpacity style={s.retryBtn} onPress={fetchChats}>
-            <Text style={s.retryTxt}>{t('animalChats.retry')}</Text>
+            <Text style={s.retryTxt}>Retry</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -187,15 +208,15 @@ export default function MyAnimalChatsScreen({ navigation }) {
           ListEmptyComponent={
             <View style={s.center}>
               <Ionicons name="chatbubbles-outline" size={64} color={COLORS.gray175 || COLORS.grayLightMid} />
-              <Text style={s.emptyTitle}>{t('animalChats.emptyTitle')}</Text>
+              <Text style={s.emptyTitle}>No chats yet</Text>
               <Text style={s.emptySub}>
-                {t('animalChats.emptySub')}
+                When you contact a seller from an animal listing, the conversation will appear here.
               </Text>
               <TouchableOpacity
                 style={[s.retryBtn, { marginTop: 14 }]}
                 onPress={() => navigation.navigate('AnimalTradeHome')}
               >
-                <Text style={s.retryTxt}>{t('animalChats.browseAnimals')}</Text>
+                <Text style={s.retryTxt}>Browse Animals</Text>
               </TouchableOpacity>
             </View>
           }

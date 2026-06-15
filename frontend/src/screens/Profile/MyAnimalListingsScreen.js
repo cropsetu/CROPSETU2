@@ -11,11 +11,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
-import { useLanguage } from '../../context/LanguageContext';
-import AnimalIcon from '../../components/AnimalIcons';
+import { formatLocation } from '../../utils/location';
 
 function ListingCard({ item, onDelete, onEdit }) {
-  const { t } = useLanguage();
   const firstImg = item.images?.[0];
   const price    = typeof item.price === 'number' ? item.price : parseFloat(item.price || 0);
   const date     = item.createdAt
@@ -38,7 +36,7 @@ function ListingCard({ item, onDelete, onEdit }) {
           </Text>
           <Text style={styles.detail}>{item.age} · {item.gender}</Text>
           <Text style={styles.location} numberOfLines={1}>
-            <Ionicons name="location-outline" size={12} color={COLORS.textMedium} /> {item.sellerLocation}
+            <Ionicons name="location-outline" size={12} color={COLORS.textMedium} /> {formatLocation(item.sellerLocation)}
           </Text>
           <Text style={styles.price}>₹{price.toLocaleString('en-IN')}</Text>
         </View>
@@ -47,7 +45,7 @@ function ListingCard({ item, onDelete, onEdit }) {
       <View style={styles.footer}>
         <View style={styles.footerLeft}>
           <Ionicons name="eye-outline" size={13} color={COLORS.textMedium} />
-          <Text style={styles.footerTxt}>{t('myAnimalListings.viewsCount', { count: item.viewCount ?? 0 })}</Text>
+          <Text style={styles.footerTxt}>{item.viewCount ?? 0} views</Text>
           <Text style={[styles.footerTxt, { marginLeft: 10 }]}>{date}</Text>
         </View>
         <TouchableOpacity style={styles.actionBtn} onPress={() => onEdit(item)}>
@@ -62,7 +60,6 @@ function ListingCard({ item, onDelete, onEdit }) {
 }
 
 export default function MyAnimalListingsScreen({ navigation }) {
-  const { t } = useLanguage();
   const [listings,   setListings]   = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -77,7 +74,7 @@ export default function MyAnimalListingsScreen({ navigation }) {
       const { data } = await api.get('/animals/my');
       setListings(data.data || []);
     } catch (e) {
-      setError(e?.response?.data?.error?.message || t('myAnimalListings.loadError'));
+      setError(e?.response?.data?.error?.message || 'Failed to load listings');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -112,10 +109,10 @@ export default function MyAnimalListingsScreen({ navigation }) {
     } catch (e) {
       const msg = e?.response?.data?.error?.message
         || e?.message
-        || t('myAnimalListings.deleteFailedMsg');
+        || 'Could not delete listing. Please try again.';
       setPendingDelete(null);
       // Brief alert for the error case — single-button alerts work fine on web.
-      Alert.alert(t('rent.deleteError'), msg);
+      Alert.alert('Delete failed', msg);
     } finally {
       setDeleting(false);
     }
@@ -142,7 +139,7 @@ export default function MyAnimalListingsScreen({ navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t('profile.myListingsTitle')}</Text>
+        <Text style={styles.headerTitle}>My Listings</Text>
         <TouchableOpacity
           style={styles.addBtn}
           onPress={() => navigation.navigate('AnimalTrade', { screen: 'AddAnimalListing' })}
@@ -156,7 +153,7 @@ export default function MyAnimalListingsScreen({ navigation }) {
           <Ionicons name="alert-circle-outline" size={48} color={COLORS.error} />
           <Text style={styles.errorTxt}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={() => fetchListings()}>
-            <Text style={styles.retryTxt}>{t('profile.retry')}</Text>
+            <Text style={styles.retryTxt}>Retry</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -172,14 +169,14 @@ export default function MyAnimalListingsScreen({ navigation }) {
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           ListEmptyComponent={
             <View style={styles.center}>
-              <AnimalIcon type="All" size={64} />
-              <Text style={styles.emptyTitle}>{t('profile.noListingsYet')}</Text>
-              <Text style={styles.emptySubtitle}>{t('myAnimalListings.emptySubtitle')}</Text>
+              <Ionicons name="paw-outline" size={64} color={COLORS.gray175} />
+              <Text style={styles.emptyTitle}>No listings yet</Text>
+              <Text style={styles.emptySubtitle}>Tap + to list an animal for sale</Text>
               <TouchableOpacity
                 style={[styles.retryBtn, { marginTop: 12 }]}
                 onPress={() => navigation.navigate('AnimalTrade', { screen: 'AddAnimalListing' })}
               >
-                <Text style={styles.retryTxt}>{t('profile.addListing')}</Text>
+                <Text style={styles.retryTxt}>Add Listing</Text>
               </TouchableOpacity>
             </View>
           }
@@ -199,11 +196,11 @@ export default function MyAnimalListingsScreen({ navigation }) {
             <View style={styles.confirmIconCircle}>
               <Ionicons name="trash" size={28} color={COLORS.error} />
             </View>
-            <Text style={styles.confirmTitle}>{t('profile.removeListingTitle')}</Text>
+            <Text style={styles.confirmTitle}>Remove Listing?</Text>
             <Text style={styles.confirmBody}>
               {pendingDelete
-                ? t('myAnimalListings.removeBody', { name: `${pendingDelete.animal}${pendingDelete.breed ? ' — ' + pendingDelete.breed : ''}` })
-                : t('farmProfile.deleteConfirm')}
+                ? `"${pendingDelete.animal}${pendingDelete.breed ? ' — ' + pendingDelete.breed : ''}" will be removed from the marketplace.`
+                : 'Are you sure?'}
             </Text>
             <View style={styles.confirmBtnRow}>
               <TouchableOpacity
@@ -211,7 +208,7 @@ export default function MyAnimalListingsScreen({ navigation }) {
                 style={[styles.confirmBtn, styles.confirmBtnSecondary]}
                 onPress={() => setPendingDelete(null)}
               >
-                <Text style={styles.confirmBtnTextSecondary}>{t('cancel')}</Text>
+                <Text style={styles.confirmBtnTextSecondary}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 disabled={deleting}
@@ -220,7 +217,7 @@ export default function MyAnimalListingsScreen({ navigation }) {
               >
                 {deleting
                   ? <ActivityIndicator color={COLORS.white} />
-                  : <Text style={styles.confirmBtnTextDanger}>{t('rent.delete')}</Text>}
+                  : <Text style={styles.confirmBtnTextDanger}>Delete</Text>}
               </TouchableOpacity>
             </View>
           </View>

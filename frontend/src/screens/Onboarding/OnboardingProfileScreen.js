@@ -1,6 +1,6 @@
 /**
  * OnboardingProfileScreen — Screen 2/2: Farm profile setup.
- * KhetAI theme: forest-green gradient surface, themed section cards, single-green
+ * CropSetu theme: forest-green gradient surface, themed section cards, single-green
  * selection (soil / irrigation / crops), Fraunces + Plus Jakarta Sans, gradient
  * CTA, entrance motion. Logic unchanged — only UI.
  */
