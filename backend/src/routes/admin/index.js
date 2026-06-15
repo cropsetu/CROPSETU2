@@ -13,7 +13,7 @@
  */
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.js';
-import { requireAdmin } from '../../middleware/admin.js';
+import { requireAdmin, loadAdminContext, requireScope, ADMIN_SCOPES } from '../../middleware/admin.js';
 
 import metricsRoutes from './metrics.routes.js';
 import usersRoutes from './users.routes.js';
@@ -28,50 +28,61 @@ import broadcastRoutes from './broadcast.routes.js';
 import { flagsRouter, healthRouter, queuesRouter } from './ops.routes.js';
 import { consentsRouter, erasureRouter, auditRouter } from './compliance.routes.js';
 import settingsRoutes from './settings.routes.js';
+import { teamRouter, meRouter } from './team.routes.js';
 
 const router = Router();
 
 // ── Server-enforced ADMIN gate for the entire admin surface ──────────────────
 router.use(authenticate, requireAdmin);
+// Resolve the acting admin's RBAC scopes once (→ req.admin) for requireScope below.
+// Backward-compatible: an ADMIN with no scopes is treated as SUPER_ADMIN.
+router.use(loadAdminContext);
 
-// Dashboard
+const S = ADMIN_SCOPES;
+
+// Acting admin's own identity + scopes (any admin; drives the SPA's nav gating).
+router.use('/me', meRouter);
+// Team & access management (promote / scope / revoke admins) — SUPER_ADMIN only.
+router.use('/team', requireScope(S.SUPER_ADMIN), teamRouter);
+
+// Dashboard (any admin)
 router.use('/metrics', metricsRoutes);
 // Users & identity
-router.use('/users', usersRoutes);
-router.use('/kyc', kycRoutes);
+router.use('/users', requireScope(S.SUPPORT), usersRoutes);
+router.use('/kyc', requireScope(S.KYC_REVIEWER), kycRoutes);
 // Commerce
-router.use('/categories', categoriesRouter);
-router.use('/products', productsRouter);
-router.use('/reviews', reviewsRouter);
-router.use('/orders', ordersRoutes);
+router.use('/categories', requireScope(S.CMS_EDITOR), categoriesRouter);
+router.use('/products', requireScope(S.CMS_EDITOR), productsRouter);
+router.use('/reviews', requireScope(S.CONTENT_MODERATOR), reviewsRouter);
+router.use('/orders', requireScope(S.SUPPORT), ordersRoutes);
 // Rentals & trade
-router.use('/animals', animalsRouter);
-router.use('/machinery', machineryRouter);
-router.use('/labour', labourRouter);
-router.use('/bookings', bookingsRouter);
+router.use('/animals', requireScope(S.CONTENT_MODERATOR), animalsRouter);
+router.use('/machinery', requireScope(S.CONTENT_MODERATOR), machineryRouter);
+router.use('/labour', requireScope(S.CONTENT_MODERATOR), labourRouter);
+router.use('/bookings', requireScope(S.SUPPORT), bookingsRouter);
 // Community
-router.use('/posts', postsRouter);
-router.use('/comments', commentsRouter);
-router.use('/groups', groupsRouter);
+router.use('/posts', requireScope(S.CONTENT_MODERATOR), postsRouter);
+router.use('/comments', requireScope(S.CONTENT_MODERATOR), commentsRouter);
+router.use('/groups', requireScope(S.CONTENT_MODERATOR), groupsRouter);
 // AI operations
-router.use('/ai', aiRoutes);
+router.use('/ai', requireScope(S.OPS), aiRoutes);
 // CMS
-router.use('/schemes', schemesRouter);
-router.use('/msp', mspRouter);
-router.use('/crop-master', cropMasterRouter);
-router.use('/pest-alerts', pestAlertsRouter);
-router.use('/mandi', mandiRouter);
+router.use('/schemes', requireScope(S.CMS_EDITOR), schemesRouter);
+router.use('/msp', requireScope(S.CMS_EDITOR), mspRouter);
+router.use('/crop-master', requireScope(S.CMS_EDITOR), cropMasterRouter);
+router.use('/pest-alerts', requireScope(S.CMS_EDITOR), pestAlertsRouter);
+router.use('/mandi', requireScope(S.CMS_EDITOR), mandiRouter);
 // Broadcast
-router.use('/notifications', broadcastRoutes);
+router.use('/notifications', requireScope(S.CONTENT_MODERATOR), broadcastRoutes);
 // Ops
-router.use('/flags', flagsRouter);
-router.use('/health', healthRouter);
-router.use('/queues', queuesRouter);
-// Compliance (DPDP)
-router.use('/consents', consentsRouter);
-router.use('/erasure-requests', erasureRouter);
-router.use('/audit', auditRouter);
-// Settings (runtime config + AI model routing + env-status + AI budget)
-router.use('/settings', settingsRoutes);
+router.use('/flags', requireScope(S.OPS), flagsRouter);
+router.use('/health', requireScope(S.OPS), healthRouter);
+router.use('/queues', requireScope(S.OPS), queuesRouter);
+// Compliance (DPDP) — most sensitive, SUPER_ADMIN only
+router.use('/consents', requireScope(S.SUPER_ADMIN), consentsRouter);
+router.use('/erasure-requests', requireScope(S.SUPER_ADMIN), erasureRouter);
+router.use('/audit', requireScope(S.SUPER_ADMIN), auditRouter);
+// Settings (runtime config + AI model routing + env-status + AI budget) — SUPER_ADMIN only
+router.use('/settings', requireScope(S.SUPER_ADMIN), settingsRoutes);
 
 export default router;

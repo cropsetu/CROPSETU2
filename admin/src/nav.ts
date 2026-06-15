@@ -4,11 +4,11 @@ import {
   Beef, Tractor, HardHat, CalendarCheck, MessageSquare, MessagesSquare, UsersRound,
   Cpu, Coins, FlaskConical, Activity, Landmark, IndianRupee, Sprout, Bug, RefreshCw,
   Megaphone, Flag, Fingerprint, ShieldAlert, FileCheck2, Trash2, History,
-  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, type LucideIcon,
+  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, type LucideIcon,
 } from 'lucide-react';
 
-export interface NavItem { label: string; to: string; icon: LucideIcon; keywords?: string }
-export interface NavGroup { title: string; items: NavItem[] }
+export interface NavItem { label: string; to: string; icon: LucideIcon; keywords?: string; scope?: string }
+export interface NavGroup { title: string; items: NavItem[]; scope?: string }
 
 export const NAV: NavGroup[] = [
   { title: 'Overview', items: [
@@ -66,8 +66,11 @@ export const NAV: NavGroup[] = [
     { label: 'API Health', to: '/health', icon: HeartPulse },
     { label: 'Queues', to: '/queues', icon: ListChecks },
   ]},
-  { title: 'Settings', items: [
-    { label: 'App Settings', to: '/settings', icon: SlidersHorizontal, keywords: 'config env budget token limit secret runtime commission ai model gemini openai claude groq' },
+  { title: 'Team & Access', scope: 'SUPER_ADMIN', items: [
+    { label: 'Team', to: '/team', icon: UserCog, scope: 'SUPER_ADMIN', keywords: 'admin roles scopes invite revoke rbac permissions' },
+  ]},
+  { title: 'Settings', scope: 'SUPER_ADMIN', items: [
+    { label: 'App Settings', to: '/settings', icon: SlidersHorizontal, scope: 'SUPER_ADMIN', keywords: 'config env budget token limit secret runtime commission ai model gemini openai claude groq' },
   ]},
 ];
 

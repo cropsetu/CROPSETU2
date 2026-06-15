@@ -20,6 +20,7 @@ import { ModerationPage, FraudPage, IncidentsPage } from './pages/TrustSafety';
 import { ConsentsPage, ErasurePage, AuditPage } from './pages/Compliance';
 import { FlagsPage, HealthPage, QueuesPage } from './pages/Ops';
 import SettingsPage from './pages/Settings';
+import TeamPage from './pages/Team';
 
 function FullScreenLoader() {
   return (
@@ -77,6 +78,7 @@ export default function App() {
             <Route path="/health" element={<HealthPage />} />
             <Route path="/queues" element={<QueuesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/team" element={<TeamPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         ) : (

@@ -154,6 +154,9 @@ export const ADMIN_ACTIONS = {
   BROADCAST_SEND:       'ADMIN_BROADCAST_SEND',
   ERASURE_PROCESS:      'ADMIN_ERASURE_PROCESS',
   SETTING_UPDATE:       'ADMIN_SETTING_UPDATE',      // runtime AppSetting changed from the admin panel
+  TEAM_INVITE:          'ADMIN_TEAM_INVITE',         // promoted a user to ADMIN + assigned scopes
+  TEAM_SCOPES_UPDATE:   'ADMIN_TEAM_SCOPES_UPDATE',  // changed an admin's scopes
+  TEAM_REVOKE:          'ADMIN_TEAM_REVOKE',         // demoted an admin + forced logout
 };
 
 /**

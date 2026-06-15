@@ -4,6 +4,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { LogOut, Menu, Search, Sprout, X } from 'lucide-react';
 import { NAV } from '../nav';
 import { useAuth } from '../lib/auth';
+import { useAdminMe, allowedByScope } from '../lib/scopes';
 import { useConfirm } from './confirm';
 import { CommandPalette } from './CommandPalette';
 import { Badge } from './ui';
@@ -13,8 +14,14 @@ const ENV_TONE = ENV_NAME === 'production' ? 'red' : ENV_NAME === 'staging' ? 'a
 
 export function AppShell() {
   const { user, logout } = useAuth();
+  const { data: me } = useAdminMe();
   const confirm = useConfirm();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Cosmetic: hide nav items/groups the admin lacks scope for (server still enforces).
+  const groups = NAV
+    .map((g) => ({ ...g, items: g.items.filter((it) => allowedByScope(me, it.scope)) }))
+    .filter((g) => allowedByScope(me, g.scope) && g.items.length > 0);
 
   const onLogout = async () => {
     const { confirmed } = await confirm({ title: 'Log out?', message: 'You will need to sign in again with OTP.', confirmLabel: 'Log out' });
@@ -32,7 +39,7 @@ export function AppShell() {
           <button className="md:hidden" onClick={() => setMobileOpen(false)} aria-label="Close menu"><X className="h-5 w-5" /></button>
         </div>
         <nav className="h-[calc(100%-3.5rem)] overflow-y-auto px-3 py-3" aria-label="Main">
-          {NAV.map((group) => (
+          {groups.map((group) => (
             <div key={group.title} className="mb-4">
               <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{group.title}</p>
               <ul className="space-y-0.5">

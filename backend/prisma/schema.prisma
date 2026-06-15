@@ -19,6 +19,9 @@ model User {
   avatar                   String?
   statusQuote              String?
   role                     Role                 @default(FARMER)
+  // Admin RBAC sub-role scopes. An ADMIN with an EMPTY array = SUPER_ADMIN, so
+  // existing admins keep full access until scopes are deliberately assigned.
+  adminScopes              String[]             @default([])
   language                 String               @default("en")
   isActive                 Boolean              @default(true)
   // Bumped on security-sensitive changes (e.g. phone change). Access tokens
