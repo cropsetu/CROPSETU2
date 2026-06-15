@@ -1,10 +1,11 @@
 /** Persistent layout: grouped left nav + top bar + ⌘K palette. */
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, Menu, Search, Sprout, X } from 'lucide-react';
+import { Eye, LogOut, Menu, Search, Sprout, X } from 'lucide-react';
 import { NAV } from '../nav';
 import { useAuth } from '../lib/auth';
 import { useAdminMe, allowedByScope } from '../lib/scopes';
+import { useViewAs } from '../lib/viewAs';
 import { useConfirm } from './confirm';
 import { CommandPalette } from './CommandPalette';
 import { Badge } from './ui';
@@ -15,6 +16,7 @@ const ENV_TONE = ENV_NAME === 'production' ? 'red' : ENV_NAME === 'staging' ? 'a
 export function AppShell() {
   const { user, logout } = useAuth();
   const { data: me } = useAdminMe();
+  const { active: viewAs, exit: exitViewAs } = useViewAs();
   const confirm = useConfirm();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -70,6 +72,22 @@ export function AppShell() {
 
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* View-as (impersonation) banner — high-visibility, persistent, READ-ONLY.
+            No user token is minted; the admin is just reading the target's data
+            through admin endpoints. Exit clears the read-only context. */}
+        {viewAs && (
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-amber-300 bg-amber-400 px-4 py-2 text-sm font-medium text-amber-950">
+            <span className="flex items-center gap-2">
+              <Eye className="h-4 w-4 shrink-0" />
+              Viewing as <strong>{viewAs.target.name || 'user'}</strong>
+              <span className="font-mono text-xs opacity-80">{viewAs.target.id.slice(0, 8)}</span>
+              <span className="rounded bg-amber-950/15 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide">Read only</span>
+            </span>
+            <button onClick={exitViewAs} className="inline-flex items-center gap-1 rounded-md bg-amber-950/10 px-2.5 py-1 text-xs font-semibold hover:bg-amber-950/20">
+              <X className="h-3.5 w-3.5" /> Exit
+            </button>
+          </div>
+        )}
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
           <div className="flex items-center gap-3">
             <button className="md:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu"><Menu className="h-5 w-5" /></button>

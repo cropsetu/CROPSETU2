@@ -5,6 +5,8 @@
  * GET    /users/:id             full profile + counts + recent activity (PII masked; ?reveal=true&reason= audited)
  * PATCH  /users/:id             change role / isActive (audited; role change bumps tokenVersion)
  * POST   /users/:id/force-logout  bump tokenVersion + revoke refresh tokens (audited)
+ * POST   /users/:id/impersonate   issue a READ-ONLY view-as context (scope SUPPORT, reason required, audited)
+ * GET    /users/:id/impersonation-context  verify a previously-issued view-as token (scope SUPPORT)
  * GET    /users/:id/consents    effective consents + history (DPDP)
  * GET    /users/:id/audit       audit trail for this user
  *
@@ -22,6 +24,8 @@ import { shapeUser, auditReveal } from '../../utils/adminPii.js';
 import { adminAudit, listParams, revealValidators } from './_helpers.js';
 import { ADMIN_ACTIONS } from '../../services/audit.service.js';
 import { getEffectiveConsents, getConsentHistory } from '../../services/consent.service.js';
+import { requireScope, ADMIN_SCOPES } from '../../middleware/admin.js';
+import { signViewAsContext, verifyViewAsContext } from '../../utils/viewAsContext.js';
 
 const router = Router();
 
@@ -209,6 +213,81 @@ router.post(
       return sendSuccess(res, { id, refreshTokensRevoked: revoked.count });
     } catch (err) {
       return sendServerError(res, err, 'Failed to force logout');
+    }
+  },
+);
+
+// ── POST /users/:id/impersonate ───────────────────────────────────────────────
+//
+// "View as user" — READ-ONLY by construction. Scope: SUPPORT.
+//
+// SECURITY: this endpoint does NOT mint a user-scoped access token. No token
+// carrying the target user's identity is ever issued, so the SPA can never
+// authenticate AS the user and WRITES AS THE USER ARE IMPOSSIBLE. Instead it:
+//   1. records an audited ADMIN_IMPERSONATE event (actor adminId, target userId,
+//      reason, IP); and
+//   2. returns a short-lived, signed READ-ONLY view-as context descriptor
+//      { actAs, adminId, readOnly:true, expiresAt (~10 min) }, signed with the
+//      existing JWT secret (HMAC) so the SPA can verify it is genuine.
+//
+// The admin's OWN admin token continues to authorize all reads: the SPA, while a
+// view-as context is active, simply fetches the TARGET user's data via the
+// EXISTING admin GET endpoints (GET /admin/users/:id, /users/:id/audit,
+// /admin/orders?userId=, …) under the admin's own token and renders it behind a
+// clearly-flagged READ-ONLY banner. The descriptor itself confers no authority —
+// the backend never trusts it to authorize anything.
+router.post(
+  '/:id/impersonate',
+  requireScope(ADMIN_SCOPES.SUPPORT),
+  [
+    param('id').isUUID(),
+    body('reason').isString().trim().isLength({ min: 3, max: 500 })
+      .withMessage('a reason (3–500 chars) is required to view as a user'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const target = await prisma.user.findUnique({ where: { id }, select: { id: true, name: true, role: true } });
+      if (!target) return sendNotFound(res, 'User');
+
+      // Sign the READ-ONLY descriptor with the acting admin's id baked in.
+      const { context, token } = signViewAsContext({ actAs: target.id, adminId: req.user.id });
+
+      // Audit BEFORE responding so the impersonation is on record first.
+      await adminAudit(req, ADMIN_ACTIONS.IMPERSONATE, 'User', id, {
+        metadata: { reason: req.body.reason, readOnly: true, expiresAt: new Date(context.expiresAt).toISOString() },
+      });
+
+      return sendSuccess(res, {
+        token,
+        context,
+        target: { id: target.id, name: target.name, role: target.role },
+        // Echo the invariant so the client can't mistake this for a write grant.
+        readOnly: true,
+      });
+    } catch (err) {
+      return sendServerError(res, err, 'Failed to start view-as session');
+    }
+  },
+);
+
+// ── GET /users/:id/impersonation-context ──────────────────────────────────────
+// Verify a previously-issued view-as token (HMAC + expiry). Scope: SUPPORT.
+// Useful for the SPA to confirm a stored context is still genuine/unexpired and
+// that it belongs to this admin + this target. Purely informational — read-only.
+router.get(
+  '/:id/impersonation-context',
+  requireScope(ADMIN_SCOPES.SUPPORT),
+  [param('id').isUUID(), query('token').isString().notEmpty()],
+  validate,
+  async (req, res) => {
+    try {
+      const ctx = verifyViewAsContext(req.query.token);
+      const valid = Boolean(ctx) && ctx.actAs === req.params.id && ctx.adminId === req.user.id;
+      return sendSuccess(res, { valid, context: valid ? ctx : null });
+    } catch (err) {
+      return sendServerError(res, err, 'Failed to verify view-as context');
     }
   },
 );

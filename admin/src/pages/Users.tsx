@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Eye, EyeOff, LogOut, UserCog } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, LogOut, ScanEye, UserCog } from 'lucide-react';
 import { apiGet, apiPatch, apiPost, errorMessage } from '../lib/api';
 import { useKeyset } from '../lib/useKeyset';
 import { PageHeader, Card, Button, StatusBadge, Badge, Spinner, ErrorState, Select } from '../components/ui';
@@ -9,6 +9,7 @@ import { DataTable, type Column } from '../components/DataTable';
 import { Toolbar, SearchInput, FilterSelect, DescList } from '../components/filters';
 import { useConfirm } from '../components/confirm';
 import { useToast } from '../lib/toast';
+import { useViewAs, type ActiveViewAs } from '../lib/viewAs';
 import { formatDate, formatDateTime, relativeTime, titleCase } from '../lib/format';
 
 const ROLES = ['FARMER', 'VERIFIED_FARMER', 'LABOUR_PROVIDER', 'MACHINERY_OWNER', 'SELLER', 'ADMIN'];
@@ -91,8 +92,15 @@ export function UserDetailPage() {
   const confirm = useConfirm();
   const toast = useToast();
   const qc = useQueryClient();
+  const viewAs = useViewAs();
   const [reveal, setReveal] = useState<{ on: boolean; reason: string }>({ on: false, reason: '' });
   const [newRole, setNewRole] = useState('');
+
+  // While a READ-ONLY view-as session is active for THIS user, every write
+  // control is hidden — the page becomes a faithful read-only view of their data.
+  // (The backend never minted a user token; this is purely UI suppression on top
+  // of the admin's own read-scoped session.)
+  const readOnly = viewAs.isReadOnly;
 
   const detailKey = ['user', id, reveal.on, reveal.reason];
   const detail = useQuery({
@@ -119,6 +127,12 @@ export function UserDetailPage() {
     onSuccess: () => { toast.success('Sessions revoked'); invalidate(); },
     onError: (e) => toast.error(errorMessage(e)),
   });
+  // "View as user" — issues a READ-ONLY view-as context (no user token minted).
+  const impersonate = useMutation({
+    mutationFn: (vars: { reason: string }) => apiPost<ActiveViewAs>(`/admin/users/${id}/impersonate`, vars),
+    onSuccess: (session) => { viewAs.start(session); toast.success('Viewing as user — read only'); invalidate(); },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
 
   const onReveal = async () => {
     if (reveal.on) { setReveal({ on: false, reason: '' }); return; }
@@ -139,6 +153,15 @@ export function UserDetailPage() {
     const { confirmed, reason } = await confirm({ title: 'Force logout?', tone: 'danger', message: 'Revokes all refresh tokens and bumps the token version — the user is signed out everywhere.', requireReason: true, confirmLabel: 'Force logout' });
     if (confirmed) forceLogout.mutate({ reason });
   };
+  const onViewAs = async () => {
+    const { confirmed, reason } = await confirm({
+      title: 'View as this user?',
+      message: 'Opens a READ-ONLY view of this user’s data. No write actions are possible while viewing as them, and this access is written to the audit log.',
+      requireReason: true,
+      confirmLabel: 'View as user',
+    });
+    if (confirmed) impersonate.mutate({ reason });
+  };
 
   if (detail.isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
   if (detail.error != null || !detail.data) return <ErrorState message={errorMessage(detail.error, 'User not found.')} />;
@@ -155,7 +178,12 @@ export function UserDetailPage() {
         actions={
           <>
             <Button variant="secondary" onClick={onReveal}>{reveal.on ? <><EyeOff className="h-4 w-4" /> Hide PII</> : <><Eye className="h-4 w-4" /> Reveal PII</>}</Button>
-            <Button variant={u.isActive ? 'danger' : 'primary'} onClick={onDeactivate} loading={setActive.isPending}>{u.isActive ? 'Deactivate' : 'Reactivate'}</Button>
+            {!readOnly && (
+              <>
+                <Button variant="secondary" onClick={onViewAs} loading={impersonate.isPending}><ScanEye className="h-4 w-4" /> View as user</Button>
+                <Button variant={u.isActive ? 'danger' : 'primary'} onClick={onDeactivate} loading={setActive.isPending}>{u.isActive ? 'Deactivate' : 'Reactivate'}</Button>
+              </>
+            )}
           </>
         }
       />
@@ -194,19 +222,26 @@ export function UserDetailPage() {
             </div>
           </Card>
 
-          <Card className="p-5">
-            <h3 className="mb-3 text-sm font-medium text-slate-700">Account actions</h3>
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Select value={newRole} onChange={(e) => setNewRole(e.target.value)} className="flex-1">
-                  <option value="">Change role…</option>
-                  {ROLES.filter((r) => r !== u.role).map((r) => <option key={r} value={r}>{titleCase(r)}</option>)}
-                </Select>
-                <Button variant="secondary" onClick={onChangeRole} disabled={!newRole} loading={changeRole.isPending}><UserCog className="h-4 w-4" /></Button>
+          {readOnly ? (
+            <Card className="p-5">
+              <h3 className="mb-2 text-sm font-medium text-slate-700">Account actions</h3>
+              <p className="text-sm text-slate-400">Hidden while viewing as this user — the session is read-only.</p>
+            </Card>
+          ) : (
+            <Card className="p-5">
+              <h3 className="mb-3 text-sm font-medium text-slate-700">Account actions</h3>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Select value={newRole} onChange={(e) => setNewRole(e.target.value)} className="flex-1">
+                    <option value="">Change role…</option>
+                    {ROLES.filter((r) => r !== u.role).map((r) => <option key={r} value={r}>{titleCase(r)}</option>)}
+                  </Select>
+                  <Button variant="secondary" onClick={onChangeRole} disabled={!newRole} loading={changeRole.isPending}><UserCog className="h-4 w-4" /></Button>
+                </div>
+                <Button variant="danger" className="w-full" onClick={onForceLogout} loading={forceLogout.isPending}><LogOut className="h-4 w-4" /> Force logout</Button>
               </div>
-              <Button variant="danger" className="w-full" onClick={onForceLogout} loading={forceLogout.isPending}><LogOut className="h-4 w-4" /> Force logout</Button>
-            </div>
-          </Card>
+            </Card>
+          )}
         </div>
       </div>
 

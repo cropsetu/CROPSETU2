@@ -122,6 +122,7 @@ export const ADMIN_ACTIONS = {
   PII_REVEAL:           'ADMIN_PII_REVEAL',
   USER_UPDATE:          'ADMIN_USER_UPDATE',          // role / isActive change
   USER_FORCE_LOGOUT:    'ADMIN_USER_FORCE_LOGOUT',
+  IMPERSONATE:          'ADMIN_IMPERSONATE',           // issued a READ-ONLY view-as context for a user (no user token minted)
   KYC_VERIFY:           'ADMIN_KYC_VERIFY',
   KYC_REJECT:           'ADMIN_KYC_REJECT',
   KYC_DOCS_ACCESS:      'ADMIN_KYC_DOCS_ACCESS',       // viewed a seller's KYC documents (PII access)
