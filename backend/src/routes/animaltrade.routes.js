@@ -549,7 +549,10 @@ router.post('/chats/:chatId/messages', authenticate, [
       const preview = text.length > 140 ? `${text.slice(0, 137)}…` : text;
       sendPushToUser({
         userId: recipientId,
-        type:   'animal_chat',
+        // NEW_MESSAGE is the valid NotificationType enum value; 'animal_chat' is not
+        // in the enum and made prisma.notification.create() throw (recipient never
+        // got notified). The kind:'animal_chat' tag below keeps the client routing.
+        type:   'NEW_MESSAGE',
         title:  senderLabel || 'New message',
         body:   preview,
         data:   { kind: 'animal_chat', chatId: chat.id, listingId: chat.listingId, senderId: me },

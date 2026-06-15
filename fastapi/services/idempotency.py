@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import time
 from typing import Any, Optional
 
@@ -35,7 +36,17 @@ _NAMESPACE = "idem:scan"
 # ── Redis (best-effort) ──────────────────────────────────────────────────────
 try:
     import redis as _redis_lib
-    _redis = _redis_lib.Redis(host="localhost", port=6379, db=0, socket_connect_timeout=2)
+    # Use the same Redis the rest of the service uses (on Railway that's
+    # redis.railway.internal, not localhost). Hardcoding localhost made ping() always
+    # fail in prod, so the cache silently degraded to a per-process in-memory LRU —
+    # i.e. NOT shared across the uvicorn workers. Read the env URL like jobs/queue.py.
+    _redis_url = (
+        os.environ.get("CELERY_RESULT_BACKEND")
+        or os.environ.get("CELERY_BROKER_URL")
+        or os.environ.get("REDIS_URL")
+        or "redis://localhost:6379/0"
+    )
+    _redis = _redis_lib.from_url(_redis_url, socket_connect_timeout=2)
     _redis.ping()
     _REDIS_OK = True
     logger.info("[Idempotency] Redis connected — 60-min TTL")
