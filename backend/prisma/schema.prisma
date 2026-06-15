@@ -377,6 +377,30 @@ model OrderItem {
   @@map("order_items")
 }
 
+// ── Returns / RMA (admin SUPPORT) ─────────────────────────────────────────────
+// One buyer-initiated return/refund request against an order (optionally a single
+// item). Scalar orderId/userId FKs only — no relation fields on Order/User — so
+// this is purely additive. The admin Returns queue (SUPPORT scope) approves /
+// rejects / refunds; a REFUNDED resolution flips the linked Order atomically.
+model ReturnRequest {
+  id           String       @id @default(uuid())
+  orderId      String
+  orderItemId  String?
+  userId       String
+  reason       String
+  status       ReturnStatus @default(REQUESTED)
+  refundAmount Decimal?     @db.Decimal(12, 2)
+  resolvedBy   String? // admin userId who approved/rejected/refunded
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([status])
+  @@index([orderId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("return_requests")
+}
+
 model Review {
   id        String   @id @default(uuid())
   userId    String
@@ -1735,6 +1759,14 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
   REFUNDED
+}
+
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  REFUNDED
+  COMPLETED
 }
 
 enum BookingStatus {

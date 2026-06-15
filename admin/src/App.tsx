@@ -11,6 +11,7 @@ import { UsersPage, UserDetailPage } from './pages/Users';
 import { KycPage, KycDetailPage } from './pages/Kyc';
 import { CategoriesPage, ProductsPage, ReviewsPage } from './pages/Catalog';
 import OrdersPage from './pages/Orders';
+import ReturnsPage from './pages/Returns';
 import { AnimalsPage, MachineryPage, LabourPage, BookingsPage } from './pages/Listings';
 import { PostsPage, CommentsPage, GroupsPage } from './pages/Community';
 import { AiUsagePage, AiCreditsPage, FeedbackPage, ReportsPage } from './pages/AiOps';
@@ -51,6 +52,7 @@ export default function App() {
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/reviews" element={<ReviewsPage />} />
             <Route path="/orders" element={<OrdersPage />} />
+            <Route path="/returns" element={<ReturnsPage />} />
             <Route path="/animals" element={<AnimalsPage />} />
             <Route path="/machinery" element={<MachineryPage />} />
             <Route path="/labour" element={<LabourPage />} />

@@ -16,6 +16,7 @@ const PAYMENTS = ['pending', 'paid', 'failed', 'refunded'];
 
 interface OrderRow { id: string; status: string; paymentStatus: string; totalAmount: number; createdAt: string; user?: { name: string | null }; _count?: { items: number } }
 interface OrderDetail extends OrderRow { deliveryAddress: Record<string, unknown> | null; items: { id: string; quantity: number; unitPrice: number; totalPrice: number; product?: { name: string } }[]; user?: { name: string | null; phone: string; district: string | null } }
+interface TimelineEntry { id: string; action: string; after?: { status?: string; paymentStatus?: string } | null; metadata?: { reason?: string | null; refundAmount?: number | null } | null; createdAt: string }
 
 export default function OrdersPage() {
   const toast = useToast();
@@ -29,10 +30,11 @@ export default function OrdersPage() {
   const params = useMemo(() => { const p: Record<string, unknown> = {}; if (status) p.status = status; if (payment) p.paymentStatus = payment; return p; }, [status, payment]);
   const list = useKeyset<OrderRow>('/admin/orders', params);
   const detail = useQuery({ queryKey: ['order', openId], queryFn: () => apiGet<OrderDetail>(`/admin/orders/${openId}`).then((r) => r.data), enabled: !!openId });
+  const timeline = useQuery({ queryKey: ['order-timeline', openId], queryFn: () => apiGet<{ items: TimelineEntry[] }>(`/admin/orders/${openId}/timeline`).then((r) => r.data.items), enabled: !!openId });
 
   const patch = useMutation({
     mutationFn: (vars: { data: Record<string, unknown> }) => apiPatch(`/admin/orders/${openId}`, vars.data),
-    onSuccess: () => { toast.success('Order updated'); qc.invalidateQueries({ queryKey: ['order', openId] }); invalidate('/admin/orders'); },
+    onSuccess: () => { toast.success('Order updated'); qc.invalidateQueries({ queryKey: ['order', openId] }); qc.invalidateQueries({ queryKey: ['order-timeline', openId] }); invalidate('/admin/orders'); },
     onError: (e) => toast.error(errorMessage(e)),
   });
 
@@ -109,6 +111,24 @@ export default function OrdersPage() {
                 </Select>
               </div>
               <Button variant="danger" className="w-full" onClick={onRefund} disabled={d.status === 'REFUNDED'} loading={patch.isPending}>Refund order</Button>
+            </div>
+
+            <div className="border-t border-slate-100 pt-4">
+              <h4 className="mb-2 text-sm font-medium text-slate-700">Status timeline</h4>
+              {timeline.isLoading && <div className="flex justify-center py-3"><Spinner /></div>}
+              {!timeline.isLoading && (timeline.data?.length ?? 0) === 0 && <p className="text-sm text-slate-400">No recorded changes.</p>}
+              <ol className="space-y-2">
+                {timeline.data?.map((t) => (
+                  <li key={t.id} className="flex items-start justify-between gap-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {t.after?.status && <StatusBadge value={t.after.status} />}
+                      {t.after?.paymentStatus && <StatusBadge value={t.after.paymentStatus} />}
+                      {t.metadata?.reason && <span className="text-slate-500">· {t.metadata.reason}</span>}
+                    </div>
+                    <span className="shrink-0 text-xs text-slate-400">{formatDateTime(t.createdAt)}</span>
+                  </li>
+                ))}
+              </ol>
             </div>
           </div>
         )}

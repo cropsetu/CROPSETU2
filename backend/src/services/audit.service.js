@@ -132,6 +132,7 @@ export const ADMIN_ACTIONS = {
   PRODUCT_DELETE:       'ADMIN_PRODUCT_DELETE',
   REVIEW_DELETE:        'ADMIN_REVIEW_DELETE',
   ORDER_UPDATE:         'ADMIN_ORDER_UPDATE',
+  RETURN_UPDATE:        'ADMIN_RETURN_UPDATE',          // returns / RMA approve / reject / refund
   LISTING_UPDATE:       'ADMIN_LISTING_UPDATE',        // animal / machinery / labour
   POST_UPDATE:          'ADMIN_POST_UPDATE',           // pin/unpin
   POST_DELETE:          'ADMIN_POST_DELETE',           // soft-delete

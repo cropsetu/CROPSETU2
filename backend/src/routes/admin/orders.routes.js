@@ -97,13 +97,23 @@ router.patch(
     body('status').optional().isIn(ORDER_STATUSES),
     body('paymentStatus').optional().isIn(PAYMENT_STATUSES),
     body('refund').optional().isBoolean(),
+    body('refundAmount').optional({ nullable: true }).isFloat({ min: 0 }),
     body('reason').optional().isString().trim().isLength({ max: 500 }),
   ],
   validate,
   async (req, res) => {
     try {
-      const before = await prisma.order.findUnique({ where: { id: req.params.id }, select: { id: true, status: true, paymentStatus: true } });
+      const before = await prisma.order.findUnique({ where: { id: req.params.id }, select: { id: true, status: true, paymentStatus: true, totalAmount: true } });
       if (!before) return sendNotFound(res, 'Order');
+
+      // A partial/full refund amount, when supplied, can never exceed the order total.
+      let refundAmount = null;
+      if (req.body.refundAmount !== undefined && req.body.refundAmount !== null) {
+        refundAmount = Number(req.body.refundAmount);
+        if (Number.isFinite(refundAmount) && refundAmount > Number(before.totalAmount)) {
+          return sendServerError(res, Object.assign(new Error('refundAmount cannot exceed the order total'), { expose: true }), 'Refund exceeds order total', 400);
+        }
+      }
 
       const data = {};
       if (req.body.refund === true) {
@@ -113,11 +123,16 @@ router.patch(
         if (req.body.status !== undefined) data.status = req.body.status;
         if (req.body.paymentStatus !== undefined) data.paymentStatus = req.body.paymentStatus;
       }
-      if (!Object.keys(data).length) return sendServerError(res, Object.assign(new Error('Provide status, paymentStatus, or refund'), { expose: true }), 'Nothing to update', 400);
+      // A standalone refund amount (no explicit status change) still records that
+      // money moved by marking the payment refunded.
+      if (refundAmount !== null && data.paymentStatus === undefined) data.paymentStatus = 'refunded';
+      if (!Object.keys(data).length) return sendServerError(res, Object.assign(new Error('Provide status, paymentStatus, refund, or refundAmount'), { expose: true }), 'Nothing to update', 400);
 
       const updated = await prisma.order.update({ where: { id: req.params.id }, data, select: { id: true, status: true, paymentStatus: true } });
       await adminAudit(req, ADMIN_ACTIONS.ORDER_UPDATE, 'Order', updated.id, {
-        before, after: updated, metadata: { reason: req.body.reason ?? null, refund: req.body.refund === true },
+        before: { status: before.status, paymentStatus: before.paymentStatus },
+        after: updated,
+        metadata: { reason: req.body.reason ?? null, refund: req.body.refund === true, refundAmount },
       });
       return sendSuccess(res, updated);
     } catch (err) {
@@ -125,5 +140,41 @@ router.patch(
     }
   },
 );
+
+// ── GET /orders/:id/timeline ──────────────────────────────────────────────────
+// Read-only status history for an order, derived from the audit trail (admin
+// order updates + legacy ORDER_STATUS_CHANGE rows), newest first.
+router.get('/:id/timeline', [param('id').isUUID()], validate, async (req, res) => {
+  try {
+    const order = await prisma.order.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!order) return sendNotFound(res, 'Order');
+
+    const rows = await prisma.auditLog.findMany({
+      where: {
+        entity: 'Order',
+        entityId: req.params.id,
+        action: { in: [ADMIN_ACTIONS.ORDER_UPDATE, 'ORDER_STATUS_CHANGE'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: { id: true, userId: true, action: true, before: true, after: true, metadata: true, createdAt: true },
+    });
+
+    // before/after/metadata are JSON strings in the table — parse for the client.
+    const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
+    const items = rows.map((r) => ({
+      id: r.id,
+      actorId: r.userId,
+      action: r.action,
+      before: parse(r.before),
+      after: parse(r.after),
+      metadata: parse(r.metadata),
+      createdAt: r.createdAt,
+    }));
+    return sendSuccess(res, { items }, 200, { count: items.length });
+  } catch (err) {
+    return sendServerError(res, err, 'Failed to load order timeline');
+  }
+});
 
 export default router;

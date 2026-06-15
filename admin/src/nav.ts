@@ -4,9 +4,10 @@ import {
   Beef, Tractor, HardHat, CalendarCheck, MessageSquare, MessagesSquare, UsersRound,
   Cpu, Coins, FlaskConical, Activity, Landmark, IndianRupee, Sprout, Bug, RefreshCw,
   Megaphone, Flag, Fingerprint, ShieldAlert, FileCheck2, Trash2, History,
-  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, type LucideIcon,
+  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Undo2, type LucideIcon,
 } from 'lucide-react';
 
+/** `scope`, when set, gates the item/group to admins holding that RBAC sub-scope. */
 export interface NavItem { label: string; to: string; icon: LucideIcon; keywords?: string; scope?: string }
 export interface NavGroup { title: string; items: NavItem[]; scope?: string }
 
@@ -23,6 +24,7 @@ export const NAV: NavGroup[] = [
     { label: 'Products', to: '/products', icon: Package },
     { label: 'Reviews', to: '/reviews', icon: Star },
     { label: 'Orders', to: '/orders', icon: ShoppingCart, keywords: 'gmv refund payment' },
+    { label: 'Returns', to: '/returns', icon: Undo2, keywords: 'rma refund return reject approve', scope: 'SUPPORT' },
   ]},
   { title: 'Rentals & Trade', items: [
     { label: 'Animals', to: '/animals', icon: Beef },

@@ -20,6 +20,7 @@ import usersRoutes from './users.routes.js';
 import kycRoutes from './kyc.routes.js';
 import { categoriesRouter, productsRouter, reviewsRouter } from './catalog.routes.js';
 import ordersRoutes from './orders.routes.js';
+import returnsRoutes from './returns.routes.js';
 import { animalsRouter, machineryRouter, labourRouter, bookingsRouter } from './listings.routes.js';
 import { postsRouter, commentsRouter, groupsRouter } from './community.routes.js';
 import aiRoutes from './ai.routes.js';
@@ -55,6 +56,8 @@ router.use('/categories', requireScope(S.CMS_EDITOR), categoriesRouter);
 router.use('/products', requireScope(S.CMS_EDITOR), productsRouter);
 router.use('/reviews', requireScope(S.CONTENT_MODERATOR), reviewsRouter);
 router.use('/orders', requireScope(S.SUPPORT), ordersRoutes);
+// Returns / RMA + richer order ops (SUPPORT scope)
+router.use('/returns', requireScope(S.SUPPORT), returnsRoutes);
 // Rentals & trade
 router.use('/animals', requireScope(S.CONTENT_MODERATOR), animalsRouter);
 router.use('/machinery', requireScope(S.CONTENT_MODERATOR), machineryRouter);
