@@ -342,7 +342,7 @@ export default function OnboardingProfileScreen({ navigation }) {
             <TouchableOpacity style={sty.gpsBtn} onPress={captureGPS} disabled={gpsLoading} activeOpacity={0.8}>
               <Ionicons name={lat ? 'checkmark-circle' : 'navigate-outline'} size={16} color={KHET.primary} />
               <Text style={sty.gpsTxt}>
-                {gpsLoading ? 'Getting location...' : lat ? `GPS captured (${lat.toFixed(4)}, ${lng.toFixed(4)})` : 'Auto-detect from GPS'}
+                {gpsLoading ? t('onboarding.gettingLocation') : lat ? t('onboarding.gpsCaptured', { lat: lat.toFixed(4), lng: lng.toFixed(4) }) : t('onboarding.detectLocation')}
               </Text>
             </TouchableOpacity>
           </Rise>
@@ -356,9 +356,9 @@ export default function OnboardingProfileScreen({ navigation }) {
 
             <Text style={sty.fieldLabel}>{t('farmProfile.farmName')}</Text>
             <TextInput style={sty.input} value={farmName} onChangeText={setFarmName}
-              placeholder={`${firstName.trim() || 'My'}'s Farm`} placeholderTextColor={PLACEHOLDER} maxLength={60} />
+              placeholder={t('onboarding.farmNamePlaceholderOwner', { owner: firstName.trim() || 'My' })} placeholderTextColor={PLACEHOLDER} maxLength={60} />
 
-            <Text style={[sty.fieldLabel, { marginTop: vs(14) }]}>Total Land (acres)</Text>
+            <Text style={[sty.fieldLabel, { marginTop: vs(14) }]}>{t('onboarding.landSize')}</Text>
             <TextInput style={[sty.input, { textAlign: 'center', fontSize: fs(18), fontFamily: KFONT.sansBold }]}
               value={landSize} onChangeText={setLandSize}
               placeholder={t('farmProfile.landSizePlaceholder')} keyboardType="decimal-pad" placeholderTextColor={PLACEHOLDER} />
@@ -370,7 +370,7 @@ export default function OnboardingProfileScreen({ navigation }) {
                 return (
                   <TouchableOpacity key={soil.key} style={sty.soilCard} onPress={() => setSoilType(soil.key)} activeOpacity={0.8}>
                     <LinearGradient colors={soil.bg} style={[sty.soilSquare, sel && sty.soilSquareSel]}>
-                      {soil.sk ? <SoilIcon type={soil.sk} size={24} /> : <Ionicons name="help-circle-outline" size={22} color="#FFF" />}
+                      {soil.sk ? <SoilIcon type={soil.sk} size={24} /> : <Ionicons name="help-circle" size={24} color={KHET.gold} />}
                       {sel && <View style={sty.soilCheck}><Ionicons name="checkmark" size={10} color="#FFF" /></View>}
                     </LinearGradient>
                     <Text style={[sty.soilLabel, sel && sty.soilLabelSel]}>{t(soil.tKey, soil.label)}</Text>
@@ -386,7 +386,7 @@ export default function OnboardingProfileScreen({ navigation }) {
                 return (
                   <TouchableOpacity key={irr.key} style={[sty.irrChip, sel && sty.irrChipSel]} onPress={() => setIrrigation(irr.key)} activeOpacity={0.8}>
                     <View style={[sty.irrIconSmall, sel && sty.irrIconSmallSel]}>
-                      {irr.ik ? <IrrigationIcon type={irr.ik} size={20} /> : <Ionicons name="options-outline" size={16} color={KHET.primary} />}
+                      {irr.ik ? <IrrigationIcon type={irr.ik} size={20} /> : <Ionicons name="shuffle" size={18} color={KHET.gold} />}
                     </View>
                     <Text style={[sty.irrLabel, sel && sty.irrLabelSel]}>{t(irr.tKey, irr.label)}</Text>
                     {sel && <Ionicons name="checkmark-circle" size={14} color={KHET.primary} />}
@@ -483,7 +483,7 @@ export default function OnboardingProfileScreen({ navigation }) {
           <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sty.submitGrad}>
             {saving ? <ActivityIndicator color="#FFF" /> : (
               <>
-                <Text style={sty.submitTxt}>{canSubmit ? 'Complete Setup' : 'Fill name & district'}</Text>
+                <Text style={sty.submitTxt}>{canSubmit ? t('onboarding.completeSetup') : t('onboarding.fillNameDistrict')}</Text>
                 {canSubmit && (
                   <View style={sty.submitArrow}><Ionicons name="checkmark" size={16} color={KHET.primaryForeground} /></View>
                 )}

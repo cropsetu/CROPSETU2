@@ -2,11 +2,11 @@ import { Platform, View, Text, TouchableOpacity, StyleSheet, Dimensions, Animate
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import { Ionicons } from '@expo/vector-icons';
 import { useRef, useEffect, useCallback } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import linking from './linking';
+import TabIcon from '../components/TabIcons';
 import { navigationRef } from './navigationRef';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
@@ -26,7 +26,7 @@ const scale  = (v) => Math.round(v * (W / 390));
 // Clamp between min and max
 const clamp  = (v, min, max) => Math.min(Math.max(v, min), max);
 
-const ICON_SIZE  = clamp(scale(25), 22, 28);
+const ICON_SIZE  = clamp(scale(30), 28, 34);
 const LABEL_SIZE = clamp(scale(11), 10, 12);
 const BAR_H      = Platform.OS === 'ios'
   ? clamp(scale(90), 82, 104)
@@ -38,15 +38,11 @@ const PT         = clamp(scale(10), 8, 14);
 function TabItem({ route, options, focused, onPress }) {
   const sc = useRef(new Animated.Value(1)).current;
   const pillAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
-  const dotAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
   const { count: cartCount } = useCart();
   const badgeCount = route.name === 'AgriStore' ? cartCount : 0;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.spring(pillAnim, { toValue: focused ? 1 : 0, useNativeDriver: true, tension: 180, friction: 12 }),
-      Animated.spring(dotAnim, { toValue: focused ? 1 : 0, useNativeDriver: true, tension: 200, friction: 14 }),
-    ]).start();
+    Animated.spring(pillAnim, { toValue: focused ? 1 : 0, useNativeDriver: true, tension: 180, friction: 12 }).start();
   }, [focused]);
 
   const handlePress = () => {
@@ -59,23 +55,9 @@ function TabItem({ route, options, focused, onPress }) {
     onPress();
   };
 
-  const iconMap = {
-    AgriStore:   focused ? 'storefront'      : 'storefront-outline',
-    AIAssistant: focused ? 'hardware-chip'   : 'hardware-chip-outline',
-    AnimalTrade: focused ? 'paw'             : 'paw-outline',
-    Rent:        focused ? 'construct'       : 'construct-outline',
-    MyFarm:      focused ? 'leaf'             : 'leaf-outline',
-    Account:     focused ? 'person-circle'   : 'person-circle-outline',
-  };
-
   const pillStyle = {
     opacity: pillAnim,
     transform: [{ scale: pillAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }],
-  };
-
-  const dotStyle = {
-    opacity: dotAnim,
-    transform: [{ scaleX: dotAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) }],
   };
 
   return (
@@ -87,11 +69,7 @@ function TabItem({ route, options, focused, onPress }) {
       <Animated.View style={[TB.tabInner, { transform: [{ scale: sc }] }]}>
         <Animated.View style={[TB.activePill, pillStyle]} />
         <View>
-          <Ionicons
-            name={iconMap[route.name] || 'ellipse'}
-            size={ICON_SIZE}
-            color={focused ? ACTIVE_COLOR : INACTIVE_COLOR}
-          />
+          <TabIcon name={route.name} size={ICON_SIZE} focused={focused} />
           {badgeCount > 0 && (
             <View style={TB.badge}>
               <Text style={TB.badgeTxt} numberOfLines={1}>
@@ -106,7 +84,6 @@ function TabItem({ route, options, focused, onPress }) {
         >
           {options.tabBarLabel ?? route.name}
         </Text>
-        <Animated.View style={[TB.activeDot, dotStyle]} />
       </Animated.View>
     </TouchableOpacity>
   );
@@ -177,13 +154,6 @@ const TB = StyleSheet.create({
   label: {
     fontWeight: TYPE.weight.bold,
     textAlign: 'center',
-  },
-  activeDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: ACTIVE_COLOR,
-    marginTop: 2,
   },
   badge: {
     position: 'absolute',
@@ -275,6 +245,7 @@ import FarmDetailScreen         from '../screens/FarmProfile/FarmDetailScreen';
 import FarmAddEditScreen        from '../screens/FarmProfile/FarmAddEditScreen';
 import CropCycleCreateScreen    from '../screens/FarmProfile/CropCycleCreateScreen';
 import CropCycleDetailScreen    from '../screens/FarmProfile/CropCycleDetailScreen';
+import GrowthStoryScreen        from '../screens/FarmProfile/GrowthStoryScreen';
 import ActivityTypePickerScreen from '../screens/FarmProfile/ActivityTypePickerScreen';
 import IrrigationLogScreen      from '../screens/FarmProfile/logging/IrrigationLogScreen';
 import LandPrepLogScreen        from '../screens/FarmProfile/logging/LandPrepLogScreen';
@@ -284,6 +255,7 @@ import WeedingLogScreen         from '../screens/FarmProfile/logging/WeedingLogS
 import PruningLogScreen         from '../screens/FarmProfile/logging/PruningLogScreen';
 import ExpenseLogScreen         from '../screens/FarmProfile/logging/ExpenseLogScreen';
 import IncomeLogScreen          from '../screens/FarmProfile/logging/IncomeLogScreen';
+import CustomActivityLogScreen  from '../screens/FarmProfile/logging/CustomActivityLogScreen';
 
 // Seller Portal (integrated)
 import SellerDashboard      from '../screens/Seller/DashboardScreen';
@@ -352,7 +324,6 @@ function AINavigator() {
       {/* Soil Hub — cosmic redesign. 'SoilHealth' kept as the entry alias so the
           AI home tile still works; sub-screens are the form/report/scan/guide. */}
       <AIStack.Screen name="SoilHealth"        component={SoilHubScreen}          options={{ headerShown: false }} />
-      <AIStack.Screen name="SoilHub"           component={SoilHubScreen}          options={{ headerShown: false }} />
       <AIStack.Screen name="SoilForm"          component={SoilFormScreen}         options={{ headerShown: false }} />
       <AIStack.Screen name="SoilReport"        component={SoilReportScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="SoilScan"          component={SoilScanScreen}         options={{ headerShown: false }} />
@@ -368,6 +339,7 @@ function AINavigator() {
       <AIStack.Screen name="FarmAddEdit"            component={FarmAddEditScreen}      options={{ headerShown: false }} />
       <AIStack.Screen name="CropCycleCreate"        component={CropCycleCreateScreen}  options={{ headerShown: false }} />
       <AIStack.Screen name="CropCycleDetail"        component={CropCycleDetailScreen}  options={{ headerShown: false }} />
+      <AIStack.Screen name="GrowthStory"            component={GrowthStoryScreen}      options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityTypePicker"     component={ActivityTypePickerScreen} options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityIrrigationLog"  component={IrrigationLogScreen}    options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityLandPrepLog"    component={LandPrepLogScreen}      options={{ headerShown: false }} />
@@ -377,6 +349,7 @@ function AINavigator() {
       <AIStack.Screen name="ActivityPruningLog"     component={PruningLogScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityExpenseLog"     component={ExpenseLogScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="ActivityIncomeLog"      component={IncomeLogScreen}        options={{ headerShown: false }} />
+      <AIStack.Screen name="ActivityCustomLog"      component={CustomActivityLogScreen} options={{ headerShown: false }} />
       {/* Weather screens — accessible from AI tab */}
       <AIStack.Screen name="Weather"           component={WeatherHome}            options={{ headerShown: false }} />
       <AIStack.Screen name="CropCalendar"      component={CropCalendar}           options={{ title: t('cropCalendar.bannerTitle') }} />
@@ -423,6 +396,7 @@ function MyFarmNavigator() {
       <MyFarmStack.Screen name="FarmAddEdit"            component={FarmAddEditScreen} />
       <MyFarmStack.Screen name="CropCycleCreate"        component={CropCycleCreateScreen} />
       <MyFarmStack.Screen name="CropCycleDetail"        component={CropCycleDetailScreen} />
+      <MyFarmStack.Screen name="GrowthStory"            component={GrowthStoryScreen} />
       <MyFarmStack.Screen name="ActivityTypePicker"     component={ActivityTypePickerScreen} />
       <MyFarmStack.Screen name="ActivityIrrigationLog"  component={IrrigationLogScreen} />
       <MyFarmStack.Screen name="ActivityLandPrepLog"    component={LandPrepLogScreen} />
@@ -432,6 +406,7 @@ function MyFarmNavigator() {
       <MyFarmStack.Screen name="ActivityPruningLog"     component={PruningLogScreen} />
       <MyFarmStack.Screen name="ActivityExpenseLog"     component={ExpenseLogScreen} />
       <MyFarmStack.Screen name="ActivityIncomeLog"      component={IncomeLogScreen} />
+      <MyFarmStack.Screen name="ActivityCustomLog"      component={CustomActivityLogScreen} />
     </MyFarmStack.Navigator>
   );
 }

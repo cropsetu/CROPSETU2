@@ -10,8 +10,11 @@ import { Pressable, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COSMIC, CR, CT } from '../theme/cosmicTheme';
 import { Haptics } from '../../../utils/haptics';
+import { useLanguage } from '../../../context/LanguageContext';
 
-export default function WhyThisButton({ onPress, label = 'Why this?', compact = false, style }) {
+export default function WhyThisButton({ onPress, label, compact = false, style }) {
+  const { t } = useLanguage();
+  const resolvedLabel = label ?? t('whyThisButton.whyThis', 'Why this?');
   const handle = () => { Haptics.light?.(); onPress && onPress(); };
   return (
     <Pressable
@@ -24,7 +27,7 @@ export default function WhyThisButton({ onPress, label = 'Why this?', compact = 
       ]}
     >
       <Ionicons name="bulb-outline" size={compact ? 12 : 14} color={COSMIC.ACCENT} />
-      <Text style={[styles.text, compact && styles.textCompact]} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.text, compact && styles.textCompact]} numberOfLines={1}>{resolvedLabel}</Text>
       <Ionicons name="chevron-forward" size={compact ? 12 : 14} color={COSMIC.ACCENT} />
     </Pressable>
   );
@@ -51,7 +54,7 @@ const styles = StyleSheet.create({
   text: {
     color: COSMIC.ACCENT,
     fontSize: 12,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
   textCompact: {
     fontSize: 11,

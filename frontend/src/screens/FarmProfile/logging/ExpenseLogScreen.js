@@ -15,12 +15,12 @@ import { COSMIC } from '../theme/cosmicTheme';
 import { Haptics } from '../../../utils/haptics';
 
 const CATEGORIES = [
-  { key: 'diesel',      label: 'Diesel',        icon: 'flame-outline',     color: COSMIC.EXPENSE },
-  { key: 'machinery',   label: 'Machinery hire', icon: 'construct-outline', color: COSMIC.LAND_PREP },
-  { key: 'transport',   label: 'Transport',     icon: 'car-outline',       color: COSMIC.INFO },
-  { key: 'electricity', label: 'Electricity',   icon: 'flash-outline',     color: COSMIC.HARVEST },
-  { key: 'tools',       label: 'Tools',         icon: 'hammer-outline',    color: COSMIC.SPRAY },
-  { key: 'other',       label: 'Other',         icon: 'ellipsis-horizontal', color: COSMIC.TEXT_3 },
+  { key: 'diesel',      labelKey: 'rent.fuelDiesel',         icon: 'flame-outline',     color: COSMIC.EXPENSE },
+  { key: 'machinery',   labelKey: 'expenseLog.catMachinery', icon: 'construct-outline', color: COSMIC.LAND_PREP },
+  { key: 'transport',   labelKey: 'expenseLog.catTransport', icon: 'car-outline',       color: COSMIC.INFO },
+  { key: 'electricity', labelKey: 'expenseLog.catElectricity', icon: 'flash-outline',   color: COSMIC.HARVEST },
+  { key: 'tools',       labelKey: 'expenseLog.catTools',     icon: 'hammer-outline',    color: COSMIC.SPRAY },
+  { key: 'other',       labelKey: 'cropScan.other',          icon: 'ellipsis-horizontal', color: COSMIC.TEXT_3 },
 ];
 
 export default function ExpenseLogScreen({ navigation, route }) {
@@ -37,9 +37,11 @@ export default function ExpenseLogScreen({ navigation, route }) {
 
   const canSave = !!amount && parseFloat(amount) > 0;
 
+  const categories = CATEGORIES.map((c) => ({ ...c, label: t(c.labelKey) }));
+
   const handleSave = useCallback(async () => {
-    if (!canSave) { Haptics.error?.(); Alert.alert('Missing info', 'Enter an amount.'); return; }
-    if (!cycleId) { Alert.alert('Pick a crop cycle', 'Start a crop cycle first to log against it.'); return; }
+    if (!canSave) { Haptics.error?.(); Alert.alert(t('expenseLog.missingInfoTitle'), t('expenseLog.missingInfoMsg')); return; }
+    if (!cycleId) { Alert.alert(t('expenseLog.noCycleTitle'), t('expenseLog.noCycleMsg')); return; }
     setSaving(true);
     try {
       const amt = parseFloat(amount);
@@ -49,36 +51,36 @@ export default function ExpenseLogScreen({ navigation, route }) {
       setCelebrate(true);
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || 'Could not save.');
+      Alert.alert(t('login.error') || 'Error', e.message || t('expenseLog.saveFailed'));
     } finally {
       setSaving(false);
     }
   }, [canSave, cycleId, category, amount, vendor, notes, t]);
 
   const subtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'}${cycleId ? ' · active cycle' : ''}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || t('nav.farm')}${cycleId ? t('expenseLog.activeCycleSuffix') : ''}`
     : undefined;
 
   return (
     <LoggerScaffold
-      title="Log expense" subtitle={subtitle}
-      footerLabel="Log expense" footerIcon="cash-outline"
+      title={t('expenseLog.title')} subtitle={subtitle}
+      footerLabel={t('expenseLog.title')} footerIcon="cash-outline"
       saving={saving} canSave={canSave} onSave={handleSave}
       celebrate={celebrate}
-      celebrateTitle="Expense logged ✓"
-      celebrateSubtitle="Tracked against this cycle's profit & loss."
+      celebrateTitle={t('expenseLog.celebrateTitle')}
+      celebrateSubtitle={t('expenseLog.celebrateSubtitle')}
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
-      <SectionHeader icon="pricetags-outline" tint={COSMIC.EXPENSE} title="Category" />
-      <TileGrid items={CATEGORIES} value={category} onChange={(v) => setCategory(v || 'other')} columns={3} />
+      <SectionHeader icon="pricetags-outline" tint={COSMIC.EXPENSE} title={t('products.category')} />
+      <TileGrid items={categories} value={category} onChange={(v) => setCategory(v || 'other')} columns={3} />
 
-      <SectionHeader icon="cash-outline" tint={COSMIC.EXPENSE} title="Amount" />
+      <SectionHeader icon="cash-outline" tint={COSMIC.EXPENSE} title={t('orders.amount')} />
       <Card><BigNumberInput value={amount} onChange={setAmount} unit="₹" tint={COSMIC.EXPENSE} /></Card>
 
-      <SectionHeader icon="storefront-outline" tint={COSMIC.INFO} title="Vendor" optional />
-      <Card><LabeledInput value={vendor} onChangeText={setVendor} placeholder="e.g. Krishi Kendra" /></Card>
+      <SectionHeader icon="storefront-outline" tint={COSMIC.INFO} title={t('expenseLog.vendor')} optional />
+      <Card><LabeledInput value={vendor} onChangeText={setVendor} placeholder={t('expenseLog.vendorPlaceholder')} /></Card>
 
-      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title="Notes" optional />
+      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title={t('expenseLog.notes')} optional />
       <Card><NotesField value={notes} onChange={setNotes} /></Card>
     </LoggerScaffold>
   );

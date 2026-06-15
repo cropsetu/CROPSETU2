@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SHADOWS, RADIUS } from '../../constants/colors';
 import { useLanguage } from '../../context/LanguageContext';
 import api, { safeErrorMessage } from '../../services/api';
+import { CropIcon } from '../../components/CropIcons';
 
 const RISK_COLOR = {
   HIGH:     COLORS.error,
@@ -114,7 +115,7 @@ export default function ReceivedReportsScreen({ navigation }) {
         </View>
       ) : items.length === 0 ? (
         <View style={S.empty}>
-          <Ionicons name="leaf-outline" size={48} color={COLORS.gray175} />
+          <CropIcon crop="Wheat" size={56} />
           <Text style={S.emptyTitle}>{t('inbox.emptyTitle', 'No reports yet')}</Text>
           <Text style={S.emptyText}>
             {t('inbox.emptyText', 'When a nearby farmer sends you a crop diagnosis, it will appear here.')}

@@ -20,6 +20,7 @@ import React from 'react';
 import { View, Text, Pressable, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COSMIC, CR, activityMeta } from '../theme/cosmicTheme';
+import { useLanguage } from '../../../context/LanguageContext';
 
 export default function ActivityFeedItem({
   type,
@@ -39,6 +40,7 @@ export default function ActivityFeedItem({
   onPlayVoice,
   style,
 }) {
+  const { t } = useLanguage();
   const meta = activityMeta(type);
   const Wrapper = onPress ? Pressable : View;
 
@@ -83,7 +85,7 @@ export default function ActivityFeedItem({
             {hasVoice && (
               <Pressable onPress={onPlayVoice} style={styles.voicePill}>
                 <Ionicons name="play" size={11} color={COSMIC.ACCENT} />
-                <Text style={styles.voicePillText}>Voice</Text>
+                <Text style={styles.voicePillText}>{t('aiChat.voiceTag')}</Text>
               </Pressable>
             )}
           </View>
@@ -130,7 +132,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     textTransform: 'capitalize',
   },
   metaRow: {
@@ -140,12 +142,12 @@ const styles = StyleSheet.create({
   time: {
     fontSize: 11,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
   },
   subtitle: {
     fontSize: 12,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     marginTop: 3,
     lineHeight: 16,
   },
@@ -172,7 +174,7 @@ const styles = StyleSheet.create({
   thumbMoreText: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
   voicePill: {
     flexDirection: 'row',
@@ -188,6 +190,6 @@ const styles = StyleSheet.create({
   voicePillText: {
     fontSize: 11,
     color: COSMIC.ACCENT,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
   },
 });

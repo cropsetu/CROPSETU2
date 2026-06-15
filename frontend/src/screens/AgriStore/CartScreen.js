@@ -16,6 +16,8 @@ import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
 import { useCart } from '../../context/CartContext';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import { StoreCategoryIcon } from '../../components/StoreCategoryIcons';
+import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 
 const W = Dimensions.get('window').width;
 
@@ -96,7 +98,7 @@ function EmptyCart({ navigation }) {
     <SafeAreaView style={S.container}>
       <Animated.View style={[S.emptyWrap, { opacity: op, transform: [{ translateY: fadeY }] }]}>
         <Animated.View style={[S.emptyIconWrap, { transform: [{ scale: pulse }] }]}>
-          <Ionicons name="bag-outline" size={56} color={COLORS.primary} />
+          <StoreCategoryIcon type="bag" size={88} animated={false} />
         </Animated.View>
         <Text style={S.emptyTitle}>{t('cart.emptyTitle')}</Text>
         <Text style={S.emptySub}>{t('cart.emptySub')}</Text>
@@ -164,7 +166,7 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
             <View style={S.itemImgBox}>
               {imageUrl
                 ? <Image source={{ uri: imageUrl }} style={S.itemImg} resizeMode="cover" />
-                : <Ionicons name="leaf" size={28} color={COLORS.primary} />
+                : <MockImagePlaceholder category={product.category || product.categoryId} size={80} />
               }
             </View>
 
@@ -223,6 +225,7 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
 
 // ── Animated delivery progress bar ───────────────────────────────────────────
 function DeliveryProgress({ current, threshold }) {
+  const { t } = useLanguage();
   const progress = Math.min(current / threshold, 1);
   const widthAnim = useRef(new Animated.Value(0)).current;
 
@@ -237,7 +240,7 @@ function DeliveryProgress({ current, threshold }) {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <Ionicons name="car-outline" size={15} color={COLORS.primary} />
         <Text style={S.progressTxt}>
-          Add <Text style={{ color: COLORS.primary, fontWeight: '700' }}>₹{(threshold - current).toLocaleString()}</Text> more for free delivery!
+          {t('cart.freeDeliveryPrefix')} <Text style={{ color: COLORS.primary, fontWeight: '700' }}>₹{(threshold - current).toLocaleString()}</Text> {t('cart.freeDeliverySuffix')}
         </Text>
       </View>
       <View style={S.progressTrack}>
@@ -334,8 +337,8 @@ export default function CartScreen({ navigation }) {
           <Ionicons name="arrow-back" size={22} color={COLORS.charcoal} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={S.headerTitle}>My Cart</Text>
-          <Text style={S.headerSub}>{items.length} item{items.length !== 1 ? 's' : ''}</Text>
+          <Text style={S.headerTitle}>{t('cart.myCart')}</Text>
+          <Text style={S.headerSub}>{items.length !== 1 ? t('cart.itemCountPlural', { count: items.length }) : t('cart.itemCount', { count: items.length })}</Text>
         </View>
         {items.length > 0 && (
           <View style={S.headerBadge}>
@@ -363,7 +366,7 @@ export default function CartScreen({ navigation }) {
             <Text style={S.summaryTitle}>{t('cart.orderSummary')}</Text>
 
             <View style={S.summaryRow}>
-              <Text style={S.summaryLabel}>Subtotal ({totalQty} item{totalQty !== 1 ? 's' : ''})</Text>
+              <Text style={S.summaryLabel}>{totalQty !== 1 ? t('cart.subtotalPlural', { count: totalQty }) : t('cart.subtotal', { count: totalQty })}</Text>
               <Text style={S.summaryValue}>₹{total.toLocaleString()}</Text>
             </View>
 
@@ -389,7 +392,7 @@ export default function CartScreen({ navigation }) {
             {delivery === 0 && (
               <View style={S.savingsBadge}>
                 <Ionicons name="checkmark-circle" size={14} color={COLORS.primary} />
-                <Text style={S.savingsTxt}>You saved ₹49 on delivery!</Text>
+                <Text style={S.savingsTxt}>{t('cart.savedOnDelivery')}</Text>
               </View>
             )}
           </View>
@@ -401,7 +404,7 @@ export default function CartScreen({ navigation }) {
         <View>
           <Text style={S.barTotal}>₹{grandTotal.toLocaleString()}</Text>
           <Text style={S.barSub}>
-            {totalQty} item{totalQty !== 1 ? 's' : ''} · {delivery === 0 ? 'Free delivery' : `+₹${delivery} delivery`}
+            {(totalQty !== 1 ? t('cart.itemCountPlural', { count: totalQty }) : t('cart.itemCount', { count: totalQty }))} · {delivery === 0 ? t('cart.freeDelivery') : t('cart.deliveryCharge', { amount: delivery })}
           </Text>
         </View>
         <PressScale onPress={handleCheckout} down={0.96} style={S.checkoutBtn}>

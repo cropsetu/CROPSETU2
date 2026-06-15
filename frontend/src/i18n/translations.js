@@ -11,12 +11,22 @@ import te from './lang/te';
 import bn from './lang/bn';
 import gu from './lang/gu';
 import pa from './lang/pa';
+import bf from './lang/_backfill';
 
 export const translations = {
-  ta, kn, ml, te, bn, gu, pa,
+  // Backfill spread FIRST so existing (main) keys always win; it only fills keys
+  // this branch's screens reference that main's i18n does not yet have.
+  ta: { ...bf.ta, ...ta },
+  kn: { ...bf.kn, ...kn },
+  ml: { ...bf.ml, ...ml },
+  te: { ...bf.te, ...te },
+  bn: { ...bf.bn, ...bn },
+  gu: { ...bf.gu, ...gu },
+  pa: { ...bf.pa, ...pa },
 
   // ─── ENGLISH ─────────────────────────────────────────────────────────────
   en: {
+    ...bf.en,
     // Common
     appName: 'CropSetu',
     loading: 'Loading...',
@@ -1986,6 +1996,7 @@ export const translations = {
 
   // ─── HINDI ───────────────────────────────────────────────────────────────
   hi: {
+    ...bf.hi,
     // Common
     appName: 'CropSetu',
     loading: 'लोड हो रहा है...',
@@ -3814,6 +3825,7 @@ export const translations = {
 
   // ─── MARATHI ─────────────────────────────────────────────────────────────
   mr: {
+    ...bf.mr,
     // Common
     appName: 'CropSetu',
     loading: 'लोड होत आहे...',

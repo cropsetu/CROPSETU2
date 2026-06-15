@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Defs, RadialGradient, Stop, Circle, Path, Polygon } from 'react-native-svg';
 import { Haptics } from '../../utils/haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLanguage } from '../../context/LanguageContext';
@@ -17,6 +18,36 @@ import { SoundEffects } from '../../utils/sounds';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 
 const W      = Dimensions.get('window').width;
+
+// ── Celebratory colourful success badge (gradient green disc + white tick + gold sparkles) ──
+function SuccessCheck({ size = 88 }) {
+  return (
+    <Svg viewBox="0 0 200 200" width={size} height={size}>
+      <Defs>
+        <RadialGradient id="oc-success-disc" cx="38%" cy="32%" r="80%">
+          <Stop offset="0" stopColor="#7CE49A" />
+          <Stop offset="0.55" stopColor="#1C8A3C" />
+          <Stop offset="1" stopColor="#005f21" />
+        </RadialGradient>
+      </Defs>
+      {/* Soft halo */}
+      <Circle cx="100" cy="100" r="92" fill="rgba(28,138,60,0.14)" />
+      {/* Main disc */}
+      <Circle cx="100" cy="100" r="72" fill="url(#oc-success-disc)" />
+      <Circle cx="100" cy="100" r="72" fill="rgba(255,255,255,0.06)" />
+      {/* Top-left shine */}
+      <Path d="M62 70 Q72 50 96 46" stroke="rgba(255,255,255,0.5)" strokeWidth="6" strokeLinecap="round" fill="none" />
+      {/* Bold white tick */}
+      <Path d="M68 104 L90 128 L134 76" stroke="#FFFFFF" strokeWidth="13"
+            strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      {/* Gold celebratory sparkles */}
+      <Polygon points="168,58 173,72 187,77 173,82 168,96 163,82 149,77 163,72" fill="#FFD54A" />
+      <Polygon points="34,118 38,128 48,132 38,136 34,146 30,136 20,132 30,128" fill="#FFE082" />
+      <Circle cx="160" cy="140" r="5" fill="#FFD54A" />
+      <Circle cx="44" cy="58" r="4" fill="#FFE082" />
+    </Svg>
+  );
+}
 
 
 
@@ -181,7 +212,7 @@ export default function OrderConfirmedScreen({ route, navigation }) {
           {/* Spring checkmark */}
           <Animated.View style={[S.checkWrap, { transform: [{ scale: checkSc }] }]}>
             <View style={S.checkInner}>
-              <Ionicons name="checkmark" size={32} color={COLORS.primary} strokeWidth={3} />
+              <SuccessCheck size={88} />
             </View>
           </Animated.View>
 
@@ -293,7 +324,7 @@ const S = StyleSheet.create({
     width: 90, height: 90, borderRadius: 45, backgroundColor: 'rgba(255,255,255,0.10)',
   },
   checkWrap: {
-    width: 60, height: 60, borderRadius: 30,
+    width: 96, height: 96, borderRadius: 48,
     backgroundColor: COLORS.white, justifyContent: 'center', alignItems: 'center',
     shadowColor: COLORS.black, shadowOpacity: 0.2, shadowRadius: 8, elevation: 6,
     marginBottom: 4,

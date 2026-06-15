@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLanguage } from "../../context/LanguageContext";
+import { LanguageIcon } from "../../components/LanguageIcon";
 import { KHET, KFONT, KSHADOW } from "../../constants/khetTheme";
 
 const LANGS = [
@@ -125,15 +126,15 @@ export default function OnboardingLanguageScreen({ navigation }) {
       >
         {/* ── Hero headline ── */}
         <View style={sty.hero}>
-          <LinearGradient colors={KHET.gradPrimary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={sty.heroIcon}>
-            <Ionicons name="language" size={26} color={KHET.primaryForeground} />
-          </LinearGradient>
+          <View style={sty.heroIcon}>
+            <LanguageIcon size={48} animated />
+          </View>
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={sty.title}>
-              Choose your{"\n"}
-              <Text style={sty.titleAccent}>language</Text>
+              {t("onboarding.chooseLanguageTitle")}{"\n"}
+              <Text style={sty.titleAccent}>{t("onboarding.chooseLanguageAccent")}</Text>
             </Text>
-            <Text style={sty.subtitle}>अपनी भाषा चुनें · तुमची भाषा निवडा</Text>
+            <Text style={sty.subtitle}>{t("onboarding.chooseLanguageSubtitle")}</Text>
           </View>
         </View>
 

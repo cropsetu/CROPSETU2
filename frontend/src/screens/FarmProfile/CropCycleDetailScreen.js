@@ -13,7 +13,7 @@
  * Inline log modal preserved for typed entry; saves via existing farmApi.
  */
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, Modal, TextInput,
   Alert, RefreshControl, ActivityIndicator, Platform, KeyboardAvoidingView,
@@ -21,6 +21,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 
 import CosmicScreen from './ui/CosmicScreen';
 import CosmicHeader from './ui/CosmicHeader';
@@ -177,15 +178,19 @@ function buildActivityFeed(cycle) {
 // Screen
 // ──────────────────────────────────────────────────────────────────────────────
 
+// Activity types that the picker hands off as `prefillActivity` → which inline modal opens.
+const PREFILL_MODAL = { FERTILIZER: 'fertilizer', SPRAY: 'pesticide', HARVEST: 'harvest', SALE: 'sale' };
+
 export default function CropCycleDetailScreen({ navigation, route }) {
   const { t } = useLanguage();
-  const { cycleId } = route.params;
+  const { cycleId, prefillActivity } = route.params;
 
   const [cycle, setCycle] = useState(null);
   const [financials, setFinancials] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [modal, setModal] = useState(null);
+  // Open the requested modal on arrival when the picker deep-links here with a type.
+  const [modal, setModal] = useState(PREFILL_MODAL[prefillActivity] || null);
   const [formData, setFormData] = useState({});
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -208,7 +213,9 @@ export default function CropCycleDetailScreen({ navigation, route }) {
     }
   }, [cycleId, t]);
 
-  useEffect(() => { load(); }, [load]);
+  // Reload on focus so activities logged in a dedicated logger (and then dismissed)
+  // show up the moment we return to this screen — not only after a manual pull.
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = useCallback(() => { setRefreshing(true); load(); }, [load]);
 
@@ -238,7 +245,23 @@ export default function CropCycleDetailScreen({ navigation, route }) {
       load();
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e?.response?.data?.error?.message || e.message || 'Could not complete cycle.');
+      Alert.alert(t('login.error') || 'Error', e?.response?.data?.error?.message || e.message || t('farmProfile.completeCycleError', 'Could not complete cycle.'));
+    } finally {
+      setCompleting(false);
+    }
+  }, [cycleId, load, t]);
+
+  // Reopen a completed cycle — undo an accidental "complete" and move it back to ACTIVE
+  // so it returns to the active list and can be logged against again.
+  const reopenCycle = useCallback(async () => {
+    setCompleting(true);
+    try {
+      await farmApi.updateCropCycle(cycleId, { status: 'ACTIVE' });
+      Haptics.success?.();
+      load();
+    } catch (e) {
+      Haptics.error?.();
+      Alert.alert(t('login.error') || 'Error', e?.response?.data?.error?.message || e.message || t('farmProfile.reopenCycleError', 'Could not reopen cycle.'));
     } finally {
       setCompleting(false);
     }
@@ -266,7 +289,7 @@ export default function CropCycleDetailScreen({ navigation, route }) {
   if (loading) {
     return (
       <CosmicScreen>
-        <CosmicHeader title="Loading…" />
+        <CosmicHeader title={t('loading')} />
         <View style={styles.centerWrap}>
           <ActivityIndicator size="large" color={COSMIC.PRIMARY} />
         </View>
@@ -276,10 +299,10 @@ export default function CropCycleDetailScreen({ navigation, route }) {
   if (!cycle) {
     return (
       <CosmicScreen>
-        <CosmicHeader title="Not found" />
+        <CosmicHeader title={t('farmProfile.notFound')} />
         <View style={styles.centerWrap}>
           <Text style={styles.mutedText}>{t('farmProfile.notFound') || 'Cycle not found.'}</Text>
-          <GlowButton label="Go back" variant="glass" size="sm" onPress={() => navigation.goBack()} style={{ marginTop: 12 }} />
+          <GlowButton label={t('farmProfile.goBack', 'Go back')} variant="glass" size="sm" onPress={() => navigation.goBack()} style={{ marginTop: 12 }} />
         </View>
       </CosmicScreen>
     );
@@ -347,23 +370,23 @@ export default function CropCycleDetailScreen({ navigation, route }) {
               {isCompleted && (
                 <View style={styles.completedBadge}>
                   <Ionicons name="checkmark-circle" size={11} color={COSMIC.PRIMARY} />
-                  <Text style={styles.completedText}>Done</Text>
+                  <Text style={styles.completedText}>{t('farmProfile.cycleDone', 'Done')}</Text>
                 </View>
               )}
             </View>
 
             <View style={styles.statRow}>
-              <Stat light value={das != null ? `${das}` : '—'} label="days" />
+              <Stat light value={das != null ? `${das}` : '—'} label={t('farmProfile.statDays', 'days')} />
               <View style={styles.statDivider} />
-              <Stat light value={area} label="acres" />
+              <Stat light value={area} label={t('farmProfile.statAcres', 'acres')} />
               <View style={styles.statDivider} />
-              <Stat light value={`${cycle.season || '—'}`} label={cycle.year ? `${cycle.year}` : 'season'} />
+              <Stat light value={`${cycle.season || '—'}`} label={cycle.year ? `${cycle.year}` : t('farmProfile.statSeason', 'season')} />
             </View>
           </LinearGradient>
         </View>
 
         {/* ── Growth stage (ring + timeline) ───────────────── */}
-        <SectionLabel title="Growth stage" />
+        <SectionLabel title={t('farmProfile.sectionGrowthStage', 'Growth stage')} />
         <GlassCard style={styles.section}>
           <View style={styles.growthRow}>
             <GrowthRing currentStage={stage} das={das} size={104} strokeWidth={11} />
@@ -373,13 +396,88 @@ export default function CropCycleDetailScreen({ navigation, route }) {
           </View>
         </GlassCard>
 
+        {/* ── Growth story entry ───────────────────────────── */}
+        <Pressable
+          onPress={() => navigation.navigate('GrowthStory', { cycleId, cycle })}
+          style={({ pressed }) => [styles.storyBtn, pressed && { opacity: 0.85 }]}
+        >
+          <View style={styles.storyIcon}>
+            <Ionicons name="images-outline" size={16} color={COSMIC.PRIMARY} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.storyTitle}>{t('farmProfile.growthStory', 'Growth story')}</Text>
+            <Text style={styles.storySub} numberOfLines={1}>
+              {t('farmProfile.growthStorySub', 'See your crop day by day')}{das != null ? ` · ${t('farmProfile.dayN', { day: das })}` : ''}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={COSMIC.PRIMARY} />
+        </Pressable>
+
+        {/* ── Ask KhetAI about this crop (AI deep-link with cycle context) ── */}
+        <Pressable
+          onPress={() => navigation.navigate('AIAssistant', {
+            screen: 'AIChat',
+            params: {
+              seed: `My ${cycle.cropName}${cycle.variety ? ` (${cycle.variety})` : ''} is at the ${prettyStage(stage)} stage`
+                + `${das != null ? `, day ${das} after sowing` : ''}`
+                + `${cycle.season ? `, ${cycle.season} season` : ''}. What should I focus on now — irrigation, nutrients or pest watch?`,
+            },
+          })}
+          style={({ pressed }) => [styles.askAiBtn, pressed && { opacity: 0.85 }]}
+        >
+          <View style={styles.askAiIcon}>
+            <Ionicons name="sparkles" size={15} color={COSMIC.INVERSE} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.askAiTitle}>{t('farmProfile.askKhetAi', 'Ask KhetAI about this crop')}</Text>
+            <Text style={styles.askAiSub} numberOfLines={1}>{t('farmProfile.askKhetAiSub', 'Advice tuned to your stage, variety & season')}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={COSMIC.PRIMARY} />
+        </Pressable>
+
+        {/* ── Plan & field history (the pre-seeding capture) ── */}
+        {(cycle.notes || cycle.seedBrand || cycle.seedName || cycle.seedSource || cycle.seedTreatmentProduct || cycle.seedTreatment === 'treated') && (
+          <>
+            <SectionLabel title={t('farmProfile.sectionPlanSeed', 'Plan & seed')} />
+            <GlassCard style={styles.section}>
+              {!!cycle.notes && (
+                <View style={styles.planRow}>
+                  <Ionicons name="repeat-outline" size={14} color={COSMIC.LAND_PREP} />
+                  <Text style={styles.planTxt}>{cycle.notes}</Text>
+                </View>
+              )}
+              {(cycle.seedBrand || cycle.seedName || cycle.seedSource) && (
+                <View style={styles.planRow}>
+                  <Ionicons name="pricetag-outline" size={14} color={COSMIC.ACCENT_DK} />
+                  <Text style={styles.planTxt}>
+                    {[cycle.seedBrand || cycle.seedName, cycle.seedSource, cycle.seedQuantityKg ? `${cycle.seedQuantityKg} kg` : null].filter(Boolean).join(' · ')}
+                  </Text>
+                </View>
+              )}
+              {(cycle.seedTreatment === 'treated' || cycle.seedTreatmentProduct) && (
+                <View style={styles.planRow}>
+                  <Ionicons name="shield-checkmark-outline" size={14} color={COSMIC.FERTILIZER} />
+                  <Text style={styles.planTxt}>
+                    {t('farmProfile.seedTreated', 'Seed treated')}{cycle.seedTreatmentProduct ? ` · ${cycle.seedTreatmentProduct}` : ''}
+                  </Text>
+                </View>
+              )}
+            </GlassCard>
+          </>
+        )}
+
         {/* ── Profit & loss (only when data exists) ───────── */}
         {showPL && (
           <>
             <View style={styles.plHeaderRow}>
-              <SectionLabel title="Profit & loss" />
+              <SectionLabel title={t('farmProfile.sectionProfitLoss', 'Profit & loss')} />
               <SpeakerButton
-                text={`This crop. Spent ${Math.round(totalCost)} rupees, earned ${Math.round(revenue)} rupees, ${net >= 0 ? 'profit' : 'loss'} ${Math.round(Math.abs(net))} rupees.`}
+                text={t('farmProfile.plSpoken', {
+                  spent: Math.round(totalCost),
+                  earned: Math.round(revenue),
+                  outcome: net >= 0 ? t('farmProfile.plSpokenProfit', 'profit') : t('farmProfile.plSpokenLoss', 'loss'),
+                  amount: Math.round(Math.abs(net)),
+                })}
                 size={16}
                 style={{ marginRight: CS.base }}
               />
@@ -392,7 +490,7 @@ export default function CropCycleDetailScreen({ navigation, route }) {
                     strokeWidth={18}
                     segments={costSegments}
                     centerValue={formatInr(totalCost)}
-                    centerLabel="Total cost"
+                    centerLabel={t('farmProfile.totalCost')}
                   />
                   <View style={styles.plLegend}>
                     {costSegments.map((s) => (
@@ -406,10 +504,10 @@ export default function CropCycleDetailScreen({ navigation, route }) {
                 </View>
               )}
               <View style={styles.finGrid}>
-                <FinCard label="Spent"   value={formatInr(totalCost)} tint={COSMIC.DANGER} icon="trending-down" />
-                <FinCard label="Earned"  value={formatInr(revenue)}   tint={COSMIC.PRIMARY} icon="trending-up" />
+                <FinCard label={t('farmProfile.finSpent', 'Spent')}   value={formatInr(totalCost)} tint={COSMIC.DANGER} icon="trending-down" />
+                <FinCard label={t('farmProfile.finEarned', 'Earned')}  value={formatInr(revenue)}   tint={COSMIC.PRIMARY} icon="trending-up" />
                 <FinCard
-                  label={net >= 0 ? 'Profit' : 'Loss'}
+                  label={net >= 0 ? t('farmProfile.finProfit', 'Profit') : t('farmProfile.finLoss', 'Loss')}
                   value={formatInr(Math.abs(net))}
                   tint={net >= 0 ? COSMIC.PRIMARY : COSMIC.DANGER}
                   icon={net >= 0 ? 'arrow-up' : 'arrow-down'}
@@ -434,7 +532,7 @@ export default function CropCycleDetailScreen({ navigation, route }) {
         )}
 
         {/* ── Mandi price (live Agmarknet) ─────────────────── */}
-        <SectionLabel title="Market price" />
+        <SectionLabel title={t('farmProfile.sectionMarketPrice', 'Market price')} />
         <View style={styles.section}>
           <MandiGlanceCard
             cropName={cycle.cropName}
@@ -446,24 +544,35 @@ export default function CropCycleDetailScreen({ navigation, route }) {
         {/* ── Quick log ───────────────────────────────────── */}
         {!isCompleted && (
           <>
-            <SectionLabel title="Log activity" />
+            <SectionLabel title={t('farmProfile.sectionLogActivity', 'Log activity')} />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.quickRail}
             >
-              <ActivityChip type="IRRIGATION" label="Water"     size="md" onPress={() => { setFormData({}); setModal('irrigation'); }} style={{ marginRight: 8 }} />
-              <ActivityChip type="FERTILIZER" label="Fertilize" size="md" onPress={() => { setFormData({}); setModal('fertilizer'); }} style={{ marginRight: 8 }} />
-              <ActivityChip type="SPRAY"      label="Spray"     size="md" onPress={() => { setFormData({}); setModal('pesticide'); }}  style={{ marginRight: 8 }} />
-              <ActivityChip type="HARVEST"    label="Harvest"   size="md" onPress={() => { setFormData({}); setModal('harvest'); }}    style={{ marginRight: 8 }} />
-              <ActivityChip type="SALE"       label="Sale"      size="md" onPress={() => { setFormData({}); setModal('sale'); }} />
+              {/* Pre-seeding & interculture loggers (dedicated screens) + inline modals,
+                  laid out in real crop-cycle order so the whole season is one tap away. */}
+              <ActivityChip type="LAND_PREP"  label={t('myFarm.v2.activity.landPrep')} size="md" onPress={() => navigation.navigate('ActivityLandPrepLog', { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
+              <ActivityChip type="SOWING"     label={t('farmProfile.chipSow', 'Sow')}       size="md" onPress={() => navigation.navigate('ActivitySowingLog',   { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
+              <ActivityChip type="IRRIGATION" label={t('farmProfile.chipWater', 'Water')}     size="md" onPress={() => { setFormData({}); setModal('irrigation'); }} style={{ marginRight: 8 }} />
+              <ActivityChip type="FERTILIZER" label={t('farmProfile.chipFertilize', 'Fertilize')} size="md" onPress={() => { setFormData({}); setModal('fertilizer'); }} style={{ marginRight: 8 }} />
+              <ActivityChip type="SPRAY"      label={t('myFarm.v2.activity.spray')}     size="md" onPress={() => { setFormData({}); setModal('pesticide'); }}  style={{ marginRight: 8 }} />
+              <ActivityChip type="WEEDING"    label={t('farmProfile.chipWeed', 'Weed')}      size="md" onPress={() => navigation.navigate('ActivityWeedingLog',   { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
+              <ActivityChip type="PRUNING"    label={t('farmProfile.chipPrune', 'Prune')}     size="md" onPress={() => navigation.navigate('ActivityPruningLog',   { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
+              <ActivityChip type="SCOUT"      label={t('myFarm.v2.activity.scout')}     size="md" onPress={() => navigation.navigate('ActivityScoutLog',     { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
+              <ActivityChip type="HARVEST"    label={t('myFarm.v2.activity.harvest')}   size="md" onPress={() => { setFormData({}); setModal('harvest'); }}    style={{ marginRight: 8 }} />
+              <ActivityChip type="SALE"       label={t('myFarm.v2.activity.sale')}      size="md" onPress={() => { setFormData({}); setModal('sale'); }}        style={{ marginRight: 8 }} />
+              <ActivityChip type="EXPENSE"    label={t('myFarm.v2.activity.expense')}   size="md" onPress={() => navigation.navigate('ActivityExpenseLog',   { cycleId, farmId: cycle.farmId })} style={{ marginRight: 8 }} />
+              <ActivityChip type="INCOME"     label={t('myFarm.v2.activity.income')}    size="md" onPress={() => navigation.navigate('ActivityIncomeLog',    { cycleId, farmId: cycle.farmId })} />
             </ScrollView>
           </>
         )}
 
         {/* ── Activity feed (combined chronological) ──────── */}
         <SectionLabel
-          title={activityFeed.length > 0 ? `Recent activity · ${activityFeed.length}` : 'Recent activity'}
+          title={activityFeed.length > 0
+            ? t('farmProfile.recentActivityCount', { count: activityFeed.length })
+            : t('farmProfile.recentActivity', 'Recent activity')}
         />
         <GlassCard style={styles.section} padding={0}>
           {activityFeed.length === 0 ? (
@@ -471,9 +580,9 @@ export default function CropCycleDetailScreen({ navigation, route }) {
               <View style={styles.emptyBubble}>
                 <Ionicons name="reader-outline" size={20} color={COSMIC.PRIMARY} />
               </View>
-              <Text style={styles.emptyHeading}>Nothing logged yet</Text>
+              <Text style={styles.emptyHeading}>{t('farmProfile.nothingLogged', 'Nothing logged yet')}</Text>
               <Text style={styles.emptyMuted}>
-                Tap a chip above to log your first irrigation, spray or harvest. Each entry will show up here as a clean timeline.
+                {t('farmProfile.nothingLoggedSub', 'Tap a chip above to log your first irrigation, spray or harvest. Each entry will show up here as a clean timeline.')}
               </Text>
             </View>
           ) : (
@@ -485,14 +594,25 @@ export default function CropCycleDetailScreen({ navigation, route }) {
           )}
         </GlassCard>
 
-        {/* ── Footer: complete cycle ─────────────────────── */}
-        {!isCompleted && (
+        {/* ── Footer: complete / reopen cycle ────────────── */}
+        {!isCompleted ? (
           <Pressable
             onPress={() => setShowComplete(true)}
             style={({ pressed }) => [styles.completeFooter, pressed && { opacity: 0.7 }]}
           >
             <Ionicons name="checkmark-done" size={18} color={COSMIC.INVERSE} />
-            <Text style={styles.completeFooterText}>Mark cycle complete</Text>
+            <Text style={styles.completeFooterText}>{t('farmProfile.markCycleComplete', 'Mark cycle complete')}</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={reopenCycle}
+            disabled={completing}
+            style={({ pressed }) => [styles.reopenFooter, pressed && { opacity: 0.7 }]}
+          >
+            {completing
+              ? <ActivityIndicator size="small" color={COSMIC.PRIMARY} />
+              : <Ionicons name="refresh" size={17} color={COSMIC.PRIMARY} />}
+            <Text style={styles.reopenFooterText}>{t('farmProfile.reopenCycle', 'Reopen cycle')}</Text>
           </Pressable>
         )}
 
@@ -511,7 +631,7 @@ export default function CropCycleDetailScreen({ navigation, route }) {
       {/* ── Inline log modals ─────────────────────────── */}
       <InputModal
         visible={modal === 'fertilizer'}
-        title="Add fertilizer"
+        title={t('farmProfile.addFertilizer')}
         tint={COSMIC.FERTILIZER}
         icon="flask-outline"
         onClose={() => setModal(null)}
@@ -519,14 +639,14 @@ export default function CropCycleDetailScreen({ navigation, route }) {
         data={formData}
         setData={setFormData}
         fields={[
-          { key: 'productName', label: 'Product *', ph: 'e.g. Urea, DAP' },
-          { key: 'quantityKg',  label: 'Quantity (kg)', ph: '50', kb: 'decimal-pad' },
-          { key: 'costInr',     label: 'Cost (₹)',     ph: '1500', kb: 'numeric' },
+          { key: 'productName', label: t('farmProfile.fieldProductReq', 'Product *'), ph: t('farmProfile.phProductFertilizer', 'e.g. Urea, DAP') },
+          { key: 'quantityKg',  label: t('farmProfile.fieldQuantityKg', 'Quantity (kg)'), ph: '50', kb: 'decimal-pad' },
+          { key: 'costInr',     label: t('farmProfile.fieldCostInr', 'Cost (₹)'),     ph: '1500', kb: 'numeric' },
         ]}
       />
       <InputModal
         visible={modal === 'pesticide'}
-        title="Add spray"
+        title={t('farmProfile.addSpray', 'Add spray')}
         tint={COSMIC.SPRAY}
         icon="color-filter-outline"
         onClose={() => setModal(null)}
@@ -534,15 +654,15 @@ export default function CropCycleDetailScreen({ navigation, route }) {
         data={formData}
         setData={setFormData}
         fields={[
-          { key: 'productName',      label: 'Product *',          ph: 'e.g. Coragen' },
-          { key: 'activeIngredient', label: 'Active ingredient',  ph: 'e.g. Chlorantraniliprole 18.5%' },
-          { key: 'quantityMl',       label: 'Quantity (ml)',      ph: '500', kb: 'decimal-pad' },
-          { key: 'costInr',          label: 'Cost (₹)',           ph: '800', kb: 'numeric' },
+          { key: 'productName',      label: t('farmProfile.fieldProductReq', 'Product *'),          ph: t('farmProfile.phProductSpray', 'e.g. Coragen') },
+          { key: 'activeIngredient', label: t('farmProfile.fieldActiveIngredient', 'Active ingredient'),  ph: t('farmProfile.phActiveIngredient', 'e.g. Chlorantraniliprole 18.5%') },
+          { key: 'quantityMl',       label: t('farmProfile.fieldQuantityMl', 'Quantity (ml)'),      ph: '500', kb: 'decimal-pad' },
+          { key: 'costInr',          label: t('farmProfile.fieldCostInr', 'Cost (₹)'),           ph: '800', kb: 'numeric' },
         ]}
       />
       <InputModal
         visible={modal === 'irrigation'}
-        title="Log irrigation"
+        title={t('farmProfile.logIrrigation')}
         tint={COSMIC.IRRIGATION}
         icon="water-outline"
         onClose={() => setModal(null)}
@@ -550,13 +670,13 @@ export default function CropCycleDetailScreen({ navigation, route }) {
         data={formData}
         setData={setFormData}
         fields={[
-          { key: 'method',         label: 'Method',           ph: 'drip / flood / sprinkler' },
-          { key: 'durationHours',  label: 'Duration (hours)', ph: '3', kb: 'decimal-pad' },
+          { key: 'method',         label: t('farmProfile.fieldMethod', 'Method'),           ph: t('farmProfile.phMethod', 'drip / flood / sprinkler') },
+          { key: 'durationHours',  label: t('farmProfile.fieldDurationHours', 'Duration (hours)'), ph: '3', kb: 'decimal-pad' },
         ]}
       />
       <InputModal
         visible={modal === 'harvest'}
-        title="Record harvest"
+        title={t('farmProfile.recordHarvest')}
         tint={COSMIC.HARVEST}
         icon="basket-outline"
         onClose={() => setModal(null)}
@@ -564,13 +684,13 @@ export default function CropCycleDetailScreen({ navigation, route }) {
         data={formData}
         setData={setFormData}
         fields={[
-          { key: 'yieldKg',      label: 'Yield (kg) *',  ph: '2500', kb: 'decimal-pad' },
-          { key: 'qualityGrade', label: 'Quality grade', ph: 'A / B / C' },
+          { key: 'yieldKg',      label: t('farmProfile.fieldYieldKg', 'Yield (kg) *'),  ph: '2500', kb: 'decimal-pad' },
+          { key: 'qualityGrade', label: t('farmProfile.fieldQualityGrade', 'Quality grade'), ph: t('farmProfile.phQualityGrade', 'A / B / C') },
         ]}
       />
       <InputModal
         visible={modal === 'sale'}
-        title="Record sale"
+        title={t('farmProfile.recordSale')}
         tint={COSMIC.SALE}
         icon="cash-outline"
         onClose={() => setModal(null)}
@@ -578,9 +698,9 @@ export default function CropCycleDetailScreen({ navigation, route }) {
         data={formData}
         setData={setFormData}
         fields={[
-          { key: 'soldQuantityKg', label: 'Quantity (kg) *',    ph: '2000', kb: 'decimal-pad' },
-          { key: 'pricePerKgInr',  label: 'Price per kg (₹) *', ph: '45',   kb: 'decimal-pad' },
-          { key: 'buyerName',      label: 'Buyer / mandi',      ph: 'Nashik APMC' },
+          { key: 'soldQuantityKg', label: t('farmProfile.fieldQuantityKgReq', 'Quantity (kg) *'),    ph: '2000', kb: 'decimal-pad' },
+          { key: 'pricePerKgInr',  label: t('farmProfile.fieldPricePerKgReq', 'Price per kg (₹) *'), ph: '45',   kb: 'decimal-pad' },
+          { key: 'buyerName',      label: t('farmProfile.fieldBuyerMandi', 'Buyer / mandi'),      ph: t('farmProfile.phBuyerMandi', 'Nashik APMC') },
         ]}
       />
 
@@ -593,7 +713,7 @@ export default function CropCycleDetailScreen({ navigation, route }) {
             </View>
             <Text style={styles.delTitle}>{t('farmProfile.deleteCycleTitle', 'Delete crop cycle?')}</Text>
             <Text style={styles.delMsg}>
-              {t('farmProfile.deleteCycleMsg', `This permanently removes "${cycle.cropName}" and all its logs. This can't be undone.`)}
+              {t('farmProfile.deleteCycleMsg', { cropName: cycle.cropName })}
             </Text>
             <View style={styles.delBtnRow}>
               <Pressable style={[styles.delBtn, styles.delCancel]} onPress={() => setShowDelete(false)} disabled={deleting}>
@@ -618,7 +738,7 @@ export default function CropCycleDetailScreen({ navigation, route }) {
             </View>
             <Text style={styles.delTitle}>{t('farmProfile.completeCycleTitle', 'Complete cycle?')}</Text>
             <Text style={styles.delMsg}>
-              {t('farmProfile.completeCycleMsg', `Mark "${cycle.cropName}" as completed. You can still view its records afterwards.`)}
+              {t('farmProfile.completeCycleMsg', { cropName: cycle.cropName })}
             </Text>
             <View style={styles.delBtnRow}>
               <Pressable style={[styles.delBtn, styles.delCancel]} onPress={() => setShowComplete(false)} disabled={completing}>
@@ -692,6 +812,7 @@ function FinCard({ label, value, tint, icon }) {
 }
 
 function InputModal({ visible, title, tint = COSMIC.PRIMARY, icon, onClose, onSave, fields, data, setData }) {
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
@@ -727,7 +848,7 @@ function InputModal({ visible, title, tint = COSMIC.PRIMARY, icon, onClose, onSa
             </View>
           ))}
 
-          <GlowButton label="Save log" icon="checkmark" variant="primary" full onPress={onSave} style={{ marginTop: 14 }} size="md" />
+          <GlowButton label={t('farmProfile.saveLog', 'Save log')} icon="checkmark" variant="primary" full onPress={onSave} style={{ marginTop: 14 }} size="md" />
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -749,23 +870,23 @@ const styles = StyleSheet.create({
     borderRadius: CR.md, borderWidth: 1.5, borderColor: COSMIC.DANGER + '40',
     backgroundColor: COSMIC.DANGER_SOFT,
   },
-  deleteFooterText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: COSMIC.DANGER },
+  deleteFooterText: { fontSize: 14, fontFamily: 'PlusJakartaSans_700Bold', color: COSMIC.DANGER },
 
   // Delete confirmation popup
   delBackdrop: { flex: 1, backgroundColor: COSMIC.OVERLAY, justifyContent: 'center', alignItems: 'center', padding: 28 },
   delCard: { width: '100%', maxWidth: 360, backgroundColor: COSMIC.SURFACE, borderRadius: 22, paddingHorizontal: 22, paddingTop: 22, paddingBottom: 18, alignItems: 'center', borderWidth: 1, borderColor: COSMIC.BORDER },
   delIconWrap: { width: 54, height: 54, borderRadius: 27, backgroundColor: COSMIC.DANGER_SOFT, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  delTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: COSMIC.TEXT, textAlign: 'center', marginBottom: 6 },
-  delMsg: { fontSize: 13.5, fontFamily: 'Inter_400Regular', color: COSMIC.TEXT_2, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  delTitle: { fontSize: 18, fontFamily: 'PlusJakartaSans_700Bold', color: COSMIC.TEXT, textAlign: 'center', marginBottom: 6 },
+  delMsg: { fontSize: 13.5, fontFamily: 'PlusJakartaSans_400Regular', color: COSMIC.TEXT_2, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
   delBtnRow: { flexDirection: 'row', gap: 10, width: '100%' },
   delBtn: { flex: 1, paddingVertical: 13, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   delCancel: { backgroundColor: COSMIC.SURFACE_LO },
-  delCancelTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.TEXT },
+  delCancelTxt: { fontSize: 15, fontFamily: 'PlusJakartaSans_700Bold', color: COSMIC.TEXT },
   delDanger: { backgroundColor: COSMIC.DANGER },
-  delDangerTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.INVERSE },
+  delDangerTxt: { fontSize: 15, fontFamily: 'PlusJakartaSans_700Bold', color: COSMIC.INVERSE },
   completeIconWrap: { width: 54, height: 54, borderRadius: 27, backgroundColor: COSMIC.PRIMARY_SOFT, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   completeConfirm: { backgroundColor: COSMIC.PRIMARY },
-  completeConfirmTxt: { fontSize: 15, fontFamily: 'Inter_700Bold', color: COSMIC.INVERSE },
+  completeConfirmTxt: { fontSize: 15, fontFamily: 'PlusJakartaSans_700Bold', color: COSMIC.INVERSE },
 
   // Hero
   heroOuter: { marginHorizontal: CS.base, marginTop: CS.sm },
@@ -793,15 +914,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   heroName: {
-    fontSize: 19,
+    fontSize: 21,
     color: '#FFFFFF',
-    fontFamily: 'Inter_800ExtraBold',
-    letterSpacing: -0.2,
+    fontFamily: 'Fraunces_700Bold',
+    letterSpacing: -0.3,
   },
   heroVariety: {
     fontSize: 12.5,
     color: 'rgba(255,255,255,0.85)',
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     marginTop: 1,
   },
   stagePill: {
@@ -824,7 +945,7 @@ const styles = StyleSheet.create({
   stagePillText: {
     fontSize: 10.5,
     color: '#FFFFFF',
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.4,
     textTransform: 'capitalize',
   },
@@ -840,7 +961,7 @@ const styles = StyleSheet.create({
   completedText: {
     fontSize: 9,
     color: COSMIC.PRIMARY,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.3,
     textTransform: 'uppercase',
   },
@@ -862,13 +983,13 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 16,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
     textTransform: 'capitalize',
   },
   statLabel: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -889,7 +1010,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
@@ -912,6 +1033,60 @@ const styles = StyleSheet.create({
   growthTimeline: {
     flex: 1,
   },
+
+  // Growth story entry button
+  storyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: CS.base,
+    marginTop: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: CR.lg,
+    backgroundColor: COSMIC.PRIMARY_SOFT,
+    borderWidth: 1,
+    borderColor: 'rgba(0,95,33,0.18)',
+  },
+  storyIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storyTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Fraunces_600SemiBold' },
+  storySub: { fontSize: 11.5, color: COSMIC.PRIMARY, fontFamily: 'PlusJakartaSans_500Medium', marginTop: 1 },
+
+  // Ask KhetAI button
+  askAiBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: CS.base,
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: CR.lg,
+    backgroundColor: COSMIC.SURFACE,
+    borderWidth: 1,
+    borderColor: COSMIC.BORDER,
+  },
+  askAiIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: COSMIC.PRIMARY,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  askAiTitle: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Fraunces_600SemiBold' },
+  askAiSub: { fontSize: 11.5, color: COSMIC.TEXT_3, fontFamily: 'PlusJakartaSans_500Medium', marginTop: 1 },
+
+  // Plan & seed rows
+  planRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4 },
+  planTxt: { flex: 1, fontSize: 12.5, color: COSMIC.TEXT_2, lineHeight: 18, fontFamily: 'PlusJakartaSans_500Medium' },
 
   // Profit & loss
   plRow: {
@@ -938,12 +1113,12 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
   },
   legendValue: {
     fontSize: 13,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   perAcreRow: {
     flexDirection: 'row',
@@ -954,8 +1129,8 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COSMIC.BORDER,
   },
-  perAcreText: { fontSize: 12, color: COSMIC.TEXT_3, fontFamily: 'Inter_500Medium' },
-  perAcreStrong: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_800ExtraBold' },
+  perAcreText: { fontSize: 12, color: COSMIC.TEXT_3, fontFamily: 'PlusJakartaSans_500Medium' },
+  perAcreStrong: { fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_800ExtraBold' },
   finGrid: {
     flexDirection: 'row',
     gap: 6,
@@ -977,13 +1152,13 @@ const styles = StyleSheet.create({
   finLabel: {
     fontSize: 10,
     color: COSMIC.TEXT_3,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
   finValue: {
     fontSize: 16,
-    fontFamily: 'Inter_800ExtraBold',
+    fontFamily: 'PlusJakartaSans_800ExtraBold',
     marginTop: 2,
   },
 
@@ -1013,9 +1188,9 @@ const styles = StyleSheet.create({
   tlLine: { flex: 1, width: 2, backgroundColor: COSMIC.BORDER, marginTop: 4, marginBottom: 2, borderRadius: 1 },
   tlContent: { flex: 1, paddingBottom: 18 },
   tlTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  tlTitle: { flex: 1, fontSize: 14, color: COSMIC.TEXT, fontFamily: 'Inter_700Bold', textTransform: 'capitalize' },
-  tlTime: { fontSize: 11, color: COSMIC.TEXT_3, fontFamily: 'Inter_500Medium' },
-  tlSub: { fontSize: 12.5, color: COSMIC.TEXT_2, fontFamily: 'Inter_400Regular', marginTop: 3, lineHeight: 17 },
+  tlTitle: { flex: 1, fontSize: 14, color: COSMIC.TEXT, fontFamily: 'PlusJakartaSans_700Bold', textTransform: 'capitalize' },
+  tlTime: { fontSize: 11, color: COSMIC.TEXT_3, fontFamily: 'PlusJakartaSans_500Medium' },
+  tlSub: { fontSize: 12.5, color: COSMIC.TEXT_2, fontFamily: 'PlusJakartaSans_400Regular', marginTop: 3, lineHeight: 17 },
   emptyFeed: {
     paddingVertical: 28,
     paddingHorizontal: 24,
@@ -1035,7 +1210,7 @@ const styles = StyleSheet.create({
   emptyHeading: {
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     textAlign: 'center',
     marginBottom: 4,
   },
@@ -1044,14 +1219,14 @@ const styles = StyleSheet.create({
     color: COSMIC.TEXT_2,
     lineHeight: 17,
     textAlign: 'center',
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     maxWidth: 280,
   },
   mutedText: {
     fontSize: 12,
     color: COSMIC.TEXT_2,
     lineHeight: 17,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     textAlign: 'center',
   },
 
@@ -1075,7 +1250,28 @@ const styles = StyleSheet.create({
   completeFooterText: {
     fontSize: 15,
     color: COSMIC.INVERSE,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    letterSpacing: 0.2,
+  },
+
+  // Reopen (revert an accidental complete) — soft outlined button
+  reopenFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: CS.base,
+    marginTop: CS.lg,
+    paddingVertical: 14,
+    borderRadius: CR.md,
+    backgroundColor: COSMIC.PRIMARY_SOFT,
+    borderWidth: 1.5,
+    borderColor: COSMIC.PRIMARY + '55',
+  },
+  reopenFooterText: {
+    fontSize: 15,
+    color: COSMIC.PRIMARY,
+    fontFamily: 'PlusJakartaSans_700Bold',
     letterSpacing: 0.2,
   },
 
@@ -1124,13 +1320,13 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 15,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     flex: 1,
   },
   modalLabel: {
     fontSize: 11,
     color: COSMIC.TEXT_2,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
     marginBottom: 4,
@@ -1144,7 +1340,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COSMIC.TEXT,
     backgroundColor: COSMIC.SURFACE,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     minHeight: 44,
   },
 });

@@ -1,5 +1,5 @@
 /**
- * AIAssistantHome — FarmMind AI hub
+ * AIAssistantHome — Krushi Intelligence (Krushi AI) hub
  *
  * Layout:
  *  Header (sparkles + title)
@@ -8,6 +8,9 @@
  *  Quick Services 4-col (Scan, Chat, Markets, Schemes)
  *  AI TOOLS 2-col grid  ← expanded: 6 tools total
  *  Quick Weather card
+ *
+ *  All service tiles (quick row + tools grid) are driven by ONE <ServiceTile>
+ *  component so they share sizing tokens, gutter math, press + entrance anims.
  */
 import { useRef, useEffect, useState } from 'react';
 import {
@@ -23,17 +26,37 @@ import { getAICredits } from '../../services/aiApi';
 import FarmProfileBanner from '../../components/FarmProfileBanner';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import WeatherIcon from '../../components/WeatherIcons';
+import SoilIcon from '../../components/SoilIcons';
+import TabIcon from '../../components/TabIcons';
+import CropIcon from '../../components/CropIcons';
 
 const { width: W } = Dimensions.get('window');
 const GREEN   = COLORS.primary;
 const GREEN_L = COLORS.primaryPale;
 
+// ── Shared tile tokens — ONE source of truth for both tile rows ──────────────
+const PAGE_PAD   = 20;   // horizontal screen padding (replaces magic 40 = 2*20)
+const GUTTER     = 12;   // single inter-tile gap for BOTH grids (was 24 vs 12)
+const TILE_R     = 20;   // shared corner radius
+const ICON_BOX   = 52;   // shared icon-box size
+const ICON_GLYPH = 24;   // shared icon glyph size
+// width = (W - 2*PAGE_PAD - (cols-1)*GUTTER) / cols
+const tileWidth  = (cols) => (W - 2 * PAGE_PAD - (cols - 1) * GUTTER) / cols;
+const PRESS_SPRING = { toValue: 0.94, useNativeDriver: true, speed: 40 };
+const RELEASE_SPRING = { toValue: 1, useNativeDriver: true, friction: 4 };
+
+// Glyph size for the realistic SVG icons that sit inside the shared tile bubble.
+const SVG_GLYPH = 32;
+
 // ── Quick services (4-col icon grid) — labels resolved via t() in render ─────
+// Tiles with `renderIcon` draw a realistic colourful SVG; the rest keep their
+// existing coloured Ionicon (scan/chat read fine in colour).
 const QUICK_SERVICES = [
   { id: 'scan',    labelKey: 'aiHome.quickServices.scan',    icon: 'scan-circle',         color: COLORS.primary, bg: COLORS.greenTint,  screen: 'CropScan' },
   { id: 'chat',    labelKey: 'aiHome.quickServices.chat',    icon: 'chatbubble-ellipses', color: COLORS.blue, bg: COLORS.blueMist,  screen: 'AIChat'   },
-  { id: 'markets', labelKey: 'aiHome.tools.mandi.label', icon: 'trending-up',         color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market'   },
-  { id: 'weather', labelKey: 'aiHome.quickServices.weather', icon: 'partly-sunny',        color: COLORS.sellerConfirmed, bg: COLORS.skyPale, screen: 'Weather'  },
+  { id: 'markets', labelKey: 'aiHome.tools.mandi.label', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
+  { id: 'weather', labelKey: 'aiHome.quickServices.weather', color: COLORS.sellerConfirmed, bg: COLORS.skyPale, screen: 'Weather', renderIcon: () => <WeatherIcon condition="partly-sunny" size={SVG_GLYPH} animated={false} /> },
 ];
 
 // ── AI Tools (2-col grid) ────────────────────────────────────────────────────
@@ -41,36 +64,19 @@ const AI_TOOLS = [
   { id: 'disease', labelKey: 'aiHome.tools.disease.label', descKey: 'aiHome.tools.disease.desc', icon: 'scan', color: GREEN, bg: COLORS.greenTint, screen: 'CropScan', badge: 'AI' },
   { id: 'chatSupport', labelKey: 'aiHome.tools.chatSupport.label', descKey: 'aiHome.tools.chatSupport.desc', icon: 'chatbubbles', color: COLORS.blue, bg: COLORS.blueMist, screen: 'AIChat', badge: 'LIVE' },
   { id: 'voiceChat', labelKey: 'aiHome.tools.voiceChat.label', descKey: 'aiHome.tools.voiceChat.desc', icon: 'mic', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'VoiceChat', badge: 'NEW' },
-  { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', icon: 'leaf', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmList' },
-  { id: 'soil', labelKey: 'aiHome.tools.soil.label', descKey: 'aiHome.tools.soil.desc', icon: 'flask', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'SoilHealth' },
-  { id: 'mandi', labelKey: 'aiHome.tools.mandi.label', descKey: 'aiHome.tools.mandi.desc', icon: 'storefront', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market' },
+  { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmList', renderIcon: () => <CropIcon crop="Wheat" size={SVG_GLYPH} /> },
+  { id: 'soil', labelKey: 'aiHome.tools.soil.label', descKey: 'aiHome.tools.soil.desc', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'SoilHealth', renderIcon: () => <SoilIcon type="black" size={SVG_GLYPH} /> },
+  { id: 'mandi', labelKey: 'aiHome.tools.mandi.label', descKey: 'aiHome.tools.mandi.desc', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
+  { id: 'stateCrops', labelKey: 'aiHome.tools.stateCrops.label', descKey: 'aiHome.tools.stateCrops.desc', icon: 'map', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'StateCrops' },
 ];
 
-// ── ServiceBtn ────────────────────────────────────────────────────────────────
-function ServiceBtn({ item, onPress, t }) {
-  const sc = useRef(new Animated.Value(1)).current;
-  return (
-    <Animated.View style={[S.svcWrap, { transform: [{ scale: sc }] }]}>
-      <TouchableOpacity
-        style={S.svcBtn}
-        activeOpacity={1}
-        onPressIn={() => Animated.spring(sc, { toValue: 0.88, useNativeDriver: true, speed: 50 }).start()}
-        onPressOut={() => Animated.spring(sc, { toValue: 1, useNativeDriver: true, friction: 4 }).start()}
-        onPress={() => onPress(item)}
-      >
-        <View style={[S.svcIcon, { backgroundColor: item.bg, borderColor: item.color + '33' }]}>
-          <Ionicons name={item.icon} size={26} color={item.color} />
-        </View>
-        <Text style={S.svcLabel}>{t(item.labelKey)}</Text>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
-
-// ── AIToolCard ────────────────────────────────────────────────────────────────
-function AIToolCard({ tool, index, navigation, t }) {
+// ── ServiceTile — ONE tile for both rows (variant: 'quick' | 'card') ─────────
+// Shares scale Animated.Value + PRESS_SPRING, plus the same staggered
+// fade + translateY entrance for both variants.
+function ServiceTile({ item, index, variant, onPress, t }) {
   const sc   = useRef(new Animated.Value(1)).current;
   const anim = useRef(new Animated.Value(0)).current;
+  const isCard = variant === 'card';
 
   useEffect(() => {
     Animated.timing(anim, {
@@ -80,7 +86,7 @@ function AIToolCard({ tool, index, navigation, t }) {
 
   return (
     <Animated.View style={[
-      S.toolCardWrap,
+      isCard ? S.tileCardWrap : S.tileQuickWrap,
       {
         opacity: anim,
         transform: [
@@ -90,30 +96,40 @@ function AIToolCard({ tool, index, navigation, t }) {
       },
     ]}>
       <TouchableOpacity
-        style={S.toolCard}
+        style={isCard ? S.tileCard : S.tileQuick}
         activeOpacity={1}
-        onPressIn={() => Animated.spring(sc, { toValue: 0.94, useNativeDriver: true, speed: 40 }).start()}
-        onPressOut={() => Animated.spring(sc, { toValue: 1, useNativeDriver: true, friction: 4 }).start()}
-        onPress={() => navigation.navigate(tool.screen, tool.params || {})}
+        onPressIn={() => Animated.spring(sc, PRESS_SPRING).start()}
+        onPressOut={() => Animated.spring(sc, RELEASE_SPRING).start()}
+        onPress={() => onPress(item)}
       >
-        {/* Badge */}
-        {tool.badge && (
-          <View style={[S.badge, { backgroundColor: tool.badge === 'NEW' ? COLORS.cta : COLORS.greenDeep }]}>
-            <Text style={S.badgeTxt}>{tool.badge}</Text>
+        {/* Badge (cards only) */}
+        {isCard && item.badge && (
+          <View style={[S.badge, { backgroundColor: item.badge === 'NEW' ? COLORS.cta : COLORS.greenDeep }]}>
+            <Text style={S.badgeTxt}>{item.badge}</Text>
           </View>
         )}
 
-        {/* Icon */}
-        <View style={[S.toolIconWrap, { backgroundColor: tool.bg }]}>
-          <Ionicons name={tool.icon + '-outline'} size={22} color={tool.color} />
+        {/* Icon — realistic SVG when provided, else the coloured Ionicon */}
+        <View style={[
+          S.tileIcon,
+          isCard && S.tileIconCard,
+          { backgroundColor: item.bg, borderColor: item.color + '33' },
+        ]}>
+          {item.renderIcon
+            ? item.renderIcon()
+            : <Ionicons name={isCard ? item.icon + '-outline' : item.icon} size={ICON_GLYPH} color={item.color} />}
         </View>
 
         {/* Text */}
-        <Text style={S.toolTitle}>{t(tool.labelKey)}</Text>
-        <Text style={S.toolDesc}>{t(tool.descKey)}</Text>
+        <Text style={isCard ? S.tileTitle : S.tileLabel}>{t(item.labelKey)}</Text>
+        {isCard && item.descKey && (
+          <Text style={S.tileDesc}>{t(item.descKey)}</Text>
+        )}
 
-        {/* Arrow */}
-        <Ionicons name="chevron-forward" size={14} color={COLORS.grayNeutral} style={S.toolArrow} />
+        {/* Arrow (cards only) */}
+        {isCard && (
+          <Ionicons name="chevron-forward" size={14} color={COLORS.grayNeutral} style={S.tileArrow} />
+        )}
       </TouchableOpacity>
     </Animated.View>
   );
@@ -189,8 +205,8 @@ export default function AIAssistantHome({ navigation, embeddedInHub }) {
 
         {/* ── Quick Services ─────────────────────────────────────────────── */}
         <View style={S.svcGrid}>
-          {QUICK_SERVICES.map(item => (
-            <ServiceBtn key={item.id} item={item} onPress={handleService} t={t} />
+          {QUICK_SERVICES.map((item, i) => (
+            <ServiceTile key={item.id} item={item} index={i} variant="quick" onPress={handleService} t={t} />
           ))}
         </View>
 
@@ -206,7 +222,7 @@ export default function AIAssistantHome({ navigation, embeddedInHub }) {
         {/* 2-column grid — 3 rows */}
         <View style={S.toolsGrid}>
           {AI_TOOLS.map((tool, i) => (
-            <AIToolCard key={tool.id} tool={tool} index={i} navigation={navigation} t={t} />
+            <ServiceTile key={tool.id} item={tool} index={i} variant="card" onPress={handleService} t={t} />
           ))}
         </View>
 
@@ -253,8 +269,9 @@ export default function AIAssistantHome({ navigation, embeddedInHub }) {
                 <Text style={S.creditCardTitle}>
                   {t('aiHome.aiCreditsTitle')}
                 </Text>
+                {/* Balance only — no plan/tier exposed on the home card */}
                 <Text style={S.creditCardSub}>
-                  {t('aiHome.aiCreditsSub', { tier: creditInfo.tierLabel, spent: creditInfo.todaySpent || 0 })}
+                  {`${creditInfo.balance} ${t('aiCredits.balanceLeft', 'Balance left')}`}
                 </Text>
               </View>
             </View>
@@ -268,13 +285,6 @@ export default function AIAssistantHome({ navigation, embeddedInHub }) {
               <Text style={S.creditBalanceLabel}>
                 {t('aiHome.remaining')}
               </Text>
-            </View>
-            {/* Usage bar */}
-            <View style={S.creditBarWrap}>
-              <View style={[S.creditBar, {
-                width: `${Math.min(100, Math.round(((creditInfo.lifetimeSpent || 0) / Math.max(creditInfo.lifetimeEarned || 1, 1)) * 100))}%`,
-                backgroundColor: creditInfo.balance <= 10 ? '#DC2626' : COLORS.amber,
-              }]} />
             </View>
           </TouchableOpacity>
         )}
@@ -422,17 +432,13 @@ const S = StyleSheet.create({
     marginBottom: 16,
   },
 
+  // Quick services row — gap + flex-wrap model (shared with tools grid)
   svcGrid: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    marginHorizontal: 20, marginBottom: 8,
+    flexDirection: 'row', flexWrap: 'wrap',
+    marginHorizontal: PAGE_PAD, marginBottom: 8, gap: GUTTER,
   },
-  svcWrap: { alignItems: 'center', width: (W - 40 - 24) / 4 },
-  svcBtn:  { alignItems: 'center', gap: 7 },
-  svcIcon: {
-    width: 60, height: 60, borderRadius: 20,
-    justifyContent: 'center', alignItems: 'center', borderWidth: 1,
-  },
-  svcLabel: { fontSize: 10.5, color: COLORS.textDark, fontWeight: TYPE.weight.bold, textAlign: 'center', lineHeight: 13 },
+  tileQuickWrap: { width: tileWidth(4) },
+  tileQuick:     { alignItems: 'center', gap: 7 },
 
   // Section header
   sectionHeader: {
@@ -450,15 +456,15 @@ const S = StyleSheet.create({
   },
   newBadgeTxt: { fontSize: 9, fontWeight: '800', color: COLORS.white },
 
-  // AI tools — 2-column grid
+  // AI tools — 2-column grid (gap + flex-wrap, shared with quick row)
   toolsGrid: {
     flexDirection: 'row', flexWrap: 'wrap',
-    marginHorizontal: 20, gap: 12,
+    marginHorizontal: PAGE_PAD, gap: GUTTER,
   },
-  toolCardWrap: { width: (W - 40 - 12) / 2 },
-  toolCard: {
+  tileCardWrap: { width: tileWidth(2) },
+  tileCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 20, padding: 15,
+    borderRadius: TILE_R, padding: 15,
     borderWidth: 1, borderColor: COLORS.border,
     ...SHADOWS.small,
     minHeight: 132,
@@ -468,13 +474,21 @@ const S = StyleSheet.create({
     borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
   },
   badgeTxt: { fontSize: 8, fontWeight: '900', color: COLORS.white },
-  toolIconWrap: {
-    width: 44, height: 44, borderRadius: 15,
-    justifyContent: 'center', alignItems: 'center', marginBottom: 10,
+
+  // Shared icon box — same size, radius, glyph for BOTH variants
+  tileIcon: {
+    width: ICON_BOX, height: ICON_BOX, borderRadius: TILE_R,
+    justifyContent: 'center', alignItems: 'center', borderWidth: 1,
   },
-  toolTitle:  { fontSize: 13.5, fontWeight: TYPE.weight.black, color: COLORS.textDark, marginBottom: 5, lineHeight: 18 },
-  toolDesc:   { fontSize: 11.5, color: COLORS.textMedium, lineHeight: 16 },
-  toolArrow:  { position: 'absolute', bottom: 12, right: 12 },
+  // Card-only: spacing below icon (quick row uses column `gap` instead)
+  tileIconCard: { marginBottom: 10 },
+
+  // Quick label
+  tileLabel: { fontSize: 10.5, color: COLORS.textDark, fontWeight: TYPE.weight.bold, textAlign: 'center', lineHeight: 13 },
+  // Card text
+  tileTitle: { fontSize: 13.5, fontWeight: TYPE.weight.black, color: COLORS.textDark, marginBottom: 5, lineHeight: 18 },
+  tileDesc:  { fontSize: 11.5, color: COLORS.textMedium, lineHeight: 16 },
+  tileArrow: { position: 'absolute', bottom: 12, right: 12 },
 
   // History row — separate per-service entry points
   historyRow: {
@@ -508,10 +522,6 @@ const S = StyleSheet.create({
   creditCardRight: { position: 'absolute', top: 16, right: 16, alignItems: 'flex-end' },
   creditBalance: { fontSize: 26, fontWeight: '900', color: COLORS.amber, lineHeight: 28 },
   creditBalanceLabel: { fontSize: 9, color: COLORS.textLight, fontWeight: '600', marginTop: 1 },
-  creditBarWrap: {
-    height: 5, backgroundColor: '#FFF3E0', borderRadius: 3, overflow: 'hidden',
-  },
-  creditBar: { height: 5, borderRadius: 3 },
 
   // Weather card — sky gradient light theme
   weatherCard: {

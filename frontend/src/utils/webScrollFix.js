@@ -30,7 +30,6 @@
 //        </View>
 //
 //   B) ScrollView + flex-sibling bottom bar (pushes content up)
-//      e.g. OnboardingFarmScreen
 //
 //        <View style={[sty.safe, webScreenContainer]}>
 //          <View style={[sty.bg, webFlexShrink]}>

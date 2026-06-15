@@ -141,11 +141,11 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
   },
   triggerPlaceholder: {
     color: COSMIC.MUTED,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
   },
 
   backdrop: {
@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     padding: 0,
   },
   row: {
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
   rowText: {
     fontSize: 15,
     color: COSMIC.TEXT,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'PlusJakartaSans_500Medium',
     flex: 1,
   },
   sep: {

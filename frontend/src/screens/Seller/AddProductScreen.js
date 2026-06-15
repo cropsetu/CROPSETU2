@@ -488,7 +488,7 @@ export default function AddProductScreen({ route, navigation }) {
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={{ flex: 1 }}>
               <Field label={t('products.stock')} required>
-                <TextF value={stock} onChangeText={setStock} placeholder="Available qty" keyboardType="number-pad" />
+                <TextF value={stock} onChangeText={setStock} placeholder={t('products.availableQtyPlaceholder')} keyboardType="number-pad" />
               </Field>
             </View>
             <View style={{ flex: 1 }}>
@@ -507,23 +507,23 @@ export default function AddProductScreen({ route, navigation }) {
           </Field>
 
           {/* ── Product Highlights & Specifications ── */}
-          <SectionTitle icon="list-outline" title="Highlights & Specifications" />
+          <SectionTitle icon="list-outline" title={t('products.highlightsSpecsTitle')} />
 
-          <Field label="Brand" hint="e.g. Mahindra, Syngenta, Bayer">
-            <TextF value={brand} onChangeText={setBrand} placeholder="Brand name (optional)" />
+          <Field label={t('rent.brandLabel')} hint={t('products.brandHint')}>
+            <TextF value={brand} onChangeText={setBrand} placeholder={t('products.brandPlaceholder')} />
           </Field>
 
-          <Field label="Manufacturer" hint="Company that makes this product">
-            <TextF value={manufacturer} onChangeText={setManufacturer} placeholder="Manufacturer name (optional)" />
+          <Field label={t('products.manufacturerLabel')} hint={t('products.manufacturerHint')}>
+            <TextF value={manufacturer} onChangeText={setManufacturer} placeholder={t('products.manufacturerPlaceholder')} />
           </Field>
 
-          <Field label="Country of Origin">
-            <TextF value={countryOfOrigin} onChangeText={setCountryOfOrigin} placeholder="e.g. India" />
+          <Field label={t('products.countryOfOrigin')}>
+            <TextF value={countryOfOrigin} onChangeText={setCountryOfOrigin} placeholder={t('products.countryPlaceholder')} />
           </Field>
 
           <Field
-            label="Product Highlights"
-            hint="Key selling points — one per line. Shown as bullet points on product page."
+            label={t('product.highlightsTitle')}
+            hint={t('products.highlightsHint')}
           >
             {highlights.map((h, i) => (
               <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -536,7 +536,7 @@ export default function AddProductScreen({ route, navigation }) {
                       next[i] = v;
                       setHighlights(next);
                     }}
-                    placeholder={`Highlight ${i + 1} (e.g. "100% organic")`}
+                    placeholder={t('products.highlightPlaceholder', { num: i + 1 })}
                     placeholderTextColor={COLORS.textLight}
                   />
                 </View>
@@ -555,13 +555,13 @@ export default function AddProductScreen({ route, navigation }) {
               onPress={() => setHighlights([...highlights, ''])}
             >
               <Ionicons name="add-circle-outline" size={18} color={COLORS.sellerPrimary} />
-              <Text style={pd.addRowTxt}>Add Highlight</Text>
+              <Text style={pd.addRowTxt}>{t('products.addHighlight')}</Text>
             </TouchableOpacity>
           </Field>
 
           <Field
-            label="Specifications"
-            hint="Technical details shown in the spec table (e.g. Weight: 25kg, NPK: 10:26:26)"
+            label={t('product.specifications')}
+            hint={t('products.specsHint')}
           >
             {specPairs.map((pair, i) => (
               <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -573,7 +573,7 @@ export default function AddProductScreen({ route, navigation }) {
                     next[i] = { ...next[i], key: v };
                     setSpecPairs(next);
                   }}
-                  placeholder="Label"
+                  placeholder={t('products.specLabelPlaceholder')}
                   placeholderTextColor={COLORS.textLight}
                 />
                 <TextInput
@@ -584,7 +584,7 @@ export default function AddProductScreen({ route, navigation }) {
                     next[i] = { ...next[i], value: v };
                     setSpecPairs(next);
                   }}
-                  placeholder="Value"
+                  placeholder={t('products.specValuePlaceholder')}
                   placeholderTextColor={COLORS.textLight}
                 />
                 {specPairs.length > 1 && (
@@ -602,7 +602,7 @@ export default function AddProductScreen({ route, navigation }) {
               onPress={() => setSpecPairs([...specPairs, { key: '', value: '' }])}
             >
               <Ionicons name="add-circle-outline" size={18} color={COLORS.sellerPrimary} />
-              <Text style={pd.addRowTxt}>Add Specification</Text>
+              <Text style={pd.addRowTxt}>{t('products.addSpecification')}</Text>
             </TouchableOpacity>
           </Field>
 

@@ -22,6 +22,10 @@ import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import { MachineryIcon } from '../../components/MachineryIcons';
+
+// Machinery icon registry keys — fall back to 'tractor' so the hero is never blank.
+const MACH_ICON_KEYS = ['tractor','harvester','sprayer','rotavator','thresher','transplanter','truck','tempo'];
 
 const { width: W } = Dimensions.get('window');
 
@@ -394,7 +398,10 @@ export default function MachineryDetail({ route, navigation }) {
             </>
           ) : (
             <View style={[D.galleryImgFallback]}>
-              <Ionicons name="construct" size={80} color={COLORS.blue} />
+              <MachineryIcon
+                type={MACH_ICON_KEYS.includes(m.category) ? m.category : 'tractor'}
+                size={80}
+              />
             </View>
           )}
 

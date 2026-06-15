@@ -37,10 +37,23 @@ export function MultiFarmProvider({ children }) {
     setSyncing(true);
     try {
       const data = await farmApi.listFarms();
-      if (data) { setFarms(data); await setSecureJSON(CACHE_FARMS, data); }
+      if (data) {
+        setFarms(data);
+        await setSecureJSON(CACHE_FARMS, data);
+        // Make sure an active farm is selected once farms exist (e.g. the farm the
+        // user just created during onboarding) so screens keyed on activeFarmId work.
+        setActiveFarmId((prev) => prev || user?.activeFarmId || data[0]?.id || null);
+      }
     } catch (e) { console.warn('[MultiFarm] refresh:', e.message); }
     finally { setSyncing(false); }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, user?.activeFarmId]);
+
+  // Re-fetch farms when onboarding finishes — the server creates the first farm at
+  // that moment, but our initial load ran right after login (before any farm existed),
+  // so without this My Farm would sit on the empty state until a manual refresh.
+  useEffect(() => {
+    if (isLoggedIn && user?.onboardingStep === 'COMPLETE') refresh();
+  }, [isLoggedIn, user?.onboardingStep, user?.totalFarms, refresh]);
 
   const activeFarm = farms.find(f => f.id === activeFarmId) || farms[0] || null;
 

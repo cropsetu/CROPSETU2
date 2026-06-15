@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getPlannerTasks, updateTaskDone, generateAITasks } from '../../services/aiApi';
 import { useLanguage } from '../../context/LanguageContext';
 import { COLORS } from '../../constants/colors';
+import ActivityIcon from '../../components/ActivityIcons';
 
 const { width: W } = Dimensions.get('window');
 
@@ -16,6 +17,26 @@ const PRIORITY = {
   today:  { color: COLORS.amberDark, bg: COLORS.darkAmber, tKey: 'today'  },
   plan:   { color: COLORS.primary, bg: COLORS.successLight, tKey: 'planned'},
 };
+
+// Map a task's ionicon string (from the dummy seed OR the API) to a realistic
+// farm-activity SVG. Substring match keeps it robust to "-outline" suffixes and
+// minor backend naming. Falls back to OTHER (handled inside ActivityIcon).
+const TASK_ACTIVITY = [
+  { match: ['spray', 'pump', 'pesticid'],          type: 'SPRAY' },
+  { match: ['cut', 'prune', 'scissor', 'leaf'],    type: 'PRUNING' },
+  { match: ['water', 'irrig', 'rain'],             type: 'IRRIGATION' },
+  { match: ['bug', 'scout', 'trap', 'insect'],     type: 'SCOUT' },
+  { match: ['flask', 'fertil', 'nutrient'],        type: 'FERTILIZER' },
+  { match: ['earth', 'soil', 'land', 'plough'],    type: 'LAND_PREP' },
+  { match: ['storefront', 'market', 'mandi', 'sale', 'cart'], type: 'SALE' },
+  { match: ['seed', 'sow', 'plant'],               type: 'SOWING' },
+];
+
+function taskActivityType(task) {
+  const hay = `${task.icon || ''} ${task.type || ''} ${task.activity || ''}`.toLowerCase();
+  const hit = TASK_ACTIVITY.find(({ match }) => match.some(m => hay.includes(m)));
+  return hit ? hit.type : 'OTHER';
+}
 
 const ALL_TASKS = [
   {
@@ -97,8 +118,8 @@ function TaskItem({ task, onToggle, t }) {
         <TouchableOpacity style={[T.checkbox, task.doneAt && { backgroundColor: COLORS.primary, borderColor: COLORS.primary }]} onPress={() => onToggle(task.id)}>
           {task.doneAt && <Ionicons name="checkmark" size={14} color={COLORS.white} />}
         </TouchableOpacity>
-        <View style={[T.taskIcon, { backgroundColor: `${task.color}18` }]}>
-          <Ionicons name={task.icon} size={16} color={task.doneAt ? COLORS.grayMid2 : task.color} />
+        <View style={[T.taskIcon, { backgroundColor: `${task.color}18` }, task.doneAt && { opacity: 0.45 }]}>
+          <ActivityIcon type={taskActivityType(task)} size={26} animated={false} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[T.taskTitle, task.doneAt && T.taskDone]}>{task.title}</Text>

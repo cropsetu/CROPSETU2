@@ -36,6 +36,7 @@ const LOGGER_ROUTE = {
   PRUNING:    'ActivityPruningLog',
   EXPENSE:    'ActivityExpenseLog',
   INCOME:     'ActivityIncomeLog',
+  OTHER:      'ActivityCustomLog',
 };
 
 // Pretty labels (stable even without i18n v2).
@@ -52,6 +53,7 @@ const TYPE_LABELS = {
   SALE:       'Sale',
   EXPENSE:    'Expense',
   INCOME:     'Income',
+  OTHER:      'Custom',
 };
 
 export default function ActivityTypePickerScreen({ navigation, route }) {
@@ -60,7 +62,7 @@ export default function ActivityTypePickerScreen({ navigation, route }) {
   const { farmId, cycleId, plotId } = route.params || {};
 
   const contextSubtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'} · ${cycleId ? 'this cycle' : (farmId ? 'this farm' : 'all farms')}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || t('myFarm.v2.picker.farmFallback', 'Farm')} · ${cycleId ? t('myFarm.v2.picker.scopeThisCycle', 'this cycle') : (farmId ? t('myFarm.v2.picker.scopeThisFarm', 'this farm') : t('myFarm.v2.picker.scopeAllFarms', 'all farms'))}`
     : undefined;
 
   const pick = (type) => {
@@ -76,8 +78,8 @@ export default function ActivityTypePickerScreen({ navigation, route }) {
       return;
     }
     Alert.alert(
-      `${TYPE_LABELS[type] || type} log`,
-      'Open a crop cycle first, then log this activity from the cycle screen.',
+      t('myFarm.v2.picker.logTitle', { label: TYPE_LABELS[type] || type }),
+      t('myFarm.v2.picker.logHint', 'Open a crop cycle first, then log this activity from the cycle screen.'),
     );
   };
 
@@ -96,9 +98,9 @@ export default function ActivityTypePickerScreen({ navigation, route }) {
           <View style={styles.introBubble}>
             <Ionicons name="hand-left-outline" size={18} color={COSMIC.PRIMARY} />
           </View>
-          <Text style={styles.introTitle}>Pick what you did today</Text>
+          <Text style={styles.introTitle}>{t('myFarm.v2.picker.introTitle', 'Pick what you did today')}</Text>
           <Text style={styles.introText}>
-            Tap any activity — fields, photos and cost will be captured for that log.
+            {t('myFarm.v2.picker.introText', 'Tap any activity — fields, photos and cost will be captured for that log.')}
           </Text>
         </View>
 
@@ -144,7 +146,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COSMIC.TEXT,
     textAlign: 'center',
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
   },
   introText: {
     fontSize: 12,
@@ -153,7 +155,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     maxWidth: 300,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
   },
   grid: {
     flexDirection: 'row',

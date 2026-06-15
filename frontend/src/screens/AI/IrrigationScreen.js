@@ -13,6 +13,7 @@
  */
 import { COLORS } from '../../constants/colors';
 import { CropIcon } from '../../components/CropIcons';
+import IrrigationIcon from '../../components/IrrigationIcons';
 import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -122,7 +123,7 @@ export default function IrrigationScreen({ navigation }) {
 
         {!selectedCrop && !loading && (
           <View style={S.promptCard}>
-            <Ionicons name="water-outline" size={36} color={COLORS.oliveGreen} />
+            <IrrigationIcon type="drip" size={36} />
             <Text style={S.promptTxt}>
               {t('irrigation.prompt')}
             </Text>
@@ -156,11 +157,11 @@ export default function IrrigationScreen({ navigation }) {
               style={S.heroCard}
             >
               <View style={S.heroIcon}>
-                <Ionicons
-                  name={shouldIrrigate ? 'water' : 'checkmark-circle'}
-                  size={40}
-                  color={shouldIrrigate ? COLORS.blue : COLORS.primary}
-                />
+                {shouldIrrigate ? (
+                  <IrrigationIcon type="drip" size={40} />
+                ) : (
+                  <Ionicons name="checkmark-circle" size={40} color={COLORS.primary} />
+                )}
               </View>
 
               <Text style={[S.heroTitle, { color: shouldIrrigate ? COLORS.blue : COLORS.primary }]}>

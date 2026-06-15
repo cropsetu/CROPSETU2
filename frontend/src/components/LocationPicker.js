@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SHADOWS } from '../constants/colors';
+import { useLanguage } from '../context/LanguageContext';
 
 /**
  * Reusable searchable modal picker.
@@ -16,9 +17,11 @@ import { COLORS, RADIUS, SHADOWS } from '../constants/colors';
  *   placeholder— placeholder for the trigger button
  *   disabled   — grey out the button
  */
-export default function LocationPicker({ title, items = [], selected, onSelect, placeholder = 'Select…', disabled = false }) {
+export default function LocationPicker({ title, items = [], selected, onSelect, placeholder, disabled = false }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const placeholderText = placeholder ?? t('locationPicker.selectPlaceholder');
 
   const filtered = useMemo(() => {
     if (!query.trim()) return items;
@@ -41,7 +44,7 @@ export default function LocationPicker({ title, items = [], selected, onSelect, 
         activeOpacity={disabled ? 1 : 0.75}
       >
         <Text style={[s.btnTxt, !selected && s.btnPlaceholder]} numberOfLines={1}>
-          {selected || placeholder}
+          {selected || placeholderText}
         </Text>
         <Ionicons name="chevron-down" size={18} color={disabled ? COLORS.gray175 : COLORS.gray550} />
       </TouchableOpacity>
@@ -61,7 +64,7 @@ export default function LocationPicker({ title, items = [], selected, onSelect, 
             <Ionicons name="search-outline" size={16} color={COLORS.gray350} />
             <TextInput
               style={s.searchInput}
-              placeholder="Search..."
+              placeholder={t('locationPicker.searchPlaceholder')}
               placeholderTextColor={COLORS.gray350}
               value={query}
               onChangeText={setQuery}
@@ -77,7 +80,7 @@ export default function LocationPicker({ title, items = [], selected, onSelect, 
           {filtered.length === 0 ? (
             <View style={s.empty}>
               <Ionicons name="search-outline" size={36} color={COLORS.gray175} />
-              <Text style={s.emptyTxt}>No results for "{query}"</Text>
+              <Text style={s.emptyTxt}>{t('locationPicker.noResults', { query })}</Text>
             </View>
           ) : (
             <FlatList
@@ -100,7 +103,7 @@ export default function LocationPicker({ title, items = [], selected, onSelect, 
           )}
 
           <TouchableOpacity style={s.cancelBtn} onPress={() => { setOpen(false); setQuery(''); }}>
-            <Text style={s.cancelTxt}>Cancel</Text>
+            <Text style={s.cancelTxt}>{t('cancel')}</Text>
           </TouchableOpacity>
         </View>
       </Modal>

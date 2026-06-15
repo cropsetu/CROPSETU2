@@ -16,10 +16,10 @@ import { COSMIC } from '../theme/cosmicTheme';
 import { Haptics } from '../../../utils/haptics';
 
 const PARTS = [
-  { key: 'tips',     label: 'Tips',     icon: 'cut-outline',       color: COSMIC.PRUNING },
-  { key: 'suckers',  label: 'Suckers',  icon: 'git-branch-outline', color: COSMIC.PRUNING },
-  { key: 'canopy',   label: 'Canopy',   icon: 'leaf-outline',      color: COSMIC.PRUNING },
-  { key: 'deadwood', label: 'Deadwood', icon: 'trash-outline',     color: COSMIC.PRUNING },
+  { key: 'tips',     labelKey: 'pruningLog.partTips',     icon: 'cut-outline',       color: COSMIC.PRUNING },
+  { key: 'suckers',  labelKey: 'pruningLog.partSuckers',  icon: 'git-branch-outline', color: COSMIC.PRUNING },
+  { key: 'canopy',   labelKey: 'pruningLog.partCanopy',   icon: 'leaf-outline',      color: COSMIC.PRUNING },
+  { key: 'deadwood', labelKey: 'pruningLog.partDeadwood', icon: 'trash-outline',     color: COSMIC.PRUNING },
 ];
 
 export default function PruningLogScreen({ navigation, route }) {
@@ -33,11 +33,13 @@ export default function PruningLogScreen({ navigation, route }) {
   const [saving, setSaving] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
 
+  const partItems = PARTS.map((p) => ({ ...p, label: t(p.labelKey) }));
+
   const canSave = !!part;
 
   const handleSave = useCallback(async () => {
-    if (!canSave) { Haptics.error?.(); Alert.alert('Missing info', 'Pick what was pruned.'); return; }
-    if (!cycleId) { Alert.alert('Pick a crop cycle', 'Start a crop cycle first to log against it.'); return; }
+    if (!canSave) { Haptics.error?.(); Alert.alert(t('pruningLog.missingInfoTitle'), t('pruningLog.missingInfoMsg')); return; }
+    if (!cycleId) { Alert.alert(t('pruningLog.pickCycleTitle'), t('pruningLog.pickCycleMsg')); return; }
     setSaving(true);
     try {
       await farmApi.addActivity(cycleId, { type: 'PRUNING', title: part, notes: notes || null, fields: { part } });
@@ -48,33 +50,33 @@ export default function PruningLogScreen({ navigation, route }) {
       setCelebrate(true);
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || 'Could not save.');
+      Alert.alert(t('login.error') || 'Error', e.message || t('pruningLog.couldNotSave'));
     } finally {
       setSaving(false);
     }
   }, [canSave, cycleId, part, labour, notes, t]);
 
   const subtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'}${cycleId ? ' · active cycle' : ''}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || t('pruningLog.farmFallback')}${cycleId ? t('pruningLog.activeCycleSuffix') : ''}`
     : undefined;
 
   return (
     <LoggerScaffold
-      title="Log pruning" subtitle={subtitle}
-      footerLabel="Log pruning" footerIcon="git-branch-outline"
+      title={t('pruningLog.title')} subtitle={subtitle}
+      footerLabel={t('pruningLog.title')} footerIcon="git-branch-outline"
       saving={saving} canSave={canSave} onSave={handleSave}
       celebrate={celebrate}
-      celebrateTitle="Pruning logged ✓"
-      celebrateSubtitle="Tracked against this cycle's activity feed."
+      celebrateTitle={t('pruningLog.celebrateTitle')}
+      celebrateSubtitle={t('pruningLog.celebrateSubtitle')}
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
-      <SectionHeader icon="cut-outline" tint={COSMIC.PRUNING} title="What was pruned?" />
-      <TileGrid items={PARTS} value={part} onChange={setPart} columns={2} />
+      <SectionHeader icon="cut-outline" tint={COSMIC.PRUNING} title={t('pruningLog.whatWasPruned')} />
+      <TileGrid items={partItems} value={part} onChange={setPart} columns={2} />
 
-      <SectionHeader icon="people-outline" tint={COSMIC.PRUNING} title="Labour cost" optional />
+      <SectionHeader icon="people-outline" tint={COSMIC.PRUNING} title={t('pruningLog.labourCost')} optional />
       <Card><BigNumberInput value={labour} onChange={setLabour} unit="₹" tint={COSMIC.PRUNING} /></Card>
 
-      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title="Notes" optional />
+      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title={t('pruningLog.notes')} optional />
       <Card><NotesField value={notes} onChange={setNotes} /></Card>
     </LoggerScaffold>
   );

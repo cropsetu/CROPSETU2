@@ -12,6 +12,7 @@ import api from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
 import { useCart } from '../../context/CartContext';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 
 const { width: W } = Dimensions.get('window');
 
@@ -80,6 +81,7 @@ function SpecRow({ label, value, last }) {
 // Used in place of the previous fake delivery / trust-badge sections. Same
 // section-card padding so it visually slots in cleanly.
 function ComingSoonCard({ icon, title, subtitle }) {
+  const { t } = useLanguage();
   return (
     <View style={S.sectionCard}>
       <View style={S.comingRow}>
@@ -90,7 +92,7 @@ function ComingSoonCard({ icon, title, subtitle }) {
           <View style={S.comingTitleRow}>
             <Text style={S.comingTitle} numberOfLines={1}>{title}</Text>
             <View style={S.comingPill}>
-              <Text style={S.comingPillTxt}>Coming soon</Text>
+              <Text style={S.comingPillTxt}>{t('ai.comingSoon')}</Text>
             </View>
           </View>
           {!!subtitle && <Text style={S.comingSub}>{subtitle}</Text>}
@@ -115,7 +117,7 @@ function SimilarCard({ item, onPress }) {
         <View style={S.simImgBox}>
           {item.images?.[0]
             ? <Image source={{ uri: item.images[0] }} style={S.simImg} resizeMode="cover" />
-            : <View style={[S.simImg, S.simImgPlaceholder]}><Ionicons name="leaf" size={26} color={COLORS.primary} /></View>
+            : <View style={[S.simImg, S.simImgPlaceholder]}><MockImagePlaceholder category={item.category || item.categoryId} size={130} /></View>
           }
           {disc > 0 && (
             <View style={S.simDiscBadge}>
@@ -207,7 +209,7 @@ export default function ProductDetail({ route, navigation }) {
 
   async function handleAddToCart() {
     const ok = await addToCart();
-    if (ok) Alert.alert(t('product.addedToCart'), `${quantity}× ${product.name}`, [{ text: 'OK' }]);
+    if (ok) Alert.alert(t('product.addedToCart'), t('product.addedToCartMsg', { qty: quantity, name: product.name }), [{ text: t('ok') }]);
   }
 
   async function handleBuyNow() {
@@ -232,12 +234,12 @@ export default function ProductDetail({ route, navigation }) {
 
   // Spec table: use seller-entered specifications{} + always include base fields
   const baseSpecRows = [
-    { label: 'Brand',        value: brandLabel },
-    { label: 'Category',     value: product.category?.name || '—' },
-    { label: 'Unit',         value: product.unit || '—' },
-    { label: 'Availability', value: inStock ? 'In Stock' : 'Out of Stock' },
-    { label: 'Min. Order',   value: product.minOrderQty ? `${product.minOrderQty} ${product.unit}` : '1' },
-    { label: 'Rating',       value: product.rating ? `${product.rating} ★` : '—' },
+    { label: t('rent.brandLabel'),        value: brandLabel },
+    { label: t('products.category'),     value: product.category?.name || '—' },
+    { label: t('products.unit'),         value: product.unit || '—' },
+    { label: t('product.availability'), value: inStock ? t('product.inStockShort') : t('product.outOfStock') },
+    { label: t('product.minOrder'),   value: product.minOrderQty ? `${product.minOrderQty} ${product.unit}` : '1' },
+    { label: t('rent.ratingLabel'),       value: product.rating ? `${product.rating} ★` : '—' },
   ];
 
   // Merge seller-entered specs on top of base rows
@@ -257,21 +259,21 @@ export default function ProductDetail({ route, navigation }) {
   const highlights = highlightBullets
     ? null   // rendered as bullet list
     : [
-        { label: 'Brand',    value: brandLabel },
-        { label: 'Category', value: product.category?.name || '—' },
-        { label: 'Unit',     value: product.unit || '—' },
-        { label: 'Rating',   value: product.rating ? `${product.rating} / 5` : '—' },
-        { label: 'Reviews',  value: reviews > 0 ? `${reviews.toLocaleString()} ratings` : '—' },
-        { label: 'Stock',    value: inStock ? `${typeof product.stock === 'number' ? product.stock + ' units' : 'Available'}` : 'Out of Stock' },
+        { label: t('rent.brandLabel'),    value: brandLabel },
+        { label: t('products.category'), value: product.category?.name || '—' },
+        { label: t('products.unit'),     value: product.unit || '—' },
+        { label: t('rent.ratingLabel'),   value: product.rating ? `${product.rating} / 5` : '—' },
+        { label: t('product.reviewsLabel'),  value: reviews > 0 ? t('product.ratingsCount', { count: reviews.toLocaleString() }) : '—' },
+        { label: t('product.stockLabel'),    value: inStock ? `${typeof product.stock === 'number' ? t('product.unitsCount', { count: product.stock }) : t('available')}` : t('product.outOfStock') },
       ];
 
   const mfrRows = [
-    { label: 'Manufacturer',     value: mfrLabel },
-    { label: 'Brand',            value: brandLabel },
-    { label: 'Country of Origin', value: product.countryOfOrigin || 'India' },
-    { label: 'Product Code',     value: `FE-${(product.id || '').slice(0, 8).toUpperCase()}` },
-    { label: 'Quality Check',    value: 'CropSetu Verified' },
-    { label: 'Customer Support', value: 'Mon–Sat, 9 AM–6 PM' },
+    { label: t('product.manufacturerLabel'),     value: mfrLabel },
+    { label: t('rent.brandLabel'),            value: brandLabel },
+    { label: t('product.countryOfOrigin'), value: product.countryOfOrigin || t('product.india') },
+    { label: t('product.productCode'),     value: `FE-${(product.id || '').slice(0, 8).toUpperCase()}` },
+    { label: t('product.qualityCheck'),    value: t('product.cropSetuVerified') },
+    { label: t('product.customerSupport'), value: t('product.supportHours') },
   ];
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -314,7 +316,7 @@ export default function ProductDetail({ route, navigation }) {
               ? <Image source={{ uri: product.images[imgIdx] }} style={S.mainImg} resizeMode="contain" />
               : (
                 <View style={S.imgPlaceholder}>
-                  <Ionicons name="leaf" size={80} color={COLORS.primary} />
+                  <MockImagePlaceholder category={product.category || product.categoryId} size={160} />
                 </View>
               )
             }
@@ -397,8 +399,8 @@ export default function ProductDetail({ route, navigation }) {
             {(() => {
               const s = product.stock ?? (product.inStock ? Infinity : 0);
               if (s === 0)  return <View style={S.outStockTag}><Text style={S.outStockTxt}>{t('product.outOfStock')}</Text></View>;
-              if (s <= 5)   return <View style={S.lowStockTag}><Text style={S.lowStockTxt}>{`Only ${s} left`}</Text></View>;
-              return <View style={S.inStockTag}><Text style={S.inStockTxt}>● In Stock</Text></View>;
+              if (s <= 5)   return <View style={S.lowStockTag}><Text style={S.lowStockTxt}>{t('product.onlyLeft', { count: s })}</Text></View>;
+              return <View style={S.inStockTag}><Text style={S.inStockTxt}>{t('product.inStockDot')}</Text></View>;
             })()}
           </View>
 
@@ -411,7 +413,7 @@ export default function ProductDetail({ route, navigation }) {
                 <Ionicons name="star" size={11} color={COLORS.white} />
               </View>
               {reviews > 0 && (
-                <Text style={S.ratingCountTxt}>{reviews.toLocaleString()} Ratings</Text>
+                <Text style={S.ratingCountTxt}>{t('product.ratingsLabel', { count: reviews.toLocaleString() })}</Text>
               )}
             </View>
           )}
@@ -426,19 +428,19 @@ export default function ProductDetail({ route, navigation }) {
                   <Text style={S.mrpTxt}>₹{product.mrp.toLocaleString()}</Text>
                 </View>
                 <View style={S.savePill}>
-                  <Text style={S.savePillTxt}>You save ₹{saving.toLocaleString()}</Text>
+                  <Text style={S.savePillTxt}>{t('product.youSave', { amount: saving.toLocaleString() })}</Text>
                 </View>
               </View>
             )}
           </View>
-          <Text style={S.inclTax}>Inclusive of all taxes · per {product.unit || 'unit'}</Text>
+          <Text style={S.inclTax}>{t('product.inclusiveTaxes', { unit: product.unit || t('product.unitFallback') })}</Text>
 
           {/* ── Quantity Selector (inside info card) ───────────────────── */}
           <View style={S.qtyBlock}>
             <View style={S.qtyHeaderRow}>
               <Text style={S.sectionTitle}>{t('product.quantity')}</Text>
               <Text style={S.qtyTotal}>
-                Total:{' '}
+                {t('product.totalLabel')}:{' '}
                 <Text style={{ color: COLORS.greenDeep, fontWeight: '800' }}>
                   ₹{(product.price * quantity).toLocaleString()}
                 </Text>
@@ -468,8 +470,8 @@ export default function ProductDetail({ route, navigation }) {
         {/* ── Delivery & address — coming soon ─────────────────────────────── */}
         <ComingSoonCard
           icon="cube-outline"
-          title="Delivery & address"
-          subtitle="Live shipping estimates and saved addresses are coming soon."
+          title={t('product.deliveryAddressTitle')}
+          subtitle={t('product.deliveryAddressSub')}
         />
 
         {/* ── Seller Card (basic — multi-seller listing coming later) ─────── */}
@@ -488,8 +490,8 @@ export default function ProductDetail({ route, navigation }) {
         {/* ── Returns & policies — coming soon ─────────────────────────────── */}
         <ComingSoonCard
           icon="shield-checkmark-outline"
-          title="Returns & policies"
-          subtitle="Return windows, COD eligibility and assured-quality details are coming soon."
+          title={t('product.returnsPoliciesTitle')}
+          subtitle={t('product.returnsPoliciesSub')}
         />
 
         {/* ── Similar Products ───────────────────────────────────────────── */}

@@ -45,8 +45,8 @@ export default function LandPrepLogScreen({ navigation, route }) {
   const canSave = !!operation;
 
   const handleSave = useCallback(async () => {
-    if (!canSave) { Haptics.error?.(); Alert.alert('Missing info', 'Pick an operation.'); return; }
-    if (!cycleId) { Alert.alert('Pick a crop cycle', 'Start a crop cycle first to log against it.'); return; }
+    if (!canSave) { Haptics.error?.(); Alert.alert(t('landPrepLog.missingInfoTitle'), t('landPrepLog.missingInfoBody')); return; }
+    if (!cycleId) { Alert.alert(t('landPrepLog.pickCycleTitle'), t('landPrepLog.pickCycleBody')); return; }
     setSaving(true);
     try {
       await farmApi.addActivity(cycleId, { type: 'LAND_PREP', title: operation, notes: notes || null, fields: { operation, implement } });
@@ -60,39 +60,39 @@ export default function LandPrepLogScreen({ navigation, route }) {
       setCelebrate(true);
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || 'Could not save.');
+      Alert.alert(t('login.error') || t('landPrepLog.errorTitle'), e.message || t('landPrepLog.couldNotSave'));
     } finally {
       setSaving(false);
     }
   }, [canSave, cycleId, operation, implement, labour, machinery, notes, t]);
 
   const subtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'}${cycleId ? ' · active cycle' : ''}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || t('landPrepLog.farmFallback')}${cycleId ? ` · ${t('landPrepLog.activeCycle')}` : ''}`
     : undefined;
 
   return (
     <LoggerScaffold
-      title="Log land prep" subtitle={subtitle}
-      footerLabel="Log land prep" footerIcon="trail-sign-outline"
+      title={t('landPrepLog.title')} subtitle={subtitle}
+      footerLabel={t('landPrepLog.footerLabel')} footerIcon="trail-sign-outline"
       saving={saving} canSave={canSave} onSave={handleSave}
       celebrate={celebrate}
-      celebrateTitle="Land prep logged ✓"
-      celebrateSubtitle="Tracked against this cycle's activity feed."
+      celebrateTitle={t('landPrepLog.celebrateTitle')}
+      celebrateSubtitle={t('landPrepLog.celebrateSubtitle')}
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
-      <SectionHeader icon="trail-sign-outline" tint={COSMIC.LAND_PREP} title="Operation" />
+      <SectionHeader icon="trail-sign-outline" tint={COSMIC.LAND_PREP} title={t('landPrepLog.sectionOperation')} />
       <TileGrid items={OPERATIONS} value={operation} onChange={(v) => setOperation(v)} columns={2} />
 
-      <SectionHeader icon="build-outline" tint={COSMIC.LAND_PREP} title="Implement" optional />
+      <SectionHeader icon="build-outline" tint={COSMIC.LAND_PREP} title={t('landPrepLog.sectionImplement')} optional />
       <ChipRow items={IMPLEMENTS} value={implement} onChange={setImplement} tint={COSMIC.LAND_PREP} />
 
-      <SectionHeader icon="people-outline" tint={COSMIC.LAND_PREP} title="Labour cost" optional />
+      <SectionHeader icon="people-outline" tint={COSMIC.LAND_PREP} title={t('landPrepLog.sectionLabourCost')} optional />
       <Card><BigNumberInput value={labour} onChange={setLabour} unit="₹" tint={COSMIC.LAND_PREP} /></Card>
 
-      <SectionHeader icon="construct-outline" tint={COSMIC.INFO} title="Diesel / Machinery cost" optional />
+      <SectionHeader icon="construct-outline" tint={COSMIC.INFO} title={t('landPrepLog.sectionMachineryCost')} optional />
       <Card><BigNumberInput value={machinery} onChange={setMachinery} unit="₹" tint={COSMIC.INFO} /></Card>
 
-      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title="Notes" optional />
+      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title={t('landPrepLog.sectionNotes')} optional />
       <Card><NotesField value={notes} onChange={setNotes} /></Card>
     </LoggerScaffold>
   );

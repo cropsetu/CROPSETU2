@@ -60,20 +60,20 @@ const IRR_TILE_THEME = {
   canal:     { color: '#3F51B5', bg: '#E8EAF6' },
 };
 
-// Keys only — labels resolved via t() at render time
+// Keys only — labels resolved via t() at render time; each chip shows its emoji
 const SYMPTOM_KEYS = [
-  { key: 'yellow_leaves', tKey: 'sym_yellow_leaves', icon: 'leaf-outline',          emoji: '🍂' },
-  { key: 'brown_spots',   tKey: 'sym_brown_spots',   icon: 'ellipse-outline',       emoji: '🟤' },
-  { key: 'white_powder',  tKey: 'sym_white_powder',  icon: 'snow-outline',          emoji: '🤍' },
-  { key: 'wilting',       tKey: 'sym_wilting',       icon: 'trending-down-outline', emoji: '🥀' },
-  { key: 'insects',       tKey: 'sym_insects',       icon: 'bug-outline',           emoji: '🐛' },
-  { key: 'holes',         tKey: 'sym_holes',         icon: 'aperture-outline',      emoji: '🕳️' },
-  { key: 'stunted',       tKey: 'sym_stunted',       icon: 'resize-outline',        emoji: '📉' },
-  { key: 'fruit_damage',  tKey: 'sym_fruit_damage',  icon: 'nutrition-outline',     emoji: '🍅' },
-  { key: 'stem_rot',      tKey: 'sym_stem_rot',      icon: 'git-merge-outline',     emoji: '🪵' },
-  { key: 'curling_leaves',tKey: 'sym_curling_leaves',icon: 'refresh-outline',       emoji: '🌀' },
-  { key: 'root_rot',      tKey: 'sym_root_rot',      icon: 'git-network-outline',   emoji: '💀' },
-  { key: 'pale_color',    tKey: 'sym_pale_color',    icon: 'contrast-outline',      emoji: '🫥' },
+  { key: 'yellow_leaves', tKey: 'sym_yellow_leaves', emoji: '🍂' },
+  { key: 'brown_spots',   tKey: 'sym_brown_spots',   emoji: '🟤' },
+  { key: 'white_powder',  tKey: 'sym_white_powder',  emoji: '🤍' },
+  { key: 'wilting',       tKey: 'sym_wilting',       emoji: '🥀' },
+  { key: 'insects',       tKey: 'sym_insects',       emoji: '🐛' },
+  { key: 'holes',         tKey: 'sym_holes',         emoji: '🕳️' },
+  { key: 'stunted',       tKey: 'sym_stunted',       emoji: '📉' },
+  { key: 'fruit_damage',  tKey: 'sym_fruit_damage',  emoji: '🍅' },
+  { key: 'stem_rot',      tKey: 'sym_stem_rot',      emoji: '🪵' },
+  { key: 'curling_leaves',tKey: 'sym_curling_leaves',emoji: '🌀' },
+  { key: 'root_rot',      tKey: 'sym_root_rot',      emoji: '💀' },
+  { key: 'pale_color',    tKey: 'sym_pale_color',    emoji: '🫥' },
 ];
 
 const WHEN_KEYS = [
@@ -411,12 +411,11 @@ export default function CropScanScreen({ navigation }) {
   const [affectedArea,     setAffectedArea]     = useState('');
   const [additionalText,   setAdditionalText]   = useState('');
 
-  // ── Step 3: Photos (up to 5 — backend sends all to the FastAPI pipeline)
-  const MAX_IMAGES = 5;
+  // ── Step 3: Photo (single — backend still receives an array of one so the
+  // scanCropImage(imageUris, …) contract and the result screen keep working).
   const [imageUris,      setImageUris]      = useState([]);
   const [imageMimeTypes, setImageMimeTypes] = useState([]);
-  // Legacy single-image aliases kept so the rest of the file (preview img,
-  // diagnosis-result nav param) keeps working without sprawling edits.
+  // Single-image aliases used by the preview UI + diagnosis-result nav param.
   const imageUri      = imageUris[0] || null;
   const imageMimeType = imageMimeTypes[0] || null;
 
@@ -485,30 +484,25 @@ export default function CropScanScreen({ navigation }) {
     return false;
   };
 
-  // How many image slots are still free.
-  const remainingSlots = () => MAX_IMAGES - imageUris.length;
-
-  // Append assets to the image arrays, capped at MAX_IMAGES.
-  const appendImages = (assets) => {
-    const slots = remainingSlots();
-    if (slots <= 0) return;
-    const next = assets.slice(0, slots);
-    setImageUris(prev      => [...prev, ...next.map(a => a.uri)]);
-    setImageMimeTypes(prev => [...prev, ...next.map(a => a.mimeType || null)]);
+  // Single-photo pipeline: a new pick REPLACES the current photo rather than
+  // appending. Kept array-shaped so the scan API contract is unchanged.
+  const setImage = (asset) => {
+    if (!asset) return;
+    setImageUris([asset.uri]);
+    setImageMimeTypes([asset.mimeType || null]);
   };
 
-  const removeImageAt = (idx) => {
-    setImageUris(prev      => prev.filter((_, i) => i !== idx));
-    setImageMimeTypes(prev => prev.filter((_, i) => i !== idx));
+  const clearImage = () => {
+    setImageUris([]);
+    setImageMimeTypes([]);
   };
 
-  // Action sheet for "Add photo" — lets the user pick camera or gallery
-  // without us having to render two separate buttons in the gallery grid.
+  // Action sheet for "Retake / Replace" — lets the user swap the current photo
+  // via camera or gallery without us rendering two separate buttons.
   // Uses the native Alert so the look matches the rest of the app's prompts.
-  const openAddPhotoSheet = () => {
-    if (remainingSlots() <= 0) return;
+  const openReplacePhotoSheet = () => {
     Alert.alert(
-      t('cropScan.addPhoto', 'Add photo'),
+      t('cropScan.replacePhoto', 'Replace photo'),
       t('cropScan.addPhotoFrom', 'Choose a source'),
       [
         { text: t('cropScan.takePhoto', 'Take photo'),     onPress: pickFromCamera },
@@ -521,7 +515,6 @@ export default function CropScanScreen({ navigation }) {
 
   const pickFromGallery = async () => {
     if (isPickingImageRef.current) return;          // guard rapid double-tap
-    if (remainingSlots() <= 0) return;
     isPickingImageRef.current = true;
     try {
       const ok = await requestPermissionOrPrompt(
@@ -532,11 +525,9 @@ export default function CropScanScreen({ navigation }) {
       if (!ok) return;
       const res = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: 'images', quality: 0.85,
-        allowsMultipleSelection: true,
-        selectionLimit: remainingSlots(),
       });
-      if (!res.canceled && res.assets?.length) {
-        appendImages(res.assets);
+      if (!res.canceled && res.assets?.[0]) {
+        setImage(res.assets[0]);
       }
     } finally {
       isPickingImageRef.current = false;
@@ -545,7 +536,6 @@ export default function CropScanScreen({ navigation }) {
 
   const pickFromCamera = async () => {
     if (isPickingImageRef.current) return;          // guard rapid double-tap
-    if (remainingSlots() <= 0) return;
     isPickingImageRef.current = true;
     try {
       const ok = await requestPermissionOrPrompt(
@@ -558,7 +548,7 @@ export default function CropScanScreen({ navigation }) {
         mediaTypes: 'images', quality: 0.85, allowsEditing: true, aspect: [4, 3],
       });
       if (!res.canceled && res.assets?.[0]) {
-        appendImages([res.assets[0]]);
+        setImage(res.assets[0]);
       }
     } finally {
       isPickingImageRef.current = false;
@@ -689,10 +679,9 @@ export default function CropScanScreen({ navigation }) {
       const navTimer = setTimeout(() => {
         if (!isMountedRef.current) return;        // user backed out — abort nav
         try {
-          // Pass the FULL image array so DiagnosisResultScreen can render
-          // every submitted photo, not just the first. `imageUri` is kept
-          // for back-compat with older screens that still read the legacy
-          // single-image param.
+          // Pass the (single-element) image array so DiagnosisResultScreen
+          // can render the submitted photo. `imageUri` is kept for back-compat
+          // with older screens that still read the legacy single-image param.
           navigation.replace('DiagnosisResult', {
             diagnosis,
             farmContext: farmCtx,
@@ -1143,11 +1132,10 @@ export default function CropScanScreen({ navigation }) {
             </View>
 
             {/* Photo picker — empty state shows the two big camera + gallery
-                cards (familiar onboarding pattern). Once any photo is picked,
-                the entire view collapses into a single tidy gallery grid with
-                numbered tiles and a single "Add Photo" add-slot. No more
-                duplicate hero+thumb-strip pair. */}
-            {imageUris.length === 0 ? (
+                cards (familiar onboarding pattern). Once a photo is picked,
+                the view collapses into a single full-width preview with a
+                retake/replace affordance. Single-photo pipeline. */}
+            {imageUri === null ? (
               <View style={SC.photoPickerWrap}>
                 <TouchableOpacity
                   style={SC.photoPickerBtn}
@@ -1178,80 +1166,38 @@ export default function CropScanScreen({ navigation }) {
                 </TouchableOpacity>
               </View>
             ) : (
-              <View style={SC.photoGallery}>
-                {/* Header — counter + small "Add more" button when slots remain. */}
-                <View style={SC.photoGalleryHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="images" size={14} color={COLORS.primary} />
-                    <Text style={SC.photoGalleryTitle}>
-                      {t('cropScan.photosCount', {
-                        count: imageUris.length,
-                        max: MAX_IMAGES,
-                        defaultValue: '{{count}}/{{max}} photos',
-                      })}
-                    </Text>
-                  </View>
-                  {imageUris.length < MAX_IMAGES && (
-                    <TouchableOpacity
-                      style={SC.addMoreBtn}
-                      onPress={openAddPhotoSheet}
-                      activeOpacity={0.8}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('cropScan.addPhoto', 'Add photo')}
-                    >
-                      <Ionicons name="add" size={14} color={COLORS.primary} />
-                      <Text style={SC.addMoreBtnTxt}>{t('cropScan.addPhoto', 'Add photo')}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {/* 3-column gallery grid — each tile shows image + index badge
-                    + close button. The very first photo is highlighted as
-                    "Primary" since it leads the vision-model prompt. */}
-                <View style={SC.photoGrid}>
-                  {imageUris.map((uri, i) => (
-                    <View key={uri + i} style={SC.photoCell}>
-                      <Image source={{ uri }} style={SC.photoCellImg} resizeMode="cover" />
-                      <View style={[SC.photoCellBadge, i === 0 && SC.photoCellBadgePrimary]}>
-                        <Text style={SC.photoCellBadgeTxt}>
-                          {i === 0 ? '★' : i + 1}
-                        </Text>
-                      </View>
-                      <TouchableOpacity
-                        style={SC.photoCellRemove}
-                        onPress={() => removeImageAt(i)}
-                        hitSlop={10}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('cropScan.removePhoto', 'Remove photo')}
-                      >
-                        <Ionicons name="close" size={14} color={COLORS.white} />
-                      </TouchableOpacity>
+              <View>
+                {/* Single full-width preview with a remove button. */}
+                <View style={SC.previewWrap}>
+                  <Image source={{ uri: imageUri }} style={SC.previewImg} resizeMode="cover" />
+                  <View style={SC.previewOverlay}>
+                    <View style={SC.previewBadge}>
+                      <Ionicons name="checkmark-circle" size={13} color={COLORS.primary} />
+                      <Text style={SC.previewBadgeText}>{t('cropScan.photoReady', 'Photo ready')}</Text>
                     </View>
-                  ))}
-                  {imageUris.length < MAX_IMAGES && (
-                    <TouchableOpacity
-                      style={[SC.photoCell, SC.photoCellAdd]}
-                      onPress={openAddPhotoSheet}
-                      activeOpacity={0.85}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('cropScan.addPhoto', 'Add photo')}
-                    >
-                      <Ionicons name="add-circle" size={30} color={COLORS.primary} />
-                      <Text style={SC.photoCellAddTxt}>{t('cropScan.addPhoto', 'Add photo')}</Text>
-                    </TouchableOpacity>
-                  )}
+                  </View>
+                  <TouchableOpacity
+                    style={SC.photoCellRemove}
+                    onPress={clearImage}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('cropScan.removePhoto', 'Remove photo')}
+                  >
+                    <Ionicons name="close" size={14} color={COLORS.white} />
+                  </TouchableOpacity>
                 </View>
 
-                {/* One-line hint — clear, single source of truth. */}
-                <View style={SC.photoGalleryHint}>
-                  <Ionicons name="information-circle-outline" size={13} color={COLORS.blue} />
-                  <Text style={SC.photoGalleryHintTxt}>
-                    {t(
-                      'cropScan.multiPhotoHint',
-                      'Add multiple angles (top, side, close-up) for a more accurate diagnosis.',
-                    )}
-                  </Text>
-                </View>
+                {/* Retake / replace affordance. */}
+                <TouchableOpacity
+                  style={SC.changePhotoBtn}
+                  onPress={openReplacePhotoSheet}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('cropScan.replacePhoto', 'Replace photo')}
+                >
+                  <Ionicons name="camera-reverse-outline" size={15} color={COLORS.amberDark} />
+                  <Text style={SC.changePhotoBtnText}>{t('cropScan.replacePhoto', 'Replace photo')}</Text>
+                </TouchableOpacity>
               </View>
             )}
 
@@ -1387,16 +1333,10 @@ export default function CropScanScreen({ navigation }) {
                   })}
                 </View>
 
-                {/* Honest timing hint — multi-image scans take longer
-                    because the vision model has more pixels to reason
-                    over. Set expectations so the wait feels reasonable. */}
+                {/* Honest timing hint — sets expectations so the wait
+                    feels reasonable. */}
                 <Text style={SC.analysisNote}>
-                  {imageUris.length > 1
-                    ? t('cropScan.analysisNoteMulti', {
-                        count: imageUris.length,
-                        defaultValue: 'Analysing {{count}} photos — usually 2–4 minutes for a multi-angle diagnosis',
-                      })
-                    : t('cropScan.analysisNote')}
+                  {t('cropScan.analysisNote')}
                 </Text>
               </>
             )}

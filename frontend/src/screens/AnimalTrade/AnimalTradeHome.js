@@ -264,7 +264,7 @@ function EmptyAnimals({ t, distanceKm, onShowAll, onPost }) {
         <View style={S.emptyArtRingLg} />
         <View style={S.emptyArtRingSm} />
         <View style={S.emptyIconBg}>
-          <Ionicons name="paw" size={40} color={GREEN} />
+          <AnimalIcon type="All" size={48} />
         </View>
         <View style={[S.emptyMini, S.emptyMiniTL]}><AnimalIcon type="Cow" size={26} /></View>
         <View style={[S.emptyMini, S.emptyMiniTR]}><AnimalIcon type="Goat" size={24} /></View>

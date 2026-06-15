@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
+import { useLanguage } from '../../context/LanguageContext';
 
 const CATEGORY_COLORS = {
   TIP:       COLORS.emerald,
@@ -20,6 +21,7 @@ const CATEGORY_COLORS = {
 };
 
 function PostCard({ post }) {
+  const { t } = useLanguage();
   const date = post.createdAt
     ? new Date(post.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
     : '—';
@@ -35,13 +37,13 @@ function PostCard({ post }) {
         <View style={styles.metaRow}>
           <View style={[styles.catBadge, { backgroundColor: catColor + '18' }]}>
             <Text style={[styles.catTxt, { color: catColor }]}>
-              {post.category || 'POST'}
+              {post.category || t('profile.postCategoryFallback')}
             </Text>
           </View>
           <Text style={styles.dateStr}>{date}</Text>
         </View>
 
-        <Text style={styles.title} numberOfLines={2}>{post.title || 'Untitled'}</Text>
+        <Text style={styles.title} numberOfLines={2}>{post.title || t('profile.postUntitled')}</Text>
         {post.description ? (
           <Text style={styles.desc} numberOfLines={3}>{post.description}</Text>
         ) : null}
@@ -55,7 +57,7 @@ function PostCard({ post }) {
             </View>
           )}
           <Text style={styles.authorName} numberOfLines={1}>
-            {post.author?.name || 'Farmer'}
+            {post.author?.name || t('aiHome.farmer')}
           </Text>
           <View style={{ flex: 1 }} />
           <Ionicons name="bookmark" size={16} color={COLORS.primary} />
@@ -66,6 +68,7 @@ function PostCard({ post }) {
 }
 
 export default function SavedPostsScreen({ navigation }) {
+  const { t } = useLanguage();
   const [posts,     setPosts]     = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -83,7 +86,7 @@ export default function SavedPostsScreen({ navigation }) {
       setHasMore(p < (meta.totalPages || 1));
       setPage(p);
     } catch (e) {
-      setError(e?.response?.data?.error?.message || 'Failed to load saved posts');
+      setError(e?.response?.data?.error?.message || t('profile.savedPostsLoadError'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -109,7 +112,7 @@ export default function SavedPostsScreen({ navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Saved Posts</Text>
+        <Text style={styles.headerTitle}>{t('savedPosts')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -118,7 +121,7 @@ export default function SavedPostsScreen({ navigation }) {
           <Ionicons name="alert-circle-outline" size={48} color={COLORS.error} />
           <Text style={styles.errorTxt}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={() => fetchPosts(1)}>
-            <Text style={styles.retryTxt}>Retry</Text>
+            <Text style={styles.retryTxt}>{t('profile.retry')}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -137,8 +140,8 @@ export default function SavedPostsScreen({ navigation }) {
           ListEmptyComponent={
             <View style={styles.center}>
               <Ionicons name="bookmark-outline" size={64} color={COLORS.gray175} />
-              <Text style={styles.emptyTitle}>No saved posts yet</Text>
-              <Text style={styles.emptySubtitle}>Bookmark community posts to see them here</Text>
+              <Text style={styles.emptyTitle}>{t('profile.noSavedPosts')}</Text>
+              <Text style={styles.emptySubtitle}>{t('profile.bookmarkHint')}</Text>
             </View>
           }
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}

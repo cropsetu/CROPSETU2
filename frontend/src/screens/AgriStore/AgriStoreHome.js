@@ -29,6 +29,7 @@ import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
+import { StoreCategoryIcon } from '../../components/StoreCategoryIcons';
 
 const { width: W, height: H } = Dimensions.get('window');
 const GREEN    = COLORS.primary;
@@ -171,34 +172,6 @@ function LangItem({ lang, active, onSelect }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Map seed icon names → valid Ionicons names
-// (The seed uses some Material icon names that don't exist in Ionicons)
-// ─────────────────────────────────────────────────────────────────────────────
-const ICON_MAP = {
-  'leaf':          'leaf',
-  'nutrition':     'nutrition',
-  'bug':           'bug',
-  'water':         'water',
-  'car':           'car',
-  'construct':     'construct',
-  'home':          'home',
-  'shield':        'shield',
-  'archive':       'archive',
-  'paw':           'paw',
-  'warning':       'warning',
-  'sunny':         'sunny',
-  'business':      'business',
-  'hardware-chip': 'hardware-chip',
-  'eco':           'flower',          // Ionicons has 'flower' not 'eco'
-  'book':          'book',
-  'apps':          'grid',            // Ionicons has 'grid' not 'apps'
-};
-
-function resolveIcon(icon) {
-  return ICON_MAP[icon] || 'leaf';
-}
-
 // Make a soft tinted background from a hex color
 function hexToRgba(hex = COLORS.primary, alpha = 0.12) {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -234,7 +207,6 @@ function CategoryPills({ categories, selected, onSelect, language, t }) {
           const langKey = language === 'mr' ? 'nameMr' : language === 'hi' ? 'nameHi' : language === 'ta' ? 'nameTa' : language === 'kn' ? 'nameKn' : language === 'ml' ? 'nameMl' : language === 'te' ? 'nameTe' : language === 'bn' ? 'nameBn' : language === 'gu' ? 'nameGu' : language === 'pa' ? 'namePa' : null;
           const label = (langKey && cat[langKey]) || cat.name || cat.nameHi;
           const active  = selected === cat.id;
-          const iconName = resolveIcon(cat.icon);
           const color    = cat.color || GREEN;
           // Short label — trim to keep pill width sane
           const shortLabel = label.length > 13 ? label.slice(0, 12) + '…' : label;
@@ -247,7 +219,7 @@ function CategoryPills({ categories, selected, onSelect, language, t }) {
               activeOpacity={0.82}
             >
               <View style={[S.pillIcon, { backgroundColor: active ? 'rgba(255,255,255,0.25)' : hexToRgba(color, 0.14) }]}>
-                <Ionicons name={iconName} size={14} color={active ? COLORS.white : color} />
+                <StoreCategoryIcon type={cat.icon || cat.name} size={24} animated={false} />
               </View>
               <Text style={[S.pillTxt, active && S.pillTxtActive]} numberOfLines={1}>{shortLabel}</Text>
             </TouchableOpacity>
@@ -262,18 +234,19 @@ function CategoryPills({ categories, selected, onSelect, language, t }) {
 // Stock urgency badge — out-of-stock or "Only N left" when stock <= 5
 // ─────────────────────────────────────────────────────────────────────────────
 function StockBadge({ stock }) {
+  const { t } = useLanguage();
   if (stock == null) return null;
   if (stock === 0) {
     return (
       <View style={[S.stockBadge, S.stockBadgeOut]}>
-        <Text style={S.stockBadgeTxt}>Out of Stock</Text>
+        <Text style={S.stockBadgeTxt}>{t('product.outOfStock')}</Text>
       </View>
     );
   }
   if (stock <= 5) {
     return (
       <View style={[S.stockBadge, S.stockBadgeLow]}>
-        <Text style={S.stockBadgeTxt}>{`Only ${stock} left`}</Text>
+        <Text style={S.stockBadgeTxt}>{t('store.onlyLeft', { stock })}</Text>
       </View>
     );
   }
@@ -284,6 +257,7 @@ function StockBadge({ stock }) {
 // Best Seller card — web prototype: image + discount top-left, price, circle add
 // ─────────────────────────────────────────────────────────────────────────────
 function BestSellerCard({ item, onPress }) {
+  const { t } = useLanguage();
   const discount = item.mrp > item.price ? Math.round(((item.mrp - item.price) / item.mrp) * 100) : 0;
   const imageUrl = item.images?.[0];
 
@@ -298,7 +272,7 @@ function BestSellerCard({ item, onPress }) {
               </View>
           }
           {discount > 0 && (
-            <View style={S.bsDiscLeft}><Text style={S.bsDiscTxt}>{discount}% OFF</Text></View>
+            <View style={S.bsDiscLeft}><Text style={S.bsDiscTxt}>{t('store.percentOff', { discount })}</Text></View>
           )}
           <StockBadge stock={item.stock} />
         </View>
@@ -370,7 +344,7 @@ function ProductCard({ item, onPress, t, index }) {
           </Pressable>
           {/* Discount top-RIGHT */}
           {discount > 0 && (
-            <View style={S.gridDiscRight}><Text style={S.gridDiscTxt}>{discount}% OFF</Text></View>
+            <View style={S.gridDiscRight}><Text style={S.gridDiscTxt}>{t('store.percentOff', { discount })}</Text></View>
           )}
           {/* Star rating bottom-right overlay */}
           {item.rating > 0 && (
@@ -617,7 +591,7 @@ export default function AgriStoreHome({ navigation }) {
         <View style={S.section}>
           <View style={S.sectionRow}>
             <Text style={S.sectionTitle}>{t('store.allProducts')}</Text>
-            <Text style={S.resultCount}>{products.length} items</Text>
+            <Text style={S.resultCount}>{t('store.itemCount', { count: products.length })}</Text>
           </View>
 
           {loading ? (
@@ -626,17 +600,12 @@ export default function AgriStoreHome({ navigation }) {
             </View>
           ) : products.length === 0 ? (
             <View style={S.emptyWrap}>
-              <LinearGradient
-                colors={KHET.gradPrimary}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={S.emptyIconBg}
-              >
-                <Ionicons name="storefront-outline" size={36} color={KHET.primaryForeground} />
-              </LinearGradient>
+              <View style={S.emptyIconWrap}>
+                <StoreCategoryIcon type="bag" size={72} animated />
+              </View>
               <Text style={S.emptyTitle}>{t('ai.comingSoon')}</Text>
               <Text style={S.emptyTxt}>{t('store.comingSoonMsg')}</Text>
-              <Text style={S.emptyHint}>Check back soon for seeds, fertilizers & more!</Text>
+              <Text style={S.emptyHint}>{t('store.comingSoonHint')}</Text>
             </View>
           ) : (
             <FlatList
@@ -817,7 +786,7 @@ const S = StyleSheet.create({
 
   // ── Empty ──
   emptyWrap:   { alignItems: 'center', paddingVertical: 52, paddingHorizontal: 24, gap: 6 },
-  emptyIconBg: { width: 80, height: 80, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: 8, ...KSHADOW.elegant },
+  emptyIconWrap: { width: 96, height: 96, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginBottom: 8, backgroundColor: KHET.muted },
   emptyTitle:  { fontSize: 22, fontFamily: KFONT.displaySemi, color: KHET.foreground, letterSpacing: -0.5 },
   emptyTxt:    { fontSize: 14, color: KHET.mutedForeground, fontFamily: KFONT.sans, textAlign: 'center' },
   emptyHint:   { fontSize: 12, color: KHET.mutedForeground, fontFamily: KFONT.sans, textAlign: 'center' },

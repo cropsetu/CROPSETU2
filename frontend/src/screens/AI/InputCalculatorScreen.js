@@ -16,20 +16,25 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLanguage } from '../../context/LanguageContext';
 import { calculateInputs, getCrops } from '../../services/aiApi';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import ActivityIcon from '../../components/ActivityIcons';
+import LabourIcon from '../../components/LabourIcon';
 
+// Each category renders a realistic colourful SVG (`render`); `color` still
+// drives the icon-bubble tint behind it.
+const CAT_GLYPH = 26;
 const CATEGORY_ICONS = {
-  'Seed':        { icon: 'ellipse',           color: COLORS.freshGreen },
-  'Fertilizer':  { icon: 'flask',             color: COLORS.amberDark },
-  'Labour':      { icon: 'people',            color: COLORS.blue },
-  'Pesticides':  { icon: 'bug',               color: COLORS.red },
-  'Irrigation':  { icon: 'water',             color: COLORS.oceanBlue },
+  'Seed':        { color: COLORS.freshGreen, render: () => <ActivityIcon type="SOWING" size={CAT_GLYPH} animated={false} /> },
+  'Fertilizer':  { color: COLORS.amberDark,  render: () => <ActivityIcon type="FERTILIZER" size={CAT_GLYPH} animated={false} /> },
+  'Labour':      { color: COLORS.blue,       render: () => <LabourIcon size={CAT_GLYPH} animated={false} /> },
+  'Pesticides':  { color: COLORS.red,        render: () => <ActivityIcon type="SPRAY" size={CAT_GLYPH} animated={false} /> },
+  'Irrigation':  { color: COLORS.oceanBlue,  render: () => <ActivityIcon type="IRRIGATION" size={CAT_GLYPH} animated={false} /> },
 };
 
 const UNITS = ['acre', 'hectare', 'bigha', 'guntha'];
 
 function getCategoryConfig(category) {
   const key = Object.keys(CATEGORY_ICONS).find(k => category?.includes(k));
-  return CATEGORY_ICONS[key] || { icon: 'cube', color: COLORS.textMedium };
+  return CATEGORY_ICONS[key] || { color: COLORS.textMedium, render: () => <ActivityIcon type="OTHER" size={CAT_GLYPH} animated={false} /> };
 }
 
 function CostItem({ item }) {
@@ -37,7 +42,7 @@ function CostItem({ item }) {
   return (
     <View style={S.costItem}>
       <View style={[S.costIcon, { backgroundColor: cfg.color + '18' }]}>
-        <Ionicons name={cfg.icon + '-outline'} size={18} color={cfg.color} />
+        {cfg.render()}
       </View>
       <View style={{ flex: 1 }}>
         <Text style={S.itemCategory}>{item.category}</Text>

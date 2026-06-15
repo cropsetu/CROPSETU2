@@ -13,6 +13,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { SoundEffects } from '../../utils/sounds';
 import api from '../../services/api';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import DashboardStatIcon from '../../components/DashboardStatIcons';
 
 const { width: W } = Dimensions.get('window');
 
@@ -82,7 +83,7 @@ function StatCard({ icon, label, value, sub, color, delay = 0, isRevenue = false
   return (
     <Animated.View style={[d.statCard, { borderLeftColor: color, transform: [{ translateX }], opacity }]}>
       <Animated.View style={[d.statIcon, { backgroundColor: color + '18', shadowRadius: glow, shadowColor: color, shadowOpacity: 0.5, shadowOffset: { width: 0, height: 0 } }]}>
-        <Ionicons name={icon} size={22} color={color} />
+        <DashboardStatIcon type={icon} size={30} />
       </Animated.View>
       <View style={{ flex: 1 }}>
         <Counter
@@ -121,7 +122,7 @@ function QuickAction({ icon, label, color, onPress, delay = 0 }) {
     <Animated.View style={[d.quickAction, { transform: [{ scale: Animated.multiply(scale, pressScale) }], opacity }]}>
       <TouchableOpacity onPress={onPress} onPressIn={pressIn} onPressOut={pressOut} activeOpacity={1} style={{ flex: 1, alignItems: 'center', gap: 8 }}>
         <View style={[d.qaIcon, { backgroundColor: color + '18' }]}>
-          <Ionicons name={icon} size={26} color={color} />
+          <DashboardStatIcon type={icon} size={36} />
         </View>
         <Text style={d.qaLabel}>{label}</Text>
       </TouchableOpacity>

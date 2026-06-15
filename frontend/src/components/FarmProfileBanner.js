@@ -16,6 +16,7 @@
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFarm } from '../context/FarmContext';
+import { useLanguage } from '../context/LanguageContext';
 import CropIcon from './CropIcons';
 import SoilIcon from './SoilIcons';
 import IrrigationIcon from './IrrigationIcons';
@@ -57,6 +58,7 @@ function Chip({ children, empty }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function FarmProfileBanner({ onEdit, compact = false, style }) {
+  const { t } = useLanguage();
   const { farmProfile, getAIContext } = useFarm();
   const aiCtx = getAIContext();
 
@@ -83,7 +85,7 @@ export default function FarmProfileBanner({ onEdit, compact = false, style }) {
         activeOpacity={0.75}
       >
         <Ionicons name="leaf-outline" size={15} color={GREEN} />
-        <Text style={S.emptyText}>Set your farm profile for personalised AI</Text>
+        <Text style={S.emptyText}>{t('farmProfile.bannerEmptyPrompt')}</Text>
         <Ionicons name="chevron-forward" size={14} color={GREEN} />
       </TouchableOpacity>
     );
@@ -116,7 +118,7 @@ export default function FarmProfileBanner({ onEdit, compact = false, style }) {
         ) : (
           <Chip empty>
             <Ionicons name="leaf-outline" size={15} color={COLORS.gray350} />
-            <Text style={[S.chipLabel, S.chipLabelEmpty, { fontSize: labelSize }]}>No crop set</Text>
+            <Text style={[S.chipLabel, S.chipLabelEmpty, { fontSize: labelSize }]}>{t('farmProfile.bannerNoCrop')}</Text>
           </Chip>
         )}
 
