@@ -17,6 +17,7 @@ import { requireAdmin, loadAdminContext, requireScope, ADMIN_SCOPES } from '../.
 
 import metricsRoutes from './metrics.routes.js';
 import usersRoutes from './users.routes.js';
+import activityRoutes from './activity.routes.js';
 import kycRoutes from './kyc.routes.js';
 import { categoriesRouter, productsRouter, reviewsRouter } from './catalog.routes.js';
 import { productsCsvRouter, productsImportRouter, inventoryRouter } from './catalogIo.routes.js';
@@ -56,6 +57,9 @@ router.use('/metrics', metricsRoutes);
 // Users & identity
 router.use('/users', requireScope(S.SUPPORT), usersRoutes);
 router.use('/kyc', requireScope(S.KYC_REVIEWER), kycRoutes);
+// User Activity 360 — support/forensics read surface (SUPPORT scope). READ-ONLY;
+// message/transcript content is masked unless an audited reveal is requested.
+router.use('/activity', requireScope(S.SUPPORT), activityRoutes);
 // Commerce
 router.use('/categories', requireScope(S.CMS_EDITOR), categoriesRouter);
 // Bulk catalog I/O — mounted on /products BEFORE productsRouter so /products/export

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Eye, EyeOff, LogOut, ScanEye, UserCog } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, LogOut, UserCog, Radar } from 'lucide-react';
 import { apiGet, apiPatch, apiPost, errorMessage } from '../lib/api';
 import { useKeyset } from '../lib/useKeyset';
 import { PageHeader, Card, Button, StatusBadge, Badge, Spinner, ErrorState, Select } from '../components/ui';
@@ -177,6 +178,7 @@ export function UserDetailPage() {
         subtitle={`${u.role} · joined ${formatDate(u.createdAt as string)}`}
         actions={
           <>
+            <Button variant="secondary" onClick={() => navigate(`/activity/users/${id}`)}><Radar className="h-4 w-4" /> Activity 360</Button>
             <Button variant="secondary" onClick={onReveal}>{reveal.on ? <><EyeOff className="h-4 w-4" /> Hide PII</> : <><Eye className="h-4 w-4" /> Reveal PII</>}</Button>
             {!readOnly && (
               <>

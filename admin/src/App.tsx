@@ -8,6 +8,7 @@ import { Spinner } from './components/ui';
 import LoginPage from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import { UsersPage, UserDetailPage } from './pages/Users';
+import { ActivityFeedPage, UserActivity360Page } from './pages/Activity';
 import { KycPage, KycDetailPage } from './pages/Kyc';
 import { CategoriesPage, ProductsPage, ReviewsPage, LowStockPage } from './pages/Catalog';
 import OrdersPage from './pages/Orders';
@@ -48,6 +49,8 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/users/:id" element={<UserDetailPage />} />
+            <Route path="/activity" element={<ActivityFeedPage />} />
+            <Route path="/activity/users/:id" element={<UserActivity360Page />} />
             <Route path="/kyc" element={<KycPage />} />
             <Route path="/kyc/:userId" element={<KycDetailPage />} />
             <Route path="/categories" element={<CategoriesPage />} />

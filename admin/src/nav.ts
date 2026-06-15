@@ -8,6 +8,7 @@ import {
   ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Wallet, type LucideIcon,
   ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, PackageX, type LucideIcon,
   ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, ListTodo, AlertTriangle, type LucideIcon,
+  ToggleRight, HeartPulse, ListChecks, SlidersHorizontal, UserCog, Radar, type LucideIcon,
 } from 'lucide-react';
 
 /** `scope`, when set, gates the item/group to admins holding that RBAC sub-scope. */
@@ -27,6 +28,9 @@ export const NAV: NavGroup[] = [
   { title: 'Users & Identity', items: [
     { label: 'Users', to: '/users', icon: Users, keywords: 'farmer seller account' },
     { label: 'KYC / Sellers', to: '/kyc', icon: ShieldCheck, keywords: 'verify aadhaar bank' },
+  ]},
+  { title: 'Activity', items: [
+    { label: 'Activity Feed', to: '/activity', icon: Radar, keywords: 'chat voice diagnosis order booking review 360 support' },
   ]},
   { title: 'Marketplace', items: [
     { label: 'Categories', to: '/categories', icon: Tags },
