@@ -27,6 +27,7 @@ import { postsRouter, commentsRouter, groupsRouter } from './community.routes.js
 import aiRoutes from './ai.routes.js';
 import { schemesRouter, mspRouter, cropMasterRouter, pestAlertsRouter, mandiRouter } from './cms.routes.js';
 import broadcastRoutes from './broadcast.routes.js';
+import notificationTemplatesRoutes from './notificationTemplates.routes.js';
 import { flagsRouter, healthRouter, queuesRouter } from './ops.routes.js';
 import { consentsRouter, erasureRouter, auditRouter } from './compliance.routes.js';
 import settingsRoutes from './settings.routes.js';
@@ -90,6 +91,7 @@ router.use('/pest-alerts', requireScope(S.CMS_EDITOR), pestAlertsRouter);
 router.use('/mandi', requireScope(S.CMS_EDITOR), mandiRouter);
 // Broadcast
 router.use('/notifications', requireScope(S.CONTENT_MODERATOR), broadcastRoutes);
+router.use('/notification-templates', requireScope(S.CONTENT_MODERATOR), notificationTemplatesRoutes);
 // Ops
 router.use('/flags', requireScope(S.OPS), flagsRouter);
 router.use('/health', requireScope(S.OPS), healthRouter);

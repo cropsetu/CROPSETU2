@@ -62,8 +62,8 @@ export const NAV: NavGroup[] = [
     { label: 'Pest Alerts', to: '/pest-alerts', icon: Bug },
     { label: 'Mandi Sync', to: '/mandi-sync', icon: RefreshCw },
   ]},
-  { title: 'Broadcast', items: [
-    { label: 'Notifications', to: '/broadcast', icon: Megaphone, keywords: 'push send audience' },
+  { title: 'Broadcast', scope: 'CONTENT_MODERATOR', items: [
+    { label: 'Notifications', to: '/broadcast', icon: Megaphone, scope: 'CONTENT_MODERATOR', keywords: 'push send audience template multilingual history' },
   ]},
   { title: 'Trust & Safety', items: [
     { label: 'Moderation', to: '/moderation', icon: Flag },

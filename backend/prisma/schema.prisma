@@ -2212,4 +2212,46 @@ enum DisputeStatus {
   INVESTIGATING
   RESOLVED
   CLOSED
+// Reusable, multilingual push-notification template. titleI18n/bodyI18n hold the
+// 9 supported languages (en + hi/mr/ta/kn/ml/te/bn/gu/pa) as JSON maps keyed by
+// language code; a broadcast may resolve its title/body from a template by `key`.
+// Soft-deleted via isActive=false so a template referenced by historical sends
+// stays resolvable in the audit/history trail.
+model NotificationTemplate {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  titleI18n Json
+  bodyI18n  Json
+  category  String   @default("general")
+  isActive  Boolean  @default(true)
+  createdBy String? // admin who created the template (null = system/seed)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("notification_templates")
+}
+
+// One row per admin broadcast send — the delivery/broadcast history with real
+// estimated/sent/failed counts. `filters` records the audience target, and
+// `templateKey` links back to the NotificationTemplate when the send was composed
+// from one. Append-only; surfaced by GET /admin/notifications/history.
+model BroadcastLog {
+  id          String   @id @default(uuid())
+  sentBy      String? // admin who sent the broadcast (null = system)
+  filters     Json
+  title       String
+  body        String
+  templateKey String?
+  estimated   Int      @default(0)
+  sent        Int      @default(0)
+  failed      Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([sentBy])
+  @@index([templateKey])
+  @@index([createdAt])
+  @@map("broadcast_logs")
 }

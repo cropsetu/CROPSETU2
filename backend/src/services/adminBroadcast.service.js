@@ -34,9 +34,16 @@ export function estimateAudience(filters) {
 
 /**
  * Send a notification to everyone matching `filters`.
- * @returns {{ estimated:number, sent:number, capped:boolean }}
+ *
+ * Delivery is enqueued per-recipient (push.service.sendPushToUser). `failed`
+ * counts enqueue failures we can observe synchronously — best-effort, since the
+ * actual Expo push happens later in a worker. When `log` is true a BroadcastLog
+ * row is persisted with the estimated/sent/failed counts so the history view has
+ * real numbers; `sentBy`/`templateKey` are recorded on that row for provenance.
+ *
+ * @returns {{ estimated:number, sent:number, failed:number, capped:boolean, logId:string|null }}
  */
-export async function broadcastNotification({ filters, type = 'SYSTEM', title, body, data = {} }) {
+export async function broadcastNotification({ filters, type = 'SYSTEM', title, body, data = {}, log = false, sentBy = null, templateKey = null }) {
   const configured = await getSetting('broadcast.maxRecipients').catch(() => MAX_RECIPIENTS);
   const cap = Math.max(1, Math.min(Number(configured) || MAX_RECIPIENTS, MAX_RECIPIENTS));
   const estimated = await estimateAudience(filters);
@@ -46,10 +53,34 @@ export async function broadcastNotification({ filters, type = 'SYSTEM', title, b
     take: cap,
   });
 
-  let sent = 0;
-  for (const { id } of recipients) {
-    sendPushToUser({ userId: id, type, title, body, data }).catch(() => {});
-    sent++;
+  // Enqueue each delivery; a rejected enqueue is a best-effort "failed" signal.
+  const results = await Promise.allSettled(
+    recipients.map(({ id }) => sendPushToUser({ userId: id, type, title, body, data })),
+  );
+  const sent = results.filter((r) => r.status === 'fulfilled').length;
+  const failed = results.length - sent;
+  const capped = estimated > recipients.length;
+
+  let logId = null;
+  if (log) {
+    // History row — best-effort; a failed log write must never break the send.
+    const row = await prisma.broadcastLog
+      .create({
+        data: {
+          sentBy: sentBy ?? null,
+          filters: filters ?? {},
+          title,
+          body,
+          templateKey: templateKey ?? null,
+          estimated,
+          sent,
+          failed,
+        },
+        select: { id: true },
+      })
+      .catch(() => null);
+    logId = row?.id ?? null;
   }
-  return { estimated, sent, capped: estimated > recipients.length };
+
+  return { estimated, sent, failed, capped, logId };
 }
