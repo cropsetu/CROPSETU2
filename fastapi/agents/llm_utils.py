@@ -1,15 +1,20 @@
 """
-LLM Utility Functions — CropGuard Agentic AI (Gemini-only)
+LLM Utility Functions — CropGuard Agentic AI (multi-provider, WI-11)
 
-Shared helpers for calling Gemini (vision + text). CropSetu consolidated onto
-Google Gemini for production; the Anthropic call path was removed. Two non-Gemini
-providers survive in narrow, opt-in roles (both keyed by their own env var, both
-no-ops when that key is unset):
-  - Groq (call_groq_text)      — text-chat last-resort fallback when the Gemini
-                                 path is fully down (agents/llm_dispatch).
-  - OpenAI (call_openai_vision) — one extra cross-vendor voter in the crop-disease
-                                 diagnosis ensemble (agents/router + ensemble_agent).
-Each function returns (raw_text, token_info_dict).
+Shared raw-client helpers for every LLM provider CropSetu can route to. Gemini is
+the default, but model selection (admin App Settings / AI_<F>_MODEL env) can pick
+any provider; agents/llm_dispatch resolves the provider from the model-id prefix
+and calls the matching helper here:
+  - Gemini    (call_gemini_text / call_gemini_vision)      — default, text + vision.
+  - OpenAI    (call_openai_text / call_openai_vision)      — text + vision (raw httpx,
+                                                             OpenAI-compatible API).
+  - Anthropic (call_anthropic_text / call_anthropic_vision)— text + vision (official
+                                                             `anthropic` SDK).
+  - Groq      (call_groq_text)                             — text only (no vision);
+                                                             also the text-chat
+                                                             last-resort fallback.
+Each provider key is read from its own env var and is a no-op when unset. Each
+function returns (raw_text, token_info_dict).
 """
 from __future__ import annotations
 
