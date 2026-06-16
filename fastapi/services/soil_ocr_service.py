@@ -111,9 +111,11 @@ def _coerce_fields(raw_fields: dict | None) -> dict:
     return out
 
 
-async def extract_soil_card(image: dict) -> dict:
+async def extract_soil_card(image: dict, model_override: str | None = None) -> dict:
     """
     image: {"data": <base64>, "mime_type": <str>}
+    model_override: admin App Settings choice (ai.model.soilOcr), forwarded per
+        request from Express as body.model; falls back to AI_SOIL_OCR_MODEL/env.
 
     Returns:
       {
@@ -129,7 +131,7 @@ async def extract_soil_card(image: dict) -> dict:
         "mime_type": (image.get("mime_type") or "image/jpeg"),
     }]
 
-    cfg = get_feature_config("SOIL_OCR")
+    cfg = get_feature_config("SOIL_OCR", model_override=model_override)
     raw, tok = await call_llm_vision(
         cfg, _SYSTEM_PROMPT, _user_prompt(), images_b64,
         max_tokens=1024, temperature=0.0,

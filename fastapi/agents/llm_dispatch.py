@@ -38,9 +38,13 @@ from typing import Awaitable, Callable, Optional
 import httpx
 
 from agents.llm_utils import (
+    call_anthropic_text,
+    call_anthropic_vision,
     call_gemini_text,
     call_gemini_vision,
     call_groq_text,
+    call_openai_text,
+    call_openai_vision,
 )
 from config import GEMINI_API_KEY, GROQ_API_KEY, GROQ_FALLBACK_MODEL
 
@@ -105,31 +109,70 @@ class ConfigError(RuntimeError):
 # ── Provider detection ───────────────────────────────────────────────────────
 
 def _detect_provider(model: str, base_url: Optional[str] = None) -> str:
-    """Gemini is the only supported provider. Any non-gemini model id is a
-    configuration error we surface immediately rather than at call time."""
+    """Route by model-id prefix (WI-11): gemini-* / gpt-* / claude-* /
+    llama-*|mixtral-*. An unknown prefix is a configuration error we surface
+    immediately rather than at call time."""
     m = (model or "").lower().strip()
     if m.startswith("gemini-"):
         return "gemini"
+    if m.startswith("gpt-"):
+        return "openai"
+    if m.startswith("claude-"):
+        return "anthropic"
+    if m.startswith("llama-") or m.startswith("mixtral-"):
+        return "groq"
     raise ConfigError(
-        f"Unsupported model {model!r}. CropSetu is Gemini-only — set "
-        f"AI_<FEATURE>_MODEL to a 'gemini-*' id."
+        f"Unsupported model {model!r}. Supported prefixes: "
+        f"gemini-* / gpt-* / claude-* / llama-* (or mixtral-*)."
     )
+
+
+# Per-provider env var holding the default API key when AI_<FEATURE>_API_KEY is unset.
+_PROVIDER_KEY_ENV = {
+    "gemini":    "GEMINI_API_KEY",
+    "openai":    "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "groq":      "GROQ_API_KEY",
+}
 
 
 # ── Config loader ────────────────────────────────────────────────────────────
 
-def get_feature_config(feature: str) -> FeatureConfig:
+def get_feature_config(feature: str, model_override: Optional[str] = None) -> FeatureConfig:
     """Read AI_<FEATURE>_MODEL / _API_KEY from os.environ.
 
     Falls back to the baked-in Gemini default (see _DEFAULTS) for the model and
     to GEMINI_API_KEY for the key when the env var is unset.
+
+    `model_override` (WI-11) is the admin App Settings choice, forwarded per
+    request from the Express backend (body.model / params.model_diagnose /
+    params.model_treatment). When present and resolvable to a known provider it
+    takes precedence over the env/default model, and the provider-aware key
+    resolution below follows the overridden model. An unknown override is
+    IGNORED (logged) so a stray value degrades to the configured model instead of
+    failing the request — the value is already allowlisted upstream by the ENUM
+    setting, so this is defence-in-depth.
     """
     if feature not in AI_FEATURES:
         raise ValueError(f"Unknown AI feature {feature!r}. Valid: {AI_FEATURES}")
 
     default_model = _DEFAULTS[feature]
     model = (os.environ.get(f"AI_{feature}_MODEL") or default_model).strip()
-    api_key = (os.environ.get(f"AI_{feature}_API_KEY") or GEMINI_API_KEY).strip()
+    # str() coerces any non-string body value (number/object) to a harmless string
+    # so a malformed override degrades to the configured model instead of raising.
+    ov = str(model_override or "").strip()
+    if ov:
+        try:
+            _detect_provider(ov)          # validate it maps to a supported provider
+            model = ov
+        except ConfigError:
+            logger.warning("Ignoring unsupported model_override %r for %s; using %s",
+                           ov, feature, model)
+    # Provider-aware key (WI-11): a 'claude-*'/'gpt-*'/'llama-*' model defaults to
+    # its own provider's key, not GEMINI_API_KEY. AI_<FEATURE>_API_KEY still overrides.
+    provider = _detect_provider(model)
+    default_key = os.environ.get(_PROVIDER_KEY_ENV[provider], "")
+    api_key = (os.environ.get(f"AI_{feature}_API_KEY") or default_key).strip()
 
     return FeatureConfig(feature=feature, model=model, api_key=api_key, base_url=None)
 
@@ -256,6 +299,25 @@ async def call_llm_text(
     )
 
     label = f"{cfg.feature}/{provider}"
+
+    # Non-Gemini providers (WI-11): direct call, no Gemini-family fallback chain.
+    if provider == "anthropic":
+        return await _with_retry(lambda: call_anthropic_text(
+            system_prompt, user_prompt, cfg.api_key,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+        ), label=label)
+    if provider == "openai":
+        return await _with_retry(lambda: call_openai_text(
+            system_prompt, user_prompt, cfg.api_key,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+        ), label=label)
+    if provider == "groq":
+        return await _with_retry(lambda: call_groq_text(
+            system_prompt, user_prompt, cfg.api_key,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+        ), label=label)
+
+    # Gemini (primary) → Gemini-family capacity fallback → cross-provider Groq.
     try:
         return await _with_retry(lambda: call_gemini_text(
             system_prompt, user_prompt, cfg.api_key,
@@ -313,6 +375,21 @@ async def call_llm_vision(
     )
 
     label = f"{cfg.feature}/{provider}/vision"
+    if provider == "anthropic":
+        return await _with_retry(lambda: call_anthropic_vision(
+            system_prompt, user_prompt, images_b64, cfg.api_key,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+        ), label=label)
+    if provider == "openai":
+        return await _with_retry(lambda: call_openai_vision(
+            system_prompt, user_prompt, images_b64, cfg.api_key,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+        ), label=label)
+    if provider == "groq":
+        raise ConfigError(
+            f"{cfg.feature}: Groq model {cfg.model!r} has no vision support — "
+            f"use a gemini-* / gpt-* / claude-* model for vision features."
+        )
     return await _with_retry(lambda: call_gemini_vision(
         system_prompt, user_prompt, images_b64, cfg.api_key,
         model=cfg.model, max_tokens=max_tokens, temperature=temperature,
