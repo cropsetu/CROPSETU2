@@ -158,6 +158,16 @@ function classifyScanError(err, t = (k, def) => def) {
       message: t('cropScan.err.authMsg', 'Please log out and log back in to continue.'),
     };
   }
+  if (status === 402 || status === 403) {
+    // Out of AI credits (or daily limit). Show the server's specific message when
+    // present; otherwise a clear, non-retryable explanation. Retrying just re-fails.
+    return {
+      kind: 'credits',
+      title: t('cropScan.err.creditsTitle', 'Your AI credit limit is exhausted'),
+      message: rawMsg
+        || t('cropScan.err.creditsMsg', "You've used all your AI credits for this month. They refill on the 1st. Check your balance on the AI home screen."),
+    };
+  }
   if (status === 429) {
     return {
       kind: 'busy',
@@ -1357,7 +1367,7 @@ export default function CropScanScreen({ navigation }) {
         <View style={SC.errModalBackdrop}>
           <View style={SC.errModalCard}>
             <View style={[SC.errModalIcon, {
-              backgroundColor: analysisError?.kind === 'auth'
+              backgroundColor: (analysisError?.kind === 'auth' || analysisError?.kind === 'credits')
                 ? COLORS.amberDark + '20'
                 : analysisError?.kind === 'network'
                   ? COLORS.blue + '20'
@@ -1367,6 +1377,7 @@ export default function CropScanScreen({ navigation }) {
                 name={
                   analysisError?.kind === 'network' ? 'cloud-offline-outline'
                   : analysisError?.kind === 'auth' ? 'lock-closed-outline'
+                  : analysisError?.kind === 'credits' ? 'wallet-outline'
                   : analysisError?.kind === 'busy' ? 'time-outline'
                   : analysisError?.kind === 'warmup' ? 'flash-outline'
                   : analysisError?.kind === 'image' ? 'image-outline'
@@ -1375,7 +1386,7 @@ export default function CropScanScreen({ navigation }) {
                 }
                 size={30}
                 color={
-                  analysisError?.kind === 'auth' ? COLORS.amberDark
+                  (analysisError?.kind === 'auth' || analysisError?.kind === 'credits') ? COLORS.amberDark
                   : analysisError?.kind === 'network' ? COLORS.blue
                   : COLORS.red
                 }
@@ -1397,16 +1408,29 @@ export default function CropScanScreen({ navigation }) {
                   {t('common.cancel', 'Cancel')}
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={SC.errModalBtnPrimary}
-                onPress={() => { setAnalysisError(null); goToStep(3); }}
-                accessibilityRole="button"
-              >
-                <Ionicons name="refresh" size={16} color={COLORS.white} />
-                <Text style={SC.errModalBtnPrimaryTxt}>
-                  {t('cropScan.tryAgain', 'Try again')}
-                </Text>
-              </TouchableOpacity>
+              {analysisError?.kind === 'credits' ? (
+                <TouchableOpacity
+                  style={SC.errModalBtnPrimary}
+                  onPress={() => { setAnalysisError(null); navigation.navigate('AICredits'); }}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="wallet-outline" size={16} color={COLORS.white} />
+                  <Text style={SC.errModalBtnPrimaryTxt}>
+                    {t('cropScan.viewCredits', 'View credits')}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={SC.errModalBtnPrimary}
+                  onPress={() => { setAnalysisError(null); goToStep(3); }}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="refresh" size={16} color={COLORS.white} />
+                  <Text style={SC.errModalBtnPrimaryTxt}>
+                    {t('cropScan.tryAgain', 'Try again')}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </View>
