@@ -34,10 +34,12 @@ const { width: W, height: H } = Dimensions.get('window');
 // 500ms minimum so stray taps don't POST near-empty audio blobs to Sarvam.
 const MAX_REC_MS = 60_000;
 const MIN_REC_MS = 500;
-// 10s of audio below this dBFS threshold → user finished speaking → auto-stop.
-// Generous so a thoughtful pause mid-sentence doesn't get cut off.
+// Audio below this dBFS threshold for SILENCE_MS → user finished speaking → auto-stop.
+// 1.8s gives snappy endpointing (was 10s, which added a flat ~8s of dead air after
+// the farmer stopped talking) while still tolerating a brief mid-sentence pause. The
+// Stop button still ends a turn instantly. Tune SILENCE_MS up if turns get cut early.
 const SILENCE_DB = -45;
-const SILENCE_MS = 10_000;
+const SILENCE_MS = 1_800;
 
 function humanReadableVoiceError(err, fallback = 'Could not process. Please try again.') {
   const status = err?.response?.status ?? err?.status;
@@ -360,15 +362,17 @@ export default function VoiceChatScreen({ navigation }) {
 
   // Typewriter: reveal the AI reply at the top, character by character (the text
   // "flows down" as more arrives). Auto-scrolls to keep the latest line visible.
+  // Tuned fast (~6 chars / 20ms ≈ a full spoken reply in ~1.5s) so the text keeps
+  // pace with the audio instead of lagging ~6s behind it.
   useEffect(() => {
     if (!aiReply) { setTypedReply(''); return; }
     setTypedReply('');
     let i = 0;
     const id = setInterval(() => {
-      i = Math.min(aiReply.length, i + 2);
+      i = Math.min(aiReply.length, i + 6);
       setTypedReply(aiReply.slice(0, i));
       if (i >= aiReply.length) clearInterval(id);
-    }, 30);
+    }, 20);
     return () => clearInterval(id);
   }, [aiReply]);
 

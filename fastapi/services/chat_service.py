@@ -447,8 +447,12 @@ async def _voice_reply(message, history, farm_profile, response_length, model_ov
     usage = _new_usage()
     cfg = get_feature_config("CHAT_WRITER", model_override=model_override)
     try:
+        # Voice replies are prompt-capped to ~90 spoken words + a couple of short
+        # follow-ups; cap max_tokens well below the 4096 default so a runaway
+        # generation can't add seconds of tail latency to a spoken turn.
         reply, wtok = await call_llm_text(
-            cfg, _writer_system(farm_profile, response_length, "voice", with_followups=True), user_prompt
+            cfg, _writer_system(farm_profile, response_length, "voice", with_followups=True), user_prompt,
+            max_tokens=512,
         )
     except Exception as exc:
         logger.error("[ChatService] voice writer %s failed: %s", cfg.model, exc)
