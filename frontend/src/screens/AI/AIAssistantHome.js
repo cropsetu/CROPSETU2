@@ -51,19 +51,23 @@ const SVG_GLYPH = 32;
 // ── Quick services (4-col icon grid) — labels resolved via t() in render ─────
 // Tiles with `renderIcon` draw a realistic colourful SVG; the rest keep their
 // existing coloured Ionicon (scan/chat read fine in colour).
+// `gradient` tiles render a colourful diagonal gradient logo badge (white glyph
+// + coloured glow) — the "futuristic" treatment used for the core Krushi
+// services. Brand labels point at the canonical aiBrand.* keys so they read
+// "Krushi Drishti / Vaani / Gyaan" in every locale.
 const QUICK_SERVICES = [
-  { id: 'scan',    labelKey: 'aiHome.quickServices.scan',    icon: 'scan-circle',         color: COLORS.primary, bg: COLORS.greenTint,  screen: 'CropScan' },
-  { id: 'chat',    labelKey: 'aiHome.quickServices.chat',    icon: 'chatbubble-ellipses', color: COLORS.blue, bg: COLORS.blueMist,  screen: 'AIChat'   },
+  { id: 'scan',    labelKey: 'aiBrand.drishti', icon: 'scan',                color: COLORS.primary, bg: COLORS.greenTint, gradient: ['#12D6A0', '#0B9C68'], screen: 'CropScan' },
+  { id: 'chat',    labelKey: 'aiBrand.gyaan',   icon: 'chatbubble-ellipses', color: COLORS.blue,    bg: COLORS.blueMist,  gradient: ['#5B9DFF', '#2563EB'], screen: 'AIChat'   },
   { id: 'markets', labelKey: 'aiHome.tools.mandi.label', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
   { id: 'weather', labelKey: 'aiHome.quickServices.weather', color: COLORS.sellerConfirmed, bg: COLORS.skyPale, screen: 'Weather', renderIcon: () => <WeatherIcon condition="partly-sunny" size={SVG_GLYPH} animated={false} /> },
 ];
 
 // ── AI Tools (2-col grid) ────────────────────────────────────────────────────
 const AI_TOOLS = [
-  { id: 'disease', labelKey: 'aiHome.tools.disease.label', descKey: 'aiHome.tools.disease.desc', icon: 'scan', color: GREEN, bg: COLORS.greenTint, screen: 'CropScan', badge: 'AI' },
-  { id: 'chatSupport', labelKey: 'aiHome.tools.chatSupport.label', descKey: 'aiHome.tools.chatSupport.desc', icon: 'chatbubbles', color: COLORS.blue, bg: COLORS.blueMist, screen: 'AIChat', badge: 'LIVE' },
-  { id: 'voiceChat', labelKey: 'aiHome.tools.voiceChat.label', descKey: 'aiHome.tools.voiceChat.desc', icon: 'mic', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'VoiceChat', badge: 'NEW' },
-  { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', icon: 'leaf', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmList' },
+  { id: 'disease', labelKey: 'aiBrand.drishti', descKey: 'aiHome.tools.disease.desc', icon: 'scan', color: GREEN, bg: COLORS.greenTint, gradient: ['#12D6A0', '#0B9C68'], screen: 'CropScan', badge: 'AI' },
+  { id: 'chatSupport', labelKey: 'aiBrand.gyaan', descKey: 'aiHome.tools.chatSupport.desc', icon: 'chatbubbles', color: COLORS.blue, bg: COLORS.blueMist, gradient: ['#5B9DFF', '#2563EB'], screen: 'AIChat', badge: 'LIVE' },
+  { id: 'voiceChat', labelKey: 'aiBrand.vaani', descKey: 'aiHome.tools.voiceChat.desc', icon: 'mic', color: COLORS.rustOrange, bg: COLORS.creamOrange, gradient: ['#FFBC42', '#F76B1C'], screen: 'VoiceChat', badge: 'NEW' },
+  { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', icon: 'leaf', color: COLORS.primary, bg: COLORS.greenTint, gradient: ['#6BD06B', '#2E9E5B'], screen: 'FarmList' },
   { id: 'soil', labelKey: 'aiHome.tools.soil.label', descKey: 'aiHome.tools.soil.desc', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'SoilHealth', renderIcon: () => <SoilIcon type="black" size={SVG_GLYPH} /> },
   { id: 'mandi', labelKey: 'aiHome.tools.mandi.label', descKey: 'aiHome.tools.mandi.desc', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
   { id: 'stateCrops', labelKey: 'aiHome.tools.stateCrops.label', descKey: 'aiHome.tools.stateCrops.desc', icon: 'map', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'StateCrops' },
@@ -108,16 +112,32 @@ function ServiceTile({ item, index, variant, onPress, t }) {
           </View>
         )}
 
-        {/* Icon — realistic SVG when provided, else the coloured Ionicon */}
-        <View style={[
-          S.tileIcon,
-          isCard && S.tileIconCard,
-          { backgroundColor: item.bg, borderColor: item.color + '33' },
-        ]}>
-          {item.renderIcon
-            ? item.renderIcon()
-            : <Ionicons name={isCard ? item.icon + '-outline' : item.icon} size={ICON_GLYPH} color={item.color} />}
-        </View>
+        {/* Icon — colourful gradient logo badge (gradient tiles), realistic SVG
+            (renderIcon), else the flat coloured Ionicon. */}
+        {item.gradient ? (
+          <LinearGradient
+            colors={item.gradient}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={[
+              S.tileIcon,
+              isCard && S.tileIconCard,
+              S.tileIconGradient,
+              { shadowColor: item.gradient[0] },
+            ]}
+          >
+            <Ionicons name={item.icon} size={ICON_GLYPH} color="#fff" />
+          </LinearGradient>
+        ) : (
+          <View style={[
+            S.tileIcon,
+            isCard && S.tileIconCard,
+            { backgroundColor: item.bg, borderColor: item.color + '33' },
+          ]}>
+            {item.renderIcon
+              ? item.renderIcon()
+              : <Ionicons name={isCard ? item.icon + '-outline' : item.icon} size={ICON_GLYPH} color={item.color} />}
+          </View>
+        )}
 
         {/* Text */}
         <Text style={isCard ? S.tileTitle : S.tileLabel}>{t(item.labelKey)}</Text>
@@ -178,9 +198,13 @@ export default function AIAssistantHome({ navigation, embeddedInHub }) {
           embeddedInHub && { paddingTop: 12 },
           { opacity: headerAnim, transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] }) }] },
         ]}>
-          <View style={S.brandIconWrap}>
-            <Ionicons name="hardware-chip" size={20} color={GREEN} />
-          </View>
+          <LinearGradient
+            colors={['#22C55E', '#F5B841']}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={S.brandIconWrap}
+          >
+            <Ionicons name="sparkles" size={22} color="#fff" />
+          </LinearGradient>
           <View style={{ flex: 1 }}>
             <Text style={S.headerTitle}>{t('aiHome.title')}</Text>
             <Text style={S.headerSub}>{t('aiHome.subtitle')}</Text>
@@ -379,8 +403,9 @@ const S = StyleSheet.create({
   },
   brandIconWrap: {
     width: 46, height: 46, borderRadius: 16,
-    backgroundColor: GREEN_L, borderWidth: 1, borderColor: GREEN + '24',
     justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#22C55E', shadowOpacity: 0.4, shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 }, elevation: 7,
   },
   headerTitle: { fontSize: 23, fontWeight: TYPE.weight.black, color: COLORS.textDark, letterSpacing: -0.4 },
   headerSub:   { fontSize: 12, color: COLORS.textMedium, marginTop: 3, lineHeight: 17 },
@@ -481,6 +506,12 @@ const S = StyleSheet.create({
   },
   // Card-only: spacing below icon (quick row uses column `gap` instead)
   tileIconCard: { marginBottom: 10 },
+  // Colourful gradient logo badge — no border, soft coloured glow for a modern,
+  // "futuristic" look (shadowColor is set per-tile from its gradient).
+  tileIconGradient: {
+    borderWidth: 0,
+    shadowOpacity: 0.38, shadowRadius: 9, shadowOffset: { width: 0, height: 5 }, elevation: 7,
+  },
 
   // Quick label
   tileLabel: { fontSize: 10.5, color: COLORS.textDark, fontWeight: TYPE.weight.bold, textAlign: 'center', lineHeight: 13 },
