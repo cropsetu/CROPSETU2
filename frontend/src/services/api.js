@@ -74,7 +74,11 @@ export function safeErrorMessage(error, fallback = 'Something went wrong. Please
   if (status === 404) return 'The requested resource was not found.';
   if (status === 409) return 'A conflict occurred. Please refresh and try again.';
   if (status === 422) return 'Some details look invalid. Please review and try again.';
-  if (status === 429) return 'Too many requests. Please wait a moment and try again.';
+  // 429 covers BOTH a transient rate-limit AND a hard daily free-tier cap. The
+  // backend sends a safe, specific message for the daily cap ("…free users can run
+  // N scans per day. Try again tomorrow."); surface it so the farmer knows whether
+  // to wait a minute or upgrade, instead of a misleading generic retry prompt.
+  if (status === 429) return error.response?.data?.error?.message || 'Too many requests. Please wait a moment and try again.';
   if (status === 503) return 'Service temporarily unavailable. Please try again shortly.';
   if (status >= 500)  return 'Server error. Please try again later.';
   return fallback;

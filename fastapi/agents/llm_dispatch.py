@@ -1,31 +1,32 @@
 """
-agents/llm_dispatch.py — Flat per-feature LLM dispatch (Gemini-first).
+agents/llm_dispatch.py — Flat per-feature LLM dispatch (Gemini-first, multi-provider).
 
-Each AI feature (text chat, crop diagnose, treatment, alert, pest) reads exactly
-ONE Gemini model from .env. CropSetu consolidated onto Google Gemini for
-production; the Anthropic provider was removed. Gemini is the only provider a
-feature can be CONFIGURED to use (AI_<F>_MODEL must be a 'gemini-*' id).
+Each AI feature (text chat, crop diagnose, treatment, alert, pest) resolves ONE
+model. Gemini is the default for every feature, but WI-11 makes the dispatch
+MULTI-PROVIDER: the model id's prefix selects the provider —
+    gemini-*            → Google Gemini
+    gpt-*               → OpenAI
+    claude-*            → Anthropic
+    llama-* / mixtral-* → Groq
+(see _detect_provider). The provider's own API key is resolved automatically
+(GEMINI_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY / GROQ_API_KEY); when that
+key is unset, get_feature_config raises a clear ConfigError rather than calling
+with an empty credential.
 
-Groq survives in ONE narrow role: a last-resort cross-provider fallback for the
-text-chat features (TEXT_CHAT / CHAT_WRITER / CHAT_ENHANCER). When the Gemini
-primary AND its Flash↔Pro capacity fallback both fail, call_llm_text tries Groq
-so the farmer still gets a reply. It fires only when GROQ_API_KEY is set; with no
-key the dispatcher is Gemini-only, exactly as before. See call_llm_text / the
-_groq_fallback helper.
+The model can be set three ways (highest precedence first):
+    1. model_override — the admin App Settings choice (ai.model.*), forwarded
+       per-request from the Express backend (body.model / params.model_diagnose /
+       params.model_treatment). Honoured live, no restart.
+    2. AI_<FEATURE>_MODEL / AI_<FEATURE>_API_KEY env vars.
+    3. The baked-in Gemini default (_DEFAULTS).
 
-Admin workflow to change a feature's model:
-    1. Open fastapi/.env
-    2. Change AI_<FEATURE>_MODEL=<gemini-model-id>   (e.g. gemini-2.5-pro)
-    3. (Optional) AI_<FEATURE>_API_KEY=<key>  — defaults to GEMINI_API_KEY
-    4. Save → restart picks it up → done
-
-The only fallback is the chat chain described above (Gemini → Gemini capacity →
-Groq). For every non-chat feature there is NO fallback — if the chosen model
-fails, the user-facing call fails too, by design (full control, no hidden
-behaviour). The vision path (call_llm_vision) never falls back at all.
-
-Only Gemini model ids (prefix "gemini-") are accepted. Any other id raises a
-ConfigError so a stray non-Gemini model can't silently fail at call time.
+Fallback chains:
+    • call_llm_text — for a Gemini PRIMARY: Gemini → Gemini Flash↔Pro capacity
+      fallback → cross-provider Groq (text-chat features, GROQ_API_KEY set). A
+      non-Gemini primary (OpenAI/Anthropic/Groq) is called direct, NO fallback.
+    • call_llm_vision — no fallback for any provider; Groq is rejected (no vision).
+For non-chat features there is no fallback by design (full control, fail loud).
+An unknown model-id prefix raises ConfigError so it can't silently fail at call time.
 """
 from __future__ import annotations
 
@@ -103,7 +104,7 @@ class FeatureConfig:
 
 
 class ConfigError(RuntimeError):
-    """Raised when AI_<F>_MODEL points at a non-Gemini model."""
+    """Raised on an unsupported model-id prefix or a missing provider API key."""
 
 
 # ── Provider detection ───────────────────────────────────────────────────────
@@ -173,6 +174,17 @@ def get_feature_config(feature: str, model_override: Optional[str] = None) -> Fe
     provider = _detect_provider(model)
     default_key = os.environ.get(_PROVIDER_KEY_ENV[provider], "")
     api_key = (os.environ.get(f"AI_{feature}_API_KEY") or default_key).strip()
+
+    # Fail fast with an actionable message when the selected provider has no key,
+    # instead of sending an empty Bearer token and getting an opaque 401 back (and
+    # wasting a round-trip). This is the common case when an admin picks a non-Gemini
+    # model in App Settings but that provider's key isn't set on the AI service yet.
+    if not api_key:
+        raise ConfigError(
+            f"{feature}: model {model!r} routes to provider '{provider}', but no API key "
+            f"is configured. Set {_PROVIDER_KEY_ENV[provider]} (or AI_{feature}_API_KEY) "
+            f"on the AI service to use this model."
+        )
 
     return FeatureConfig(feature=feature, model=model, api_key=api_key, base_url=None)
 

@@ -5,34 +5,44 @@
  * Runs on a fixed monthly credit budget.
  */
 import { COLORS, TYPE, SHADOWS } from '../../constants/colors';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, StatusBar, Platform, RefreshControl, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useLanguage } from '../../context/LanguageContext';
 import { getAICredits } from '../../services/aiApi';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 
-const BUDGET = 100000;
+// Fallback monthly allowance used only until the API returns the live value. The
+// real budget is data.monthlyAllowance from the credit summary, so the bar tracks
+// the admin-configured free grant + tier instead of a hardcoded constant.
+const DEFAULT_MONTHLY_ALLOWANCE = 100;
 
 export default function AICreditsScreen({ navigation }) {
   const { language, t } = useLanguage();
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError]   = useState(false);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     try {
       const result = await getAICredits();
       setData(result);
-    } catch { /* silent */ }
+      setLoadError(false);
+    } catch {
+      setLoadError(true);   // show a hint instead of silently rendering 0
+    }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Reload whenever the screen regains focus, so an admin credit top-up appears the
+  // moment the farmer opens or returns to this screen (no manual pull-to-refresh).
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   if (loading) {
     return (
@@ -46,8 +56,9 @@ export default function AICreditsScreen({ navigation }) {
   }
 
   const balance = data?.balance ?? 0;
-  const used    = Math.max(0, BUDGET - balance);
-  const usedPct = Math.min(100, Math.round((used / BUDGET) * 100));
+  const budget  = Number(data?.monthlyAllowance) > 0 ? Number(data.monthlyAllowance) : DEFAULT_MONTHLY_ALLOWANCE;
+  const used    = Math.max(0, budget - balance);
+  const usedPct = Math.min(100, Math.round((used / budget) * 100));
 
   const handleBuy = () => {
     Alert.alert(
@@ -76,6 +87,15 @@ export default function AICreditsScreen({ navigation }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} colors={[COLORS.primary]} />}
       >
 
+        {loadError && (
+          <View style={S.errorBanner}>
+            <Ionicons name="cloud-offline-outline" size={16} color={COLORS.amberDark || COLORS.amber} />
+            <Text style={S.errorBannerText}>
+              {t('aiCredits.loadError', "Couldn't load your latest balance. Pull down to refresh.")}
+            </Text>
+          </View>
+        )}
+
         {/* Balance card */}
         <View style={S.balanceCard}>
           <View style={S.balanceRow}>
@@ -95,7 +115,7 @@ export default function AICreditsScreen({ navigation }) {
           </View>
           <View style={S.barLabels}>
             <Text style={S.barLabel}>{used} {t('aiCredits.usedThisMonth', 'Used this month')}</Text>
-            <Text style={S.barLabel}>{BUDGET} {t('aiCredits.monthlyBudget', 'Monthly budget')}</Text>
+            <Text style={S.barLabel}>{budget} {t('aiCredits.monthlyBudget', 'Monthly budget')}</Text>
           </View>
         </View>
 
@@ -148,4 +168,11 @@ const S = StyleSheet.create({
     backgroundColor: COLORS.amber, borderRadius: 16, paddingVertical: 16, ...SHADOWS.small,
   },
   buyBtnText: { fontSize: 15, fontWeight: '900', color: COLORS.white },
+
+  errorBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#FFF3E0', borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: '#FFE082',
+  },
+  errorBannerText: { flex: 1, fontSize: 12, color: COLORS.textMedium, fontWeight: '600' },
 });

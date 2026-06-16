@@ -1023,9 +1023,10 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
   // Admin-selected scan models (App Settings → ai.model.diagnose / ai.model.treatment).
   // Carried inside params so they survive the enqueue→Celery→worker hop; FastAPI
   // honours them per-request and falls back to its own env/default when absent.
-  const [modelDiagnose, modelTreatment] = await Promise.all([
+  const [modelDiagnose, modelTreatment, ensembleEnabled] = await Promise.all([
     getSetting('ai.model.diagnose').catch(() => undefined),
     getSetting('ai.model.treatment').catch(() => undefined),
+    getSetting('ai.diagnose.ensemble').catch(() => undefined),
   ]);
   const fastapiParams = {
     crop_name:           farmCtx.cropName || 'Unknown',
@@ -1055,6 +1056,9 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
     tier:                farmCtx.tier || 'fast',
     ...(modelDiagnose  ? { model_diagnose: modelDiagnose }   : {}),
     ...(modelTreatment ? { model_treatment: modelTreatment } : {}),
+    // Second-opinion ensemble toggle (App Settings → ai.diagnose.ensemble). Forwarded
+    // per-scan so FastAPI's cascade gate honours the admin choice over its env default.
+    ...(ensembleEnabled !== undefined ? { ensemble: ensembleEnabled } : {}),
   };
 
   try {
@@ -1375,9 +1379,10 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
       diagnosisMethod = 'fastapi-agentic';
       // Translate the existing Node-side params shape into the FastAPI
       // shape (snake_case keys that orchestrator.run_diagnosis expects).
-      const [modelDiagnose, modelTreatment] = await Promise.all([
+      const [modelDiagnose, modelTreatment, ensembleEnabled] = await Promise.all([
         getSetting('ai.model.diagnose').catch(() => undefined),
         getSetting('ai.model.treatment').catch(() => undefined),
+        getSetting('ai.diagnose.ensemble').catch(() => undefined),
       ]);
       const fastapiParams = {
         crop_name:           farmCtx.cropName || 'Unknown',
@@ -1404,6 +1409,7 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
         tier:                farmCtx.tier || 'fast',
         ...(modelDiagnose  ? { model_diagnose: modelDiagnose }   : {}),
         ...(modelTreatment ? { model_treatment: modelTreatment } : {}),
+        ...(ensembleEnabled !== undefined ? { ensemble: ensembleEnabled } : {}),
       };
 
       try {

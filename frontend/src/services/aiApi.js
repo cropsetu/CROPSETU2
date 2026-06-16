@@ -438,6 +438,11 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
     try { errBody = JSON.parse(uploadResult.body); } catch { errBody = {}; }
     const e = new Error(errBody?.error?.message || `HTTP ${uploadResult.status}`);
     e.status = uploadResult.status;
+    // Mirror the axios error shape so screen mappers (humanReadableVoiceError) can
+    // read err.response.data.error.message — otherwise the server's specific message
+    // (e.g. the credit-exhausted line) is unreachable on native and the generic
+    // fallback shows instead.
+    e.response = { status: uploadResult.status, data: errBody };
     throw e;
   }
 

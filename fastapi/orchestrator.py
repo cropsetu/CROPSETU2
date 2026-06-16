@@ -302,8 +302,19 @@ async def _run_diagnosis_inner(
     # user-facing "Fast vs Best" tiers with adaptive routing.
     tok_ensemble = empty_token_info("none-not-escalated")
     ambiguous = _is_ambiguous(diagnosis, ENSEMBLE_AMBIGUOUS_DELTA)
+    # Admin App Settings toggle (ai.diagnose.ensemble) is forwarded per-scan as
+    # params["ensemble"]; it overrides the ENABLE_ENSEMBLE env default so the admin
+    # can turn the ensemble on/off live without a redeploy. Absent (older Express
+    # build / non-scan caller) → fall back to the env default.
+    _ens = params.get("ensemble")
+    if _ens is None:
+        ensemble_enabled = ENABLE_ENSEMBLE
+    elif isinstance(_ens, bool):
+        ensemble_enabled = _ens
+    else:
+        ensemble_enabled = str(_ens).strip().lower() in ("true", "1", "yes", "on")
     should_escalate = (
-        ENABLE_ENSEMBLE
+        ensemble_enabled
         and (confidence < ENSEMBLE_ESCALATE_BELOW or ambiguous)
         and not diagnosis.get("crop_mismatch")
         and not diagnosis.get("is_out_of_distribution")
@@ -364,7 +375,7 @@ async def _run_diagnosis_inner(
     else:
         logger.info(
             "[Orchestrator] STAGE 3.25 — Cascade gate SKIPPED (conf=%.2f, ambig=%s, enabled=%s)",
-            confidence, ambiguous, ENABLE_ENSEMBLE,
+            confidence, ambiguous, ensemble_enabled,
         )
 
     # ── Visual claim verification (Pillow HSV histogram, $0) ─────────────────

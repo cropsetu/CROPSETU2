@@ -1,63 +1,62 @@
 # WI-11 — AI model routing (per-request provider selection)
 
-Makes the admin **AI Models** dropdowns (WI-1 `ai.model.*` settings) actually route
-AI traffic to Gemini / OpenAI / **Claude (Anthropic)** / Groq, instead of only
-storing the selection.
+Makes the admin **AI Models** dropdowns (`ai.model.*` settings) actually route AI
+traffic to Gemini / OpenAI / **Claude (Anthropic)** / Groq, instead of only storing
+the selection.
 
-Branch: `feat/ai-model-routing` (off `main`). **Not merged / not deployed** — this
-touches the FastAPI AI service; review + deploy on your schedule.
+Status: **merged to `main`** (PR #27 FastAPI provider layer + per-request override,
+PR #28 Express forwarding). Routing is live once the FastAPI service deploys `main`
+and the relevant provider API keys are set on it.
 
 ---
 
-## ✅ Done in this branch — the provider layer
+## Provider layer (`fastapi/`)
 
-The FastAPI dispatch was Gemini-only (`_detect_provider` rejected non-`gemini-*`
-ids; `call_llm_text/vision` always called Gemini). Now it routes by model-id prefix.
+The dispatch routes by model-id prefix.
 
 | File | Change |
 |---|---|
-| `fastapi/agents/llm_dispatch.py` | `_detect_provider` → `gemini-*`/`gpt-*`/`claude-*`/`llama-*`(+`mixtral-*`); `get_feature_config` resolves the **provider-appropriate API key** (`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`GROQ_API_KEY`, not always `GEMINI_API_KEY`); `call_llm_text` + `call_llm_vision` dispatch the **primary** call to the detected provider (Gemini keeps its Flash↔Pro + Groq fallback chain; others call direct). |
-| `fastapi/agents/llm_utils.py` | New `call_anthropic_text` + `call_anthropic_vision` (**official `anthropic` SDK / `AsyncAnthropic`** — system as `system=`, content blocks, `usage.input_tokens/output_tokens`, **no `temperature`** since Opus 4.8/4.7 400 on it); new `call_openai_text`; `_PRICING` rows for `claude-opus-4-8`/`claude-sonnet-4-6`/`claude-haiku-4-5`. |
-| `fastapi/config.py` | `ANTHROPIC_API_KEY`. |
-| `fastapi/requirements.txt` | `anthropic>=0.49` (its deps — httpx/jiter/distro/anyio/sniffio/pydantic — were already pinned). |
-
-**This alone enables provider switching via env today:** e.g.
-`AI_CROP_DIAGNOSE_MODEL=claude-opus-4-8` + `ANTHROPIC_API_KEY=…` routes scan
-diagnosis to Claude. Verify the resolved `anthropic` version pins cleanly against
-`jiter==0.14.0` (pin it exactly once `pip install` resolves it).
+| `fastapi/agents/llm_dispatch.py` | `_detect_provider` → `gemini-*`/`gpt-*`/`claude-*`/`llama-*`(+`mixtral-*`); `get_feature_config(feature, model_override)` resolves the **provider-appropriate API key** (`GEMINI_/OPENAI_/ANTHROPIC_/GROQ_API_KEY`) and raises a clear `ConfigError` when that key is unset; `call_llm_text` + `call_llm_vision` dispatch the primary call to the detected provider (Gemini keeps its Flash↔Pro + Groq fallback chain; others call direct; Groq is rejected for vision). |
+| `fastapi/agents/llm_utils.py` | `call_anthropic_text` + `call_anthropic_vision` (official `anthropic` SDK / `AsyncAnthropic` — system as `system=`, content blocks, `usage.input_tokens/output_tokens`, **no `temperature`** since Opus 4.8/4.7 400 on it); `call_openai_text` + `call_openai_vision` (raw httpx, OpenAI-compatible); `_PRICING` rows for `gpt-4o`/`gpt-4o-mini`/`claude-opus-4-8`/`claude-sonnet-4-6`/`claude-haiku-4-5`/`llama-3.3-70b`. |
+| `fastapi/config.py` | reads `GEMINI_/OPENAI_/ANTHROPIC_/GROQ_API_KEY`. |
+| `fastapi/requirements.txt` | `anthropic>=0.49`. |
 
 ---
 
-## ⬜ Remaining — the per-request AppSetting override (mechanical)
+## Per-request override (done)
 
-So the admin `ai.model.*` setting (not just env) drives the model per request.
+The admin `ai.model.*` setting drives the model **per request**, not just via env.
 
-**1. FastAPI — accept an optional model + thread it down**
+- **FastAPI** — `get_feature_config(feature, model_override)` honours a forwarded
+  model; threaded through `routes/chat.py`, `routes/soil_ocr.py`,
+  `services/chat_service.py`, `services/soil_ocr_service.py`,
+  `agents/disease_diagnosis_agent.py` (`model_diagnose`),
+  `agents/treatment_agent.py` (`model_treatment`). The scan path carries the
+  override inside `params` through the enqueue → Celery → orchestrator hop.
+- **Express** — `ai.routes.js` reads `ai.model.chat` / `ai.model.diagnose` /
+  `ai.model.treatment` / `ai.model.soilOcr` / `ai.model.voiceStt` via `getSetting()`
+  and forwards them per request (`body.model`, `params.model_diagnose`,
+  `params.model_treatment`, …), 60s-cached and fail-safe.
 
-- `llm_dispatch.get_feature_config(feature, model_override: str | None = None)`:
-  when `model_override` is truthy, use it as `model` (still resolve the
-  provider-appropriate key from it). One-line change at the `model = …` resolution.
-- `routes/chat.py` (`POST /ai/chat`): read `body.get("model")`, pass to
-  `chat_with_farmmind(..., model_override=...)`.
-- `routes/scan.py` (`POST /ai/scan` / enqueue): read `body.get("model_diagnose")` /
-  `body.get("model_treatment")`, thread into the diagnosis/treatment configs.
-- `services/chat_service.py` + `orchestrator.py`: add `model_override` params and
-  pass to their `get_feature_config(...)` calls (writer/vision/voice; diagnose/
-  treatment). These are the call sites that resolve the FeatureConfig.
+## Coverage
 
-**2. Express — read the setting + forward it per request**
+| | Gemini | OpenAI | Anthropic | Groq |
+|---|:---:|:---:|:---:|:---:|
+| **Chat / treatment (text)** | ✅ | ✅ | ✅ | ✅ |
+| **Diagnosis / soil-OCR (vision)** | ✅ | ✅ | ✅ | ❌ no vision |
 
-- `backend/src/routes/ai.routes.js` chat handler: `const model = await getSetting('ai.model.chat').catch(()=>null);` → add `...(model ? { model } : {})` to the FastAPI `/ai/chat` payload. Same for voice (`ai.model.voiceStt`).
-- `backend/src/routes/ai.routes.js` `/scan/submit` + `backend/src/services/ai.scan.fastapi.js` `submitFastAPIScan`: read `ai.model.diagnose` / `ai.model.treatment`, add `model_diagnose` / `model_treatment` to the FastAPI body.
-- Import: `import { getSetting } from '../services/settings.service.js';`
+## Guards (added on `feat/ai-ux-robustness-and-voice`)
 
-**3. Caveats**
+- **Vision dropdowns are filtered** — `ai.model.diagnose` / `ai.model.soilOcr` only
+  offer vision-capable models (Groq's Llama is excluded), so a non-vision model can't
+  be picked for a vision feature and hard-fail the call.
+- **Missing-key error** — selecting a provider whose key isn't set returns a clear
+  `ConfigError` ("set `<PROVIDER>_API_KEY` …") instead of an opaque upstream 401.
+- The voice STT setting (`ai.model.voiceStt`, `sarvam:*`) is not an LLM — it routes
+  in the voice STT path, not `llm_dispatch`.
 
-- Vision features (diagnose/treatment/soilOcr) require a **vision-capable** model —
-  `llama-*` (Groq) has no vision; the dispatch raises a clear `ConfigError`. The
-  admin dropdown lets a user pick a non-vision model for a vision feature; consider
-  filtering the options per feature, or rely on the runtime error.
-- The voice STT setting (`ai.model.voiceStt`, e.g. `sarvam:*`) is **not** an LLM —
-  it routes in the voice STT path, not `llm_dispatch`. Wire it separately if needed.
-- Stale "Gemini-only" wording remains in a couple of `llm_dispatch.py` comments —
-  cosmetic.
+## Deploy notes
+
+- Set the provider keys on the **FastAPI** service env (`OPENAI_API_KEY`,
+  `ANTHROPIC_API_KEY`, `GROQ_API_KEY`); Gemini works with the existing key.
+- Verify the resolved `anthropic` version pins cleanly against `jiter==0.14.0`.
