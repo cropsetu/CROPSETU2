@@ -26,13 +26,13 @@ const scale  = (v) => Math.round(v * (W / 390));
 // Clamp between min and max
 const clamp  = (v, min, max) => Math.min(Math.max(v, min), max);
 
-const ICON_SIZE  = clamp(scale(30), 28, 34);
-const LABEL_SIZE = clamp(scale(11), 10, 12);
+const ICON_SIZE  = clamp(scale(38), 34, 44);
+const LABEL_SIZE = clamp(scale(12), 11, 13);
 const BAR_H      = Platform.OS === 'ios'
-  ? clamp(scale(90), 82, 104)
-  : clamp(scale(74), 66, 86);
+  ? clamp(scale(100), 92, 116)
+  : clamp(scale(84), 76, 98);
 const PB         = Platform.OS === 'ios' ? clamp(scale(22), 18, 30) : clamp(scale(8), 6, 12);
-const PT         = clamp(scale(10), 8, 14);
+const PT         = clamp(scale(12), 10, 16);
 
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 function TabItem({ route, options, focused, onPress }) {
@@ -140,16 +140,16 @@ const TB = StyleSheet.create({
   tabInner: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: clamp(scale(4), 3, 6),
+    gap: clamp(scale(5), 4, 7),
     position: 'relative',
-    paddingHorizontal: clamp(scale(6), 4, 10),
-    paddingVertical: clamp(scale(4), 3, 7),
+    paddingHorizontal: clamp(scale(8), 5, 12),
+    paddingVertical: clamp(scale(6), 4, 9),
   },
   activePill: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: ACTIVE_COLOR + '14',
-    borderRadius: 18,
+    borderRadius: 20,
   },
   label: {
     fontWeight: TYPE.weight.bold,

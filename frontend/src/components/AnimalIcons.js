@@ -590,6 +590,177 @@ function PigIcon({ size }) {
   );
 }
 
+// DUCK — domestic white duck: cream body, folded wing, rounded head, bright orange bill, webbed feet.
+function DuckIcon({ size }) {
+  return (
+    <Svg viewBox="0 0 200 200" width={size} height={size}>
+      <Defs>
+        <Body3D id="anim-duck-body" light="#FFFFFF" base="#F3EFE3" dark="#D8D0BC" />
+        <Body3D id="anim-duck-head" light="#FFFFFF" base="#F4F0E5" dark="#DBD3C0" />
+        <Body3DLinear id="anim-duck-bill" light="#FFC861" base="#F2933D" dark="#C96A1E" />
+        <Body3DLinear id="anim-duck-foot" light="#FFB04A" base="#F08A2C" dark="#C96A1E" />
+      </Defs>
+      <Shadow rx={56} />
+      <Ellipse cx="118" cy="120" rx="54" ry="42" fill="url(#anim-duck-body)" />
+      <Ellipse cx="100" cy="165" rx="9" ry="13" fill="url(#anim-duck-foot)" />
+      <Ellipse cx="128" cy="167" rx="9" ry="13" fill="url(#anim-duck-foot)" />
+      <Path d="M150 96 Q186 84 180 130 Q160 122 150 110Z" fill="url(#anim-duck-body)" />
+      <Path d="M152 100 Q176 92 174 120" stroke="#D8D0BC" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <Ellipse cx="170" cy="118" rx="12" ry="8" fill="#EDE7D8" />
+      <Circle cx="66" cy="86" r="30" fill="url(#anim-duck-head)" />
+      <Path d="M40 92 Q6 86 18 102 Q8 104 22 110 Q34 112 44 102Z" fill="url(#anim-duck-bill)" />
+      <Ellipse cx="20" cy="100" rx="2.2" ry="3.2" fill="#B0581A" />
+      <Circle cx="58" cy="80" r="3.8" fill="#FFFFFF" /><Circle cx="58" cy="80" r="2.4" fill="#2A211A" />
+      <Ellipse cx="60" cy="74" rx="11" ry="7" fill="rgba(255,255,255,0.30)" />
+      <Ellipse cx="106" cy="104" rx="20" ry="11" fill="rgba(255,255,255,0.28)" />
+    </Svg>
+  );
+}
+
+// RABBIT — sitting rabbit: grey body, white belly, two long pink-inner ears, fluffy tail, pink nose, whiskers.
+function RabbitIcon({ size }) {
+  return (
+    <Svg viewBox="0 0 200 200" width={size} height={size}>
+      <Defs>
+        <Body3D id="anim-rabbit-body" light="#EAEAEA" base="#C7C7C7" dark="#9C9C9C" />
+        <Body3D id="anim-rabbit-head" light="#EEEEEE" base="#CBCBCB" dark="#A0A0A0" />
+        <Body3D id="anim-rabbit-belly" light="#FFFFFF" base="#F2F2F2" dark="#D8D8D8" />
+      </Defs>
+      <Shadow rx={50} />
+      <Ellipse cx="100" cy="128" rx="46" ry="44" fill="url(#anim-rabbit-body)" />
+      <Ellipse cx="100" cy="142" rx="28" ry="28" fill="url(#anim-rabbit-belly)" />
+      <Ellipse cx="150" cy="140" rx="14" ry="13" fill="#F4F4F4" stroke="#D2D2D2" strokeWidth="2" />
+      <Path d="M78 78 Q70 22 86 26 Q96 30 92 82Z" fill="url(#anim-rabbit-head)" />
+      <Path d="M81 74 Q76 36 86 38 Q91 42 88 76Z" fill="#F2B8C2" />
+      <Path d="M104 78 Q110 22 124 30 Q130 38 118 84Z" fill="url(#anim-rabbit-head)" />
+      <Path d="M108 75 Q114 38 122 44 Q124 50 116 80Z" fill="#F2B8C2" />
+      <Circle cx="92" cy="98" r="30" fill="url(#anim-rabbit-head)" />
+      <Circle cx="82" cy="94" r="4.2" fill="#FFFFFF" /><Circle cx="82" cy="94" r="2.8" fill="#2A2622" />
+      <Circle cx="83" cy="92.5" r="1" fill="#FFFFFF" />
+      <Path d="M88 108 Q92 112 96 108" stroke="#A0A0A0" strokeWidth="2" fill="none" strokeLinecap="round" />
+      <Ellipse cx="92" cy="106" rx="3.4" ry="2.4" fill="#F2A6B4" />
+      <Line x1="70" y1="106" x2="48" y2="102" stroke="#B8B8B8" strokeWidth="1.6" strokeLinecap="round" />
+      <Line x1="70" y1="110" x2="48" y2="112" stroke="#B8B8B8" strokeWidth="1.6" strokeLinecap="round" />
+      <Ellipse cx="84" cy="86" rx="12" ry="8" fill="rgba(255,255,255,0.28)" />
+    </Svg>
+  );
+}
+
+// DONKEY — grey donkey: grey body, long upright ears with dark tips, dark mane, lighter muzzle, tail tuft.
+function DonkeyIcon({ size }) {
+  return (
+    <Svg viewBox="0 0 200 200" width={size} height={size}>
+      <Defs>
+        <Body3D id="anim-donkey-body" light="#B9BEC2" base="#8E9498" dark="#5F6468" />
+        <Body3D id="anim-donkey-head" light="#BDC2C6" base="#92989C" dark="#62676B" />
+        <Body3D id="anim-donkey-muzzle" light="#CDD1D4" base="#AEB3B6" dark="#8A8F92" />
+      </Defs>
+      <Shadow rx={54} />
+      <Ellipse cx="112" cy="118" rx="52" ry="38" fill="url(#anim-donkey-body)" />
+      <Path d="M160 130 Q176 138 168 156 Q164 150 162 142" fill="#5F6468" />
+      <Path d="M165 150 Q172 152 170 162 Q166 162 164 156Z" fill="#3A3E41" />
+      <Rect x="84" y="148" width="11" height="28" rx="4" fill="#82888C" />
+      <Rect x="120" y="148" width="11" height="28" rx="4" fill="#72787C" />
+      <Path d="M58 96 Q40 96 30 132 Q44 140 58 122Z" fill="url(#anim-donkey-head)" />
+      <Path d="M44 78 Q38 36 54 42 Q60 50 58 90Z" fill="url(#anim-donkey-head)" />
+      <Path d="M46 50 Q42 40 52 44 Q55 50 54 60Z" fill="#3F4346" />
+      <Path d="M70 76 Q66 34 82 42 Q86 52 82 88Z" fill="url(#anim-donkey-head)" />
+      <Path d="M72 48 Q70 40 80 44 Q82 50 80 60Z" fill="#3F4346" />
+      <Circle cx="62" cy="104" r="28" fill="url(#anim-donkey-head)" />
+      <Path d="M76 80 Q90 70 88 96 Q82 92 76 90Z" fill="#3A2E22" />
+      <Ellipse cx="48" cy="124" rx="18" ry="14" fill="url(#anim-donkey-muzzle)" />
+      <Ellipse cx="42" cy="124" rx="2.6" ry="3.6" fill="#5A5F62" />
+      <Circle cx="56" cy="98" r="3.8" fill="#FFFFFF" /><Circle cx="56" cy="98" r="2.4" fill="#26211C" />
+      <Ellipse cx="58" cy="92" rx="11" ry="7" fill="rgba(255,255,255,0.26)" />
+      <Ellipse cx="96" cy="102" rx="18" ry="10" fill="rgba(255,255,255,0.24)" />
+    </Svg>
+  );
+}
+
+// DOG — friendly tan desi dog: tan body, floppy + alert ears, black nose, pink tongue, raised tail, red collar.
+function DogIcon({ size }) {
+  return (
+    <Svg viewBox="0 0 200 200" width={size} height={size}>
+      <Defs>
+        <Body3D id="anim-dog-body" light="#E0B97E" base="#BC8A4E" dark="#8A5E2C" />
+        <Body3D id="anim-dog-head" light="#E4BE83" base="#C09053" dark="#8E6230" />
+        <Body3D id="anim-dog-ear" light="#C79A60" base="#A0743C" dark="#704E22" />
+      </Defs>
+      <Shadow rx={54} />
+      <Ellipse cx="116" cy="120" rx="52" ry="40" fill="url(#anim-dog-body)" />
+      <Path d="M158 116 Q182 96 174 124 Q166 132 156 124Z" fill="url(#anim-dog-body)" />
+      <Rect x="86" y="150" width="12" height="28" rx="5" fill="#A87C42" />
+      <Rect x="122" y="152" width="12" height="26" rx="5" fill="#946C38" />
+      <Path d="M44 78 Q30 70 32 102 Q44 100 52 86Z" fill="url(#anim-dog-ear)" />
+      <Path d="M86 70 Q96 56 100 84 Q92 88 84 82Z" fill="url(#anim-dog-ear)" />
+      <Circle cx="68" cy="100" r="32" fill="url(#anim-dog-head)" />
+      <Ellipse cx="56" cy="118" rx="18" ry="15" fill="#D9B277" />
+      <Ellipse cx="48" cy="116" rx="7" ry="6" fill="#241B12" />
+      <Ellipse cx="46" cy="114" rx="2.4" ry="1.8" fill="#5A4A38" />
+      <Path d="M52 126 Q50 142 58 140 Q60 132 58 126Z" fill="#E87D8E" />
+      <Circle cx="60" cy="92" r="3.8" fill="#FFFFFF" /><Circle cx="60" cy="92" r="2.4" fill="#241B12" />
+      <Circle cx="80" cy="94" r="3.8" fill="#FFFFFF" /><Circle cx="80" cy="94" r="2.4" fill="#241B12" />
+      <Path d="M78 142 Q98 134 138 138" stroke="#D7263D" strokeWidth="8" fill="none" strokeLinecap="round" />
+      <Circle cx="92" cy="146" r="4.5" fill="#F2C94C" stroke="#C99A1E" strokeWidth="1.4" />
+      <Ellipse cx="62" cy="84" rx="13" ry="8" fill="rgba(255,255,255,0.28)" />
+    </Svg>
+  );
+}
+
+// FISH — rohu-type fish sideways: blue-silver body, orange forked tail + fins, scale texture, gill line.
+function FishIcon({ size }) {
+  return (
+    <Svg viewBox="0 0 200 200" width={size} height={size}>
+      <Defs>
+        <Body3D id="anim-fish-body" light="#BFE3F5" base="#6FA8D6" dark="#3E6E9E" />
+        <Body3DLinear id="anim-fish-fin" light="#FFC861" base="#F2933D" dark="#C96A1E" />
+      </Defs>
+      <Shadow rx={56} />
+      <Path d="M150 100 Q176 78 182 100 Q176 122 150 100Z" fill="url(#anim-fish-fin)" />
+      <Path d="M96 70 Q104 50 122 74 Q108 78 96 82Z" fill="url(#anim-fish-fin)" />
+      <Path d="M92 128 Q100 150 118 128 Q106 124 96 124Z" fill="url(#anim-fish-fin)" />
+      <Ellipse cx="92" cy="100" rx="64" ry="38" fill="url(#anim-fish-body)" />
+      <Path d="M52 70 Q48 100 52 130" stroke="#3E6E9E" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <Path d="M74 78 Q70 86 74 94" stroke="#4E7EAE" strokeWidth="2.4" fill="none" strokeLinecap="round" />
+      <Path d="M92 80 Q88 88 92 96" stroke="#4E7EAE" strokeWidth="2.4" fill="none" strokeLinecap="round" />
+      <Path d="M110 82 Q106 90 110 98" stroke="#4E7EAE" strokeWidth="2.4" fill="none" strokeLinecap="round" />
+      <Circle cx="44" cy="94" r="9" fill="#FFFFFF" />
+      <Circle cx="44" cy="94" r="5.5" fill="#241B12" />
+      <Circle cx="42" cy="91.5" r="1.8" fill="#FFFFFF" />
+      <Ellipse cx="70" cy="80" rx="26" ry="10" fill="rgba(255,255,255,0.28)" />
+    </Svg>
+  );
+}
+
+// HONEYBEE — plump bee: yellow body with black stripes, dark head, antennae, two translucent wings, stinger.
+function HoneybeeIcon({ size }) {
+  return (
+    <Svg viewBox="0 0 200 200" width={size} height={size}>
+      <Defs>
+        <Body3DLinear id="anim-bee-body" light="#FFE082" base="#FBC02D" dark="#E0A50A" />
+        <Body3D id="anim-bee-head" light="#4A453E" base="#2A2622" dark="#161310" />
+      </Defs>
+      <Shadow rx={34} />
+      <Ellipse cx="112" cy="108" rx="46" ry="34" fill="url(#anim-bee-body)" />
+      <Path d="M148 96 Q160 108 148 120 Q140 114 140 108 Q140 102 148 96Z" fill="#2A2622" />
+      <Path d="M124 78 Q132 104 124 138 Q116 104 124 78Z" fill="#2A2622" />
+      <Path d="M100 80 Q106 104 100 136 Q94 104 100 80Z" fill="#2A2622" />
+      <Path d="M76 84 Q80 106 76 130 Q72 106 76 84Z" fill="#2A2622" />
+      <Ellipse cx="96" cy="148" rx="6" ry="9" fill="#FBC02D" />
+      <Ellipse cx="118" cy="150" rx="6" ry="9" fill="#E0A50A" />
+      <Path d="M66 102 Q44 108 62 130 Q56 112 68 110Z" fill="#161310" />
+      <Circle cx="58" cy="104" r="22" fill="url(#anim-bee-head)" />
+      <Line x1="48" y1="86" x2="38" y2="68" stroke="#2A2622" strokeWidth="2.4" strokeLinecap="round" />
+      <Line x1="60" y1="84" x2="58" y2="64" stroke="#2A2622" strokeWidth="2.4" strokeLinecap="round" />
+      <Circle cx="38" cy="68" r="3" fill="#2A2622" /><Circle cx="58" cy="64" r="3" fill="#2A2622" />
+      <Circle cx="50" cy="102" r="3.6" fill="#FFFFFF" /><Circle cx="50" cy="102" r="2.3" fill="#FFE082" />
+      <Ellipse cx="100" cy="74" rx="30" ry="20" fill="rgba(255,255,255,0.55)" stroke="#D8D8D8" strokeWidth="1.4" transform="rotate(-22 100 74)" />
+      <Ellipse cx="132" cy="80" rx="24" ry="16" fill="rgba(255,255,255,0.5)" stroke="#D8D8D8" strokeWidth="1.4" transform="rotate(12 132 80)" />
+      <Ellipse cx="96" cy="96" rx="16" ry="9" fill="rgba(255,255,255,0.26)" />
+    </Svg>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Registry + public API
 // ─────────────────────────────────────────────────────────────────────────────
@@ -605,6 +776,12 @@ const ANIMAL_ICON_MAP = {
   Horse: HorseIcon,
   Camel: CamelIcon,
   Pig: PigIcon,
+  Duck: DuckIcon,
+  Rabbit: RabbitIcon,
+  Donkey: DonkeyIcon,
+  Dog: DogIcon,
+  Fish: FishIcon,
+  Honeybee: HoneybeeIcon,
 };
 
 export default function AnimalIcon({ type, size = 48 }) {

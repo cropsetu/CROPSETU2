@@ -8,15 +8,16 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import { useLanguage } from '../../context/LanguageContext';
 import { getStatesByRegion, REGION_ORDER } from '../../i18n/stateMappings';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { getAICredits } from '../../services/aiApi';
+import { fetchWeatherForCurrentLocation } from '../../services/weatherApi';
 import { compressImage } from '../../utils/mediaCompressor';
 import { safeOpenURL } from '../../utils/sanitize';
+import { getWeatherImage } from '../../utils/weatherBackground';
 import { API_BASE_URL } from '../../constants/config';
 import { EntrySlide, D } from '../../components/ui/ImmersiveKit';
 import { COLORS } from '../../constants/colors';
@@ -24,9 +25,13 @@ import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import Svg, { Circle, Defs, RadialGradient as SvgRadialGradient, Stop, Path } from 'react-native-svg';
 
-// Same hero artwork the Login screen uses — rendered blurred behind the profile
-// body (everything below the edit-profile hero) for a cohesive branded backdrop.
-const HERO = require('../../../assets/khet/welcome-hero.jpg');
+// Header scrim — a NEUTRAL dark gradient (NOT green) so the weather photo's true
+// mood shows through: deep blue at night, amber at sunrise, bright by day. A
+// green scrim previously tinted every backdrop (incl. the dark night image)
+// green. Darker at the top (avatar + status-bar band) and bottom (meets the body)
+// so the white avatar/name stay legible across both bright and dark images.
+const HERO_SCRIM      = ['rgba(6,12,10,0.34)', 'rgba(6,12,10,0.42)', 'rgba(4,9,7,0.86)'];
+const HERO_SCRIM_LOCS = [0, 0.5, 1];
 
 // The dedicated Krushi Seva Kendra onboarding website is served same-origin by
 // the backend at /kendra. Derive it from the API base (strip the /api/v1 suffix)
@@ -296,6 +301,10 @@ export default function ProfileScreen({ navigation }) {
   // Bumped after each avatar upload to cache-bust the <Image> — RN otherwise
   // keeps showing the cached photo until the component is remounted.
   const [avatarBust, setAvatarBust] = useState(0);
+  // Weather-aware hero backdrop. Default to the time-of-day clear-sky image
+  // (e.g. clear_night after dark) so the backdrop is never a green/login flash
+  // before weather resolves; the effect below refines it to the live condition.
+  const [heroImage, setHeroImage] = useState(() => getWeatherImage(0, new Date().getHours()));
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const initials = user?.name
@@ -315,6 +324,25 @@ export default function ProfileScreen({ navigation }) {
 
   const heroScale   = scrollY.interpolate({ inputRange: [0, 180], outputRange: [1, 0.92], extrapolate: 'clamp' });
   const heroOpacity = scrollY.interpolate({ inputRange: [0, 140], outputRange: [1, 0.7],  extrapolate: 'clamp' });
+
+  // Swap the hero backdrop for the photo that matches the current weather + time
+  // of day (same mapping the Weather screen uses). Cache-first so it appears
+  // instantly on revisit; silently keeps the time-of-day fallback if weather fails.
+  useEffect(() => {
+    let cancelled = false;
+    const apply = (data) => {
+      const code = data?.current?.weatherCode;
+      if (cancelled || code == null) return;
+      setHeroImage(getWeatherImage(code, new Date().getHours()));
+    };
+    fetchWeatherForCurrentLocation({
+      lang: language,
+      onCacheHit: ({ data }) => apply(data),
+    })
+      .then((result) => apply(result?.data))
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [language]);
 
   const handlePhotoPress = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -418,13 +446,13 @@ export default function ProfileScreen({ navigation }) {
       >
         <Animated.View style={{ transform: [{ perspective: 1200 }, { scale: heroScale }], opacity: heroOpacity }}>
           <View style={S.hero}>
-            {/* Same welcome-hero artwork the Login screen uses, with the shared
-                gradHero scrim (transparent → deep green) so the white hero text
-                stays legible over the photo. */}
-            <Image source={HERO} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            {/* Weather-aware backdrop (falls back to the welcome-hero photo),
+                lightly blurred, under a scrim darkened at the TOP so the white
+                avatar + hero text stay legible over bright weather images. */}
+            <Image source={heroImage} style={StyleSheet.absoluteFill} resizeMode="cover" blurRadius={6} />
             <LinearGradient
-              colors={KHET.gradHero}
-              locations={KHET.gradHeroLocs}
+              colors={HERO_SCRIM}
+              locations={HERO_SCRIM_LOCS}
               start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
               style={StyleSheet.absoluteFill}
             />
@@ -524,11 +552,13 @@ export default function ProfileScreen({ navigation }) {
         </Animated.View>
 
         <View style={S.body}>
-          {/* Login-screen hero artwork, blurred, behind the body content.
+          {/* Same weather-aware backdrop, blurred, behind the body content.
               Subtle overlay keeps the foreground cards/text readable. */}
           <View style={S.bodyBg} pointerEvents="none">
-            <ImageBackground source={HERO} style={StyleSheet.absoluteFill} resizeMode="cover">
-              <BlurView intensity={50} tint="light" style={StyleSheet.absoluteFill} />
+            {/* blurRadius on the image itself (not a BlurView overlay) so the blur
+                is identical on iOS + Android — expo-blur over an ImageBackground
+                degrades to a flat tint on Android. */}
+            <ImageBackground source={heroImage} style={StyleSheet.absoluteFill} resizeMode="cover" blurRadius={12}>
               <View style={S.bodyBgOverlay} />
             </ImageBackground>
           </View>
@@ -887,9 +917,11 @@ const S = StyleSheet.create({
   hero: {
     paddingTop: Platform.OS === 'android' ? 52 : 52,
     paddingBottom: 30, paddingHorizontal: 24, overflow: 'hidden',
-    borderBottomLeftRadius: 24, borderBottomRightRadius: 24,
-    // Deep-green fallback shown until the hero photo finishes loading.
-    backgroundColor: KHET.primary,
+    // Square bottom edge (no rounded corners) — flush full-bleed header.
+    borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
+    // Neutral dark fallback (shows only for a frame before the bundled weather
+    // image paints) — never green, so a night backdrop never flashes green.
+    backgroundColor: '#0E1512',
   },
   heroContent: {
     alignItems: 'center', position: 'relative', zIndex: 1,

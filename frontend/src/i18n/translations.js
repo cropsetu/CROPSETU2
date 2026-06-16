@@ -1130,6 +1130,7 @@ export const translations = {
     animals: {
       cow: 'Cow', buffalo: 'Buffalo', goat: 'Goat', sheep: 'Sheep',
       bullock: 'Bullock', poultry: 'Poultry', horse: 'Horse', dog: 'Dog', cat: 'Cat',
+      camel: 'Camel', pig: 'Pig', duck: 'Duck', rabbit: 'Rabbit', donkey: 'Donkey', fish: 'Fish', honeybee: 'Honeybee',
     },
 
     // ── My Farm Tab ───────────────────────────────────────────────────────────
@@ -2070,9 +2071,9 @@ export const translations = {
       intelligence: 'Krushi Intelligence',
       tab: 'Krushi AI',
       badge: 'Krushi AI',
-      drishti: 'Krushi Drishti',
-      vaani: 'Krushi Vaani',
-      gyaan: 'Krushi Gyaan',
+      drishti: 'कृषि दृष्टि',
+      vaani: 'कृषि वाणी',
+      gyaan: 'कृषि ज्ञान',
     },
 
     // Navigation
@@ -3069,6 +3070,7 @@ export const translations = {
     animals: {
       cow: 'गाय', buffalo: 'भैंस', goat: 'बकरी', sheep: 'भेड़',
       bullock: 'बैल', poultry: 'मुर्गी', horse: 'घोड़ा', dog: 'कुत्ता', cat: 'बिल्ली',
+      camel: 'ऊँट', pig: 'सूअर', duck: 'बत्तख', rabbit: 'खरगोश', donkey: 'गधा', fish: 'मछली', honeybee: 'मधुमक्खी',
     },
     myFarm: {
       tabLabel: 'मेरा खेत',
@@ -3928,9 +3930,9 @@ export const translations = {
       intelligence: 'Krushi Intelligence',
       tab: 'Krushi AI',
       badge: 'Krushi AI',
-      drishti: 'Krushi Drishti',
-      vaani: 'Krushi Vaani',
-      gyaan: 'Krushi Gyaan',
+      drishti: 'कृषी दृष्टी',
+      vaani: 'कृषी वाणी',
+      gyaan: 'कृषी ज्ञान',
     },
 
     // Navigation
@@ -4954,6 +4956,7 @@ export const translations = {
     animals: {
       cow: 'गाय', buffalo: 'म्हैस', goat: 'शेळी', sheep: 'मेंढी',
       bullock: 'बैल', poultry: 'कुक्कुट', horse: 'घोडा', dog: 'कुत्रा', cat: 'मांजर',
+      camel: 'उंट', pig: 'डुक्कर', duck: 'बदक', rabbit: 'ससा', donkey: 'गाढव', fish: 'मासे', honeybee: 'मधमाशी',
     },
 
     // ── माझे शेत टॅब ─────────────────────────────────────────────────────────

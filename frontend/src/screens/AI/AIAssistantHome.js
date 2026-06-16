@@ -29,6 +29,7 @@ import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import WeatherIcon from '../../components/WeatherIcons';
 import SoilIcon from '../../components/SoilIcons';
 import TabIcon from '../../components/TabIcons';
+import AIServiceIcon from '../../components/AIServiceIcons';
 
 const { width: W } = Dimensions.get('window');
 const GREEN   = COLORS.primary;
@@ -49,25 +50,25 @@ const RELEASE_SPRING = { toValue: 1, useNativeDriver: true, friction: 4 };
 const SVG_GLYPH = 32;
 
 // ── Quick services (4-col icon grid) — labels resolved via t() in render ─────
-// Tiles with `renderIcon` draw a realistic colourful SVG; the rest keep their
-// existing coloured Ionicon (scan/chat read fine in colour).
-// `gradient` tiles render a colourful diagonal gradient logo badge (white glyph
-// + coloured glow) — the "futuristic" treatment used for the core Krushi
-// services. Brand labels point at the canonical aiBrand.* keys so they read
+// Tiles with `renderIcon` draw a realistic colourful SVG. Krushi Vaani + My Farms
+// use the STATIC <AIServiceIcon> SVGs (animated={false}); markets/weather/soil
+// reuse the shared TabIcon/WeatherIcon/SoilIcon glyphs. Krushi Drishti + Gyaan use
+// a light-tint icon box with a soft light-colour `border` + a coloured Ionicon.
+// Brand labels point at the canonical aiBrand.* keys so they read
 // "Krushi Drishti / Vaani / Gyaan" in every locale.
 const QUICK_SERVICES = [
-  { id: 'scan',    labelKey: 'aiBrand.drishti', icon: 'scan',                color: COLORS.primary, bg: COLORS.greenTint, gradient: ['#12D6A0', '#0B9C68'], screen: 'CropScan' },
-  { id: 'chat',    labelKey: 'aiBrand.gyaan',   icon: 'chatbubble-ellipses', color: COLORS.blue,    bg: COLORS.blueMist,  gradient: ['#5B9DFF', '#2563EB'], screen: 'AIChat'   },
+  { id: 'scan',    labelKey: 'aiBrand.drishti', icon: 'scan',                color: COLORS.primary, bg: COLORS.greenTint, border: COLORS.primary + '55', screen: 'CropScan' },
+  { id: 'chat',    labelKey: 'aiBrand.gyaan',   icon: 'chatbubble-ellipses', color: COLORS.blue,    bg: COLORS.blueMist,  border: COLORS.blue + '55',    screen: 'AIChat'   },
   { id: 'markets', labelKey: 'aiHome.tools.mandi.label', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
   { id: 'weather', labelKey: 'aiHome.quickServices.weather', color: COLORS.sellerConfirmed, bg: COLORS.skyPale, screen: 'Weather', renderIcon: () => <WeatherIcon condition="partly-sunny" size={SVG_GLYPH} animated={false} /> },
 ];
 
 // ── AI Tools (2-col grid) ────────────────────────────────────────────────────
 const AI_TOOLS = [
-  { id: 'disease', labelKey: 'aiBrand.drishti', descKey: 'aiHome.tools.disease.desc', icon: 'scan', color: GREEN, bg: COLORS.greenTint, gradient: ['#12D6A0', '#0B9C68'], screen: 'CropScan', badge: 'AI' },
-  { id: 'chatSupport', labelKey: 'aiBrand.gyaan', descKey: 'aiHome.tools.chatSupport.desc', icon: 'chatbubbles', color: COLORS.blue, bg: COLORS.blueMist, gradient: ['#5B9DFF', '#2563EB'], screen: 'AIChat', badge: 'LIVE' },
-  { id: 'voiceChat', labelKey: 'aiBrand.vaani', descKey: 'aiHome.tools.voiceChat.desc', icon: 'mic', color: COLORS.rustOrange, bg: COLORS.creamOrange, gradient: ['#FFBC42', '#F76B1C'], screen: 'VoiceChat', badge: 'NEW' },
-  { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', icon: 'leaf', color: COLORS.primary, bg: COLORS.greenTint, gradient: ['#6BD06B', '#2E9E5B'], screen: 'FarmList' },
+  { id: 'disease', labelKey: 'aiBrand.drishti', descKey: 'aiHome.tools.disease.desc', icon: 'scan', color: GREEN, bg: COLORS.greenTint, border: GREEN + '55', screen: 'CropScan', badge: 'AI' },
+  { id: 'chatSupport', labelKey: 'aiBrand.gyaan', descKey: 'aiHome.tools.chatSupport.desc', icon: 'chatbubbles', color: COLORS.blue, bg: COLORS.blueMist, border: COLORS.blue + '55', screen: 'AIChat', badge: 'LIVE' },
+  { id: 'voiceChat', labelKey: 'aiBrand.vaani', descKey: 'aiHome.tools.voiceChat.desc', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'VoiceChat', badge: 'NEW', renderIcon: () => <AIServiceIcon name="vaani" size={SVG_GLYPH} animated={false} /> },
+  { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmList', renderIcon: () => <AIServiceIcon name="farms" size={SVG_GLYPH} animated={false} /> },
   { id: 'soil', labelKey: 'aiHome.tools.soil.label', descKey: 'aiHome.tools.soil.desc', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'SoilHealth', renderIcon: () => <SoilIcon type="black" size={SVG_GLYPH} /> },
   { id: 'mandi', labelKey: 'aiHome.tools.mandi.label', descKey: 'aiHome.tools.mandi.desc', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
   { id: 'stateCrops', labelKey: 'aiHome.tools.stateCrops.label', descKey: 'aiHome.tools.stateCrops.desc', icon: 'map', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'StateCrops' },
@@ -131,7 +132,13 @@ function ServiceTile({ item, index, variant, onPress, t }) {
           <View style={[
             S.tileIcon,
             isCard && S.tileIconCard,
-            { backgroundColor: item.bg, borderColor: item.color + '33' },
+            // `item.border` draws a soft light-tint outline on the light bg
+            // (Krushi Drishti / Gyaan); other tiles keep the faint default border.
+            {
+              backgroundColor: item.bg,
+              borderColor: item.border || (item.color + '33'),
+              borderWidth: item.border ? 1.5 : 1,
+            },
           ]}>
             {item.renderIcon
               ? item.renderIcon()

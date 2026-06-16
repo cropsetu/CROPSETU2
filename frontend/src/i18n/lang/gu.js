@@ -41,9 +41,9 @@ export default {
     intelligence: 'Krushi Intelligence',
     tab: 'Krushi AI',
     badge: 'Krushi AI',
-    drishti: 'Krushi Drishti',
-    vaani: 'Krushi Vaani',
-    gyaan: 'Krushi Gyaan',
+    drishti: 'કૃષિ દૃષ્ટિ',
+    vaani: 'કૃષિ વાણી',
+    gyaan: 'કૃષિ જ્ઞાન',
   },
 
   nav: {

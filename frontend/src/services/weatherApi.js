@@ -106,24 +106,39 @@ async function resolveLocation() {
   // 3. OS last-known position (returns in <50ms, no GPS hardware wake-up)
   let coords = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60 * 1000 }); // accept up to 10min old
 
-  // 4. Full GPS fix only if OS has nothing (first ever open or very cold device)
+  // 4. Full GPS fix only if the OS has nothing (first ever open / very cold device).
+  //    Cap it: if there's no fix in 4s, drop to Lowest accuracy — a coarse fix is
+  //    plenty for city-level weather — so a cold device never hangs on a precise lock.
   if (!coords) {
-    coords = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    try {
+      coords = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('gps-timeout')), 4000)),
+      ]);
+    } catch {
+      coords = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Lowest });
+    }
   }
 
   const { latitude: lat, longitude: lon } = coords.coords;
 
-  // 5. Reverse geocode city name (async, non-blocking for the main flow)
-  let city = '';
-  try {
-    const [place] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lon });
-    city = place.city || place.district || place.subregion || '';
-  } catch { /* keep empty */ }
+  // 5. Cache coords NOW so the next open (within 15 min) takes the fast path.
+  writeLocationCache(lat, lon, '').catch(() => {});
 
-  // Cache for next 15 min
-  writeLocationCache(lat, lon, city).catch(() => {});
+  // 6. Reverse-geocode the city name OFF the critical path (fire-and-forget). The
+  //    backend tolerates an empty `city` and resolves the name itself (it reverse-
+  //    geocodes in parallel with Open-Meteo), so blocking the weather fetch on a
+  //    500ms–1.5s client geocode was pure waste. We still cache the resolved city
+  //    so the NEXT request can send it and let the backend skip its own geocode.
+  Location.reverseGeocodeAsync({ latitude: lat, longitude: lon })
+    .then(([place]) => {
+      const city = place?.city || place?.district || place?.subregion || '';
+      if (city) writeLocationCache(lat, lon, city).catch(() => {});
+    })
+    .catch(() => {});
 
-  return { lat, lon, city };
+  // Return immediately with coords; city is '' on the cold call (filled in next time).
+  return { lat, lon, city: '' };
 }
 
 // ── HTTP fetch with timeout ───────────────────────────────────────────────────

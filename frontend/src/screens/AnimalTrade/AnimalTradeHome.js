@@ -36,12 +36,22 @@ const GREEN = COLORS.primary;
 const BG    = COLORS.background;
 
 const ANIMAL_CATEGORIES = [
-  { key: 'All',     tKey: 'all' },
-  { key: 'Cow',     tKey: 'cow' },
-  { key: 'Buffalo', tKey: 'buffalo' },
-  { key: 'Goat',    tKey: 'goat' },
-  { key: 'Bullock', tKey: 'bullock' },
-  { key: 'Sheep',   tKey: 'sheep' },
+  { key: 'All',      tKey: 'all' },
+  { key: 'Cow',      tKey: 'cow' },
+  { key: 'Buffalo',  tKey: 'buffalo' },
+  { key: 'Goat',     tKey: 'goat' },
+  { key: 'Bullock',  tKey: 'bullock' },
+  { key: 'Sheep',    tKey: 'sheep' },
+  { key: 'Poultry',  tKey: 'poultry' },
+  { key: 'Horse',    tKey: 'horse' },
+  { key: 'Camel',    tKey: 'camel' },
+  { key: 'Pig',      tKey: 'pig' },
+  { key: 'Duck',     tKey: 'duck' },
+  { key: 'Rabbit',   tKey: 'rabbit' },
+  { key: 'Donkey',   tKey: 'donkey' },
+  { key: 'Dog',      tKey: 'dog' },
+  { key: 'Fish',     tKey: 'fish' },
+  { key: 'Honeybee', tKey: 'honeybee' },
 ];
 
 const DISTANCE_KEYS = [null, 10, 25, 50, 100];
