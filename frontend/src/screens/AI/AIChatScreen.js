@@ -97,8 +97,8 @@ function ChatHeader({ insets, onMenuPress, onNewChatPress }) {
           >
             <Sprout size={16} color={BG} strokeWidth={2.6} />
           </LinearGradient>
-          <View>
-            <Text style={H.title} numberOfLines={1}>{t('aiBrand.intelligence', 'Krushi Intelligence')}</Text>
+          <View style={H.brandText}>
+            <Text style={H.title} numberOfLines={1}>{t('aiBrand.gyaan', 'Krushi Gyaan')}</Text>
             <Text style={H.sub} numberOfLines={1}>{t('aiChat.assistantSubtitle', "Farmer's assistant")}</Text>
           </View>
         </View>
@@ -491,7 +491,7 @@ function Sidebar({ isOpen, onClose, sessions, historyLoading, onSessionPress, on
             <LinearGradient colors={[PRIMARY, ACCENT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={SB.panelAvatar}>
               <Sprout size={14} color={BG} strokeWidth={2.6} />
             </LinearGradient>
-            <Text style={SB.panelTitle} numberOfLines={1}>{t('aiBrand.intelligence', 'Krushi Intelligence')}</Text>
+            <Text style={SB.panelTitle} numberOfLines={1}>{t('aiBrand.gyaan', 'Krushi Gyaan')}</Text>
           </View>
           <TouchableOpacity onPress={onClose} style={SB.closeBtn} activeOpacity={0.7}>
             <CloseIcon size={20} color={MUTED} strokeWidth={2.2} />
@@ -616,7 +616,7 @@ export default function AIChatScreen({ navigation, route }) {
   const [messages, setMessages]     = useState([{
     id: '0',
     role: 'ai',
-    text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm CropSetu AI, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field."),
+    text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm Krushi Intelligence, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field."),
   }]);
   const [input,    setInput]        = useState('');
   const [typing,   setTyping]       = useState(false);
@@ -683,14 +683,14 @@ export default function AIChatScreen({ navigation, route }) {
       if (Array.isArray(result.followUps) && result.followUps.length) aiMsg.followUps = result.followUps;
       addMessage(aiMsg);
     } catch (err) {
-      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, 'Could not reach CropSetu AI. Check your connection.')}` });
+      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, 'Could not reach Krushi Intelligence. Check your connection.')}` });
     } finally { setTyping(false); }
   }, [input, typing, conversationId, addMessage, getAIContext, farmContextEnabled, resolveMsgLang, responseLength, attachedImage]);
 
   // ── Reset / new chat ───────────────────────────────────────────────────────
   // Clears the on-screen conversation only — saved history stays in the sidebar.
   const resetChat = useCallback(() => {
-    setMessages([{ id: '0', role: 'ai', text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm CropSetu AI, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field.") }]);
+    setMessages([{ id: '0', role: 'ai', text: t('aiChat.welcomeMsg', "नमस्ते किसान भाई! 🌱 I'm Krushi Intelligence, your farming assistant. Ask me about crops, soil, weather, pests, or fertilizers — type, speak, or share a photo of your field.") }]);
     setConvId(null);
     setInput('');
     setAttachedImage(null);
@@ -1247,7 +1247,10 @@ const H = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'transparent',
   },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  // flex:1 + minWidth:0 lets the brand block shrink so its title ellipsizes
+  // instead of overflowing into the LanguageSelector on narrow screens.
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
+  brandText: { flex: 1, minWidth: 0 },
   logoBadge: {
     width: 36, height: 36, borderRadius: 18,
     alignItems: 'center', justifyContent: 'center',

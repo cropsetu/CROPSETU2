@@ -789,7 +789,7 @@ body{font-family:Georgia,'Times New Roman',serif;color:#1c2526;line-height:1.5;f
   <footer class="footer">
     <div class="stamp"><div><b>${t('diagReport.verified')}</b>CROPSETU AI<br/>v${esc(sysMeta.version || '2.4.1')}</div></div>
     <div class="sig-row">
-      <div class="sig"><b>CropSetu AI</b><span>${t('diagReport.diagnosingPathologist')}</span></div>
+      <div class="sig"><b>Krushi Drishti</b><span>${t('diagReport.diagnosingPathologist')}</span></div>
       <div class="sig"><b>${esc(farmCtx.district ? `KVK ${farmCtx.district}` : t('diagReport.localAgronomist'))}</b><span>${t('diagReport.reviewingAuthority')}</span></div>
       <div class="sig"><b>${esc(farmerName || t('diagReport.farmer'))}</b><span>${t('diagReport.recipient')}</span></div>
     </div>
@@ -1182,7 +1182,7 @@ ${(() => {
           <View style={D.brandEyebrowRow}>
             <Ionicons name="scan-outline" size={11} color="rgba(255,255,255,0.85)" />
             <Text style={D.brandEyebrowText} numberOfLines={1}>
-              {t('aiBrand.drishti', language === 'hi' || language === 'mr' ? 'Krushi Drishti · कृषी दृष्टी' : 'Krushi Drishti')}
+              {t('aiBrand.drishti', 'Krushi Drishti')}
             </Text>
           </View>
           <Text style={D.headerBarTitle}>{t('diagnosis.headerTitle', 'Crop Disease Report')}</Text>

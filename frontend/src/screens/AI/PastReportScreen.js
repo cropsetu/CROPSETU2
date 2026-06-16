@@ -195,7 +195,7 @@ function buildReportHTML(row, fields, t) {
   ${fields.culturalList?.length ? `<h2>${t('pastReportPdf.culturalControls')}</h2><ul>${li(fields.culturalList)}</ul>` : ''}
   ${fields.preventionList.length ? `<h2>${t('pastReportPdf.prevention')}</h2><ul>${li(fields.preventionList)}</ul>` : ''}
 
-  <footer>CropSetu AI Diagnosis · ${t('pastReportPdf.disclaimer')}</footer>
+  <footer>Krushi Drishti Diagnosis · ${t('pastReportPdf.disclaimer')}</footer>
 </body></html>`;
 }
 

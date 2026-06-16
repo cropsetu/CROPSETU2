@@ -42,8 +42,8 @@ export default {
     tab: 'Krushi AI',
     badge: 'Krushi AI',
     drishti: 'Krushi Drishti',
-    vaani: 'Vaani',
-    gyaan: 'Gyaan',
+    vaani: 'Krushi Vaani',
+    gyaan: 'Krushi Gyaan',
   },
 
   nav: {
@@ -798,9 +798,9 @@ export default {
   },
 
   aiHome: {
-    title: 'CropSetu AI',
+    title: 'Krushi Intelligence',
     subtitle: 'உங்கள் ஸ்மார்ட் விவசாய உதவியாளர்',
-    askPlaceholder: 'CropSetu AI-ஐ கேளுங்கள்...',
+    askPlaceholder: 'Krushi Intelligence-ஐ கேளுங்கள்...',
     aiTools: 'AI கருவிகள்',
     newBadge: '{{count}} புதிய',
     goodMorning: 'காலை வணக்கம்',
@@ -821,7 +821,7 @@ export default {
       weather:     { label: 'வானிலை',           desc: '7 நாள் மாவட்ட முன்னறிவிப்பு' },
       advisory:    { label: 'பயிர் ஆலோசனை',     desc: 'AI தினசரி பணி திட்டமிடல்' },
       schemes_ai:  { label: 'அரசு திட்டங்கள்',   desc: 'AI தகுதி சரிபார்ப்பு' },
-      voice:       { label: 'குரல் உதவியாளர்',   desc: 'CropSetu AI உடன் பேசுங்கள்' },
+      voice:       { label: 'குரல் உதவியாளர்',   desc: 'Krushi Intelligence உடன் பேசுங்கள்' },
       history:     { label: 'ஸ்கேன் வரலாறு',     desc: 'முந்தைய பயிர் நோய் கண்டறிதல்' },
       predict:     { label: 'விலை கணிப்பு',       desc: 'AI மண்டி விலை முன்னறிவிப்பு' },
       mandi:       { label: 'மண்டி விலை',         desc: 'நேரடி மண்டி விலைகள்' },
@@ -834,7 +834,7 @@ export default {
       inputs:      { label: 'உள்ளீட்டு கணக்கிடு', desc: 'விதை, உரம் & கூலி செலவு' },
       disease:     { label: 'பயிர் நோய் கண்டறிதல்', desc: 'பயிர் புகைப்படம் ஸ்கேன் செய்து சிகிச்சை வழிகாட்டுதல் பெறுங்கள்' },
       chatSupport: { label: 'AI அரட்டை ஆதரவு', desc: 'பயிர், பூச்சி, உரம் மற்றும் திட்ட கேள்விகள் கேளுங்கள்' },
-      voiceChat:   { label: 'குரல் அரட்டை', desc: 'உங்கள் மொழியில் CropSetu AI உடன் பேசுங்கள்' },
+      voiceChat:   { label: 'குரல் அரட்டை', desc: 'உங்கள் மொழியில் Krushi Intelligence உடன் பேசுங்கள்' },
       price:       { label: 'விலை கணிப்பு', desc: 'மண்டி விலைகள் மற்றும் சந்தை நகர்வை கண்காணியுங்கள்' },
       farms:       { label: 'என் பண்ணைகள்', desc: 'பண்ணை, பயிர் சுழற்சி மற்றும் AI கணிப்புகளை நிர்வகியுங்கள்' },
     },
@@ -851,7 +851,7 @@ export default {
   },
 
   aiChat: {
-      welcomeMsg: 'நமஸ்காரம்! நான் CropSetu AI, உங்கள் AI விவசாய உதவியாளர். பயிர் நோய், நீர்ப்பாசனம், மண்டி விலை மற்றும் அரசு திட்டங்கள் பற்றி உதவ முடியும்.\n\nபேச மைக் தட்டுங்கள் அல்லது கீழே தட்டச்சு செய்யுங்கள்.',
+      welcomeMsg: 'நமஸ்காரம்! நான் Krushi Intelligence, உங்கள் AI விவசாய உதவியாளர். பயிர் நோய், நீர்ப்பாசனம், மண்டி விலை மற்றும் அரசு திட்டங்கள் பற்றி உதவ முடியும்.\n\nபேச மைக் தட்டுங்கள் அல்லது கீழே தட்டச்சு செய்யுங்கள்.',
     farmMind: 'Krushi Intelligence',
     talkToFarmMind: 'Krushi Intelligence உடன் பேசு',
     textMode: 'உரை பயன்முறை',

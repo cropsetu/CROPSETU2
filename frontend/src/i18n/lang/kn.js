@@ -42,8 +42,8 @@ export default {
     tab: 'Krushi AI',
     badge: 'Krushi AI',
     drishti: 'Krushi Drishti',
-    vaani: 'Vaani',
-    gyaan: 'Gyaan',
+    vaani: 'Krushi Vaani',
+    gyaan: 'Krushi Gyaan',
   },
 
   nav: {
@@ -665,9 +665,9 @@ export default {
   },
 
   aiHome: {
-    title: 'CropSetu AI',
+    title: 'Krushi Intelligence',
     subtitle: 'ನಿಮ್ಮ ಸ್ಮಾರ್ಟ್ ಕೃಷಿ ಸಹಾಯಕ',
-    askPlaceholder: 'CropSetu AI ಅನ್ನು ಕೇಳಿ...',
+    askPlaceholder: 'Krushi Intelligence ಅನ್ನು ಕೇಳಿ...',
     aiTools: 'AI ಉಪಕರಣಗಳು',
     newBadge: '{{count}} ಹೊಸ',
     goodMorning: 'ಶುಭೋದಯ',
@@ -688,7 +688,7 @@ export default {
       weather:     { label: 'ಹವಾಮಾನ',           desc: '7 ದಿನ ಜಿಲ್ಲಾ ಮುನ್ಸೂಚನೆ' },
       advisory:    { label: 'ಬೆಳೆ ಸಲಹೆ',         desc: 'AI ದೈನಿಕ ಕಾರ್ಯ ಯೋಜಕ' },
       schemes_ai:  { label: 'ಸರ್ಕಾರಿ ಯೋಜನೆಗಳು', desc: 'AI ಅರ್ಹತೆ ಪರಿಶೀಲನೆ' },
-      voice:       { label: 'ಧ್ವನಿ ಸಹಾಯಕ',       desc: 'CropSetu AI ಜೊತೆ ಮಾತನಾಡಿ' },
+      voice:       { label: 'ಧ್ವನಿ ಸಹಾಯಕ',       desc: 'Krushi Intelligence ಜೊತೆ ಮಾತನಾಡಿ' },
       history:     { label: 'ಸ್ಕ್ಯಾನ್ ಇತಿಹಾಸ',    desc: 'ಹಿಂದಿನ ಬೆಳೆ ರೋಗ ನಿರ್ಣಯ' },
       predict:     { label: 'ಬೆಲೆ ಅಂದಾಜು',        desc: 'AI ಮಂಡಿ ಬೆಲೆ ಮುನ್ಸೂಚನೆ' },
       mandi:       { label: 'ಮಂಡಿ ಭಾವ',           desc: 'ನೇರ ಮಂಡಿ ಬೆಲೆಗಳು' },
@@ -701,7 +701,7 @@ export default {
       inputs:      { label: 'ಇನ್‌ಪುಟ್ ಕ್ಯಾಲ್ಕ್ಯುಲೇಟರ್', desc: 'ಬೀಜ, ರಸಗೊಬ್ಬರ & ಕೂಲಿ ವೆಚ್ಚ' },
       disease:     { label: 'ಬೆಳೆ ರೋಗ ಪತ್ತೆ', desc: 'ಬೆಳೆ ಫೋಟೋ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಚಿಕಿತ್ಸಾ ಮಾರ್ಗದರ್ಶನ ಪಡೆಯಿರಿ' },
       chatSupport: { label: 'AI ಚಾಟ್ ಬೆಂಬಲ', desc: 'ಬೆಳೆ, ಕೀಟ, ಗೊಬ್ಬರ ಮತ್ತು ಯೋಜನೆ ಪ್ರಶ್ನೆಗಳನ್ನು ಕೇಳಿ' },
-      voiceChat:   { label: 'ಧ್ವನಿ ಚಾಟ್', desc: 'ನಿಮ್ಮ ಭಾಷೆಯಲ್ಲಿ CropSetu AI ಜೊತೆ ಮಾತನಾಡಿ' },
+      voiceChat:   { label: 'ಧ್ವನಿ ಚಾಟ್', desc: 'ನಿಮ್ಮ ಭಾಷೆಯಲ್ಲಿ Krushi Intelligence ಜೊತೆ ಮಾತನಾಡಿ' },
       price:       { label: 'ಬೆಲೆ ಮುನ್ಸೂಚನೆ', desc: 'ಮಂಡಿ ಬೆಲೆಗಳು ಮತ್ತು ಮಾರುಕಟ್ಟೆ ಚಲನೆ ಟ್ರ್ಯಾಕ್ ಮಾಡಿ' },
       farms:       { label: 'ನನ್ನ ಜಮೀನುಗಳು', desc: 'ಜಮೀನು, ಬೆಳೆ ಚಕ್ರ ಮತ್ತು AI ಮುನ್ಸೂಚನೆ ನಿರ್ವಹಿಸಿ' },
     },
@@ -718,7 +718,7 @@ export default {
   },
 
   aiChat: {
-      welcomeMsg: 'ನಮಸ್ಕಾರ! ನಾನು CropSetu AI, ನಿಮ್ಮ AI ಕೃಷಿ ಸಹಾಯಕ. ಬೆಳೆ ರೋಗ, ನೀರಾವರಿ, ಮಂಡಿ ಬೆಲೆ ಮತ್ತು ಸರ್ಕಾರಿ ಯೋಜನೆಗಳ ಬಗ್ಗೆ ಸಹಾಯ ಮಾಡಬಲ್ಲೆ.\n\nಮಾತನಾಡಲು ಮೈಕ್ ಟ್ಯಾಪ್ ಮಾಡಿ ಅಥವಾ ಕೆಳಗೆ ಟೈಪ್ ಮಾಡಿ.',
+      welcomeMsg: 'ನಮಸ್ಕಾರ! ನಾನು Krushi Intelligence, ನಿಮ್ಮ AI ಕೃಷಿ ಸಹಾಯಕ. ಬೆಳೆ ರೋಗ, ನೀರಾವರಿ, ಮಂಡಿ ಬೆಲೆ ಮತ್ತು ಸರ್ಕಾರಿ ಯೋಜನೆಗಳ ಬಗ್ಗೆ ಸಹಾಯ ಮಾಡಬಲ್ಲೆ.\n\nಮಾತನಾಡಲು ಮೈಕ್ ಟ್ಯಾಪ್ ಮಾಡಿ ಅಥವಾ ಕೆಳಗೆ ಟೈಪ್ ಮಾಡಿ.',
     farmMind: 'Krushi Intelligence',
     talkToFarmMind: 'Krushi Intelligence ಜೊತೆ ಮಾತನಾಡಿ',
     textMode: 'ಪಠ್ಯ ಮೋಡ್',

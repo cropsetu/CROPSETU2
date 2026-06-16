@@ -42,8 +42,8 @@ export default {
     tab: 'Krushi AI',
     badge: 'Krushi AI',
     drishti: 'Krushi Drishti',
-    vaani: 'Vaani',
-    gyaan: 'Gyaan',
+    vaani: 'Krushi Vaani',
+    gyaan: 'Krushi Gyaan',
   },
 
   nav: {
@@ -658,9 +658,9 @@ export default {
   },
 
   aiHome: {
-    title: 'CropSetu AI',
+    title: 'Krushi Intelligence',
     subtitle: 'તમારો સ્માર્ટ ખેતી સહાયક',
-    askPlaceholder: 'CropSetu AI ને પૂછો...',
+    askPlaceholder: 'Krushi Intelligence ને પૂછો...',
     aiTools: 'AI સાધનો',
     newBadge: '{{count}} નવું',
     goodMorning: 'સુપ્રભાત',
@@ -681,7 +681,7 @@ export default {
       weather:     { label: 'હવામાન',            desc: '૭ દિવસની જિલ્લા આગાહી' },
       advisory:    { label: 'પાક સલાહ',           desc: 'AI દૈનિક કાર્ય આયોજક' },
       schemes_ai:  { label: 'સરકારી યોજનાઓ',     desc: 'AI પાત્રતા ચકાસણી' },
-      voice:       { label: 'અવાજ સહાયક',        desc: 'CropSetu AI સાથે વાત કરો' },
+      voice:       { label: 'અવાજ સહાયક',        desc: 'Krushi Intelligence સાથે વાત કરો' },
       history:     { label: 'સ્કૅન ઇતિહાસ',       desc: 'અગાઉના પાક રોગ નિદાન' },
       predict:     { label: 'ભાવ અંદાજ',          desc: 'AI મંડી ભાવ અંદાજ' },
       mandi:       { label: 'મંડી ભાવ',            desc: 'સીધા મંડી ભાવ' },
@@ -694,7 +694,7 @@ export default {
       inputs:      { label: 'ઇનપુટ કૅલ્ક્યુલેટર',  desc: 'બીજ, ખાતર અને મજૂરી ખર્ચ' },
       disease:     { label: 'પાક રોગ ઓળખ', desc: 'પાકનો ફોટો સ્કૅન કરો અને સારવાર માર્ગદર્શન મેળવો' },
       chatSupport: { label: 'AI ચેટ સહાય', desc: 'પાક, જીવાત, ખાતર અને યોજનાના પ્રશ્નો પૂછો' },
-      voiceChat:   { label: 'વૉઇસ ચેટ', desc: 'તમારી ભાષામાં CropSetu AI સાથે વાત કરો' },
+      voiceChat:   { label: 'વૉઇસ ચેટ', desc: 'તમારી ભાષામાં Krushi Intelligence સાથે વાત કરો' },
       price:       { label: 'ભાવ અનુમાન', desc: 'મંડી ભાવ અને બજાર ગતિવિધિ ટ્રૅક કરો' },
       farms:       { label: 'મારા ખેતર', desc: 'ખેતર, પાક ચક્ર અને AI અનુમાન સંભાળો' },
     },
@@ -711,7 +711,7 @@ export default {
   },
 
   aiChat: {
-      welcomeMsg: 'નમસ્કાર! હું CropSetu AI છું, તમારો AI ખેતી સહાયક. પાક રોગ, સિંચાઈ, મંડી ભાવ અને સરકારી યોજનાઓ વિશે મદદ કરી શકું છું.\n\nબોલવા માટે માઈક ટેપ કરો અથવા નીચે ટાઈપ કરો.',
+      welcomeMsg: 'નમસ્કાર! હું Krushi Intelligence છું, તમારો AI ખેતી સહાયક. પાક રોગ, સિંચાઈ, મંડી ભાવ અને સરકારી યોજનાઓ વિશે મદદ કરી શકું છું.\n\nબોલવા માટે માઈક ટેપ કરો અથવા નીચે ટાઈપ કરો.',
     farmMind: 'Krushi Intelligence',
     talkToFarmMind: 'Krushi Intelligence સાથે વાત કરો',
     textMode: 'ટેક્સ્ટ મોડ',

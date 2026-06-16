@@ -42,8 +42,8 @@ export default {
     tab: 'Krushi AI',
     badge: 'Krushi AI',
     drishti: 'Krushi Drishti',
-    vaani: 'Vaani',
-    gyaan: 'Gyaan',
+    vaani: 'Krushi Vaani',
+    gyaan: 'Krushi Gyaan',
   },
 
   nav: {
@@ -658,9 +658,9 @@ export default {
   },
 
   aiHome: {
-    title: 'CropSetu AI',
+    title: 'Krushi Intelligence',
     subtitle: 'ਤੁਹਾਡਾ ਸਮਾਰਟ ਖੇਤੀ ਸਹਾਇਕ',
-    askPlaceholder: 'CropSetu AI ਨੂੰ ਪੁੱਛੋ...',
+    askPlaceholder: 'Krushi Intelligence ਨੂੰ ਪੁੱਛੋ...',
     aiTools: 'AI ਔਜ਼ਾਰ',
     newBadge: '{{count}} ਨਵਾਂ',
     goodMorning: 'ਸ਼ੁਭ ਸਵੇਰ',
@@ -681,7 +681,7 @@ export default {
       weather:     { label: 'ਮੌਸਮ',              desc: '7 ਦਿਨ ਜ਼ਿਲ੍ਹਾ ਪੂਰਵ-ਅਨੁਮਾਨ' },
       advisory:    { label: 'ਫ਼ਸਲ ਸਲਾਹ',          desc: 'AI ਰੋਜ਼ਾਨਾ ਕੰਮ ਯੋਜਨਾਕਾਰ' },
       schemes_ai:  { label: 'ਸਰਕਾਰੀ ਸਕੀਮਾਂ',     desc: 'AI ਯੋਗਤਾ ਜਾਂਚ' },
-      voice:       { label: 'ਆਵਾਜ਼ ਸਹਾਇਕ',       desc: 'CropSetu AI ਨਾਲ ਗੱਲ ਕਰੋ' },
+      voice:       { label: 'ਆਵਾਜ਼ ਸਹਾਇਕ',       desc: 'Krushi Intelligence ਨਾਲ ਗੱਲ ਕਰੋ' },
       history:     { label: 'ਸਕੈਨ ਇਤਿਹਾਸ',       desc: 'ਪਿਛਲੇ ਫ਼ਸਲ ਰੋਗ ਨਿਦਾਨ' },
       predict:     { label: 'ਭਾਅ ਅੰਦਾਜ਼ਾ',        desc: 'AI ਮੰਡੀ ਭਾਅ ਪੂਰਵ-ਅਨੁਮਾਨ' },
       mandi:       { label: 'ਮੰਡੀ ਭਾਅ',           desc: 'ਲਾਈਵ ਮੰਡੀ ਕੀਮਤਾਂ' },
@@ -694,7 +694,7 @@ export default {
       inputs:      { label: 'ਇਨਪੁੱਟ ਕੈਲਕੁਲੇਟਰ',  desc: 'ਬੀਜ, ਖਾਦ ਅਤੇ ਮਜ਼ਦੂਰੀ ਖ਼ਰਚਾ' },
       disease:     { label: 'ਫ਼ਸਲ ਰੋਗ ਪਛਾਣ', desc: 'ਫ਼ਸਲ ਫੋਟੋ ਸਕੈਨ ਕਰੋ ਅਤੇ ਇਲਾਜ ਮਾਰਗਦਰਸ਼ਨ ਪ੍ਰਾਪਤ ਕਰੋ' },
       chatSupport: { label: 'AI ਚੈਟ ਸਹਾਇਤਾ', desc: 'ਫ਼ਸਲ, ਕੀੜੇ, ਖਾਦ ਅਤੇ ਸਕੀਮ ਸਵਾਲ ਪੁੱਛੋ' },
-      voiceChat:   { label: 'ਵੌਇਸ ਚੈਟ', desc: 'ਆਪਣੀ ਭਾਸ਼ਾ ਵਿੱਚ CropSetu AI ਨਾਲ ਗੱਲ ਕਰੋ' },
+      voiceChat:   { label: 'ਵੌਇਸ ਚੈਟ', desc: 'ਆਪਣੀ ਭਾਸ਼ਾ ਵਿੱਚ Krushi Intelligence ਨਾਲ ਗੱਲ ਕਰੋ' },
       price:       { label: 'ਭਾਅ ਭਵਿੱਖਬਾਣੀ', desc: 'ਮੰਡੀ ਭਾਅ ਅਤੇ ਬਾਜ਼ਾਰ ਗਤੀਵਿਧੀ ਟ੍ਰੈਕ ਕਰੋ' },
       farms:       { label: 'ਮੇਰੇ ਖੇਤ', desc: 'ਖੇਤ, ਫ਼ਸਲ ਚੱਕਰ ਅਤੇ AI ਭਵਿੱਖਬਾਣੀ ਦਾ ਪ੍ਰਬੰਧ ਕਰੋ' },
     },
@@ -711,7 +711,7 @@ export default {
   },
 
   aiChat: {
-      welcomeMsg: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ! ਮੈਂ CropSetu AI ਹਾਂ, ਤੁਹਾਡਾ AI ਖੇਤੀ ਸਹਾਇਕ। ਫ਼ਸਲ ਰੋਗ, ਸਿੰਚਾਈ, ਮੰਡੀ ਭਾਅ ਅਤੇ ਸਰਕਾਰੀ ਯੋਜਨਾਵਾਂ ਬਾਰੇ ਮਦਦ ਕਰ ਸਕਦਾ ਹਾਂ।\n\nਬੋਲਣ ਲਈ ਮਾਈਕ ਟੈਪ ਕਰੋ ਜਾਂ ਹੇਠਾਂ ਟਾਈਪ ਕਰੋ।',
+      welcomeMsg: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ! ਮੈਂ Krushi Intelligence ਹਾਂ, ਤੁਹਾਡਾ AI ਖੇਤੀ ਸਹਾਇਕ। ਫ਼ਸਲ ਰੋਗ, ਸਿੰਚਾਈ, ਮੰਡੀ ਭਾਅ ਅਤੇ ਸਰਕਾਰੀ ਯੋਜਨਾਵਾਂ ਬਾਰੇ ਮਦਦ ਕਰ ਸਕਦਾ ਹਾਂ।\n\nਬੋਲਣ ਲਈ ਮਾਈਕ ਟੈਪ ਕਰੋ ਜਾਂ ਹੇਠਾਂ ਟਾਈਪ ਕਰੋ।',
     farmMind: 'Krushi Intelligence',
     talkToFarmMind: 'Krushi Intelligence ਨਾਲ ਗੱਲ ਕਰੋ',
     textMode: 'ਟੈਕਸਟ ਮੋਡ',

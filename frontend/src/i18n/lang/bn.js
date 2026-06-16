@@ -42,8 +42,8 @@ export default {
     tab: 'Krushi AI',
     badge: 'Krushi AI',
     drishti: 'Krushi Drishti',
-    vaani: 'Vaani',
-    gyaan: 'Gyaan',
+    vaani: 'Krushi Vaani',
+    gyaan: 'Krushi Gyaan',
   },
 
   nav: {
@@ -658,9 +658,9 @@ export default {
   },
 
   aiHome: {
-    title: 'CropSetu AI',
+    title: 'Krushi Intelligence',
     subtitle: 'আপনার স্মার্ট কৃষি সহকারী',
-    askPlaceholder: 'CropSetu AI কে জিজ্ঞাসা করুন...',
+    askPlaceholder: 'Krushi Intelligence কে জিজ্ঞাসা করুন...',
     aiTools: 'AI সরঞ্জাম',
     newBadge: '{{count}} নতুন',
     goodMorning: 'সুপ্রভাত',
@@ -681,7 +681,7 @@ export default {
       weather:     { label: 'আবহাওয়া',           desc: '৭ দিনের জেলা পূর্বাভাস' },
       advisory:    { label: 'ফসল পরামর্শ',         desc: 'AI দৈনিক কাজের পরিকল্পক' },
       schemes_ai:  { label: 'সরকারি প্রকল্প',     desc: 'AI যোগ্যতা পরীক্ষা' },
-      voice:       { label: 'ভয়েস সহকারী',        desc: 'CropSetu AI এর সাথে কথা বলুন' },
+      voice:       { label: 'ভয়েস সহকারী',        desc: 'Krushi Intelligence এর সাথে কথা বলুন' },
       history:     { label: 'স্ক্যান ইতিহাস',      desc: 'পূর্ববর্তী ফসল রোগ নির্ণয়' },
       predict:     { label: 'মূল্য পূর্বাভাস',     desc: 'AI মন্ডি মূল্য পূর্বাভাস' },
       mandi:       { label: 'মন্ডি ভাব',            desc: 'লাইভ মন্ডি দর' },
@@ -694,7 +694,7 @@ export default {
       inputs:      { label: 'ইনপুট ক্যালকুলেটর',   desc: 'বীজ, সার ও মজুরি খরচ' },
       disease:     { label: 'ফসল রোগ শনাক্তকরণ', desc: 'ফসলের ছবি স্ক্যান করুন এবং চিকিৎসা নির্দেশনা পান' },
       chatSupport: { label: 'AI চ্যাট সহায়তা', desc: 'ফসল, কীট, সার এবং প্রকল্প সম্পর্কে প্রশ্ন করুন' },
-      voiceChat:   { label: 'ভয়েস চ্যাট', desc: 'আপনার ভাষায় CropSetu AI এর সাথে কথা বলুন' },
+      voiceChat:   { label: 'ভয়েস চ্যাট', desc: 'আপনার ভাষায় Krushi Intelligence এর সাথে কথা বলুন' },
       price:       { label: 'মূল্য পূর্বাভাস', desc: 'মন্ডি দর এবং বাজার গতিবিধি ট্র্যাক করুন' },
       farms:       { label: 'আমার খামার', desc: 'খামার, ফসল চক্র এবং AI পূর্বাভাস পরিচালনা করুন' },
     },
@@ -711,7 +711,7 @@ export default {
   },
 
   aiChat: {
-      welcomeMsg: 'নমস্কার! আমি CropSetu AI, আপনার AI কৃষি সহায়ক। ফসলের রোগ, সেচ, মান্ডি দাম এবং সরকারি প্রকল্প সম্পর্কে সাহায্য করতে পারি।\n\nবলতে মাইক ট্যাপ করুন বা নিচে টাইপ করুন।',
+      welcomeMsg: 'নমস্কার! আমি Krushi Intelligence, আপনার AI কৃষি সহায়ক। ফসলের রোগ, সেচ, মান্ডি দাম এবং সরকারি প্রকল্প সম্পর্কে সাহায্য করতে পারি।\n\nবলতে মাইক ট্যাপ করুন বা নিচে টাইপ করুন।',
     farmMind: 'Krushi Intelligence',
     talkToFarmMind: 'Krushi Intelligence এর সাথে কথা বলুন',
     textMode: 'টেক্সট মোড',

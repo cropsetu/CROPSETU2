@@ -42,8 +42,8 @@ export default {
     tab: 'Krushi AI',
     badge: 'Krushi AI',
     drishti: 'Krushi Drishti',
-    vaani: 'Vaani',
-    gyaan: 'Gyaan',
+    vaani: 'Krushi Vaani',
+    gyaan: 'Krushi Gyaan',
   },
 
   nav: {
@@ -662,9 +662,9 @@ export default {
   },
 
   aiHome: {
-    title: 'CropSetu AI',
+    title: 'Krushi Intelligence',
     subtitle: 'നിങ്ങളുടെ സ്മാര്‍ട്ട് കൃഷി സഹായി',
-    askPlaceholder: 'CropSetu AI-നോട് ചോദിക്കൂ...',
+    askPlaceholder: 'Krushi Intelligence-നോട് ചോദിക്കൂ...',
     aiTools: 'AI ഉപകരണങ്ങള്‍',
     newBadge: '{{count}} പുതിയ',
     goodMorning: 'സുപ്രഭാതം',
@@ -685,7 +685,7 @@ export default {
       weather:     { label: 'കാലാവസ്ഥ',           desc: '7 ദിവസ ജില്ലാ പ്രവചനം' },
       advisory:    { label: 'വിള ഉപദേശം',          desc: 'AI ദൈനംദിന കാര്‍യ ആസൂത്രണം' },
       schemes_ai:  { label: 'സര്‍ക്കാര്‍ പദ്ധതികള്‍', desc: 'AI യോഗ്യതാ പരിശോധന' },
-      voice:       { label: 'ശബ്ദ സഹായി',           desc: 'CropSetu AI-യുമായി സംസാരിക്കൂ' },
+      voice:       { label: 'ശബ്ദ സഹായി',           desc: 'Krushi Intelligence-യുമായി സംസാരിക്കൂ' },
       history:     { label: 'സ്കാന്‍ ചരിത്രം',      desc: 'മുന്‍ വിള രോഗ നിര്‍ണയം' },
       predict:     { label: 'വില പ്രവചനം',          desc: 'AI മണ്ഡി വില പ്രവചനം' },
       mandi:       { label: 'മണ്ഡി വില',            desc: 'തത്സമയ മണ്ഡി വിലകള്‍' },
@@ -698,7 +698,7 @@ export default {
       inputs:      { label: 'ഇന്‍പുട്ട് കാല്‍ക്കുലേറ്റര്‍', desc: 'വിത്ത്, വളം & കൂലി ചെലവ്' },
       disease:     { label: 'വിള രോഗ കണ്ടെത്തല്‍', desc: 'വിള ഫോട്ടോ സ്കാന്‍ ചെയ്ത് ചികിത്സാ മാര്‍ഗ്ഗനിര്‍ദ്ദേശം നേടൂ' },
       chatSupport: { label: 'AI ചാറ്റ് സഹായം', desc: 'വിള, കീടം, വളം, പദ്ധതി ചോദ്യങ്ങള്‍ ചോദിക്കൂ' },
-      voiceChat:   { label: 'ശബ്ദ ചാറ്റ്', desc: 'നിങ്ങളുടെ ഭാഷയില്‍ CropSetu AI-നോട് സംസാരിക്കൂ' },
+      voiceChat:   { label: 'ശബ്ദ ചാറ്റ്', desc: 'നിങ്ങളുടെ ഭാഷയില്‍ Krushi Intelligence-നോട് സംസാരിക്കൂ' },
       price:       { label: 'വില പ്രവചനം', desc: 'മണ്ഡി വിലകളും വിപണി ചലനവും ട്രാക്ക് ചെയ്യൂ' },
       farms:       { label: 'എന്‍റെ കൃഷിയിടങ്ങള്‍', desc: 'കൃഷിയിടം, വിള ചക്രം, AI പ്രവചനങ്ങള്‍ നിര്‍വഹിക്കൂ' },
     },
@@ -715,7 +715,7 @@ export default {
   },
 
   aiChat: {
-      welcomeMsg: 'നമസ്കാരം! ഞാൻ CropSetu AI, നിങ്ങളുടെ AI കൃഷി സഹായി. വിള രോഗം, ജലസേചനം, മണ്ഡി വില, സർക്കാർ പദ്ധതികൾ എന്നിവയിൽ സഹായിക്കാം.\n\nസംസാരിക്കാൻ മൈക്ക് ടാപ്പ് ചെയ്യുക അല്ലെങ്കിൽ ടൈപ്പ് ചെയ്യുക.',
+      welcomeMsg: 'നമസ്കാരം! ഞാൻ Krushi Intelligence, നിങ്ങളുടെ AI കൃഷി സഹായി. വിള രോഗം, ജലസേചനം, മണ്ഡി വില, സർക്കാർ പദ്ധതികൾ എന്നിവയിൽ സഹായിക്കാം.\n\nസംസാരിക്കാൻ മൈക്ക് ടാപ്പ് ചെയ്യുക അല്ലെങ്കിൽ ടൈപ്പ് ചെയ്യുക.',
     farmMind: 'Krushi Intelligence',
     talkToFarmMind: 'Krushi Intelligence-നോട് സംസാരിക്കുക',
     textMode: 'ടെക്സ്റ്റ് മോഡ്',
