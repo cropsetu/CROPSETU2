@@ -441,10 +441,26 @@ AI budget cap, free daily limits, tokens-per-credit, **per-service AI model rout
 `catalog.lowStockThreshold`, `broadcast.maxRecipients`, maintenance mode.
 `GET /settings/env-status` reports expected env vars **present/absent only**.
 
+These values now **drive runtime behavior** (not just stored), via `getSetting()` reads that
+are awaited, cached 60s, and fail-safe (fall back to env→manifest default if `app_settings`
+is missing, so a fresh DB behaves exactly as before):
+- **Limits** — `ai.freeScanDailyLimit/freeTokenDailyLimit` enforce in `checkScanLimits`;
+  all three surface in `GET /ai/usage`. A stored `0`/NaN falls back (won't block everyone).
+- **Credits** — `ai.tokensPerCredit` (must be `> 0`) + `ai.freeMonthlyCredits` resolve live in
+  `aiCredit.service.js` settle/deduct/grant/summary; the free-grant lookup is lazy (only on
+  create / monthly refill) so the per-call hot path is unchanged.
+- **AI model routing** — the chosen model is forwarded per request to the AI service: chat
+  (`ai.model.chat`, all 3 `/ai/chat` sites; not the vision branch), scan (`ai.model.diagnose`
+  + `ai.model.treatment`, inside `params` so they survive the Celery hop), soil OCR
+  (`ai.model.soilOcr`), voice STT (`ai.model.voiceStt` → Sarvam model id).
+
 ### Caveats / open follow-ups
-- **WI-11 (pending): AI model routing is selection-only.** The dropdowns store + audit the
-  choice, but FastAPI `llm_dispatch` still reads its own env and only accepts `gemini-*` —
-  live routing to Claude/OpenAI/Groq needs the FastAPI provider work.
+- **AI model routing now lands end-to-end** across two branches: `feat/settings-runtime-wiring`
+  (Express forwards the choice) + `feat/ai-model-routing` (FastAPI `get_feature_config`
+  honours the per-request override + the multi-provider dispatch layer: Gemini/OpenAI/Claude/
+  Groq). Merge/deploy both for non-Gemini models to actually route. `ai.model.alert` is **not**
+  exposed — smart-alerts stay env-only (`AI_ALERT_MODEL`) by design; the ensemble fan-out
+  (off by default) picks its own voters, so `ai.model.diagnose` pins only the primary pass.
 - **WI-5:** `Product` stores only `nameHi`/`nameMr`; CSV round-trips all 9 lang headers but
   fills 2 (the rest live on `Category`). **WI-8:** push `failed` counts are best-effort;
   multi-language broadcasts default to `en`. **WI-4:** ledger auto-seeding from completed

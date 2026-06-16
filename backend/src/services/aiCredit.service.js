@@ -14,13 +14,38 @@
  */
 import prisma from '../config/db.js';
 import { ENV } from '../config/env.js';
+import { getSetting } from './settings.service.js';
 
-// ── Token → credit policy (configurable via .env — see config/env.js) ────────
-// Debit = max(per-feature floor, ceil(actualTokens / TOKENS_PER_CREDIT)).
-// Company can change pricing/free-grant in .env without touching code.
-const TOKENS_PER_CREDIT    = ENV.AI_TOKENS_PER_CREDIT    || 1000;  // 100 credits ≈ 1 lakh tokens
-const FREE_MONTHLY_CREDITS = ENV.AI_FREE_MONTHLY_CREDITS || 100;
-const MIN_CREDITS_PER_CALL = ENV.AI_MIN_CREDITS_PER_CALL || 1;
+// ── Token → credit policy ────────────────────────────────────────────────────
+// Debit = max(per-feature floor, ceil(actualTokens / tokensPerCredit)).
+// The LIVE divisor + free-grant are resolved at call time from the admin App
+// Settings (ai.tokensPerCredit / ai.freeMonthlyCredits) so ops can retune them
+// from the panel without a redeploy. getSetting itself falls back to these env
+// values (then the manifest default) when no DB override exists, so the consts
+// below remain the safe floor even if settings/DB are unavailable.
+const TOKENS_PER_CREDIT_ENV    = ENV.AI_TOKENS_PER_CREDIT    || 1000;  // 100 credits ≈ 1 lakh tokens
+const FREE_MONTHLY_CREDITS_ENV = ENV.AI_FREE_MONTHLY_CREDITS || 100;
+const MIN_CREDITS_PER_CALL     = ENV.AI_MIN_CREDITS_PER_CALL || 1;
+
+// Live token→credit divisor from admin settings (cached 60s in settings.service).
+// Must be > 0: a 0 divisor would divide-by-zero/mint infinite credits, and a
+// NEGATIVE divisor would silently under-charge (Math.ceil(tokens/-N) is negative,
+// so Math.max(floor, …) collapses to the floor for every call). Any non-positive
+// or non-finite value falls back to the env default.
+async function liveTokensPerCredit() {
+  try {
+    const v = Number(await getSetting('ai.tokensPerCredit'));
+    return Number.isFinite(v) && v > 0 ? v : TOKENS_PER_CREDIT_ENV;
+  } catch { return TOKENS_PER_CREDIT_ENV; }
+}
+// Live free-tier monthly grant. Allows an explicit 0 (admin disabling the free
+// grant) but rejects NaN/negative/undefined back to the env default.
+async function liveFreeMonthlyCredits() {
+  try {
+    const v = Number(await getSetting('ai.freeMonthlyCredits'));
+    return Number.isFinite(v) && v >= 0 ? v : FREE_MONTHLY_CREDITS_ENV;
+  } catch { return FREE_MONTHLY_CREDITS_ENV; }
+}
 
 // ── Credit cost table ────────────────────────────────────────────────────────
 // These are now the per-feature MINIMUM (floor). Actual debit scales with tokens.
@@ -52,17 +77,19 @@ export const CREDIT_COSTS = {
 // ONE function used by every AI service (chat, voice, scan, …) to convert the
 // actual tokens a call consumed into credits to debit. Free features (floor 0)
 // stay free; everything else costs at least its floor, more for big responses.
-export function creditsForUsage(featureType, tokensUsed = 0) {
+export function creditsForUsage(featureType, tokensUsed = 0, tokensPerCredit = TOKENS_PER_CREDIT_ENV) {
   const floor = CREDIT_COSTS[featureType] ?? MIN_CREDITS_PER_CALL;
   if (floor === 0) return 0;                                   // rule-based / free
   const tokens = Number(tokensUsed) || 0;
   if (tokens <= 0) return floor;                               // no token data → floor
-  return Math.max(floor, Math.ceil(tokens / TOKENS_PER_CREDIT));
+  const pc = Number(tokensPerCredit);
+  const perCredit = Number.isFinite(pc) && pc > 0 ? pc : TOKENS_PER_CREDIT_ENV;   // > 0 only
+  return Math.max(floor, Math.ceil(tokens / perCredit));
 }
 
 // ── Tier limits ──────────────────────────────────────────────────────────────
 export const TIER_CONFIG = {
-  free:       { monthlyCredits: FREE_MONTHLY_CREDITS, maxDailyTokens: 50_000,  label: 'Free' },
+  free:       { monthlyCredits: FREE_MONTHLY_CREDITS_ENV, maxDailyTokens: 50_000,  label: 'Free' },
   basic:      { monthlyCredits: 500,   maxDailyTokens: 200_000, label: 'Basic' },
   pro:        { monthlyCredits: 2000,  maxDailyTokens: 500_000, label: 'Pro' },
   enterprise: { monthlyCredits: 10000, maxDailyTokens: 2_000_000, label: 'Enterprise' },
@@ -86,25 +113,31 @@ export async function getOrCreateCredits(userId) {
   });
 
   if (!credit) {
+    // New users are free-tier → seed with the live admin-configured grant.
+    const freeGrant = await liveFreeMonthlyCredits();
     credit = await prisma.aICredit.create({
       data: {
         userId,
-        balance: TIER_CONFIG.free.monthlyCredits,
-        lifetimeEarned: TIER_CONFIG.free.monthlyCredits,
+        balance: freeGrant,
+        lifetimeEarned: freeGrant,
         freeRefillDate: getNextRefillDate(),
         tier: 'free',
       },
     });
   }
 
-  // Check if monthly free refill is due
+  // Check if monthly free refill is due. The setting lookup is resolved lazily
+  // here (only when a refill is actually due) so the dominant hot path —
+  // existing user, no refill — pays zero settings cost.
   if (new Date() >= new Date(credit.freeRefillDate)) {
     const tierConfig = TIER_CONFIG[credit.tier] || TIER_CONFIG.free;
+    // Free tier draws the live admin grant; paid tiers keep their static table value.
+    const grant = credit.tier === 'free' ? await liveFreeMonthlyCredits() : tierConfig.monthlyCredits;
     credit = await prisma.aICredit.update({
       where: { userId },
       data: {
-        balance: { increment: tierConfig.monthlyCredits },
-        lifetimeEarned: { increment: tierConfig.monthlyCredits },
+        balance: { increment: grant },
+        lifetimeEarned: { increment: grant },
         freeRefillDate: getNextRefillDate(),
       },
     });
@@ -113,10 +146,10 @@ export async function getOrCreateCredits(userId) {
     await prisma.aICreditTransaction.create({
       data: {
         creditId: credit.id,
-        amount: tierConfig.monthlyCredits,
+        amount: grant,
         balanceAfter: credit.balance,
         type: 'free_refill',
-        description: `Monthly ${tierConfig.label} refill: +${tierConfig.monthlyCredits} credits`,
+        description: `Monthly ${tierConfig.label} refill: +${grant} credits`,
       },
     }).catch(e => console.warn('[AICredit] Refill transaction log failed: %s', e.message));
   }
@@ -165,8 +198,9 @@ export async function checkCredits(userId, featureType) {
  */
 export async function deductCredits(userId, featureType, details = {}) {
   // Token-based debit: scales with what the AI actually consumed (details.tokensUsed),
-  // never below the per-feature floor. Free features stay free.
-  const cost = creditsForUsage(featureType, details.tokensUsed);
+  // never below the per-feature floor. Free features stay free. The token→credit
+  // divisor is the live admin setting (cached), so pricing retunes without redeploy.
+  const cost = creditsForUsage(featureType, details.tokensUsed, await liveTokensPerCredit());
 
   if (cost === 0) {
     return { balance: null, creditsUsed: 0, transaction: null };
@@ -265,7 +299,7 @@ export async function reserveCredits(userId, featureType) {
  * or refund the difference, and finalize the single ledger row. Awaited.
  */
 export async function settleCredits(userId, featureType, { reserved = 0, holdId = null, tokensUsed = 0, model, description, costUsd } = {}) {
-  const actual = creditsForUsage(featureType, tokensUsed);
+  const actual = creditsForUsage(featureType, tokensUsed, await liveTokensPerCredit());
   const delta  = actual - reserved;          // >0 charge more, <0 refund
   try {
     const credit = await prisma.$transaction(async (tx) => {
@@ -388,6 +422,12 @@ export async function adminAdjustCredits(userId, amount, reason, adminId) {
 export async function getCreditSummary(userId) {
   const credit = await getOrCreateCredits(userId);
   const tierConfig = TIER_CONFIG[credit.tier] || TIER_CONFIG.free;
+  // Surface the LIVE admin-configured rate + free grant so the UI matches what
+  // is actually billed/granted (not the stale module-load env value).
+  const tokensPerCreditLive = await liveTokensPerCredit();
+  const monthlyAllowance = credit.tier === 'free'
+    ? await liveFreeMonthlyCredits()
+    : tierConfig.monthlyCredits;
 
   const recentTransactions = await prisma.aICreditTransaction.findMany({
     where: { creditId: credit.id },
@@ -406,12 +446,12 @@ export async function getCreditSummary(userId) {
     balance: credit.balance,
     tier: credit.tier,
     tierLabel: tierConfig.label,
-    monthlyAllowance: tierConfig.monthlyCredits,
+    monthlyAllowance,
     lifetimeEarned: credit.lifetimeEarned,
     lifetimeSpent: credit.lifetimeSpent,
     todaySpent,
     nextRefill: credit.freeRefillDate,
-    tokensPerCredit: TOKENS_PER_CREDIT,   // e.g. 1000 → "1 credit = 1000 tokens"
+    tokensPerCredit: tokensPerCreditLive,   // live admin rate → "1 credit = N tokens"
     recentTransactions: recentTransactions.map(t => ({
       id: t.id,
       amount: t.amount,

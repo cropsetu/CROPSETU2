@@ -18,22 +18,35 @@ import prisma from '../config/db.js';
 export const SETTINGS_CACHE_TTL_MS = 60_000;
 
 // Model options shared by the LLM-backed services (per-service routing). Labels are
-// provider-prefixed so the admin dropdown reads naturally. NOTE: selecting a non-
-// Gemini model only STORES the preference — the FastAPI pipeline must be wired to
-// honour it + gain the provider before traffic actually routes there (see docs).
+// provider-prefixed so the admin dropdown reads naturally. The FastAPI pipeline
+// honours the selection per-request (multi-provider dispatch — WI-11); a missing
+// provider API key surfaces a clear "key not configured" error rather than a silent
+// failure. Text features (chat, treatment) may use any model below; VISION features
+// (diagnose, soil OCR) must use a vision-capable model — see VISION_MODEL_OPTIONS.
 const LLM_MODEL_OPTIONS = [
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Google)' },
-  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Google)' },
-  { value: 'gpt-4o', label: 'GPT-4o (OpenAI)' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o mini (OpenAI)' },
-  { value: 'claude-opus-4-8', label: 'Claude Opus 4.8 (Anthropic)' },
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Anthropic)' },
-  { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B · Groq' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash · fast + cheap (Google)' },
+  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro · higher accuracy (Google)' },
+  { value: 'gpt-4o', label: 'GPT-4o · vision (OpenAI)' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o mini · fast, vision (OpenAI)' },
+  { value: 'claude-opus-4-8', label: 'Claude Opus 4.8 · vision (Anthropic)' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 · vision (Anthropic)' },
+  { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B · text-only (Groq)' },
 ];
 
+// Vision-capable subset — for features that send an image (disease diagnosis, soil
+// OCR). Groq's Llama has NO vision, so it is excluded here; offering it for a vision
+// feature would hard-fail the call (the FastAPI dispatch rejects a non-vision model
+// for vision). Keeping it out of the dropdown is the guard.
+const VISION_MODEL_OPTIONS = LLM_MODEL_OPTIONS.filter(
+  (m) => m.value !== 'llama-3.3-70b-versatile',
+);
+
+// value convention: '<provider>:<modelId>' (split on the FIRST colon). The route
+// forwards the modelId to the Sarvam STT call; non-sarvam providers (e.g. Whisper)
+// are not yet implemented and safely fall back to the Sarvam default with a warning.
 const VOICE_STT_OPTIONS = [
-  { value: 'sarvam:saarika', label: 'Sarvam Saarika (Indic STT)' },
-  { value: 'openai:whisper-1', label: 'OpenAI Whisper' },
+  { value: 'sarvam:saaras:v3', label: 'Sarvam Saaras v3 (Indic STT)' },
+  { value: 'openai:whisper-1', label: 'OpenAI Whisper (falls back to Sarvam until enabled)' },
 ];
 
 // type: 'STRING' | 'NUMBER' | 'BOOL' | 'JSON' | 'ENUM'
@@ -50,11 +63,20 @@ export const SETTINGS_MANIFEST = [
   { key: 'ai.freeTokenDailyLimit', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Free tokens / day', description: 'Daily token cap for free-tier users.', default: 1_000_000 },
 
   // ── AI model routing (per service) ──────────────────────────────────────────
-  { key: 'ai.model.chat', type: 'ENUM', category: 'AI Models', label: 'Text chat model', description: 'LLM used for the AI text assistant.', envKey: 'AI_TEXT_CHAT_MODEL', default: 'gemini-2.5-flash', options: LLM_MODEL_OPTIONS },
-  { key: 'ai.model.diagnose', type: 'ENUM', category: 'AI Models', label: 'Disease diagnosis model', description: 'Vision LLM for crop-disease scan diagnosis (must be vision-capable).', envKey: 'AI_CROP_DIAGNOSE_MODEL', default: 'gemini-2.5-flash', options: LLM_MODEL_OPTIONS },
-  { key: 'ai.model.treatment', type: 'ENUM', category: 'AI Models', label: 'Treatment plan model', description: 'LLM that drafts the treatment plan after diagnosis.', envKey: 'AI_CROP_TREATMENT_MODEL', default: 'gemini-2.5-pro', options: LLM_MODEL_OPTIONS },
-  { key: 'ai.model.soilOcr', type: 'ENUM', category: 'AI Models', label: 'Soil-card OCR model', description: 'Vision LLM that reads soil health cards.', envKey: 'AI_SOIL_OCR_MODEL', default: 'gemini-2.5-flash', options: LLM_MODEL_OPTIONS },
-  { key: 'ai.model.voiceStt', type: 'ENUM', category: 'AI Models', label: 'Voice / audio STT model', description: 'Speech-to-text engine for the voice assistant.', envKey: 'AI_VOICE_STT_MODEL', default: 'sarvam:saarika', options: VOICE_STT_OPTIONS },
+  // The FastAPI pipeline honours these per-request (multi-provider dispatch). Vision
+  // features (diagnose, soil OCR) are limited to vision-capable models; a missing
+  // provider key surfaces a clear error. Diagnose/treatment have NO model fallback —
+  // a model that errors fails that scan loudly (by design), so pick a keyed provider.
+  { key: 'ai.model.chat', type: 'ENUM', category: 'AI Models', label: 'Text chat model', description: 'LLM for the farmer text assistant (chat). Any provider works; if the primary is unavailable it falls back Gemini→Groq so the farmer still gets a reply. Switching e.g. Gemini Flash↔Pro is verified working.', envKey: 'AI_TEXT_CHAT_MODEL', default: 'gemini-2.5-flash', options: LLM_MODEL_OPTIONS },
+  { key: 'ai.model.diagnose', type: 'ENUM', category: 'AI Models', label: 'Disease diagnosis model', description: 'Vision LLM that identifies the disease from the leaf photo — the always-on first pass of every scan. Vision-capable models only (Groq is text-only, excluded). No fallback: an unkeyed or failing model fails the scan, so pick a provider whose key is set.', envKey: 'AI_CROP_DIAGNOSE_MODEL', default: 'gemini-2.5-flash', options: VISION_MODEL_OPTIONS },
+  { key: 'ai.model.treatment', type: 'ENUM', category: 'AI Models', label: 'Treatment plan model', description: 'Text LLM that writes the RAG-grounded spray/IPM treatment plan after diagnosis. Skipped automatically for uncertain or out-of-scope diagnoses. Pro is the default for accuracy.', envKey: 'AI_CROP_TREATMENT_MODEL', default: 'gemini-2.5-pro', options: LLM_MODEL_OPTIONS },
+  { key: 'ai.model.soilOcr', type: 'ENUM', category: 'AI Models', label: 'Soil-card OCR model', description: 'Vision LLM that reads the 12 parameters off a soil health card photo. Vision-capable models only (Groq is text-only, excluded).', envKey: 'AI_SOIL_OCR_MODEL', default: 'gemini-2.5-flash', options: VISION_MODEL_OPTIONS },
+  { key: 'ai.model.voiceStt', type: 'ENUM', category: 'AI Models', label: 'Voice / audio STT model', description: 'Speech-to-text for the voice assistant. Sarvam Saaras is Indic-tuned (recommended for Marathi/Hindi/regional); Whisper falls back to Sarvam until enabled.', envKey: 'AI_VOICE_STT_MODEL', default: 'sarvam:saaras:v3', options: VOICE_STT_OPTIONS },
+
+  // ── AI diagnosis behaviour ──────────────────────────────────────────────────
+  // Admin-controlled, default ON. Forwarded per-scan to FastAPI (params.ensemble),
+  // which overrides its own ENABLE_ENSEMBLE env. Toggle OFF to minimise cost.
+  { key: 'ai.diagnose.ensemble', type: 'BOOL', category: 'AI Models', label: 'Second-opinion ensemble (diagnosis)', description: 'When the first diagnosis is unsure (confidence < 0.80) or ambiguous, re-check the photo with extra models in parallel (Gemini Pro + Flash, plus the GPT-4o voter when the OpenAI key is set) and vote for the most reliable answer. Improves accuracy on hard scans; it only fires on those — easy, confident scans skip it. Costs roughly 2–4× on a scan when it triggers, and near-budget users are skipped automatically. Turn off to minimise cost.', default: true },
 
   // ── Marketplace ─────────────────────────────────────────────────────────────
   { key: 'marketplace.commissionRatePct', type: 'NUMBER', category: 'Marketplace', label: 'Seller commission (%)', description: 'Platform commission deducted from seller sales when computing settlement balances.', default: 5 },

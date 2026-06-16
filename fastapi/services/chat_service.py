@@ -395,14 +395,14 @@ def _accumulate(agg: dict, tok: dict) -> dict:
 # separate LLM call) and split out with a leak-proof delimiter. So a typical
 # message is 1 call (was 3): short/med = Writer only; long/extra = Writer+Enhancer.
 
-async def _agentic_text_reply(message, history, farm_profile, response_length, mode):
+async def _agentic_text_reply(message, history, farm_profile, response_length, mode, model_override=None):
     history_block = _format_history(history[-20:])
     user_prompt = f"{history_block}Farmer: {message}\nFarmMind:"
     usage = _new_usage()
 
     use_enhancer = _enhancer_enabled() and (response_length or "short").lower() in ("long", "extra_long")
 
-    writer_cfg = get_feature_config("CHAT_WRITER")
+    writer_cfg = get_feature_config("CHAT_WRITER", model_override=model_override)
     try:
         # When there's no Enhancer, the Writer IS the final answer → fold follow-ups.
         draft, wtok = await call_llm_text(
@@ -420,7 +420,7 @@ async def _agentic_text_reply(message, history, farm_profile, response_length, m
 
     final = draft
     if use_enhancer:
-        enh_cfg = get_feature_config("CHAT_ENHANCER")
+        enh_cfg = get_feature_config("CHAT_ENHANCER", model_override=model_override)
         enh_user = (
             f"{history_block}Farmer's question: {message}\n\n"
             f"DRAFT answer to improve:\n{_split_followups(draft, mode)[0]}\n\nFinal improved answer:"
@@ -441,14 +441,18 @@ async def _agentic_text_reply(message, history, farm_profile, response_length, m
             "token_info": usage, "followUps": follow_ups}
 
 
-async def _voice_reply(message, history, farm_profile, response_length):
+async def _voice_reply(message, history, farm_profile, response_length, model_override=None):
     history_block = _format_history(history[-20:])
     user_prompt = f"{history_block}Farmer: {message}\nFarmMind:"
     usage = _new_usage()
-    cfg = get_feature_config("CHAT_WRITER")
+    cfg = get_feature_config("CHAT_WRITER", model_override=model_override)
     try:
+        # Voice replies are prompt-capped to ~90 spoken words + a couple of short
+        # follow-ups; cap max_tokens well below the 4096 default so a runaway
+        # generation can't add seconds of tail latency to a spoken turn.
         reply, wtok = await call_llm_text(
-            cfg, _writer_system(farm_profile, response_length, "voice", with_followups=True), user_prompt
+            cfg, _writer_system(farm_profile, response_length, "voice", with_followups=True), user_prompt,
+            max_tokens=512,
         )
     except Exception as exc:
         logger.error("[ChatService] voice writer %s failed: %s", cfg.model, exc)
@@ -463,7 +467,7 @@ async def _voice_reply(message, history, farm_profile, response_length):
 
 
 async def _vision_reply(message, history, farm_profile, image, response_length, mode):
-    cfg = get_feature_config("CHAT_VISION")
+    cfg = get_feature_config("CHAT_VISION")  # vision uses its own model, not ai.model.chat
     images_b64 = [{"data": image["data"], "mime_type": image.get("mime_type", "image/jpeg")}]
     question = (message or "").strip() or "Please look at this image and tell me what is relevant for my farm."
     user_prompt = f"{_format_history(history[-20:])}Farmer: {question}\nFarmMind:"
@@ -493,6 +497,7 @@ async def chat_with_farmmind(
     response_length: str = "short",
     mode: str = "text",
     image: Optional[dict] = None,   # {"data": <base64>, "mime_type": <str>} | None
+    model_override: Optional[str] = None,  # admin ai.model.chat choice (per request) | None
 ) -> dict[str, Any]:
     """
     Returns: { reply, type: "text", structured_data: None, token_info, followUps }
@@ -520,7 +525,13 @@ async def chat_with_farmmind(
     )
 
     if has_image:
+        # ai.model.chat is the "Text chat model" — deliberately NOT applied to the
+        # image/vision branch, which needs a vision-capable model. Vision keeps its
+        # own configured CHAT_VISION model so a text-only chat pick (e.g. a Groq
+        # llama id) can't silently break image chat.
         return await _vision_reply(message, history, farm_profile, image, response_length, mode)
     if mode == "voice":
-        return await _voice_reply(message, history, farm_profile, response_length)
-    return await _agentic_text_reply(message, history, farm_profile, response_length, mode)
+        return await _voice_reply(message, history, farm_profile, response_length,
+                                  model_override=model_override)
+    return await _agentic_text_reply(message, history, farm_profile, response_length, mode,
+                                     model_override=model_override)

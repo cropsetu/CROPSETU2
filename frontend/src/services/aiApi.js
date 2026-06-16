@@ -394,13 +394,15 @@ export async function sendVoiceMessage(audioUri, conversationId = null, farmProf
  * @param {object} farmProfile
  * @returns {{ transcription, detectedLanguage, reply, conversationId, audio: { audio: base64, mimeType } }}
  */
-export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', conversationId = null, farmProfile = {}) {
+export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', conversationId = null, farmProfile = {}, tts = true) {
   const isWeb = typeof document !== 'undefined';
   const idemKey = newIdemKey();
 
-  // Text-first: hit /ai/voice WITHOUT tts so the {transcription, reply} returns
-  // immediately; the screen fetches audio via textToSpeech() and auto-plays.
-  // (A TTS failure no longer wastes the STT+LLM spend, and the payload is small.)
+  // Single round-trip: hit /ai/voice WITH tts=true so one request returns
+  // {transcription, reply, audio}. This removes the separate /ai/tts call — a full
+  // extra round-trip AND a second credit charge (voice was billing 3 credits/turn
+  // instead of the intended 2, since ai_voice's price already includes TTS) — and
+  // gets the spoken audio back faster.
   if (isWeb) {
     const formData = new FormData();
     const resp = await fetch(audioUri);
@@ -409,6 +411,7 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
     formData.append('language', language);
     if (conversationId) formData.append('conversationId', conversationId);
     formData.append('farmProfile', JSON.stringify(farmProfile));
+    if (tts) formData.append('tts', 'true');
     const { data } = await api.post('/ai/voice', formData, {
       headers: { 'Content-Type': 'multipart/form-data', 'Idempotency-Key': idemKey },
       timeout: 90000,
@@ -419,6 +422,7 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
   const token = await getAccessToken();
   const params = { farmProfile: JSON.stringify(farmProfile), language };
   if (conversationId) params.conversationId = conversationId;
+  if (tts) params.tts = 'true';
 
   const uploadResult = await FileSystem.uploadAsync(
     `${API_BASE_URL}/ai/voice`,
@@ -438,6 +442,11 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
     try { errBody = JSON.parse(uploadResult.body); } catch { errBody = {}; }
     const e = new Error(errBody?.error?.message || `HTTP ${uploadResult.status}`);
     e.status = uploadResult.status;
+    // Mirror the axios error shape so screen mappers (humanReadableVoiceError) can
+    // read err.response.data.error.message — otherwise the server's specific message
+    // (e.g. the credit-exhausted line) is unreachable on native and the generic
+    // fallback shows instead.
+    e.response = { status: uploadResult.status, data: errBody };
     throw e;
   }
 

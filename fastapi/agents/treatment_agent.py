@@ -72,13 +72,19 @@ def _bucket_severity(raw: str) -> str:
     return "moderate"  # safe default
 
 
-def _get_cache_key(diagnosis: dict, params: dict, tier: str, grounding: dict | None = None) -> str:
+def _get_cache_key(diagnosis: dict, params: dict, tier: str, grounding: dict | None = None,
+                   model: str | None = None) -> str:
     """Deterministic cache key from disease identity + farm context + tier
-    + RAG grounding.
+    + RAG grounding + the treatment model.
 
     Tier is in the key because the Best chain may recommend different
     chemicals/brands than Fast — caching across tiers would leak a downgraded
     answer to a paying request and vice-versa.
+
+    Model is in the key because an admin can pin a different treatment model per
+    request (ai.model.treatment); two models can word/structure advice
+    differently, so they must not share a cache slot or an override would
+    serve/poison another model's cached answer.
 
     Grounding is in the key because two scans of the same disease in
     different agro-zones get different RAG payloads (different actives,
@@ -94,6 +100,7 @@ def _get_cache_key(diagnosis: dict, params: dict, tier: str, grounding: dict | N
         "severity":      _bucket_severity(pd.get("severity")),
         "growth_stage":  (params.get("crop_growth_stage") or "").lower().strip(),
         "tier":          tier,
+        "model":         (model or "").lower().strip(),
         # Safety: a chemical ban / label-claim change bumps these versions,
         # which auto-invalidates stale cached advice — otherwise a just-banned
         # pesticide keeps being served from cache for the 7-day TTL.
@@ -222,7 +229,9 @@ async def run_treatment_agent(
     # Load the configured treatment model (single AI_CROP_TREATMENT_MODEL,
     # no fallback). `tier` is retained as a cache-key salt for backward
     # compat with persisted cache entries; it does NOT pick the model.
-    cfg = get_feature_config("CROP_TREATMENT")
+    # Admin App Settings choice (ai.model.treatment), forwarded per request inside
+    # params by the Express scan client; falls back to AI_CROP_TREATMENT_MODEL/env.
+    cfg = get_feature_config("CROP_TREATMENT", model_override=params.get("model_treatment"))
     tier = (params.get("tier") or "fast").strip().lower()
 
     # ── RAG grounding (Phase 7) ──────────────────────────────────────────────
@@ -237,7 +246,7 @@ async def run_treatment_agent(
     # The grounding hash is part of the key — two scans of the same disease
     # in different agro-zones get different RAG payloads and must not share
     # a cache slot.
-    cache_key = _get_cache_key(diagnosis, params, tier, grounding)
+    cache_key = _get_cache_key(diagnosis, params, tier, grounding, model=cfg.model)
     cached = _cache_get(cache_key)
     if cached:
         logger.info(

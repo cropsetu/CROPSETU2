@@ -14,6 +14,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { getStatesByRegion, REGION_ORDER } from '../../i18n/stateMappings';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
+import { getAICredits } from '../../services/aiApi';
 import { compressImage } from '../../utils/mediaCompressor';
 import { safeOpenURL } from '../../utils/sanitize';
 import { API_BASE_URL } from '../../constants/config';
@@ -255,6 +256,9 @@ export default function ProfileScreen({ navigation }) {
   // Live rental-listing count, fetched from the same endpoints My Rent Listings uses
   // (authoritative — always matches what the user sees on that screen).
   const [rentCount, setRentCount] = useState(null);
+  // Live AI credit balance, shown in the My Activity section. Re-read on focus so an
+  // admin top-up reflects the moment the farmer opens/returns to the profile.
+  const [aiBalance, setAiBalance] = useState(null);
 
   // Refresh profile (and the activity counts) every time this screen is focused,
   // so newly added/removed rental & animal listings reflect immediately.
@@ -262,9 +266,10 @@ export default function ProfileScreen({ navigation }) {
     refreshUser?.();
     let cancelled = false;
     (async () => {
-      const [mRes, lRes] = await Promise.allSettled([
+      const [mRes, lRes, cRes] = await Promise.allSettled([
         api.get('/rent/machinery/my', { params: { limit: 1 } }),
         api.get('/rent/labour/my',    { params: { limit: 1 } }),
+        getAICredits(),
       ]);
       if (cancelled) return;
       const totalOf = (r) =>
@@ -274,6 +279,9 @@ export default function ProfileScreen({ navigation }) {
       // Only update if at least one call succeeded; otherwise leave the _count fallback.
       if (mRes.status === 'fulfilled' || lRes.status === 'fulfilled') {
         setRentCount(totalOf(mRes) + totalOf(lRes));
+      }
+      if (cRes.status === 'fulfilled') {
+        setAiBalance(cRes.value?.balance ?? null);
       }
     })();
     return () => { cancelled = true; };
@@ -603,7 +611,17 @@ export default function ProfileScreen({ navigation }) {
           <SectionCard delay={240}>
             <SectionHeader title={t('myActivity')} icon="trending-up-outline" iconColor={D.amber} />
             <RowItem icon="paw-outline"       iconColor={D.amber} label={t('myAnimalListings')}          subtitle={t('profile.listingsCount', { count: counts.animalListings || 0 })}   onPress={() => navigation.navigate('MyAnimalListings')} />
-            <RowItem icon="construct-outline" iconColor={D.cyan}  label={t('myRentListings')}            subtitle={t('profile.listingsCount', { count: rentListingCount })} onPress={() => navigation.navigate('MyRentListings')} isLast />
+            <RowItem icon="construct-outline" iconColor={D.cyan}  label={t('myRentListings')}            subtitle={t('profile.listingsCount', { count: rentListingCount })} onPress={() => navigation.navigate('MyRentListings')} />
+            <RowItem
+              icon="sparkles-outline"
+              iconColor={D.gold}
+              label={t('profile.aiCredits', 'AI Credits')}
+              subtitle={aiBalance == null
+                ? t('profile.aiCreditsView', 'View your balance')
+                : `${aiBalance} ${t('aiCredits.creditsLeft', 'credits left')}`}
+              onPress={() => navigation.navigate('AIAssistant', { screen: 'AICredits' })}
+              isLast
+            />
           </SectionCard>
 
           {user?.farmDetail ? (

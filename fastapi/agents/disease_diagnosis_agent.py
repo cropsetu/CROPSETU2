@@ -353,7 +353,9 @@ async def run_disease_diagnosis_agent(
     a lower-quality guess. Transient blips are absorbed by ONE same-model retry
     inside the provider call (llm_utils), not by switching models.
     """
-    cfg = get_feature_config("CROP_DIAGNOSE")
+    # Admin App Settings choice (ai.model.diagnose), forwarded per request inside
+    # params by the Express scan client; falls back to AI_CROP_DIAGNOSE_MODEL/env.
+    cfg = get_feature_config("CROP_DIAGNOSE", model_override=params.get("model_diagnose"))
     if not cfg.api_key:
         return _service_unavailable(
             cfg.model, "no API key configured (set AI_CROP_DIAGNOSE_API_KEY)"

@@ -40,6 +40,12 @@ GROQ_FALLBACK_MODEL: str = os.environ.get("GROQ_FALLBACK_MODEL", "llama-3.3-70b-
 OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_DIAGNOSE_MODEL: str = os.environ.get("OPENAI_DIAGNOSE_MODEL", "gpt-4o")
 
+# ── Anthropic (Claude) — multi-provider model routing (WI-11) ────────────────
+# Optional; blank disables Claude as a selectable provider. Used when
+# AI_<FEATURE>_MODEL is a 'claude-*' id (or the admin AppSetting ai.model.*
+# selects one and Express forwards it per request).
+ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
+
 # ── Sarvam (Indic translation + voice STT/TTS) ───────────────────────────────
 SARVAM_API_KEY: str = os.environ.get("SARVAM_API_KEY", "")
 
