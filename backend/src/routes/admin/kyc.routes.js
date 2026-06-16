@@ -22,6 +22,7 @@ import { maskPhone, auditReveal } from '../../utils/adminPii.js';
 import { signedPrivateUrl } from '../../config/cloudinary.js';
 import { adminAudit, listParams, revealValidators } from './_helpers.js';
 import { ADMIN_ACTIONS } from '../../services/audit.service.js';
+import { KRUSHI_KENDRA_TYPES as KENDRA_TYPES } from '../../constants/kendra.js';
 import logger from '../../utils/logger.js';
 
 const router = Router();
@@ -42,7 +43,7 @@ router.get(
       const { cursor, limit } = listParams(req);
       const page = await keysetList(prisma.sellerProfile, {
         where, cursor, limit,
-        include: { user: { select: { id: true, name: true, phone: true, kycStatus: true, role: true, district: true, state: true } } },
+        include: { user: { select: { id: true, name: true, phone: true, kycStatus: true, role: true, district: true, state: true, businessType: true } } },
       });
       const items = page.items.map((sp) => ({
         id: sp.id,
@@ -51,6 +52,12 @@ router.get(
         kycVerifiedAt: sp.kycVerifiedAt,
         kycRejectedReason: sp.kycRejectedReason,
         documentCount: sp.kycDocumentUrls?.length || 0,
+        // Krushi Seva Kendra licence summary — lets admins spot & triage Kendra
+        // applications in the same KYC queue.
+        isKendra: KENDRA_TYPES.includes(sp.user?.businessType),
+        licenceNumber: sp.licenceNumber || null,
+        licenceVerifiedAt: sp.licenceVerifiedAt,
+        licenceDocCount: sp.licenceDocUrls?.length || 0,
         user: sp.user ? { ...sp.user, phone: maskPhone(sp.user.phone) } : null,
       }));
       return sendSuccess(res, { items }, 200, { hasMore: page.hasMore, nextCursor: page.nextCursor, count: items.length });
@@ -70,7 +77,7 @@ router.get(
       const { userId } = req.params;
       const sp = await prisma.sellerProfile.findUnique({
         where: { userId },
-        include: { user: { select: { id: true, name: true, phone: true, kycStatus: true, role: true, district: true, state: true, aadhaarLast4: true } } },
+        include: { user: { select: { id: true, name: true, phone: true, kycStatus: true, role: true, district: true, state: true, businessType: true, aadhaarLast4: true } } },
       });
       if (!sp) return sendNotFound(res, 'Seller profile');
 
@@ -89,6 +96,14 @@ router.get(
         let url = null;
         try { url = signedPrivateUrl(publicId, { resourceType: 'image' }); }
         catch (e) { logger.warn('[KYC] signed url failed: %s', e.message); }
+        return { index: i, publicId, url };
+      });
+
+      // Same treatment for the Krushi Seva Kendra licence document scans.
+      const licenceDocuments = (sp.licenceDocUrls || []).map((publicId, i) => {
+        let url = null;
+        try { url = signedPrivateUrl(publicId, { resourceType: 'image' }); }
+        catch (e) { logger.warn('[KYC] licence signed url failed: %s', e.message); }
         return { index: i, publicId, url };
       });
 
@@ -114,6 +129,16 @@ router.get(
         kycRejectedReason: sp.kycRejectedReason,
         bank,
         documents,
+        // Krushi Seva Kendra dealer licence (business-registration data, not PII).
+        isKendra: KENDRA_TYPES.includes(sp.user?.businessType),
+        licence: {
+          number: sp.licenceNumber,
+          type: sp.licenceType,
+          issuingState: sp.licenceIssuingState,
+          expiry: sp.licenceExpiry,
+          verifiedAt: sp.licenceVerifiedAt,
+          documents: licenceDocuments,
+        },
       });
     } catch (err) {
       return sendServerError(res, err, 'Failed to load KYC detail');
@@ -140,7 +165,9 @@ router.post('/:userId/verify', [param('userId').isUUID(), body('note').optional(
 
     await prisma.$transaction([
       prisma.user.update({ where: { id: userId }, data: userData }),
-      prisma.sellerProfile.update({ where: { userId }, data: { kycVerifiedAt: new Date(), kycRejectedReason: null } }),
+      // Stamp BOTH the generic KYC verification and the Kendra licence verification
+      // (no-op for non-Kendra sellers, who simply have no licence on file).
+      prisma.sellerProfile.update({ where: { userId }, data: { kycVerifiedAt: new Date(), licenceVerifiedAt: new Date(), kycRejectedReason: null } }),
     ]);
 
     await adminAudit(req, ADMIN_ACTIONS.KYC_VERIFY, 'User', userId, {
@@ -166,7 +193,7 @@ router.post('/:userId/reject', [param('userId').isUUID(), body('reason').isStrin
 
     await prisma.$transaction([
       prisma.user.update({ where: { id: userId }, data: { kycStatus: 'REJECTED' } }),
-      prisma.sellerProfile.update({ where: { userId }, data: { kycRejectedReason: req.body.reason, kycVerifiedAt: null } }),
+      prisma.sellerProfile.update({ where: { userId }, data: { kycRejectedReason: req.body.reason, kycVerifiedAt: null, licenceVerifiedAt: null } }),
     ]);
 
     await adminAudit(req, ADMIN_ACTIONS.KYC_REJECT, 'User', userId, {

@@ -131,7 +131,7 @@ router.get('/me', async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
-        id: true, phone: true, name: true, avatar: true,
+        id: true, phone: true, email: true, name: true, avatar: true,
         role: true, language: true, createdAt: true,
         statusQuote: true,
         pincode: true, district: true, taluka: true, village: true,
@@ -151,6 +151,11 @@ router.get('/me', async (req, res) => {
             bankAccountNumber: true, bankIfsc: true,
             aadharNumber: true, panNumber: true,
             kycVerifiedAt: true, kycRejectedReason: true,
+            // Krushi Seva Kendra licence summary (not personal PII; safe to echo).
+            // licenceDocUrls is intentionally NOT selected — doc references are
+            // private and served only via GET /me/licence-documents (signed URLs).
+            licenceNumber: true, licenceType: true, licenceIssuingState: true,
+            licenceExpiry: true, licenceVerifiedAt: true,
             updatedAt: true,
           },
         },
@@ -191,6 +196,10 @@ router.put(
   piiUpdateLimit, // tight cap on sensitive-PII churn (runs after body is parsed)
   [
     body('name').optional().trim().isLength({ min: 2, max: 80 }),
+    // Optional contact email. `values: 'falsy'` lets the client clear it by
+    // sending '' (→ stored as NULL below) without tripping the format check.
+    body('email').optional({ values: 'falsy' }).trim().isEmail().isLength({ max: 200 })
+      .withMessage('Enter a valid email address'),
     body('language').optional().isIn(['en', 'hi', 'mr']),
     body('statusQuote').optional().trim().isLength({ max: 200 }),
     body('pincode').optional().matches(/^\d{6}$/),
@@ -244,7 +253,7 @@ router.put(
   async (req, res) => {
     try {
       const {
-        name, language, statusQuote,
+        name, email, language, statusQuote,
         pincode, district, taluka, village, city, state,
         lat, lng, dateOfBirth,
         businessType, gstNumber, gstOptOut,
@@ -271,6 +280,9 @@ router.put(
       const userData = {};
       // [L5] Strip HTML from all free-text fields before storage
       if (name        !== undefined) userData.name        = stripHtml(name);
+      // Empty string clears the email (→ NULL); otherwise store it normalised
+      // (lowercased + trimmed) so the unique index treats casing consistently.
+      if (email       !== undefined) userData.email       = email ? stripHtml(email.trim().toLowerCase()) : null;
       if (language    !== undefined) userData.language    = language;
       if (avatar      !== undefined) userData.avatar      = avatar;
       if (statusQuote !== undefined) userData.statusQuote = stripHtml(statusQuote);
@@ -411,6 +423,7 @@ router.put(
       return sendSuccess(res, {
         id:                updatedUser.id,
         phone:             updatedUser.phone,
+        email:             updatedUser.email,
         name:              updatedUser.name,
         avatar:            updatedUser.avatar,
         role:              updatedUser.role,
@@ -432,6 +445,10 @@ router.put(
         ...(tokens && { tokens }),
       });
     } catch (err) {
+      // Unique-constraint hit on email → friendly 409 instead of a generic 500.
+      if (err?.code === 'P2002' && (err?.meta?.target?.includes?.('email') || /email/i.test(String(err?.meta?.target)))) {
+        return sendError(res, 'This email is already linked to another account', 409);
+      }
       logger.error({ err }, '[User] PUT /me error');
       return sendError(res, 'Failed to update profile', 500);
     }
@@ -555,6 +572,70 @@ router.get('/me/kyc-documents', async (req, res) => {
   } catch (err) {
     logger.error({ err }, '[User] GET /me/kyc-documents error');
     return sendError(res, 'Failed to load KYC documents', 500);
+  }
+});
+
+// ── Krushi Seva Kendra licence documents — PRIVATE storage, signed-URL access ──
+// A Kendra's dealer-licence scans are reviewed by an admin before approval. They
+// are sensitive business documents, so — exactly like KYC ID proofs — they live in
+// Cloudinary's authenticated storage (public_ids persisted, never public URLs) and
+// are only ever delivered through short-lived signed URLs. Submitting (re)sets the
+// account's kycStatus to SUBMITTED so it re-enters the admin verification queue.
+
+// POST /me/licence-documents — Kendra (re)submits its licence document images.
+router.post(
+  '/me/licence-documents',
+  profileWriteLimit, // [M1]
+  blockMinors,       // [DPDP §9] no identity/licence submission for under-18s
+  kycSubmitLimit,    // tight cap on sensitive document submissions (5/hour/user)
+  (req, res, next) => kycUpload(req, res, (err) => {
+    if (err) return sendError(res, err.message, 400);
+    next();
+  }),
+  async (req, res) => {
+    try {
+      if (!req.files?.length) {
+        return sendError(res, 'At least one licence document image is required', 400);
+      }
+      // Store privately under a per-user folder; keep only the public_ids.
+      const publicIds = await uploadPrivateFiles(req.files, `licence/${req.user.id}`);
+
+      // Persist references and move KYC to SUBMITTED — new docs need re-review.
+      const [sp] = await prisma.$transaction([
+        prisma.sellerProfile.upsert({
+          where:  { userId: req.user.id },
+          create: { userId: req.user.id, licenceDocUrls: publicIds },
+          update: { licenceDocUrls: publicIds },
+          select: { licenceDocUrls: true },
+        }),
+        prisma.user.update({
+          where: { id: req.user.id },
+          data:  { kycStatus: 'SUBMITTED' },
+        }),
+      ]);
+
+      auditPiiUpdate(req, 'SellerProfile', req.user.id, { licenceDocUrls: publicIds }).catch(() => {});
+
+      return sendSuccess(res, { documents: signKycDocs(sp.licenceDocUrls) }, 201);
+    } catch (err) {
+      logger.error({ err }, '[User] POST /me/licence-documents error');
+      const msg = /Cloudinary is not configured/.test(err.message) ? err.message : 'Failed to upload licence documents';
+      return sendError(res, msg, 500);
+    }
+  }
+);
+
+// GET /me/licence-documents — Kendra fetches fresh signed URLs for their own docs.
+router.get('/me/licence-documents', async (req, res) => {
+  try {
+    const sp = await prisma.sellerProfile.findUnique({
+      where:  { userId: req.user.id },
+      select: { licenceDocUrls: true },
+    });
+    return sendSuccess(res, { documents: signKycDocs(sp?.licenceDocUrls) });
+  } catch (err) {
+    logger.error({ err }, '[User] GET /me/licence-documents error');
+    return sendError(res, 'Failed to load licence documents', 500);
   }
 });
 

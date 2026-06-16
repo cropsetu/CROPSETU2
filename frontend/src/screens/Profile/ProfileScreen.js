@@ -16,6 +16,8 @@ import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { getAICredits } from '../../services/aiApi';
 import { compressImage } from '../../utils/mediaCompressor';
+import { safeOpenURL } from '../../utils/sanitize';
+import { API_BASE_URL } from '../../constants/config';
 import { EntrySlide, D } from '../../components/ui/ImmersiveKit';
 import { COLORS } from '../../constants/colors';
 import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
@@ -25,6 +27,11 @@ import Svg, { Circle, Defs, RadialGradient as SvgRadialGradient, Stop, Path } fr
 // Same hero artwork the Login screen uses — rendered blurred behind the profile
 // body (everything below the edit-profile hero) for a cohesive branded backdrop.
 const HERO = require('../../../assets/khet/welcome-hero.jpg');
+
+// The dedicated Krushi Seva Kendra onboarding website is served same-origin by
+// the backend at /kendra. Derive it from the API base (strip the /api/v1 suffix)
+// so it always points at whichever backend this build talks to.
+const KENDRA_PORTAL_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, '') + '/kendra';
 
 function HeroBgDecoration() {
   return (
@@ -79,6 +86,13 @@ function RowItem({ icon, iconColor, label, subtitle, onPress, showArrow = true, 
       style={[S.rowItem, isLast && { borderBottomWidth: 0 }]}
       onPress={onPress}
       activeOpacity={0.6}
+      disabled={!onPress}
+      // Only collapse into a single a11y node for interactive rows; display rows
+      // (and rows hosting a Switch) stay un-grouped so their controls/text remain
+      // independently reachable by screen readers.
+      accessible={onPress ? true : undefined}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={onPress ? [label, subtitle].filter(Boolean).join(', ') : undefined}
     >
       <View style={[S.rowIcon, { backgroundColor: color + '18' }]}>
         <Ionicons name={icon} size={18} color={color} />
@@ -110,6 +124,7 @@ function QuickTile({ icon, label, color, onPress, index = 0 }) {
 function EditProfileModal({ visible, user, onClose, onSaved }) {
   const { t } = useLanguage();
   const [name,        setName]        = useState('');
+  const [email,       setEmail]       = useState('');
   const [statusQuote, setStatusQuote] = useState('');
   const [district,    setDistrict]    = useState('');
   const [city,        setCity]        = useState('');
@@ -122,6 +137,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
   useEffect(() => {
     if (!visible) return;
     setName(user?.name || '');
+    setEmail(user?.email || '');
     setStatusQuote(user?.statusQuote || '');
     setDistrict(user?.district || '');
     setCity(user?.city || '');
@@ -130,9 +146,16 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
 
   const handleSave = async () => {
     if (!name.trim()) { Alert.alert(t('product.error'), t('profile.nameEmpty')); return; }
+    // Email is optional; only validate format when the user actually typed one.
+    // Empty string is sent through to clear it server-side (stored as NULL).
+    const emailTrim = email.trim();
+    if (emailTrim && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) {
+      Alert.alert(t('product.error'), t('profile.emailInvalid', 'Enter a valid email address'));
+      return;
+    }
     setSaving(true);
     try {
-      const { data } = await api.put('/users/me', { name, statusQuote, district, city, pincode });
+      const { data } = await api.put('/users/me', { name, email: emailTrim, statusQuote, district, city, pincode });
       onSaved(data.data);
     } catch (e) {
       Alert.alert(t('product.error'), e?.response?.data?.error?.message || t('profile.updateFailed'));
@@ -143,6 +166,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
 
   const FIELDS = [
     { key: 'name',     label: t('profile.fullName', 'Full name'),        icon: 'person-outline',              color: KHET.primary, value: name,        setter: setName,        placeholder: t('profile.fullNamePlaceholder'), maxLen: 80  },
+    { key: 'email',    label: t('profile.email'),                        icon: 'mail-outline',                color: D.blue,         value: email,       setter: setEmail,       placeholder: t('profile.emailPlaceholder', 'you@example.com'), maxLen: 200, keyboard: 'email-address', autoCap: 'none' },
     { key: 'quote',    label: t('profile.statusQuote', 'Status / bio'),  icon: 'chatbubble-ellipses-outline', color: D.cyan,         value: statusQuote, setter: setStatusQuote, placeholder: t('profile.statusPlaceholder'),   maxLen: 200 },
     { key: 'district', label: t('profile.district'),                     icon: 'business-outline',            color: D.green,        value: district,    setter: setDistrict,    placeholder: t('profile.districtPlaceholder'), maxLen: 100 },
     { key: 'city',     label: t('profile.cityTown'),                     icon: 'location-outline',            color: D.amber,        value: city,        setter: setCity,        placeholder: t('profile.cityPlaceholder'),     maxLen: 100 },
@@ -186,6 +210,8 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
                     placeholderTextColor={KHET.mutedForeground}
                     maxLength={f.maxLen}
                     keyboardType={f.keyboard || 'default'}
+                    autoCapitalize={f.autoCap || 'sentences'}
+                    autoCorrect={f.autoCap !== 'none'}
                   />
                 </View>
               </View>
@@ -215,10 +241,12 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
 }
 
 const STAT_CONFIGS = [
-  { key: 'animalListings', labelKey: 'profile.animals', icon: 'paw-outline',       color: D.amber },
-  { key: 'orders',         labelKey: 'profile.orders',  icon: 'cart-outline',      color: D.green },
+  // `route` makes each cell tappable; `ctaKey` is the friendly call-to-action
+  // label shown (in place of the plain count label) when the stat is still zero.
+  { key: 'animalListings', labelKey: 'profile.animals', icon: 'paw-outline',       color: D.amber, route: 'MyAnimalListings', ctaKey: 'profile.statListAnimals' },
+  { key: 'orders',         labelKey: 'profile.orders',  icon: 'cart-outline',      color: D.green, route: 'MyOrders',          ctaKey: 'profile.statShopNow' },
   // Rentals = machinery + labour listings the user has created (value computed in render)
-  { key: 'rentListings',   labelKey: 'profile.rentals', icon: 'construct-outline', color: D.cyan },
+  { key: 'rentListings',   labelKey: 'profile.rentals', icon: 'construct-outline', color: D.cyan,  route: 'MyRentListings',    ctaKey: 'profile.statListRentals' },
 ];
 
 export default function ProfileScreen({ navigation }) {
@@ -364,6 +392,20 @@ export default function ProfileScreen({ navigation }) {
   const rentListingCount = rentCount ?? ((counts.machineryListings || 0) + (counts.labourListings || 0));
   const currentLang = LANGUAGES.find((l) => l.code === language);
 
+  // ── Trust / verification badges (derived from existing role + KYC data) ──────
+  const kycVerified = user?.kycStatus === 'VERIFIED' || !!user?.sellerProfile?.kycVerifiedAt;
+  const trustBadges = [];
+  if (kycVerified) {
+    trustBadges.push({ key: 'verified', icon: 'shield-checkmark', label: t('profile.badgeVerified', 'Verified'), verified: true });
+  } else if (isSeller && user?.kycStatus === 'PENDING') {
+    trustBadges.push({ key: 'kyc', icon: 'time-outline', label: t('profile.badgeKycPending', 'KYC pending') });
+  }
+  trustBadges.push(
+    isSeller
+      ? { key: 'seller', icon: 'storefront', label: t('profile.badgeSeller', 'Seller') }
+      : { key: 'farmer', icon: 'leaf',       label: t('profile.badgeFarmer', 'Farmer') }
+  );
+
   return (
     <AnimatedScreen style={[S.root]}>
       <Animated.ScrollView
@@ -375,29 +417,44 @@ export default function ProfileScreen({ navigation }) {
         )}
       >
         <Animated.View style={{ transform: [{ perspective: 1200 }, { scale: heroScale }], opacity: heroOpacity }}>
-          <LinearGradient
-            colors={KHET.gradPrimary}
-            start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-            style={S.hero}
-          >
+          <View style={S.hero}>
+            {/* Same welcome-hero artwork the Login screen uses, with the shared
+                gradHero scrim (transparent → deep green) so the white hero text
+                stays legible over the photo. */}
+            <Image source={HERO} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            <LinearGradient
+              colors={KHET.gradHero}
+              locations={KHET.gradHeroLocs}
+              start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
             <HeroBgDecoration />
 
             <View style={S.heroContent}>
-              <TouchableOpacity style={S.avatarWrap} onPress={handlePhotoPress} activeOpacity={0.8}>
-                <View style={S.avatarRing}>
-                  {user?.avatar ? (
-                    <Image
-                      source={{ uri: avatarBust ? `${user.avatar}${user.avatar.includes('?') ? '&' : '?'}v=${avatarBust}` : user.avatar }}
-                      style={S.avatarImg}
-                    />
-                  ) : (
-                    <LinearGradient
-                      colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.15)']}
-                      style={S.avatar}
-                    >
-                      <Text style={S.avatarTxt}>{initials}</Text>
-                    </LinearGradient>
-                  )}
+              <TouchableOpacity
+                style={S.avatarWrap}
+                onPress={handlePhotoPress}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={t('profile.a11yChangePhoto', 'Change profile photo')}
+                accessibilityHint={t('profile.a11yChangePhotoHint', 'Opens your photo library')}
+              >
+                <View style={S.avatarHalo}>
+                  <View style={S.avatarRing}>
+                    {user?.avatar ? (
+                      <Image
+                        source={{ uri: avatarBust ? `${user.avatar}${user.avatar.includes('?') ? '&' : '?'}v=${avatarBust}` : user.avatar }}
+                        style={S.avatarImg}
+                      />
+                    ) : (
+                      <LinearGradient
+                        colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.15)']}
+                        style={S.avatar}
+                      >
+                        <Text style={S.avatarTxt}>{initials}</Text>
+                      </LinearGradient>
+                    )}
+                  </View>
                 </View>
                 <View style={S.cameraBtn}>
                   {uploadingPhoto
@@ -407,11 +464,38 @@ export default function ProfileScreen({ navigation }) {
               </TouchableOpacity>
 
               <Text style={S.heroName}>{user?.name || 'Farmer'}</Text>
-              {user?.phone && <Text style={S.heroPhone}>{user.phone}</Text>}
-              {(user?.city || user?.district) && (
-                <View style={S.locRow}>
-                  <Ionicons name="location" size={12} color="rgba(255,255,255,0.85)" />
-                  <Text style={S.heroLoc}>{[user?.city, user?.district].filter(Boolean).join(', ')}</Text>
+
+              {trustBadges.length > 0 && (
+                <View style={S.heroBadgeRow}>
+                  {trustBadges.map((b) => (
+                    <View
+                      key={b.key}
+                      style={[S.heroBadge, b.verified && S.heroBadgeVerified]}
+                      accessible
+                      accessibilityRole="text"
+                      accessibilityLabel={b.label}
+                    >
+                      <Ionicons name={b.icon} size={11} color={b.verified ? KHET.primary : KHET.white} />
+                      <Text style={[S.heroBadgeTxt, b.verified && S.heroBadgeTxtVerified]}>{b.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {(user?.phone || user?.city || user?.district) && (
+                <View style={S.heroMetaRow}>
+                  {user?.phone && (
+                    <View style={S.heroMetaPill}>
+                      <Ionicons name="call" size={11} color="rgba(255,255,255,0.9)" />
+                      <Text style={S.heroMetaTxt}>{user.phone}</Text>
+                    </View>
+                  )}
+                  {(user?.city || user?.district) && (
+                    <View style={S.heroMetaPill}>
+                      <Ionicons name="location" size={11} color="rgba(255,255,255,0.9)" />
+                      <Text style={S.heroMetaTxt} numberOfLines={1}>{[user?.city, user?.district].filter(Boolean).join(', ')}</Text>
+                    </View>
+                  )}
                 </View>
               )}
               {user?.statusQuote ? (
@@ -421,7 +505,13 @@ export default function ProfileScreen({ navigation }) {
               ) : null}
 
               <View style={S.heroActions}>
-                <TouchableOpacity style={S.editBtn} onPress={() => setShowEditModal(true)} activeOpacity={0.75}>
+                <TouchableOpacity
+                  style={S.editBtn}
+                  onPress={() => setShowEditModal(true)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('editProfile')}
+                >
                   <Ionicons name="create-outline" size={14} color={KHET.white} />
                   <Text style={S.editBtnTxt}>{t('editProfile')}</Text>
                 </TouchableOpacity>
@@ -430,7 +520,7 @@ export default function ProfileScreen({ navigation }) {
                 </Text>
               </View>
             </View>
-          </LinearGradient>
+          </View>
         </Animated.View>
 
         <View style={S.body}>
@@ -446,15 +536,29 @@ export default function ProfileScreen({ navigation }) {
           <View style={S.bodyContent}>
           <EntrySlide delay={0} fromY={20}>
             <View style={S.statsCard}>
-              {STAT_CONFIGS.map((stat, i) => (
-                <View key={stat.key} style={[S.statCell, i < STAT_CONFIGS.length - 1 && S.statCellBorder]}>
-                  <View style={[S.statIcon, { backgroundColor: stat.color + '16' }]}>
-                    <Ionicons name={stat.icon} size={20} color={stat.color} />
-                  </View>
-                  <Text style={S.statValue}>{stat.key === 'rentListings' ? rentListingCount : (counts[stat.key] ?? 0)}</Text>
-                  <Text style={S.statLabel}>{t(stat.labelKey)}</Text>
-                </View>
-              ))}
+              {STAT_CONFIGS.map((stat, i) => {
+                const value  = stat.key === 'rentListings' ? rentListingCount : (counts[stat.key] ?? 0);
+                const isZero = value === 0;
+                return (
+                  <TouchableOpacity
+                    key={stat.key}
+                    style={[S.statCell, i < STAT_CONFIGS.length - 1 && S.statCellBorder]}
+                    onPress={() => navigation.navigate(stat.route)}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${value} ${t(stat.labelKey)}`}
+                  >
+                    <View style={[S.statIcon, { backgroundColor: stat.color + '16' }]}>
+                      <Ionicons name={stat.icon} size={20} color={stat.color} />
+                    </View>
+                    <Text style={S.statValue}>{value}</Text>
+                    {/* Zero → a friendly CTA in place of the plain count label. */}
+                    <Text style={[S.statLabel, isZero && S.statLabelCta]} numberOfLines={1}>
+                      {isZero ? t(stat.ctaKey) : t(stat.labelKey)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </EntrySlide>
 
@@ -496,7 +600,7 @@ export default function ProfileScreen({ navigation }) {
           <SectionCard delay={180}>
             <SectionHeader title={t('personalInfo')} icon="person-outline" iconColor={D.blue} />
             <RowItem icon="call-outline"     iconColor={D.green}  label={t('profile.mobileNumber')} subtitle={user?.phone || '—'}                                  showArrow={false} />
-            <RowItem icon="mail-outline"     iconColor={D.blue}   label={t('profile.email')}         subtitle={t('profile.notAddedYet')}                            showArrow={false} />
+            <RowItem icon="mail-outline"     iconColor={D.blue}   label={t('profile.email')}         subtitle={user?.email || t('profile.notAddedYet')}             onPress={() => setShowEditModal(true)} />
             <RowItem icon="business-outline" iconColor={D.cyan}   label={t('profile.district')}      subtitle={user?.district || '—'}                               showArrow={false} />
             <RowItem icon="home-outline"     iconColor={D.green}  label="Village"                    subtitle={user?.village || '—'}                                showArrow={false} />
             <RowItem icon="location-outline" iconColor={D.amber}  label={t('profile.cityTown')}      subtitle={user?.city || '—'}                                   showArrow={false} />
@@ -520,7 +624,7 @@ export default function ProfileScreen({ navigation }) {
             />
           </SectionCard>
 
-          {user?.farmDetail && (
+          {user?.farmDetail ? (
             <SectionCard delay={300}>
               <SectionHeader title={t('farmDetails')} icon="leaf-outline" iconColor={D.green} />
               <RowItem icon="resize-outline" iconColor={D.green}  label={t('profile.totalLand')}  subtitle={user.farmDetail.landAcres ? t('profile.landAcres', { acres: user.farmDetail.landAcres }) : '—'} showArrow={false} />
@@ -528,10 +632,26 @@ export default function ProfileScreen({ navigation }) {
               <RowItem icon="water-outline"  iconColor={D.cyan}   label={t('profile.irrigation')} subtitle={user.farmDetail.irrigationType || '—'} showArrow={false} />
               <RowItem icon="flower-outline" iconColor={COLORS.primary}   label={t('profile.mainCrops')}  subtitle={(user.farmDetail.cropTypes || []).join(', ') || '—'} showArrow={false} isLast />
             </SectionCard>
+          ) : (
+            <SectionCard delay={300}>
+              <SectionHeader title={t('farmDetails')} icon="leaf-outline" iconColor={D.green} />
+              <RowItem
+                icon="add-circle-outline" iconColor={D.green}
+                label={t('profile.addFarmDetails', 'Add your farm details')}
+                subtitle={t('profile.addFarmDetailsSub', 'Tell us about your land & crops')}
+                onPress={() => navigation.navigate('FarmList')}
+                isLast
+              />
+            </SectionCard>
           )}
 
           <EntrySlide delay={360} fromY={16}>
-            <TouchableOpacity activeOpacity={0.85} onPress={() => navigation.navigate('AIAssistant', { screen: 'Scheme' })}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate('AIAssistant', { screen: 'Scheme' })}
+              accessibilityRole="button"
+              accessibilityLabel={`${t('profile.schemesTitle')}. ${t('profile.schemesSub')}`}
+            >
               <LinearGradient
                 colors={KHET.gradPrimary}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
@@ -563,6 +683,10 @@ export default function ProfileScreen({ navigation }) {
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={() => navigation.navigate('SellerPortal', isSeller ? undefined : { screen: 'BusinessProfile' })}
+              accessibilityRole="button"
+              accessibilityLabel={isSeller
+                ? t('profile.sellerDashboardTitle', 'Seller Dashboard')
+                : t('profile.becomeSellerTitle', 'Become a Seller')}
             >
               <LinearGradient
                 colors={['#E65100', '#F57C00', '#FF9800']}
@@ -591,8 +715,43 @@ export default function ProfileScreen({ navigation }) {
             </TouchableOpacity>
           </EntrySlide>
 
+          {/* Krushi Seva Kendra portal — opens the dedicated onboarding website.
+              Farmers forward this to their local agri-input dealer (Kendra), who
+              registers there with a licence and then receives crop reports. */}
+          <EntrySlide delay={510} fromY={16}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => safeOpenURL(KENDRA_PORTAL_URL)}
+              accessibilityRole="button"
+              accessibilityLabel={t('profile.kendraPortalTitle', 'Are you a Krushi Seva Kendra?')}
+            >
+              <LinearGradient
+                colors={['#14532d', '#15803d', '#22c55e']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={S.sellerBanner}
+              >
+                <View style={S.sellerIconWrap}>
+                  <Ionicons name="leaf" size={22} color={COLORS.white} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.sellerTitle}>{t('profile.kendraPortalTitle', 'Are you a Krushi Seva Kendra?')}</Text>
+                  <Text style={S.sellerSub}>{t('profile.kendraPortalSub', 'Register your shop to receive farmers’ crop reports')}</Text>
+                </View>
+                <View style={S.bannerArrow}>
+                  <Ionicons name="open-outline" size={16} color={COLORS.white} />
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+          </EntrySlide>
+
           <EntrySlide delay={540} fromY={16}>
-            <TouchableOpacity style={S.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={S.logoutBtn}
+              onPress={handleLogout}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={t('logout')}
+            >
               <View style={S.logoutIconWrap}>
                 <Ionicons name="log-out-outline" size={18} color={KHET.destructive} />
               </View>
@@ -729,18 +888,27 @@ const S = StyleSheet.create({
     paddingTop: Platform.OS === 'android' ? 52 : 52,
     paddingBottom: 30, paddingHorizontal: 24, overflow: 'hidden',
     borderBottomLeftRadius: 24, borderBottomRightRadius: 24,
+    // Deep-green fallback shown until the hero photo finishes loading.
+    backgroundColor: KHET.primary,
   },
   heroContent: {
     alignItems: 'center', position: 'relative', zIndex: 1,
   },
 
-  avatarWrap: { position: 'relative', marginBottom: 14 },
+  avatarWrap: { position: 'relative', marginBottom: 16 },
+  // Soft outer halo gives the avatar a premium double-ring without a new asset.
+  avatarHalo: {
+    width: 112, height: 112, borderRadius: 56, padding: 5,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)',
+    justifyContent: 'center', alignItems: 'center',
+  },
   avatarRing: {
-    width: 96, height: 96, borderRadius: 48,
-    borderWidth: 3, borderColor: KHET.primaryGlow,
+    width: 98, height: 98, borderRadius: 49,
+    borderWidth: 3, borderColor: 'rgba(255,255,255,0.65)',
     overflow: 'hidden',
-    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }, elevation: 8,
+    shadowColor: '#000', shadowOpacity: 0.28, shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 }, elevation: 8,
   },
   avatar: {
     width: '100%', height: '100%',
@@ -749,8 +917,8 @@ const S = StyleSheet.create({
   avatarImg: { width: '100%', height: '100%' },
   avatarTxt: { fontSize: 34, fontFamily: KFONT.displayBold, color: KHET.white },
   cameraBtn: {
-    position: 'absolute', bottom: 2, right: 2,
-    width: 28, height: 28, borderRadius: 14,
+    position: 'absolute', bottom: 6, right: 6,
+    width: 30, height: 30, borderRadius: 15,
     backgroundColor: KHET.primaryGlow,
     justifyContent: 'center', alignItems: 'center',
     borderWidth: 2.5, borderColor: KHET.white,
@@ -759,38 +927,66 @@ const S = StyleSheet.create({
   },
 
   heroName: {
-    fontSize: 24, fontFamily: KFONT.displayBold, color: KHET.primaryForeground,
-    textAlign: 'center', marginBottom: 4, letterSpacing: -0.5,
+    fontSize: 25, fontFamily: KFONT.displayBold, color: KHET.primaryForeground,
+    textAlign: 'center', marginBottom: 2, letterSpacing: -0.5,
     textShadowColor: 'rgba(0,0,0,0.2)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3,
   },
-  heroPhone: {
-    fontSize: 14, color: 'rgba(255,255,255,0.9)', fontFamily: KFONT.sans,
-    marginBottom: 6, textAlign: 'center',
+
+  // Phone + location as matching frosted pills on one centered row.
+  heroMetaRow: {
+    flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center',
+    gap: 6, marginTop: 4, marginBottom: 6,
   },
-  locRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6,
+  heroMetaPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 12,
-    paddingHorizontal: 10, paddingVertical: 4,
+    paddingHorizontal: 11, paddingVertical: 5,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)',
+    maxWidth: '80%',
   },
-  heroLoc: { fontSize: 12, color: 'rgba(255,255,255,0.9)', fontFamily: KFONT.sansMed },
+  heroMetaTxt: { fontSize: 12, color: 'rgba(255,255,255,0.92)', fontFamily: KFONT.sansMed },
+
   quoteWrap: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 6,
-    marginBottom: 4, marginTop: 2,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 7,
+    marginBottom: 4, marginTop: 4, maxWidth: '92%',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)',
   },
-  heroQuote: { fontSize: 13, color: 'rgba(255,255,255,0.9)', fontFamily: KFONT.displayItalic, fontStyle: 'italic', textAlign: 'center' },
+  heroQuote: { fontSize: 13, color: 'rgba(255,255,255,0.92)', fontFamily: KFONT.displayItalic, fontStyle: 'italic', textAlign: 'center', lineHeight: 18 },
   heroActions: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    width: '100%', marginTop: 14,
+    width: '100%', marginTop: 16,
   },
   editBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    borderRadius: 22, paddingHorizontal: 18, paddingVertical: 10,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.32)',
+    shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 }, elevation: 3,
   },
   editBtnTxt: { fontSize: 13, fontFamily: KFONT.sansSemi, color: KHET.white },
   memberSince: { fontSize: 12, color: 'rgba(255,255,255,0.7)', fontFamily: KFONT.displayItalic, fontStyle: 'italic' },
+
+  // Trust / verification badges below the hero name. Translucent white pills keep
+  // them readable on the green gradient; the "verified" chip flips to a solid
+  // light fill with green text so it reads as the primary trust signal.
+  heroBadgeRow: {
+    flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center',
+    gap: 6, marginTop: 6, marginBottom: 8,
+  },
+  heroBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 11, paddingHorizontal: 9, paddingVertical: 3.5,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)',
+  },
+  heroBadgeTxt: { fontSize: 11, color: KHET.white, fontFamily: KFONT.sansSemi, letterSpacing: 0.2 },
+  heroBadgeVerified: {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderColor: 'rgba(255,255,255,0.95)',
+  },
+  heroBadgeTxtVerified: { color: KHET.primary, fontFamily: KFONT.sansBold },
 
   body: { marginTop: -12, position: 'relative' },
   // Blurred Login hero artwork behind the body; absolute so it fills the
@@ -815,6 +1011,8 @@ const S = StyleSheet.create({
   },
   statValue: { fontSize: 22, fontFamily: KFONT.displayBold, color: KHET.foreground },
   statLabel: { fontSize: 11, color: KHET.mutedForeground, fontFamily: KFONT.sansSemi },
+  // Zero-state CTA colour for a stat label (e.g. "List animals" instead of "Animals").
+  statLabelCta: { color: KHET.primary, fontFamily: KFONT.sansBold },
 
   sectionCard: {
     backgroundColor: KHET.card, borderRadius: 20,

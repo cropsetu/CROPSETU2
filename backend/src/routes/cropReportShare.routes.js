@@ -37,20 +37,13 @@ import { validate } from '../middleware/validate.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, paginationMeta } from '../utils/response.js';
 import { sendPushToUser } from '../services/push.service.js';
 import { decryptNumber } from '../utils/encrypt.js';
+import { KRUSHI_KENDRA_TYPES } from '../constants/kendra.js';
 import logger from '../utils/logger.js';
 import prisma from '../config/db.js';
 
 const router = Router();
 router.param('reportId', uuidParamGuard); // crop report id
 router.param('shareId', uuidParamGuard);  // report-share id
-
-const KRUSHI_KENDRA_TYPES = [
-  'krushi_kendra',
-  'fertilizer_dealer',
-  'seed_supplier',
-  'agri_input_shop',
-  'pesticide_dealer',
-];
 
 // Upper bound on candidate sellers scanned for the in-app Haversine filter.
 // Because lat/lng are encrypted we can't pre-filter by a SQL bounding box, so
@@ -70,9 +63,14 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 }
 
 // ─── GET nearby Krushi Kendra sellers ───────────────────────────────────────
+// Only ADMIN-VERIFIED Kendras are returned (User.kycStatus = 'VERIFIED'): a
+// Kendra onboards on the dedicated website with its dealer licence and is only
+// discoverable to farmers AFTER an admin verifies that licence — "verification
+// before approval". Unverified / pending / rejected Kendras never surface here.
 // Strategy:
 //   1. Prefer GPS distance: when both farmer and seller have lat/lng, sort by
-//      Haversine and return distanceKm. Default radius = 25 km.
+//      Haversine and return distanceKm. Default radius = 150 km (Kendras are
+//      sparse in rural areas; the farmer can narrow via ?radiusKm, max 200).
 //   2. Fallback to district/taluka string match for sellers without coords.
 router.get('/sellers/nearby', authenticate, async (req, res) => {
   const { district, taluka, type, lat: qLat, lng: qLng, radiusKm } = req.query;
@@ -94,7 +92,7 @@ router.get('/sellers/nearby', authenticate, async (req, res) => {
   if (!queryTaluka)     queryTaluka   = farmer?.taluka   || null;
 
   const businessTypes = type ? [type] : KRUSHI_KENDRA_TYPES;
-  const RADIUS_KM = Math.min(Math.max(Number(radiusKm) || 25, 1), 200);
+  const RADIUS_KM = Math.min(Math.max(Number(radiusKm) || 150, 1), 200);
 
   const SELLER_SELECT = {
     id: true, name: true, phone: true, avatar: true,
@@ -116,6 +114,7 @@ router.get('/sellers/nearby', authenticate, async (req, res) => {
       where: {
         id:           { not: me },
         businessType: { in: businessTypes },
+        kycStatus:    'VERIFIED', // only admin-approved Kendras are discoverable
         lat:          { not: null },
         lng:          { not: null },
       },
@@ -158,6 +157,7 @@ router.get('/sellers/nearby', authenticate, async (req, res) => {
       where: {
         id:           { notIn: [...excludeIds] },
         businessType: { in: businessTypes },
+        kycStatus:    'VERIFIED', // only admin-approved Kendras are discoverable
         district:     queryDistrict,
       },
       select: SELLER_SELECT,
@@ -208,7 +208,7 @@ router.post(
       }),
       prisma.user.findUnique({
         where:  { id: sellerId },
-        select: { id: true, businessType: true, name: true },
+        select: { id: true, businessType: true, name: true, kycStatus: true },
       }),
     ]);
 
@@ -217,6 +217,11 @@ router.post(
 
     if (!seller.businessType || !KRUSHI_KENDRA_TYPES.includes(seller.businessType)) {
       return sendError(res, 'Selected user is not a Krushi Kendra seller', 400);
+    }
+    // Only admin-verified Kendras can receive reports (mirrors the discovery gate
+    // above — a report must never be shareable to an unapproved Kendra).
+    if (seller.kycStatus !== 'VERIFIED') {
+      return sendError(res, 'This Krushi Kendra is not yet verified', 400);
     }
 
     // Idempotent: if already shared, return existing
