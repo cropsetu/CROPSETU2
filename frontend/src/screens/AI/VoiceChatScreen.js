@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
 import { WebView } from 'react-native-webview';
-import { sendVoiceChatMessage, textToSpeech } from '../../services/aiApi';
+import { sendVoiceChatMessage } from '../../services/aiApi';
 import { useFarm } from '../../context/FarmContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { COLORS } from '../../constants/colors';
@@ -528,16 +528,14 @@ export default function VoiceChatScreen({ navigation }) {
       setShowTranscript(true);
       setIsProcessing(false);
 
-      // Text-first: the reply is already on screen; now fetch + auto-play audio
-      // via /ai/tts. Best-effort — a TTS failure no longer wastes the STT+LLM
-      // spend, and the smaller /voice payload returns faster.
-      if (result.reply) {
+      // Audio came back in the SAME /ai/voice response (tts=true) — no separate
+      // /ai/tts round-trip and no second credit charge. Play it directly.
+      // Best-effort: a missing/failed clip just leaves the reply on screen.
+      if (result.audio?.audio) {
         try {
-          const ttsLang = result.detectedLanguage || sarvamLang || 'hi-IN';
-          const tts = await textToSpeech(result.reply, ttsLang);
-          if (tts?.audio) await playBase64Audio(tts.audio, tts.mimeType || 'audio/wav');
+          await playBase64Audio(result.audio.audio, result.audio.mimeType || 'audio/wav');
         } catch (e) {
-          if (__DEV__) console.warn('[VoiceChat] TTS failed (non-fatal):', e?.message);
+          if (__DEV__) console.warn('[VoiceChat] audio playback failed (non-fatal):', e?.message);
         }
       }
     } catch (err) {
