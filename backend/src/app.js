@@ -25,6 +25,7 @@ import animalTradeRoutes   from './routes/animaltrade.routes.js';
 import communityRoutes     from './routes/community.routes.js';
 import cropDiseaseRoutes   from './routes/cropdisease.routes.js';
 import cropReportShareRoutes from './routes/cropReportShare.routes.js';
+import kendraRoutes        from './routes/kendra.routes.js';
 import groupsRoutes        from './routes/groups.routes.js';
 import messagesRoutes      from './routes/messages.routes.js';
 import uploadRoutes        from './routes/upload.routes.js';
@@ -280,6 +281,27 @@ if (fs.existsSync(path.join(ADMIN_DIST_DIR, 'index.html'))) {
   logger.info('[Admin] Serving admin SPA from %s at /admin', ADMIN_DIST_DIR);
 }
 
+// ── Kendra SPA (same-origin) ──────────────────────────────────────────────────
+// The dedicated Krushi Seva Kendra onboarding website (kendra/dist) is served at
+// /kendra from the SAME origin as the API — same rationale as the admin SPA above
+// (first-party auth cookies, no CORS). The /kendra path is disjoint from the
+// /api/v1/kendra API mounted below. Skipped when the dist folder is absent (local
+// dev runs the Kendra app on its own Vite server at :5181).
+const KENDRA_DIST_DIR = process.env.KENDRA_DIST_DIR
+  ? path.resolve(process.env.KENDRA_DIST_DIR)
+  : path.resolve(__dirname, '../../kendra/dist');
+
+if (fs.existsSync(path.join(KENDRA_DIST_DIR, 'index.html'))) {
+  const sendKendraIndex = (_req, res) => {
+    res.set('Cache-Control', 'no-cache'); // always revalidate the HTML shell
+    res.sendFile(path.join(KENDRA_DIST_DIR, 'index.html'));
+  };
+  app.use('/kendra', express.static(KENDRA_DIST_DIR, { index: false, maxAge: '1y' }));
+  app.get('/kendra', sendKendraIndex);
+  app.get('/kendra/*', sendKendraIndex);
+  logger.info('[Kendra] Serving Kendra SPA from %s at /kendra', KENDRA_DIST_DIR);
+}
+
 // ── Global per-IP rate limit ──────────────────────────────────────────────────
 // Baseline brute-force / DDoS protection for every API route. Mounted AFTER the
 // health probes (so LB liveness/readiness checks are never throttled) and BEFORE
@@ -311,6 +333,7 @@ app.use(`${API}/animals`,      animalTradeRoutes);
 app.use(`${API}/community`,    communityRoutes);
 app.use(`${API}/crop-disease`, cropDiseaseRoutes);
 app.use(`${API}/crop-reports`, cropReportShareRoutes);
+app.use(`${API}/kendra`,       kendraRoutes);
 app.use(`${API}/groups`,       groupsRoutes);
 app.use(`${API}/messages`,     messagesRoutes);
 app.use(`${API}/upload`,       uploadRoutes);

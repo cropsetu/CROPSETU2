@@ -29,7 +29,10 @@ export function buildUser(overrides = {}) {
 }
 
 export function buildSeller(overrides = {}) {
-  return buildUser({ role: 'SELLER', businessType: 'individual_farmer', ...overrides });
+  // A test SELLER represents an onboarded, ADMIN-APPROVED seller/Kendra, so default
+  // kycStatus to VERIFIED — the crop-report discovery + share routes only surface
+  // VERIFIED Kendras. Override with { kycStatus: 'PENDING' } to test the gate.
+  return buildUser({ role: 'SELLER', businessType: 'individual_farmer', kycStatus: 'VERIFIED', ...overrides });
 }
 
 export function buildAdmin(overrides = {}) {

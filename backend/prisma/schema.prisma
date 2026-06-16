@@ -15,6 +15,9 @@ datasource db {
 model User {
   id                       String               @id @default(uuid())
   phone                    String               @unique
+  // Optional contact email. Nullable + unique — Postgres allows many NULLs, so
+  // farmers who never add one don't collide. Stored lowercased/trimmed.
+  email                    String?              @unique
   name                     String?
   avatar                   String?
   statusQuote              String?
@@ -142,6 +145,20 @@ model SellerProfile {
   kycDocumentUrls   String[]
   kycVerifiedAt     DateTime?
   kycRejectedReason String?
+  // ── Krushi Seva Kendra licence (dedicated Kendra onboarding website) ─────────
+  // A Kendra registers with its agri-input dealer licence; an admin verifies the
+  // licence + documents (User.kycStatus → VERIFIED) BEFORE the Kendra is approved
+  // and becomes discoverable to nearby farmers (see cropReportShare routes — only
+  // VERIFIED Kendras surface). Number/type/state/expiry are business-registration
+  // data (not personal PII) so stored plaintext; the licence document scans go to
+  // PRIVATE Cloudinary storage (public_ids only) exactly like KYC docs and are
+  // served via short-lived signed URLs. licenceVerifiedAt is stamped on approval.
+  licenceNumber       String?
+  licenceType         String?
+  licenceIssuingState String?
+  licenceExpiry       DateTime?
+  licenceDocUrls      String[]  @default([])
+  licenceVerifiedAt   DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)

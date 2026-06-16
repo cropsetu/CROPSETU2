@@ -40,10 +40,12 @@ export function maskSensitiveFields(profile) {
   if (masked.bankHolderName)    masked.bankHolderName    = reveal(masked.bankHolderName);
   if (masked.bankName)          masked.bankName          = reveal(masked.bankName);
 
-  // Never expose raw KYC document references in a profile payload — those are
-  // private Cloudinary public_ids, served only via the dedicated signed-URL
-  // endpoints (GET /me/kyc-documents, GET /:userId/kyc-documents).
+  // Never expose raw KYC / licence document references in a profile payload —
+  // those are private Cloudinary public_ids, served only via the dedicated
+  // signed-URL endpoints (GET /me/kyc-documents, GET /me/licence-documents,
+  // and the admin KYC detail view).
   if ('kycDocumentUrls' in masked) delete masked.kycDocumentUrls;
+  if ('licenceDocUrls'  in masked) delete masked.licenceDocUrls;
 
   return masked;
 }

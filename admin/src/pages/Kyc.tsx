@@ -15,7 +15,8 @@ const KYC = ['PENDING', 'SUBMITTED', 'VERIFIED', 'REJECTED'];
 
 interface KycRow {
   id: string; userId: string; createdAt: string; kycVerifiedAt: string | null; kycRejectedReason: string | null;
-  documentCount: number; user: { id: string; name: string | null; phone: string; kycStatus: string; role: string; district: string | null } | null;
+  documentCount: number; isKendra?: boolean; licenceNumber?: string | null; licenceDocCount?: number;
+  user: { id: string; name: string | null; phone: string; kycStatus: string; role: string; district: string | null } | null;
 }
 
 export function KycPage() {
@@ -27,8 +28,9 @@ export function KycPage() {
   const columns: Column<KycRow>[] = [
     { key: 'name', header: 'Seller', render: (r) => r.user?.name || '—', csv: (r) => r.user?.name || '' },
     { key: 'phone', header: 'Phone', render: (r) => <span className="font-mono text-xs">{r.user?.phone}</span>, csv: (r) => r.user?.phone || '' },
+    { key: 'type', header: 'Type', render: (r) => (r.isKendra ? <Badge tone="green">Kendra</Badge> : <span className="text-xs text-slate-400">Seller</span>), csv: (r) => (r.isKendra ? 'Kendra' : 'Seller') },
     { key: 'kyc', header: 'KYC', render: (r) => <StatusBadge value={r.user?.kycStatus} />, csv: (r) => r.user?.kycStatus || '' },
-    { key: 'documentCount', header: 'Docs', render: (r) => r.documentCount, csv: (r) => String(r.documentCount) },
+    { key: 'documentCount', header: 'Docs', render: (r) => r.isKendra ? `${r.documentCount} + ${r.licenceDocCount ?? 0} lic.` : r.documentCount, csv: (r) => String(r.documentCount) },
     { key: 'district', header: 'District', render: (r) => r.user?.district || '—', csv: (r) => r.user?.district || '' },
     { key: 'createdAt', header: 'Submitted', render: (r) => formatDate(r.createdAt), csv: (r) => r.createdAt },
   ];
@@ -60,10 +62,16 @@ export function KycPage() {
 
 interface KycDetail {
   userId: string; piiRevealed: boolean;
-  user: { id: string; name: string | null; phone: string; kycStatus: string; role: string; district: string | null; state: string | null } | null;
+  user: { id: string; name: string | null; phone: string; kycStatus: string; role: string; district: string | null; state: string | null; businessType?: string | null } | null;
   kycVerifiedAt: string | null; kycRejectedReason: string | null;
   bank: Record<string, string | null>;
   documents: { index: number; publicId: string; url: string | null }[];
+  isKendra?: boolean;
+  licence?: {
+    number: string | null; type: string | null; issuingState: string | null;
+    expiry: string | null; verifiedAt: string | null;
+    documents: { index: number; publicId: string; url: string | null }[];
+  };
 }
 
 export function KycDetailPage() {
@@ -158,6 +166,43 @@ export function KycDetailPage() {
           )}
         </Card>
       </div>
+
+      {(d.isKendra || d.licence?.number) && (
+        <Card className="p-5">
+          <h3 className="mb-3 text-sm font-medium text-slate-700">
+            Krushi Seva Kendra licence
+            {d.licence?.verifiedAt && <Badge tone="green" className="ml-2">verified</Badge>}
+          </h3>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <DescList items={[
+              { label: 'Licence number', value: <span className="font-mono">{d.licence?.number || '—'}</span> },
+              { label: 'Licence type', value: d.licence?.type || '—' },
+              { label: 'Issuing authority / state', value: d.licence?.issuingState || '—' },
+              { label: 'Expiry', value: d.licence?.expiry ? formatDate(d.licence.expiry) : '—' },
+            ]} />
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">Licence documents ({d.licence?.documents?.length ?? 0})</p>
+              {(!d.licence?.documents || d.licence.documents.length === 0) ? (
+                <p className="text-sm text-slate-400">No licence documents uploaded.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {d.licence.documents.map((doc) => (
+                    <li key={doc.index}>
+                      {doc.url ? (
+                        <a href={doc.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-brand-700 hover:bg-slate-50">
+                          <FileText className="h-4 w-4" /> Licence {doc.index + 1} <span className="ml-auto text-xs text-slate-400">(signed link, ~5 min)</span>
+                        </a>
+                      ) : (
+                        <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-400"><FileText className="h-4 w-4" /> Licence {doc.index + 1} (link unavailable)</div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

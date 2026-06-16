@@ -1,7 +1,8 @@
-# CropSetu backend + embedded admin SPA (same-origin).
+# CropSetu backend + embedded admin SPA + Kendra portal SPA (all same-origin).
 #
-# Two stages: (1) build the admin React/Vite SPA, (2) backend runtime that serves
-# both the API (/api/v1/*) and the built admin panel (/admin) from one origin.
+# Stages: (1) build the admin React/Vite SPA, (2) build the Kendra portal SPA,
+# (3) backend runtime that serves the API (/api/v1/*), the admin panel (/admin)
+# and the Kendra portal (/kendra) from one origin.
 # Used by the Railway *backend* service with Root Directory = repo root.
 
 # ── Stage 1: build the admin SPA ──────────────────────────────────────────────
@@ -15,7 +16,18 @@ ENV VITE_API_URL=/api/v1
 ENV VITE_ENV_NAME=production
 RUN npm run build           # → /admin/dist
 
-# ── Stage 2: backend runtime ──────────────────────────────────────────────────
+# ── Stage 2: build the Kendra portal SPA ──────────────────────────────────────
+FROM node:20-slim AS kendra-build
+WORKDIR /kendra
+COPY kendra/package.json kendra/package-lock.json ./
+RUN npm ci
+COPY kendra/ ./
+# Same-origin: the SPA calls /api/v1/* on the backend that serves it (no CORS).
+ENV VITE_API_URL=/api/v1
+ENV VITE_ENV_NAME=production
+RUN npm run build           # → /kendra/dist
+
+# ── Stage 3: backend runtime ──────────────────────────────────────────────────
 FROM node:20-slim AS backend
 # OpenSSL is required by the Prisma query engine.
 RUN apt-get update -y \
@@ -35,9 +47,12 @@ COPY backend/ ./
 
 # Built admin SPA → resolved by the backend at ../../admin/dist from src/app.js.
 COPY --from=admin-build /admin/dist /app/admin/dist
+# Built Kendra portal SPA → served at /kendra (see src/app.js KENDRA_DIST_DIR).
+COPY --from=kendra-build /kendra/dist /app/kendra/dist
 
 ENV NODE_ENV=production
 ENV ADMIN_DIST_DIR=/app/admin/dist
+ENV KENDRA_DIST_DIR=/app/kendra/dist
 # Prisma's update checker opens a socket to checkpoint.prisma.io and can keep the
 # CLI process alive in a slim container, so `prisma db push && node …` never reaches
 # node. Disable it so the CLI exits cleanly.
