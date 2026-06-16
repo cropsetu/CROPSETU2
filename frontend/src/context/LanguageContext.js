@@ -1,7 +1,7 @@
 /**
  * LanguageContext — provides `t()` translation helper and language switching.
  */
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { translations, LANGUAGES } from '../i18n/translations';
 import { getItem, setItem } from '../utils/storage';
 
@@ -105,10 +105,18 @@ export function LanguageProvider({ children }) {
     [language],
   );
 
+  // Memoize the context value so consumers don't re-render on every
+  // LanguageProvider render. All callbacks are already stable (useCallback);
+  // this only changes identity when the underlying state actually changes.
+  const value = useMemo(
+    () => ({ language, setLanguage, chatLanguage, setChatLanguage, responseLength, setResponseLength, t, LANGUAGES }),
+    [language, setLanguage, chatLanguage, setChatLanguage, responseLength, setResponseLength, t],
+  );
+
   if (!ready) return null;
 
   return (
-    <LanguageContext.Provider value={{ language, setLanguage, chatLanguage, setChatLanguage, responseLength, setResponseLength, t, LANGUAGES }}>
+    <LanguageContext.Provider value={value}>
       {children}
     </LanguageContext.Provider>
   );

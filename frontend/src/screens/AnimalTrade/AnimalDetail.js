@@ -1,9 +1,10 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   SafeAreaView, Alert, Image, Animated, Dimensions, Share,
 } from 'react-native';
 import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
+import { fs } from '../../utils/responsive';
 import { formatLocation } from '../../utils/location';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -49,6 +50,30 @@ function InfoRow({ icon, label, value, last }) {
   );
 }
 
+// Hero image with a graceful fallback: when a (valid) URL fails to load at
+// runtime — CDN unreachable, stale asset, flaky network — RN's <Image> renders
+// an empty/blank box and never recovers. We track onError per-slide and swap in
+// the AnimalIcon placeholder so the hero is never a silent white screen.
+function HeroImage({ uri, fallbackType, scale }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <Animated.View style={[styles.heroInner, scale ? { transform: [{ scale }] } : null]}>
+      {uri && !failed ? (
+        <Image
+          source={{ uri }}
+          style={styles.heroImg}
+          resizeMode="cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <View style={[styles.heroImg, styles.heroFallback]}>
+          <AnimalIcon type={fallbackType || 'Cow'} size={140} />
+        </View>
+      )}
+    </Animated.View>
+  );
+}
+
 // Compact stat card for the key-highlights strip under the title.
 function HighlightCard({ icon, label, value }) {
   return (
@@ -70,7 +95,14 @@ export default function AnimalDetail({ route, navigation }) {
   const scrollY   = useRef(new Animated.Value(0)).current;
   const contentAnim = useRef(new Animated.Value(0)).current;
 
-  const imageUrl = listing.images && listing.images[0] ? listing.images[0] : null;
+  // Normalise to a clean array of real remote URLs. `images` is a Postgres
+  // text[] of Cloudinary secure_urls, but guard against null / stray non-URL
+  // entries so a bad value can't blank the hero.
+  const images = Array.isArray(listing.images)
+    ? listing.images.filter((u) => typeof u === 'string' && /^https?:\/\//i.test(u))
+    : [];
+  const fallbackType = listing.animalType || listing.animal || listing.category || 'Cow';
+  const [galIdx, setGalIdx] = useState(0);
   const postedLabel = formatPostedDate(listing);
   const sellerLocation = formatLocation(listing.sellerLocation);
   const hasMilk = listing.milkYield && listing.milkYield !== 'N/A';
@@ -164,18 +196,33 @@ export default function AnimalDetail({ route, navigation }) {
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
       >
 
-        {/* Hero Image */}
+        {/* Hero Image — multi-image swipeable gallery when >1 photo, otherwise
+            a single parallax hero. Each slide falls back to the animal icon if
+            its URL fails to load (so a broken URL never leaves a blank box). */}
         <View style={styles.heroWrap}>
-          <Animated.View style={[styles.heroInner, { transform: [{ scale: heroScale }] }]}>
-            {imageUrl
-              ? <Image source={{ uri: imageUrl }} style={styles.heroImg} resizeMode="cover" />
-              : (
-                <View style={[styles.heroImg, styles.heroFallback]}>
-                  <AnimalIcon type={listing.animalType || listing.animal || listing.category || 'Cow'} size={140} />
-                </View>
-              )
-            }
-          </Animated.View>
+          {images.length > 1 ? (
+            <>
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(e) => setGalIdx(Math.round(e.nativeEvent.contentOffset.x / W))}
+              >
+                {images.map((uri, i) => (
+                  <View key={i} style={{ width: W, height: HERO_H }}>
+                    <HeroImage uri={uri} fallbackType={fallbackType} />
+                  </View>
+                ))}
+              </ScrollView>
+              <View style={styles.heroDots}>
+                {images.map((_, i) => (
+                  <View key={i} style={[styles.heroDot, i === galIdx && styles.heroDotActive]} />
+                ))}
+              </View>
+            </>
+          ) : (
+            <HeroImage uri={images[0] || null} fallbackType={fallbackType} scale={heroScale} />
+          )}
 
           {/* Gradient overlay */}
           <LinearGradient
@@ -314,12 +361,12 @@ export default function AnimalDetail({ route, navigation }) {
           <>
             <TouchableOpacity style={styles.callBtn} onPress={handleEdit}>
               <Ionicons name="create-outline" size={20} color={COLORS.primary} />
-              <Text style={styles.callBtnText}>{t('rent.editListing')}</Text>
+              <Text style={styles.callBtnText} numberOfLines={1}>{t('rent.editListing')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.chatBtn} onPress={handleViewInbox}>
               <LinearGradient colors={[COLORS.primary, COLORS.greenDeep]} style={styles.chatGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
                 <Ionicons name="chatbubbles" size={20} color={COLORS.white} />
-                <Text style={styles.chatBtnText}>{t('animalDetail.viewInbox')}</Text>
+                <Text style={styles.chatBtnText} numberOfLines={1}>{t('animalDetail.viewInbox')}</Text>
               </LinearGradient>
             </TouchableOpacity>
           </>
@@ -327,12 +374,12 @@ export default function AnimalDetail({ route, navigation }) {
           <>
             <TouchableOpacity style={styles.callBtn} onPress={handleCall}>
               <Ionicons name="call" size={20} color={COLORS.primary} />
-              <Text style={styles.callBtnText}>{t('callSeller')}</Text>
+              <Text style={styles.callBtnText} numberOfLines={1}>{t('callSeller')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.chatBtn} onPress={handleChat}>
               <LinearGradient colors={[COLORS.primary, COLORS.greenDeep]} style={styles.chatGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
                 <Ionicons name="chatbubbles" size={20} color={COLORS.white} />
-                <Text style={styles.chatBtnText}>{t('chatWithSeller')}</Text>
+                <Text style={styles.chatBtnText} numberOfLines={1}>{t('chatWithSeller')}</Text>
               </LinearGradient>
             </TouchableOpacity>
           </>
@@ -364,6 +411,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.35)',
     justifyContent: 'center', alignItems: 'center',
   },
+  heroDots:    { position: 'absolute', bottom: 14, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  heroDot:     { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.5)' },
+  heroDotActive:{ backgroundColor: COLORS.white, width: 20 },
   heroBadges: { position: 'absolute', bottom: 16, left: 16, flexDirection: 'row', gap: 8 },
   verifiedBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
@@ -430,13 +480,16 @@ const styles = StyleSheet.create({
     // paddingVertical 12 + 2px border (top & bottom) = 28px, matching the
     // chat button's gradient (paddingVertical 14, no border) so both buttons
     // render at the exact same height. Both use flex:1 for equal width.
-    gap: 8, borderWidth: 2, borderColor: COLORS.primary, borderRadius: 14, paddingVertical: 12,
+    // minHeight keeps a comfortable touch target on narrow phones.
+    gap: 6, borderWidth: 2, borderColor: COLORS.primary, borderRadius: 14, paddingVertical: 12, minHeight: 50,
   },
-  callBtnText: { fontSize: 15, fontWeight: '700', color: COLORS.primary },
+  // flexShrink lets the label scale down on narrow screens (with numberOfLines=1)
+  // instead of wrapping or pushing the icon out of the button.
+  callBtnText: { fontSize: fs(15), fontWeight: '700', color: COLORS.primary, flexShrink: 1 },
   chatBtn: { flex: 1, borderRadius: 14, overflow: 'hidden' },
   chatGradient: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 14, borderRadius: 14,
+    gap: 6, paddingVertical: 14, borderRadius: 14, minHeight: 50,
   },
-  chatBtnText: { fontSize: 15, fontWeight: '700', color: COLORS.white },
+  chatBtnText: { fontSize: fs(15), fontWeight: '700', color: COLORS.white, flexShrink: 1 },
 });

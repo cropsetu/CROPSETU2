@@ -134,7 +134,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
     <CosmicScreen edges={{ top: false, bottom: false }}>
       <CosmicHeader
         title={t('nav.newCropCycle') || 'Start crop cycle'}
-        subtitle={cropLabel ? `${cropLabel}${area ? ` · ${area} ac` : ''}` : 'Pick crop, season, area'}
+        subtitle={cropLabel ? `${cropLabel}${area ? ` · ${area} ac` : ''}` : t('cropCycle.subtitleHint', 'Pick crop, season, area')}
       />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -144,12 +144,12 @@ export default function CropCycleCreateScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
         >
           {/* ── Crop picker ─────────────────────────────────── */}
-          <SectionHeader icon="leaf-outline" tint={COSMIC.PRIMARY_LT} title="Which crop?" />
+          <SectionHeader icon="leaf-outline" tint={COSMIC.PRIMARY_LT} title={t('cropCycle.whichCrop', 'Which crop?')} />
           <GlassCard variant="plain" style={styles.section}>
             <View style={styles.searchRow}>
               <Ionicons name="search" size={16} color={COSMIC.MUTED} />
               <TextInput
-                placeholder="Search: bhendi, kapas, soya…"
+                placeholder={t('cropCycle.searchPlaceholder', 'Search: bhendi, kapas, soya…')}
                 placeholderTextColor={COSMIC.MUTED}
                 value={query}
                 onChangeText={setQuery}
@@ -195,14 +195,14 @@ export default function CropCycleCreateScreen({ navigation, route }) {
               })}
               {filteredCrops.length === 0 && (
                 <View style={styles.cropEmpty}>
-                  <Text style={styles.mutedText}>No crops match "{query}". Tell CropSetu AI and we'll add it.</Text>
+                  <Text style={styles.mutedText}>{t('cropCycle.noCropsMatch', { query })}</Text>
                 </View>
               )}
             </View>
           </GlassCard>
 
           {/* ── Season ──────────────────────────────────────── */}
-          <SectionHeader icon="calendar-outline" tint={COSMIC.INFO} title="Season" />
+          <SectionHeader icon="calendar-outline" tint={COSMIC.INFO} title={t('cropCycle.season', 'Season')} />
           <View style={[styles.section, styles.seasonGrid]}>
             {SEASONS.map((s) => {
               const sel = season === s.key;
@@ -220,16 +220,16 @@ export default function CropCycleCreateScreen({ navigation, route }) {
                     <Ionicons name={s.icon} size={22} color={s.color} />
                   </View>
                   <Text style={[styles.seasonLabel, sel && { color: s.color, fontFamily: 'Inter_700Bold' }]}>
-                    {s.label}
+                    {t('cropCycle.season_' + s.key, s.label)}
                   </Text>
-                  <Text style={styles.seasonHint} numberOfLines={1}>{s.hint}</Text>
+                  <Text style={styles.seasonHint} numberOfLines={1}>{t('cropCycle.seasonHint_' + s.key, s.hint)}</Text>
                 </Pressable>
               );
             })}
           </View>
 
           {/* ── Area ────────────────────────────────────────── */}
-          <SectionHeader icon="resize-outline" tint={COSMIC.ACCENT} title="Area allocated" />
+          <SectionHeader icon="resize-outline" tint={COSMIC.ACCENT} title={t('cropCycle.areaAllocated', 'Area allocated')} />
           <GlassCard variant="plain" style={styles.section}>
             <View style={styles.areaRow}>
               <TextInput
@@ -241,14 +241,14 @@ export default function CropCycleCreateScreen({ navigation, route }) {
                 style={styles.areaInput}
               />
               <View style={styles.areaUnitPill}>
-                <Text style={styles.areaUnitText}>ACRES</Text>
+                <Text style={styles.areaUnitText}>{t('cropCycle.acres', 'ACRES')}</Text>
               </View>
             </View>
-            <Text style={styles.mutedText}>Regional units (bigha, guntha) coming soon.</Text>
+            <Text style={styles.mutedText}>{t('cropCycle.regionalUnits', 'Regional units (bigha, guntha) coming soon.')}</Text>
           </GlassCard>
 
           {/* ── Variety ─────────────────────────────────────── */}
-          <SectionHeader icon="flag-outline" tint={COSMIC.PRIMARY_LT} title="Variety" optional />
+          <SectionHeader icon="flag-outline" tint={COSMIC.PRIMARY_LT} title={t('cropCycle.variety', 'Variety')} optional t={t} />
           <GlassCard variant="plain" style={styles.section}>
             <TextInput
               value={variety}
@@ -261,7 +261,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
           </GlassCard>
 
           {/* ── Seed info ───────────────────────────────────── */}
-          <SectionHeader icon="pricetag-outline" tint={COSMIC.ACCENT} title="Seed details" optional />
+          <SectionHeader icon="pricetag-outline" tint={COSMIC.ACCENT} title={t('cropCycle.seedDetails', 'Seed details')} optional t={t} />
           <GlassCard variant="plain" style={styles.section}>
             <TextInput
               value={seedBrand}
@@ -296,7 +296,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
         {/* ── Footer ─────────────────────────────────────── */}
         <View style={styles.footer}>
           <GlowButton
-            label={saving ? 'Starting…' : (t('farmProfile.startCropCycle') || 'Start cycle')}
+            label={saving ? t('cropCycle.starting', 'Starting…') : (t('farmProfile.startCropCycle') || 'Start cycle')}
             icon="play-circle-outline"
             variant="primary"
             loading={saving}
@@ -312,14 +312,14 @@ export default function CropCycleCreateScreen({ navigation, route }) {
 // ──────────────────────────────────────────────────────────────────────────────
 // Section header
 // ──────────────────────────────────────────────────────────────────────────────
-function SectionHeader({ icon, tint, title, optional }) {
+function SectionHeader({ icon, tint, title, optional, t }) {
   return (
     <View style={styles.secHeader}>
       <View style={[styles.secIcon, { backgroundColor: tint + '28', borderColor: tint + '55' }]}>
         <Ionicons name={icon} size={16} color={tint} />
       </View>
       <Text style={styles.secTitle}>{title}</Text>
-      {optional && <Text style={styles.optional}>Optional</Text>}
+      {optional && <Text style={styles.optional}>{t ? t('cropCycle.optional', 'Optional') : 'Optional'}</Text>}
     </View>
   );
 }

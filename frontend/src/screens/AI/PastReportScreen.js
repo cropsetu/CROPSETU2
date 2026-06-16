@@ -39,6 +39,15 @@ function formatDate(iso) {
   });
 }
 
+// Human label for the Krushi Kendra fulfillment choice attached to a reply.
+function fulfillmentLabel(mode, t) {
+  switch (mode) {
+    case 'COLLECT':  return t('pastReport.collect', 'Collect from shop');
+    case 'DELIVERY': return t('pastReport.delivery', 'Home delivery');
+    default:         return null;
+  }
+}
+
 // Pull the diagnosis details from fullReport. Three possible shapes:
 //   (1) Agentic pipeline   — `disease` is an object {name_common, name_scientific,
 //       severity, confidence_pct, …}, `treatment` is an object with arrays for
@@ -386,6 +395,13 @@ export default function PastReportScreen({ navigation, route }) {
         {fields.preventionList.length > 0 ? (
           <BulletList title={t('pastReport.prevention', 'Prevention')} items={fields.preventionList} accent={COLORS.blue} />
         ) : null}
+
+        {/* Krushi Kendra responses — when the report was shared with one or
+            more nearby Kendras, surface their reply, stock status and how the
+            farmer can get the product (collect vs. home delivery). */}
+        {Array.isArray(row.shares) && row.shares.length > 0
+          ? row.shares.map((s) => <KendraReplyCard key={s.id} share={s} t={t} />)
+          : null}
       </ScrollView>
 
       {/* Sticky action bar */}
@@ -434,6 +450,87 @@ function BulletList({ title, items, accent }) {
           <Text style={S.bodyTxt}>{String(it)}</Text>
         </View>
       ))}
+    </View>
+  );
+}
+
+// One Krushi Kendra's response to a shared report: shop name, reply status,
+// stock availability, fulfillment mode, the dosage note and recommended SKU.
+function KendraReplyCard({ share, t }) {
+  const seller    = share.seller || {};
+  const replied   = share.status === 'REPLIED';
+  const available = !!share.available;
+  const fulfill   = fulfillmentLabel(share.fulfillment, t);
+
+  const shopName  = seller.name
+    || [seller.village, seller.taluka].filter(Boolean).join(', ')
+    || t('pastReport.kendra', 'Krushi Kendra');
+  const shopLoc   = [seller.village, seller.taluka, seller.district].filter(Boolean).join(', ');
+
+  return (
+    <View style={S.section}>
+      <View style={S.kendraHead}>
+        <View style={S.kendraIcon}>
+          <Ionicons name="storefront-outline" size={16} color={COLORS.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={S.kendraName} numberOfLines={1}>{shopName}</Text>
+          {shopLoc ? <Text style={S.kendraLoc} numberOfLines={1}>{shopLoc}</Text> : null}
+        </View>
+        <View style={[S.statusPill, { backgroundColor: (replied ? COLORS.primary : COLORS.textMedium) + '15' }]}>
+          <Text style={[S.statusTxt, { color: replied ? COLORS.primary : COLORS.textMedium }]}>
+            {replied ? t('pastReport.replied', 'Replied') : t('pastReport.awaitingReply', 'Awaiting reply')}
+          </Text>
+        </View>
+      </View>
+
+      {replied ? (
+        <>
+          <View style={S.kendraTags}>
+            <View style={[S.tag, { backgroundColor: (available ? COLORS.primary : COLORS.error) + '15' }]}>
+              <Ionicons
+                name={available ? 'checkmark-circle' : 'close-circle'}
+                size={12}
+                color={available ? COLORS.primary : COLORS.error}
+              />
+              <Text style={[S.tagTxt, { color: available ? COLORS.primary : COLORS.error }]}>
+                {available ? t('pastReport.available', 'Available') : t('pastReport.notAvailable', 'Not available')}
+              </Text>
+            </View>
+            {fulfill ? (
+              <View style={[S.tag, { backgroundColor: COLORS.amberDark + '15' }]}>
+                <Ionicons
+                  name={share.fulfillment === 'DELIVERY' ? 'bicycle-outline' : 'bag-handle-outline'}
+                  size={12}
+                  color={COLORS.amberDark}
+                />
+                <Text style={[S.tagTxt, { color: COLORS.amberDark }]}>{fulfill}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {share.recommendedSku ? (
+            <View style={S.kendraRow}>
+              <Text style={S.kendraRowLabel}>{t('pastReport.product', 'Product')}</Text>
+              <Text style={S.kendraRowValue}>{share.recommendedSku}</Text>
+            </View>
+          ) : null}
+
+          {share.sellerReply ? <Text style={[S.bodyTxt, { marginTop: 8 }]}>{share.sellerReply}</Text> : null}
+
+          {share.fulfillmentNote ? (
+            <Text style={[S.kendraLoc, { marginTop: 6 }]}>{share.fulfillmentNote}</Text>
+          ) : null}
+
+          {share.repliedAt ? (
+            <Text style={[S.kendraLoc, { marginTop: 8 }]}>{formatDate(share.repliedAt)}</Text>
+          ) : null}
+        </>
+      ) : (
+        <Text style={[S.bodyTxt, { marginTop: 8 }]}>
+          {t('pastReport.awaitingReplyBody', 'This Krushi Kendra has not responded yet.')}
+        </Text>
+      )}
     </View>
   );
 }
@@ -489,6 +586,20 @@ const S = StyleSheet.create({
   sectionTitle:    { fontSize: 13, fontWeight: '800', color: COLORS.textDark, marginBottom: 6 },
   bodyTxt:         { fontSize: 13, color: COLORS.textDark, lineHeight: 20, flex: 1 },
   bullet:          { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 6 },
+
+  // Krushi Kendra reply card
+  kendraHead:   { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  kendraIcon:   { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.primary + '15' },
+  kendraName:   { fontSize: 14, fontWeight: '800', color: COLORS.textDark },
+  kendraLoc:    { fontSize: 11, color: COLORS.textMedium, marginTop: 1 },
+  statusPill:   { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  statusTxt:    { fontSize: 10, fontWeight: '900' },
+  kendraTags:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  tag:          { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
+  tagTxt:       { fontSize: 10, fontWeight: '800' },
+  kendraRow:      { flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 8 },
+  kendraRowLabel: { fontSize: 11, color: COLORS.textLight, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  kendraRowValue: { fontSize: 13, color: COLORS.textDark, fontWeight: '700', flex: 1, textAlign: 'right' },
 
   errorBox: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 10 },
   errorTxt: { fontSize: 14, color: COLORS.textDark, textAlign: 'center' },

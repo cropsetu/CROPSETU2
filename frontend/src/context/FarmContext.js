@@ -6,7 +6,7 @@
  * Persisted to encrypted secure storage (Keychain/Keystore) so it survives app
  * restarts without leaving the farmer's name + GPS location as plaintext on disk.
  */
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { getSecureJSON, setSecureJSON } from '../utils/secureCache';
 
 const STORAGE_KEY = 'farmeasy_farm_profile_v2';
@@ -77,7 +77,7 @@ export function FarmProvider({ children }) {
    * Update any fields in the farm profile and persist.
    * Deep-merges `location` if provided.
    */
-  const updateFarmProfile = async (updates) => {
+  const updateFarmProfile = useCallback(async (updates) => {
     setFarmProfileState(prev => {
       const next = {
         ...prev,
@@ -89,13 +89,13 @@ export function FarmProvider({ children }) {
       setSecureJSON(STORAGE_KEY, next).catch(() => {});
       return next;
     });
-  };
+  }, []);
 
   /**
    * Add or update a crop in the currentCrops list.
    * Matches by crop name; adds if not found.
    */
-  const upsertCrop = async (crop) => {
+  const upsertCrop = useCallback(async (crop) => {
     setFarmProfileState(prev => {
       const exists = prev.currentCrops.findIndex(c => c.name === crop.name);
       let crops;
@@ -108,12 +108,12 @@ export function FarmProvider({ children }) {
       setSecureJSON(STORAGE_KEY, next).catch(() => {});
       return next;
     });
-  };
+  }, []);
 
   /**
    * Returns a flat context object suitable for sending to the backend with every AI call.
    */
-  const getAIContext = () => {
+  const getAIContext = useCallback(() => {
     const primaryCrop = farmProfile.currentCrops[0] || null;
     const cropAge = primaryCrop?.plantingDate
       ? Math.floor((Date.now() - new Date(primaryCrop.plantingDate)) / 86400000)
@@ -133,10 +133,18 @@ export function FarmProvider({ children }) {
       primaryCropAge:  cropAge,
       primaryCropField:primaryCrop?.field || '',
     };
-  };
+  }, [farmProfile]);
+
+  // Memoized so AI screens reading farm context don't re-render on every
+  // provider render. updateFarmProfile/upsertCrop are stable; getAIContext
+  // changes only when farmProfile changes.
+  const value = useMemo(
+    () => ({ farmProfile, updateFarmProfile, upsertCrop, profileReady, getAIContext }),
+    [farmProfile, updateFarmProfile, upsertCrop, profileReady, getAIContext],
+  );
 
   return (
-    <FarmContext.Provider value={{ farmProfile, updateFarmProfile, upsertCrop, profileReady, getAIContext }}>
+    <FarmContext.Provider value={value}>
       {children}
     </FarmContext.Provider>
   );

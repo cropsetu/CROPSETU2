@@ -14,6 +14,7 @@ import {
   StatusBar, Modal, TextInput, Animated,
 } from 'react-native';
 import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
+import { fs } from '../../utils/responsive';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -139,6 +140,29 @@ function SpecRow({ icon, label, value, color = COLORS.grayDark2 }) {
         <Text style={D.specValue}>{value}</Text>
       </View>
     </View>
+  );
+}
+
+// Gallery image slide with a graceful fallback. A valid-but-unreachable URL
+// (CDN down, stale asset, flaky network) makes RN's <Image> render a blank box
+// with no recovery — onError swaps in the machinery icon so the slide is never
+// a silent white screen.
+function GalleryImage({ uri, fallbackType }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <View style={D.galleryImgFallback}>
+        <MachineryIcon type={fallbackType} size={80} />
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri }}
+      style={D.galleryImg}
+      resizeMode="cover"
+      onError={() => setFailed(true)}
+    />
   );
 }
 
@@ -382,7 +406,7 @@ export default function MachineryDetail({ route, navigation }) {
                             isLooping={false}
                           />
                         )
-                        : <Image source={{ uri }} style={D.galleryImg} resizeMode="cover" />
+                        : <GalleryImage uri={uri} fallbackType={MACH_ICON_KEYS.includes(m.category) ? m.category : 'tractor'} />
                       }
                     </View>
                   );
@@ -646,7 +670,7 @@ export default function MachineryDetail({ route, navigation }) {
             onPress={() => navigation.navigate('AddMachinery', { listing: m, editMode: true })}
           >
             <Ionicons name="create-outline" size={20} color={COLORS.white} />
-            <Text style={D.bookBtn2Txt}>{t('rent.editListing')}</Text>
+            <Text style={D.bookBtn2Txt} numberOfLines={1}>{t('rent.editListing')}</Text>
           </TouchableOpacity>
         ) : (
           <>
@@ -655,12 +679,12 @@ export default function MachineryDetail({ route, navigation }) {
               onPress={() => m.ownerPhone && safeOpenURL(`tel:${sanitizePhone(m.ownerPhone)}`)}
             >
               <Ionicons name="call" size={20} color={COLORS.primary} />
-              <Text style={D.callBtnTxt}>{t('rent.callOwner')}</Text>
+              <Text style={D.callBtnTxt} numberOfLines={1}>{t('rent.callOwner')}</Text>
             </TouchableOpacity>
             {(!selStart || !selEnd) && myBooking ? (
               <View style={[D.bookBtn2, { backgroundColor: myBooking.status === 'PENDING' ? COLORS.cta : COLORS.primary }]}>
                 <Ionicons name={myBooking.status === 'PENDING' ? 'time-outline' : 'checkmark-circle'} size={18} color={COLORS.white} />
-                <Text style={D.bookBtn2Txt}>
+                <Text style={D.bookBtn2Txt} numberOfLines={1}>
                   {myBooking.status === 'PENDING'
                     ? t('rent.bookingPendingShort', 'Request pending')
                     : t('rent.bookingConfirmedShort', 'Booking confirmed')}
@@ -676,7 +700,7 @@ export default function MachineryDetail({ route, navigation }) {
                   ? <ActivityIndicator size="small" color={COLORS.white} />
                   : <>
                       <Ionicons name="calendar" size={20} color={COLORS.white} />
-                      <Text style={D.bookBtn2Txt}>
+                      <Text style={D.bookBtn2Txt} numberOfLines={1}>
                         {selStart && selEnd ? `${t('rent.booking')} ${days}d — ₹${total.toLocaleString()}` : t('rent.selectDatesPlaceholder')}
                       </Text>
                     </>
@@ -798,10 +822,13 @@ const D = StyleSheet.create({
   callSmall:    { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
 
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', gap: 10, padding: 12, paddingTop: 10, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.lightGray2 },
-  callBtn:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 2, borderColor: COLORS.primary, borderRadius: 14, paddingVertical: 13 },
-  callBtnTxt:{ fontSize: 14, fontWeight: '700', color: COLORS.primary },
-  bookBtn2:  { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 13 },
-  bookBtn2Txt:{ fontSize: 13, fontWeight: '800', color: COLORS.white },
+  // callBtn (flex:1) + bookBtn2 (flex:2) keep their intentional 1:2 width ratio.
+  // minHeight guarantees a comfortable touch target; text shrinks (flexShrink +
+  // numberOfLines=1) instead of overflowing on narrow phones (e.g. Samsung S24).
+  callBtn:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderWidth: 2, borderColor: COLORS.primary, borderRadius: 14, paddingVertical: 13, minHeight: 50 },
+  callBtnTxt:{ fontSize: fs(14), fontWeight: '700', color: COLORS.primary, flexShrink: 1 },
+  bookBtn2:  { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 13, minHeight: 50 },
+  bookBtn2Txt:{ fontSize: fs(13), fontWeight: '800', color: COLORS.white, flexShrink: 1 },
 
   // Booking-sent popup
   bkBackdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 },

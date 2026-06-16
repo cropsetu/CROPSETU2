@@ -37,6 +37,15 @@ export default {
   tabAI: 'AI',
   notSet: 'സെറ്റ് ചെയ്തിട്ടില്ല',
 
+  aiBrand: {
+    intelligence: 'Krushi Intelligence',
+    tab: 'Krushi AI',
+    badge: 'Krushi AI',
+    drishti: 'Krushi Drishti',
+    vaani: 'Vaani',
+    gyaan: 'Gyaan',
+  },
+
   nav: {
     farm: 'ഫാം',
     editFarm: 'ഫാം എഡിറ്റ്',
@@ -602,7 +611,7 @@ export default {
     soilHealth: 'മണ്ണ് ആരോഗ്യം',
     noSoilReport: 'മണ്ണ് റിപ്പോര്‍ട്ട് ഇല്ല',
     aiPredictions: 'AI പ്രവചനങ്ങള്‍',
-    askFarmMind: 'CropSetu AI ചോദിക്കുക',
+    askFarmMind: 'Krushi Intelligence ചോദിക്കുക',
     chatAboutFarm: 'ഫാമിനെ കുറിച്ച് ചാറ്റ്',
     bestCrop: 'ഏറ്റവും നല്ല വിള',
     top5Soil: 'ടോപ്പ് 5 മണ്ണ് ശുപാര്‍ശകള്‍',
@@ -707,8 +716,8 @@ export default {
 
   aiChat: {
       welcomeMsg: 'നമസ്കാരം! ഞാൻ CropSetu AI, നിങ്ങളുടെ AI കൃഷി സഹായി. വിള രോഗം, ജലസേചനം, മണ്ഡി വില, സർക്കാർ പദ്ധതികൾ എന്നിവയിൽ സഹായിക്കാം.\n\nസംസാരിക്കാൻ മൈക്ക് ടാപ്പ് ചെയ്യുക അല്ലെങ്കിൽ ടൈപ്പ് ചെയ്യുക.',
-    farmMind: 'CropSetu AI',
-    talkToFarmMind: 'CropSetu AI-നോട് സംസാരിക്കുക',
+    farmMind: 'Krushi Intelligence',
+    talkToFarmMind: 'Krushi Intelligence-നോട് സംസാരിക്കുക',
     textMode: 'ടെക്സ്റ്റ് മോഡ്',
     credits: 'ക്രെഡിറ്റുകള്‍',
     voiceAssistant: 'വോയ്സ് അസിസ്റ്റന്‍റ്',

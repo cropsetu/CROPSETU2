@@ -7,7 +7,7 @@
  *   const { coords, permissionGranted, loading } = useLocation();
  *   // coords: { latitude, longitude } | null
  */
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import * as ExpoLocation from 'expo-location';
 
 const LocationContext = createContext(null);
@@ -51,8 +51,13 @@ export function LocationProvider({ children }) {
     return () => { cancelled = true; };
   }, []);
 
+  const value = useMemo(
+    () => ({ coords, permissionGranted, loading, error }),
+    [coords, permissionGranted, loading, error],
+  );
+
   return (
-    <LocationContext.Provider value={{ coords, permissionGranted, loading, error }}>
+    <LocationContext.Provider value={value}>
       {children}
     </LocationContext.Provider>
   );

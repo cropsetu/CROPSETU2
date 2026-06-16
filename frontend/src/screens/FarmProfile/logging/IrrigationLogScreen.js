@@ -35,24 +35,24 @@ import { COSMIC, CR, CS, CT, GLOW, GRADIENT } from '../theme/cosmicTheme';
 import { Haptics } from '../../../utils/haptics';
 
 const METHODS = [
-  { key: 'DRIP',       label: 'Drip',       icon: 'drip',       color: COSMIC.IRRIGATION },
-  { key: 'SPRINKLER',  label: 'Sprinkler',  icon: 'sprinkler',  color: '#38BDF8' },
-  { key: 'FLOOD',      label: 'Flood',      icon: 'flood',      color: '#93C5FD' },
-  { key: 'RAIN_GUN',   label: 'Rain gun',   icon: 'sprinkler',  color: '#A7E4F1' },
+  { key: 'DRIP',       icon: 'drip',       color: COSMIC.IRRIGATION },
+  { key: 'SPRINKLER',  icon: 'sprinkler',  color: '#38BDF8' },
+  { key: 'FLOOD',      icon: 'flood',      color: '#93C5FD' },
+  { key: 'RAIN_GUN',   icon: 'sprinkler',  color: '#A7E4F1' },
 ];
 
 const SOURCES = [
-  { key: 'BOREWELL',  label: 'Borewell',  icon: 'water-outline' },
-  { key: 'OPEN_WELL', label: 'Open well', icon: 'ellipse-outline' },
-  { key: 'CANAL',     label: 'Canal',     icon: 'remove-outline' },
-  { key: 'POND',      label: 'Pond',      icon: 'water' },
-  { key: 'TANKER',    label: 'Tanker',    icon: 'car-outline' },
+  { key: 'BOREWELL',  icon: 'water-outline' },
+  { key: 'OPEN_WELL', icon: 'ellipse-outline' },
+  { key: 'CANAL',     icon: 'remove-outline' },
+  { key: 'POND',      icon: 'water' },
+  { key: 'TANKER',    icon: 'car-outline' },
 ];
 
 const MOISTURES = [
-  { key: 'DRY',   label: 'Dry',   color: COSMIC.DANGER },
-  { key: 'MOIST', label: 'Moist', color: COSMIC.ACCENT },
-  { key: 'WET',   label: 'Wet',   color: COSMIC.PRIMARY_LT },
+  { key: 'DRY',   color: COSMIC.DANGER },
+  { key: 'MOIST', color: COSMIC.ACCENT },
+  { key: 'WET',   color: COSMIC.PRIMARY_LT },
 ];
 
 export default function IrrigationLogScreen({ navigation, route }) {
@@ -71,6 +71,10 @@ export default function IrrigationLogScreen({ navigation, route }) {
   const [saving, setSaving]         = useState(false);
   const [celebrate, setCelebrate]   = useState(false);
 
+  const methods   = METHODS.map((m) => ({ ...m, label: t(`irrigationLog.method_${m.key}`) }));
+  const sources   = SOURCES.map((s) => ({ ...s, label: t(`irrigationLog.source_${s.key}`) }));
+  const moistures = MOISTURES.map((m) => ({ ...m, label: t(`irrigationLog.moisture_${m.key}`) }));
+
   const canSave = useMemo(() => {
     if (!method) return false;
     if (entryMode === 'duration' && !durationHours) return false;
@@ -82,12 +86,12 @@ export default function IrrigationLogScreen({ navigation, route }) {
   const handleSave = useCallback(async () => {
     if (!canSave) {
       Haptics.error?.();
-      Alert.alert('Missing info', 'Pick a method and enter duration or volume.');
+      Alert.alert(t('irrigationLog.missingInfoTitle'), t('irrigationLog.missingInfoBody'));
       return;
     }
     if (!cycleId) {
       // v2 backend accepts plotId alone; legacy backend requires cycleId.
-      Alert.alert('Pick a crop cycle', 'Logging against a specific crop cycle is needed for now. Start a cycle first.');
+      Alert.alert(t('irrigationLog.pickCycleTitle'), t('irrigationLog.pickCycleBody'));
       return;
     }
     setSaving(true);
@@ -106,19 +110,19 @@ export default function IrrigationLogScreen({ navigation, route }) {
       setCelebrate(true);
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || 'Could not save.');
+      Alert.alert(t('login.error') || t('irrigationLog.errorTitle'), e.message || t('irrigationLog.couldNotSave'));
     } finally {
       setSaving(false);
     }
   }, [canSave, cycleId, method, entryMode, durationHours, volumeLitres, waterSource, moistureBefore, fertigation, notes, t]);
 
   const subtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'}${cycleId ? ' · active cycle' : ''}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || t('irrigationLog.farmFallback')}${cycleId ? ` · ${t('irrigationLog.activeCycle')}` : ''}`
     : undefined;
 
   return (
     <CosmicScreen edges={{ top: false, bottom: false }}>
-      <CosmicHeader title="Log irrigation" subtitle={subtitle} />
+      <CosmicHeader title={t('irrigationLog.title')} subtitle={subtitle} />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
@@ -127,9 +131,9 @@ export default function IrrigationLogScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
         >
           {/* ── 1. Method ───────────────────────────────────── */}
-          <SectionHeader icon="water-outline" tint={COSMIC.IRRIGATION} title="Method" />
+          <SectionHeader icon="water-outline" tint={COSMIC.IRRIGATION} title={t('irrigationLog.sectionMethod')} />
           <View style={styles.methodGrid}>
-            {METHODS.map((m) => {
+            {methods.map((m) => {
               const sel = method?.key === m.key;
               return (
                 <Pressable
@@ -161,7 +165,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
           </View>
 
           {/* ── 2. Duration or Volume ───────────────────────── */}
-          <SectionHeader icon="time-outline" tint={COSMIC.ACCENT} title="How much?" />
+          <SectionHeader icon="time-outline" tint={COSMIC.ACCENT} title={t('irrigationLog.sectionHowMuch')} />
           <GlassCard variant="plain" style={styles.section}>
             <View style={styles.toggleRow}>
               <Pressable
@@ -169,14 +173,14 @@ export default function IrrigationLogScreen({ navigation, route }) {
                 style={[styles.toggleBtn, entryMode === 'duration' && styles.toggleBtnActive]}
               >
                 <Ionicons name="time-outline" size={16} color={entryMode === 'duration' ? COSMIC.INVERSE : COSMIC.TEXT_2} />
-                <Text style={[styles.toggleText, entryMode === 'duration' && styles.toggleTextActive]}>Hours</Text>
+                <Text style={[styles.toggleText, entryMode === 'duration' && styles.toggleTextActive]}>{t('irrigationLog.unitHours')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => { Haptics.selection?.(); setEntryMode('volume'); }}
                 style={[styles.toggleBtn, entryMode === 'volume' && styles.toggleBtnActive]}
               >
                 <Ionicons name="beaker-outline" size={16} color={entryMode === 'volume' ? COSMIC.INVERSE : COSMIC.TEXT_2} />
-                <Text style={[styles.toggleText, entryMode === 'volume' && styles.toggleTextActive]}>Litres</Text>
+                <Text style={[styles.toggleText, entryMode === 'volume' && styles.toggleTextActive]}>{t('irrigationLog.unitLitres')}</Text>
               </Pressable>
             </View>
 
@@ -190,15 +194,15 @@ export default function IrrigationLogScreen({ navigation, route }) {
                 style={styles.bigInput}
               />
               <View style={styles.unitPill}>
-                <Text style={styles.unitText}>{entryMode === 'duration' ? 'HOURS' : 'LITRES'}</Text>
+                <Text style={styles.unitText}>{entryMode === 'duration' ? t('irrigationLog.unitHoursUpper') : t('irrigationLog.unitLitresUpper')}</Text>
               </View>
             </View>
           </GlassCard>
 
           {/* ── 3. Water source ─────────────────────────────── */}
-          <SectionHeader icon="leaf-outline" tint={COSMIC.INFO} title="Water source" optional />
+          <SectionHeader icon="leaf-outline" tint={COSMIC.INFO} title={t('irrigationLog.sectionSource')} optional optionalLabel={t('irrigationLog.optional')} />
           <View style={[styles.section, styles.chipRow]}>
-            {SOURCES.map((s) => {
+            {sources.map((s) => {
               const sel = waterSource?.key === s.key;
               return (
                 <Pressable
@@ -222,9 +226,9 @@ export default function IrrigationLogScreen({ navigation, route }) {
           </View>
 
           {/* ── 4. Moisture before ──────────────────────────── */}
-          <SectionHeader icon="analytics-outline" tint={COSMIC.PRIMARY_LT} title="Soil moisture before" optional />
+          <SectionHeader icon="analytics-outline" tint={COSMIC.PRIMARY_LT} title={t('irrigationLog.sectionMoisture')} optional optionalLabel={t('irrigationLog.optional')} />
           <View style={[styles.section, styles.moistRow]}>
-            {MOISTURES.map((m) => {
+            {moistures.map((m) => {
               const sel = moistureBefore?.key === m.key;
               return (
                 <Pressable
@@ -248,7 +252,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
           </View>
 
           {/* ── 5. Fertigation + notes ─────────────────────── */}
-          <SectionHeader icon="flask-outline" tint={COSMIC.FERTILIZER} title="Extras" optional />
+          <SectionHeader icon="flask-outline" tint={COSMIC.FERTILIZER} title={t('irrigationLog.sectionExtras')} optional optionalLabel={t('irrigationLog.optional')} />
           <GlassCard variant="plain" style={styles.section}>
             <Pressable
               onPress={() => { Haptics.selection?.(); setFertigation((v) => !v); }}
@@ -257,14 +261,14 @@ export default function IrrigationLogScreen({ navigation, route }) {
               <View style={[styles.checkbox, fertigation && styles.checkboxChecked]}>
                 {fertigation && <Ionicons name="checkmark" size={14} color={COSMIC.INVERSE} />}
               </View>
-              <Text style={styles.fertText}>Fertigation applied with this irrigation</Text>
+              <Text style={styles.fertText}>{t('irrigationLog.fertigationLabel')}</Text>
             </Pressable>
 
-            <Text style={styles.subLabel}>Notes</Text>
+            <Text style={styles.subLabel}>{t('irrigationLog.notes')}</Text>
             <TextInput
               value={notes}
               onChangeText={setNotes}
-              placeholder="Any observation — flow rate, leaf wilting, etc."
+              placeholder={t('irrigationLog.notesPlaceholder')}
               placeholderTextColor={COSMIC.MUTED}
               style={[styles.input, { minHeight: 88, textAlignVertical: 'top' }]}
               multiline
@@ -276,7 +280,7 @@ export default function IrrigationLogScreen({ navigation, route }) {
 
         <View style={styles.footer}>
           <GlowButton
-            label={saving ? 'Saving…' : 'Log irrigation'}
+            label={saving ? t('irrigationLog.saving') : t('irrigationLog.title')}
             icon="water"
             variant="primary"
             full
@@ -289,8 +293,8 @@ export default function IrrigationLogScreen({ navigation, route }) {
 
       <CelebrationSheet
         visible={celebrate}
-        title="Irrigation logged ✓"
-        subtitle="Nice — CropSetu AI now knows about this watering. Keep the streak going!"
+        title={t('irrigationLog.celebrateTitle')}
+        subtitle={t('irrigationLog.celebrateSubtitle')}
         streakDays={1}
         onClose={() => { setCelebrate(false); navigation.goBack(); }}
       />
@@ -301,14 +305,14 @@ export default function IrrigationLogScreen({ navigation, route }) {
 // ──────────────────────────────────────────────────────────────────────────────
 // Shared bits
 // ──────────────────────────────────────────────────────────────────────────────
-function SectionHeader({ icon, tint, title, optional }) {
+function SectionHeader({ icon, tint, title, optional, optionalLabel }) {
   return (
     <View style={styles.secHeader}>
       <View style={[styles.secIcon, { backgroundColor: tint + '28', borderColor: tint + '55' }]}>
         <Ionicons name={icon} size={16} color={tint} />
       </View>
       <Text style={styles.secTitle}>{title}</Text>
-      {optional && <Text style={styles.optional}>Optional</Text>}
+      {optional && <Text style={styles.optional}>{optionalLabel || 'Optional'}</Text>}
     </View>
   );
 }

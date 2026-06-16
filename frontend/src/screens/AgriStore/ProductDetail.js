@@ -13,6 +13,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useCart } from '../../context/CartContext';
 import AnimatedScreen from '../../components/ui/AnimatedScreen';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
+import { fs } from '../../utils/responsive';
 
 const { width: W } = Dimensions.get('window');
 
@@ -611,7 +612,7 @@ export default function ProductDetail({ route, navigation }) {
             : (
               <>
                 <Ionicons name="cart-outline" size={20} color={COLORS.primary} />
-                <Text style={S.addCartTxt}>{t('addToCart')}</Text>
+                <Text style={S.addCartTxt} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{t('addToCart')}</Text>
               </>
             )
           }
@@ -628,7 +629,7 @@ export default function ProductDetail({ route, navigation }) {
             : (
               <>
                 <Ionicons name="flash" size={18} color={COLORS.yellowDark} />
-                <Text style={S.buyNowTxt}>{t('product.buyAt', { price: product.price.toLocaleString() })}</Text>
+                <Text style={S.buyNowTxt} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{t('product.buyAt', { price: product.price.toLocaleString() })}</Text>
               </>
             )
           }
@@ -851,14 +852,14 @@ const S = StyleSheet.create({
   },
   addCartBtn:   {
     flex: 1, height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 7, borderWidth: 2, borderColor: COLORS.primary, borderRadius: 14,
+    gap: 6, paddingHorizontal: 8, borderWidth: 2, borderColor: COLORS.primary, borderRadius: 14,
   },
-  addCartTxt:   { fontSize: 13, fontWeight: '800', color: COLORS.primary, letterSpacing: 0.5 },
+  addCartTxt:   { flexShrink: 1, textAlign: 'center', fontSize: fs(13), fontWeight: '800', color: COLORS.primary, letterSpacing: 0.3 },
   buyNowBtn:    {
     flex: 1, height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 7, backgroundColor: COLORS.yellowBright, borderRadius: 14,
+    gap: 6, paddingHorizontal: 8, backgroundColor: COLORS.yellowBright, borderRadius: 14,
     borderWidth: 2, borderColor: COLORS.yellowBright,
   },
-  buyNowTxt:    { fontSize: 13, fontWeight: '800', color: COLORS.brownDark, letterSpacing: 0.3 },
+  buyNowTxt:    { flexShrink: 1, textAlign: 'center', fontSize: fs(13), fontWeight: '800', color: COLORS.brownDark, letterSpacing: 0.2 },
 
 });

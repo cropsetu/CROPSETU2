@@ -16,18 +16,18 @@ import { COSMIC } from '../theme/cosmicTheme';
 import { Haptics } from '../../../utils/haptics';
 
 const ISSUE_TYPES = [
-  { key: 'pest',       label: 'Pest',       icon: 'bug-outline',               color: COSMIC.SCOUT },
-  { key: 'disease',    label: 'Disease',    icon: 'medkit-outline',            color: COSMIC.DANGER },
-  { key: 'weed',       label: 'Weed',       icon: 'leaf-outline',              color: COSMIC.WEEDING },
-  { key: 'deficiency', label: 'Deficiency', icon: 'flask-outline',             color: COSMIC.WARN },
-  { key: 'healthy',    label: 'Healthy',    icon: 'checkmark-circle-outline',  color: COSMIC.SUCCESS },
+  { key: 'pest',       icon: 'bug-outline',               color: COSMIC.SCOUT },
+  { key: 'disease',    icon: 'medkit-outline',            color: COSMIC.DANGER },
+  { key: 'weed',       icon: 'leaf-outline',              color: COSMIC.WEEDING },
+  { key: 'deficiency', icon: 'flask-outline',             color: COSMIC.WARN },
+  { key: 'healthy',    icon: 'checkmark-circle-outline',  color: COSMIC.SUCCESS },
 ];
 
 const SEVERITIES = [
-  { key: 'low',      label: 'Low',      icon: 'remove-outline',  color: COSMIC.SEV_LOW },
-  { key: 'moderate', label: 'Moderate', icon: 'alert-outline',   color: COSMIC.SEV_MODERATE },
-  { key: 'high',     label: 'High',     icon: 'warning-outline', color: COSMIC.SEV_HIGH },
-  { key: 'critical', label: 'Critical', icon: 'skull-outline',   color: COSMIC.SEV_CRITICAL },
+  { key: 'low',      icon: 'remove-outline',  color: COSMIC.SEV_LOW },
+  { key: 'moderate', icon: 'alert-outline',   color: COSMIC.SEV_MODERATE },
+  { key: 'high',     icon: 'warning-outline', color: COSMIC.SEV_HIGH },
+  { key: 'critical', icon: 'skull-outline',   color: COSMIC.SEV_CRITICAL },
 ];
 
 export default function ScoutLogScreen({ navigation, route }) {
@@ -45,9 +45,12 @@ export default function ScoutLogScreen({ navigation, route }) {
 
   const canSave = !!issueType;
 
+  const issueTypes = ISSUE_TYPES.map((it) => ({ ...it, label: t(`scoutLog.issue_${it.key}`) }));
+  const severities = SEVERITIES.map((s) => ({ ...s, label: t(`scoutLog.sev_${s.key}`) }));
+
   const handleSave = useCallback(async () => {
-    if (!canSave) { Haptics.error?.(); Alert.alert('Missing info', 'Pick what you saw.'); return; }
-    if (!cycleId) { Alert.alert('Pick a crop cycle', 'Start a crop cycle first to log against it.'); return; }
+    if (!canSave) { Haptics.error?.(); Alert.alert(t('scoutLog.missingInfoTitle'), t('scoutLog.missingInfoBody')); return; }
+    if (!cycleId) { Alert.alert(t('scoutLog.pickCycleTitle'), t('scoutLog.pickCycleBody')); return; }
     setSaving(true);
     try {
       const affectedPct = affected ? parseFloat(affected) : null;
@@ -69,39 +72,39 @@ export default function ScoutLogScreen({ navigation, route }) {
       setCelebrate(true);
     } catch (e) {
       Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || 'Could not save.');
+      Alert.alert(t('login.error') || t('scoutLog.errorTitle'), e.message || t('scoutLog.couldNotSave'));
     } finally {
       setSaving(false);
     }
   }, [canSave, cycleId, issueType, target, severity, affected, notes, t]);
 
   const subtitle = activeFarm
-    ? `${activeFarm.farmName || activeFarm.farmAlias || 'Farm'}${cycleId ? ' · active cycle' : ''}`
+    ? `${activeFarm.farmName || activeFarm.farmAlias || t('scoutLog.farmFallback')}${cycleId ? ` · ${t('scoutLog.activeCycle')}` : ''}`
     : undefined;
 
   return (
     <LoggerScaffold
-      title="Field scouting" subtitle={subtitle}
-      footerLabel="Field scouting" footerIcon="search-outline"
+      title={t('scoutLog.title')} subtitle={subtitle}
+      footerLabel={t('scoutLog.footerLabel')} footerIcon="search-outline"
       saving={saving} canSave={canSave} onSave={handleSave}
       celebrate={celebrate}
-      celebrateTitle="Scouting logged ✓"
-      celebrateSubtitle="CropSetu AI will factor this into advice."
+      celebrateTitle={t('scoutLog.celebrateTitle')}
+      celebrateSubtitle={t('scoutLog.celebrateSubtitle')}
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
-      <SectionHeader icon="eye-outline" tint={COSMIC.SCOUT} title="What did you see?" />
-      <TileGrid items={ISSUE_TYPES} value={issueType} onChange={(v) => setIssueType(v || '')} columns={3} />
+      <SectionHeader icon="eye-outline" tint={COSMIC.SCOUT} title={t('scoutLog.sectionSaw')} />
+      <TileGrid items={issueTypes} value={issueType} onChange={(v) => setIssueType(v || '')} columns={3} />
 
-      <SectionHeader icon="pricetag-outline" tint={COSMIC.SCOUT} title="Name / target" optional />
-      <Card><LabeledInput value={target} onChangeText={setTarget} placeholder="e.g. Aphids, Leaf curl" /></Card>
+      <SectionHeader icon="pricetag-outline" tint={COSMIC.SCOUT} title={t('scoutLog.sectionTarget')} optional />
+      <Card><LabeledInput value={target} onChangeText={setTarget} placeholder={t('scoutLog.targetPlaceholder')} /></Card>
 
-      <SectionHeader icon="speedometer-outline" tint={COSMIC.SCOUT} title="Severity" />
-      <TileGrid items={SEVERITIES} value={severity} onChange={(v) => setSeverity(v || 'moderate')} columns={2} />
+      <SectionHeader icon="speedometer-outline" tint={COSMIC.SCOUT} title={t('scoutLog.sectionSeverity')} />
+      <TileGrid items={severities} value={severity} onChange={(v) => setSeverity(v || 'moderate')} columns={2} />
 
-      <SectionHeader icon="pie-chart-outline" tint={COSMIC.SCOUT} title="Affected %" optional />
+      <SectionHeader icon="pie-chart-outline" tint={COSMIC.SCOUT} title={t('scoutLog.sectionAffected')} optional />
       <Card><BigNumberInput value={affected} onChange={setAffected} unit="%" tint={COSMIC.SCOUT} /></Card>
 
-      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title="Notes" optional />
+      <SectionHeader icon="create-outline" tint={COSMIC.TEXT_3} title={t('scoutLog.sectionNotes')} optional />
       <Card><NotesField value={notes} onChange={setNotes} /></Card>
     </LoggerScaffold>
   );

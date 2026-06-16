@@ -217,7 +217,7 @@ export default function KrushiKendraShareSheet({
                 ) : (
                   <>
                     <Ionicons name="paper-plane" size={16} color={COLORS.white} />
-                    <Text style={S.sendBtnText}>
+                    <Text style={S.sendBtnText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
                       {selected
                         ? t('share.sendCta', { name: selected.name || `+91 ${selected.phone}`, defaultValue: 'Send to {{name}}' })
                         : t('share.pickFirst', 'Pick a Krushi Kendra')}
@@ -277,7 +277,7 @@ const S = StyleSheet.create({
     ...SHADOWS.small,
   },
   sendBtnDisabled: { backgroundColor: COLORS.gray175 },
-  sendBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '700' },
+  sendBtnText: { flexShrink: 1, textAlign: 'center', color: COLORS.white, fontSize: 15, fontWeight: '700' },
 
   loadingBox: { paddingVertical: 50, alignItems: 'center', gap: 12 },
   loadingText: { fontSize: 13, color: COLORS.textMedium },

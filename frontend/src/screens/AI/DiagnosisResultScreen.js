@@ -1178,11 +1178,11 @@ ${(() => {
           <Ionicons name="chevron-back" size={22} color={COLORS.white} />
         </TouchableOpacity>
         <View style={D.headerBarTitleWrap}>
-          {/* Brand eyebrow — "Krushi Drishti" (कृषि दृष्टि shown only for hi/mr) */}
+          {/* Brand eyebrow — "Krushi Drishti" (localized; native script appended per-locale in i18n) */}
           <View style={D.brandEyebrowRow}>
             <Ionicons name="scan-outline" size={11} color="rgba(255,255,255,0.85)" />
-            <Text style={D.brandEyebrowText}>
-              Krushi Drishti{(language === 'hi' || language === 'mr') ? ' · कृषि दृष्टि' : ''}
+            <Text style={D.brandEyebrowText} numberOfLines={1}>
+              {t('aiBrand.drishti', language === 'hi' || language === 'mr' ? 'Krushi Drishti · कृषी दृष्टी' : 'Krushi Drishti')}
             </Text>
           </View>
           <Text style={D.headerBarTitle}>{t('diagnosis.headerTitle', 'Crop Disease Report')}</Text>
@@ -1616,11 +1616,11 @@ ${(() => {
               activeOpacity={0.85}
             >
               <Ionicons name="chatbubble-outline" size={15} color={COLORS.primary} />
-              <Text style={D.actionOutlineText}>{t('diagnosis.askFarmMind')}</Text>
+              <Text style={D.actionOutlineText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{t('diagnosis.askFarmMind')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={D.actionFill} onPress={() => navigation.navigate('AgriStore')} activeOpacity={0.85}>
               <Ionicons name="cart-outline" size={15} color={COLORS.white} />
-              <Text style={D.actionFillText}>{t('diagnosis.buyProducts')}</Text>
+              <Text style={D.actionFillText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{t('diagnosis.buyProducts')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -2083,12 +2083,12 @@ const D = StyleSheet.create({
     borderRadius: 14, paddingVertical: 14,
     borderWidth: 1.5, borderColor: 'rgba(46,204,113,0.4)',
   },
-  actionOutlineText: { fontSize: 13, fontWeight: '700', color: COLORS.primary },
+  actionOutlineText: { flexShrink: 1, textAlign: 'center', fontSize: 13, fontWeight: '700', color: COLORS.primary },
   actionFill: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
     borderRadius: 14, paddingVertical: 14, backgroundColor: COLORS.primary,
   },
-  actionFillText: { fontSize: 13, fontWeight: '800', color: COLORS.white },
+  actionFillText: { flexShrink: 1, textAlign: 'center', fontSize: 13, fontWeight: '800', color: COLORS.white },
 
   // ── Download ──
   downloadBtn: {

@@ -657,9 +657,9 @@ export default function VoiceChatScreen({ navigation }) {
             <ArrowLeft size={22} color="#F0FDF4" strokeWidth={2.2} />
           </TouchableOpacity>
           <View style={S.brandBlock} pointerEvents="none">
-            <Text style={S.brandTitle}>{t('voiceChat.brand', 'Krushi Vaani')}</Text>
+            <Text style={S.brandTitle} numberOfLines={1}>{t('aiBrand.vaani', 'Vaani')}</Text>
             {(language === 'hi' || language === 'mr') ? (
-              <Text style={S.brandSubtitle}>कृषि वाणी</Text>
+              <Text style={S.brandSubtitle}>वाणी</Text>
             ) : null}
           </View>
         </View>

@@ -84,7 +84,13 @@ function CategoryPill({ item, active, onPress, t }) {
 // ── Animal Card ───────────────────────────────────────────────────────────────
 function AnimalCard({ item, onPress, t, index = 0, currentUserId }) {
   const isOwn = !!(currentUserId && item.sellerId && currentUserId === item.sellerId);
-  const imageUrl = item.images && item.images[0] ? item.images[0] : null;
+  const firstImage = Array.isArray(item.images)
+    ? item.images.find((u) => typeof u === 'string' && /^https?:\/\//i.test(u)) || null
+    : null;
+  // Track a runtime image-load failure so a broken/unreachable URL falls back to
+  // the animal icon instead of rendering a permanent blank thumbnail.
+  const [imgFailed, setImgFailed] = useState(false);
+  const imageUrl = !imgFailed ? firstImage : null;
   const milkStr  = item.milkYield && item.milkYield !== 'N/A' ? item.milkYield : null;
   const price    = item.price ? Number(item.price).toLocaleString() : '—';
   const place    = locationVillageTaluka(item.sellerLocation) || '—';
@@ -102,7 +108,7 @@ function AnimalCard({ item, onPress, t, index = 0, currentUserId }) {
     >
       <View style={S.photoWrap}>
         {imageUrl
-          ? <Image source={{ uri: imageUrl }} style={S.photo} resizeMode="cover" />
+          ? <Image source={{ uri: imageUrl }} style={S.photo} resizeMode="cover" onError={() => setImgFailed(true)} />
           : (
             <View style={[S.photo, S.photoFallback]}>
               <AnimalIcon type={item.animalType || item.category || 'Cow'} size={CARD_W - 20} />

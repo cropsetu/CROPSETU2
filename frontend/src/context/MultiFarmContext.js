@@ -3,7 +3,7 @@
  * Manages farms[], activeFarm, crop cycles. Caches to encrypted secure storage
  * (Keychain/Keystore) for offline — farm names/locations never hit disk as plaintext.
  */
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { getSecureJSON, setSecureJSON } from '../utils/secureCache';
 import { useAuth } from './AuthContext';
 import * as farmApi from '../services/farmApi';
@@ -55,7 +55,10 @@ export function MultiFarmProvider({ children }) {
     if (isLoggedIn && user?.onboardingStep === 'COMPLETE') refresh();
   }, [isLoggedIn, user?.onboardingStep, user?.totalFarms, refresh]);
 
-  const activeFarm = farms.find(f => f.id === activeFarmId) || farms[0] || null;
+  const activeFarm = useMemo(
+    () => farms.find(f => f.id === activeFarmId) || farms[0] || null,
+    [farms, activeFarmId],
+  );
 
   const switchActiveFarm = useCallback(async (id) => {
     setActiveFarmId(id);
@@ -112,12 +115,16 @@ export function MultiFarmProvider({ children }) {
     }
   }, []);
 
+  // Memoized so the dozens of screens reading farm state don't re-render on
+  // every provider render. Callbacks above are already stable (useCallback).
+  const value = useMemo(() => ({
+    farms, activeFarm, activeFarmId, loading, syncing,
+    refresh, switchActiveFarm, addFarm, editFarm, removeFarm,
+    hasFarms: farms.length > 0,
+  }), [farms, activeFarm, activeFarmId, loading, syncing, refresh, switchActiveFarm, addFarm, editFarm, removeFarm]);
+
   return (
-    <MultiFarmContext.Provider value={{
-      farms, activeFarm, activeFarmId, loading, syncing,
-      refresh, switchActiveFarm, addFarm, editFarm, removeFarm,
-      hasFarms: farms.length > 0,
-    }}>
+    <MultiFarmContext.Provider value={value}>
       {children}
     </MultiFarmContext.Provider>
   );

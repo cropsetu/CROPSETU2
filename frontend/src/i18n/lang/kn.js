@@ -37,6 +37,15 @@ export default {
   tabAI: 'AI',
   notSet: 'ಹೊಂದಿಸಿಲ್ಲ',
 
+  aiBrand: {
+    intelligence: 'Krushi Intelligence',
+    tab: 'Krushi AI',
+    badge: 'Krushi AI',
+    drishti: 'Krushi Drishti',
+    vaani: 'Vaani',
+    gyaan: 'Gyaan',
+  },
+
   nav: {
     farm: 'ಜಮೀನು',
     editFarm: 'ಜಮೀನು ಸಂಪಾದಿಸಿ',
@@ -605,7 +614,7 @@ export default {
     soilHealth: 'ಮಣ್ಣಿನ ಆರೋಗ್ಯ',
     noSoilReport: 'ಮಣ್ಣಿನ ವರದಿ ಇಲ್ಲ',
     aiPredictions: 'AI ಮುನ್ಸೂಚನೆಗಳು',
-    askFarmMind: 'CropSetu AI ಕೇಳಿ',
+    askFarmMind: 'Krushi Intelligence ಕೇಳಿ',
     chatAboutFarm: 'ಜಮೀನಿನ ಬಗ್ಗೆ ಚಾಟ್ ಮಾಡಿ',
     bestCrop: 'ಉತ್ತಮ ಬೆಳೆ',
     top5Soil: 'ಟಾಪ್ 5 ಮಣ್ಣಿನ ಶಿಫಾರಸು',
@@ -710,8 +719,8 @@ export default {
 
   aiChat: {
       welcomeMsg: 'ನಮಸ್ಕಾರ! ನಾನು CropSetu AI, ನಿಮ್ಮ AI ಕೃಷಿ ಸಹಾಯಕ. ಬೆಳೆ ರೋಗ, ನೀರಾವರಿ, ಮಂಡಿ ಬೆಲೆ ಮತ್ತು ಸರ್ಕಾರಿ ಯೋಜನೆಗಳ ಬಗ್ಗೆ ಸಹಾಯ ಮಾಡಬಲ್ಲೆ.\n\nಮಾತನಾಡಲು ಮೈಕ್ ಟ್ಯಾಪ್ ಮಾಡಿ ಅಥವಾ ಕೆಳಗೆ ಟೈಪ್ ಮಾಡಿ.',
-    farmMind: 'CropSetu AI',
-    talkToFarmMind: 'CropSetu AI ಜೊತೆ ಮಾತನಾಡಿ',
+    farmMind: 'Krushi Intelligence',
+    talkToFarmMind: 'Krushi Intelligence ಜೊತೆ ಮಾತನಾಡಿ',
     textMode: 'ಪಠ್ಯ ಮೋಡ್',
     credits: 'ಕ್ರೆಡಿಟ್‌ಗಳು',
     voiceAssistant: 'ಧ್ವನಿ ಸಹಾಯಕ',

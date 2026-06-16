@@ -81,6 +81,7 @@ function humanReadableError(err, fallback = 'Something went wrong. Please try ag
 // ── Header: logo badge + title + LanguageSelector  (direct port of Lovable)
 // ─────────────────────────────────────────────────────────────────────────────
 function ChatHeader({ insets, onMenuPress, onNewChatPress }) {
+  const { t } = useLanguage();
   return (
     <BlurView intensity={30} tint="dark" style={[H.wrap, { paddingTop: insets.top + 10 }]}>
       <View style={H.row}>
@@ -97,8 +98,8 @@ function ChatHeader({ insets, onMenuPress, onNewChatPress }) {
             <Sprout size={16} color={BG} strokeWidth={2.6} />
           </LinearGradient>
           <View>
-            <Text style={H.title}>CropSetu AI</Text>
-            <Text style={H.sub}>Farmer's assistant</Text>
+            <Text style={H.title} numberOfLines={1}>{t('aiBrand.intelligence', 'Krushi Intelligence')}</Text>
+            <Text style={H.sub} numberOfLines={1}>{t('aiChat.assistantSubtitle', "Farmer's assistant")}</Text>
           </View>
         </View>
 
@@ -466,6 +467,7 @@ function MessageBubble({ msg, onBuyMedicine, language, isLast, onFollowUp }) {
 
 // ── Sidebar (opens from Menu or History tab) ─────────────────────────────────
 function Sidebar({ isOpen, onClose, sessions, historyLoading, onSessionPress, onNewChat, onDeleteSession, insets }) {
+  const { t } = useLanguage();
   const translateX     = useRef(new Animated.Value(-W * 0.82)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
 
@@ -489,7 +491,7 @@ function Sidebar({ isOpen, onClose, sessions, historyLoading, onSessionPress, on
             <LinearGradient colors={[PRIMARY, ACCENT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={SB.panelAvatar}>
               <Sprout size={14} color={BG} strokeWidth={2.6} />
             </LinearGradient>
-            <Text style={SB.panelTitle}>CropSetu AI</Text>
+            <Text style={SB.panelTitle} numberOfLines={1}>{t('aiBrand.intelligence', 'Krushi Intelligence')}</Text>
           </View>
           <TouchableOpacity onPress={onClose} style={SB.closeBtn} activeOpacity={0.7}>
             <CloseIcon size={20} color={MUTED} strokeWidth={2.2} />

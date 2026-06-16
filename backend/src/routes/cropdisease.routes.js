@@ -235,6 +235,15 @@ router.get('/reports', authenticate, listReportsRules, validate, async (req, res
         id: true, pincode: true, cropType: true, growthStage: true, variety: true,
         overallRisk: true, riskLevel: true, primaryDisease: true,
         confidenceScore: true, imageCount: true, createdAt: true,
+        // Lightweight share summary so the history list can render a "Replied"
+        // badge without a second round-trip. Newest share first.
+        shares: {
+          orderBy: { repliedAt: 'desc' },
+          select: {
+            id: true, status: true, available: true, fulfillment: true,
+            sellerReply: true, repliedAt: true, sellerId: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * limit,
@@ -243,8 +252,18 @@ router.get('/reports', authenticate, listReportsRules, validate, async (req, res
     prisma.cropDiseaseReport.count({ where: { userId: req.user.id } }),
   ]);
 
+  // Derive convenience flags so the mobile list doesn't re-walk the shares array.
+  const enriched = reports.map((r) => {
+    const replied = r.shares.find((s) => s.status === 'REPLIED');
+    return {
+      ...r,
+      hasReply: !!replied,
+      shareStatus: replied ? 'REPLIED' : (r.shares.length ? 'PENDING' : null),
+    };
+  });
+
   const meta = { total, page, limit, totalPages: Math.ceil(total / limit) };
-  return sendSuccess(res, reports, 200, meta);
+  return sendSuccess(res, enriched, 200, meta);
 });
 
 // ─── GET /api/v1/crop-disease/reports/:id ────────────────────────────────────
@@ -252,6 +271,25 @@ router.get('/reports', authenticate, listReportsRules, validate, async (req, res
 router.get('/reports/:id', authenticate, async (req, res) => {
   const report = await prisma.cropDiseaseReport.findFirst({
     where: { id: req.params.id, userId: req.user.id },
+    // Include the Krushi Kendra shares + replies so the mobile history detail
+    // can render the seller's response. Seller relation mirrors the fields the
+    // /crop-reports/:reportId/shares endpoint returns so the shop name shows.
+    include: {
+      shares: {
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, status: true, available: true, fulfillment: true,
+          fulfillmentNote: true, sellerReply: true, recommendedSku: true,
+          recommendedProductIds: true, message: true, repliedAt: true, createdAt: true,
+          seller: {
+            select: {
+              id: true, name: true, phone: true, avatar: true,
+              businessType: true, village: true, taluka: true, district: true,
+            },
+          },
+        },
+      },
+    },
   });
   if (!report) return sendError(res, 'Report not found', 404);
   return sendSuccess(res, report);

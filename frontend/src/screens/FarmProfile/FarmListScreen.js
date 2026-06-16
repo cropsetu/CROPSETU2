@@ -81,7 +81,7 @@ export default function FarmListScreen({ navigation }) {
                 {isActive && (
                   <View style={styles.activeBadge}>
                     <Ionicons name="star" size={9} color={COSMIC.INVERSE} />
-                    <Text style={styles.activeText}>Active</Text>
+                    <Text style={styles.activeText}>{t('farmList.active', 'Active')}</Text>
                   </View>
                 )}
               </View>
@@ -99,7 +99,7 @@ export default function FarmListScreen({ navigation }) {
                 {farm.landSizeAcres > 0 && <Tag label={`${farm.landSizeAcres} ac`} color={COSMIC.PRIMARY} />}
                 {farm.soilType && <Tag label={(farm.soilType || '').replace(/_/g, ' ').toLowerCase()} color={soilColor} capitalize />}
                 {farm.irrigationSystem && <Tag label={farm.irrigationSystem.toLowerCase()} color={COSMIC.INFO} capitalize />}
-                {cropCount > 0 && <Tag label={`${cropCount} ${cropCount === 1 ? 'crop' : 'crops'}`} color={COSMIC.ACCENT} />}
+                {cropCount > 0 && <Tag label={`${cropCount} ${cropCount === 1 ? t('farmList.crop', 'crop') : t('farmList.crops', 'crops')}`} color={COSMIC.ACCENT} />}
               </View>
             </View>
             <View style={styles.chev}>
@@ -115,7 +115,7 @@ export default function FarmListScreen({ navigation }) {
     <CosmicScreen edges={{ top: false, bottom: true }}>
       <CosmicHeader
         title={t('farmProfile.myFarms') || 'My farms'}
-        subtitle={farms.length > 0 ? `${farms.length} ${farms.length === 1 ? 'farm' : 'farms'} · long-press to edit` : undefined}
+        subtitle={farms.length > 0 ? `${farms.length} ${farms.length === 1 ? t('farmList.farm', 'farm') : t('farmList.farms', 'farms')} · ${t('farmList.longPressEdit', 'long-press to edit')}` : undefined}
       />
       <FlatList
         data={farms}
@@ -130,13 +130,13 @@ export default function FarmListScreen({ navigation }) {
             <View style={styles.emptyBubble}>
               <Ionicons name="leaf" size={24} color={COSMIC.PRIMARY} />
             </View>
-            <Text style={styles.emptyTitle}>No farms yet</Text>
-            <Text style={styles.emptyText}>Add your first farm and let CropSetu AI tune advisory to your soil, water and crop.</Text>
-            <GlowButton label="Add a farm" icon="add" variant="primary" onPress={goAdd} style={{ marginTop: 12, minWidth: 180 }} size="sm" />
+            <Text style={styles.emptyTitle}>{t('farmList.noFarmsYet', 'No farms yet')}</Text>
+            <Text style={styles.emptyText}>{t('farmList.emptyBody', 'Add your first farm and let Krushi Intelligence tune advisory to your soil, water and crop.')}</Text>
+            <GlowButton label={t('farmList.addFarm', 'Add a farm')} icon="add" variant="primary" onPress={goAdd} style={{ marginTop: 12, minWidth: 180 }} size="sm" />
           </View>
         }
       />
-      <AddFab onPress={goAdd} />
+      <AddFab onPress={goAdd} t={t} />
     </CosmicScreen>
   );
 }
@@ -152,13 +152,13 @@ function Tag({ label, color, capitalize }) {
   );
 }
 
-function AddFab({ onPress }) {
+function AddFab({ onPress, t }) {
   const insets = useSafeAreaInsets();
   const handle = () => { Haptics.medium?.(); onPress && onPress(); };
   return (
     <Pressable
       onPress={handle}
-      accessibilityLabel="Add farm"
+      accessibilityLabel={t('farmList.addFarm', 'Add a farm')}
       style={({ pressed }) => [
         styles.fab,
         { bottom: 20 + insets.bottom },

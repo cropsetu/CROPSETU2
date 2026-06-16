@@ -864,6 +864,11 @@ model CropReportShare {
   recommendedSku        String?
   recommendedProductIds String[]          @default([])
   available             Boolean           @default(false)
+  // How the farmer obtains the recommended product once the Kendra replies:
+  // COLLECT = pick up from the shop, DELIVERY = home delivery, NONE = unset.
+  // Defaulted (not nullable) so `prisma db push` stays safe on existing rows.
+  fulfillment           FulfillmentMode   @default(NONE)
+  fulfillmentNote       String?
   status                ShareStatus       @default(PENDING)
   readAt                DateTime?
   repliedAt             DateTime?
@@ -1841,6 +1846,14 @@ enum ShareStatus {
   PENDING
   REPLIED
   CLOSED
+}
+
+// Fulfillment choice a Krushi Kendra picks when replying to a shared report:
+// whether the farmer collects the product from the shop or gets it delivered.
+enum FulfillmentMode {
+  NONE
+  COLLECT
+  DELIVERY
 }
 
 enum PostScope {

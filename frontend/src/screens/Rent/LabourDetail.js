@@ -9,6 +9,7 @@ import {
   Image, ActivityIndicator, Dimensions, StatusBar,
 } from 'react-native';
 import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
+import { fs } from '../../utils/responsive';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -44,6 +45,34 @@ function DetailRow({ icon, label, value, color = COLORS.primary }) {
         <Text style={D.detailValue}>{value}</Text>
       </View>
     </View>
+  );
+}
+
+// Gallery image slide with a graceful fallback. A valid-but-unreachable URL
+// makes RN's <Image> render a blank box with no recovery — onError swaps in a
+// gradient + worker initials so the slide is never a silent white screen.
+function GalleryImage({ uri, initials }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <LinearGradient
+        colors={[COLORS.primary, COLORS.greenDeep]}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        style={[D.galImg, { height: 280, justifyContent: 'center', alignItems: 'center' }]}
+      >
+        <View style={D.bigAvatar}>
+          <Text style={D.bigAvatarTxt}>{initials}</Text>
+        </View>
+      </LinearGradient>
+    );
+  }
+  return (
+    <Image
+      source={{ uri }}
+      style={[D.galImg, { height: 280 }]}
+      resizeMode="cover"
+      onError={() => setFailed(true)}
+    />
   );
 }
 
@@ -122,7 +151,7 @@ export default function LabourDetail({ route, navigation }) {
                           shouldPlay={false}
                           isLooping={false}
                         />
-                      : <Image source={{ uri }} style={[D.galImg, { height: 280 }]} resizeMode="cover" />
+                      : <GalleryImage uri={uri} initials={initials} />
                     }
                   </View>
                 );
@@ -316,7 +345,7 @@ export default function LabourDetail({ route, navigation }) {
         {isOwner ? (
           <View style={[D.bottomCallBtn, D.bottomOwnerBtn]}>
             <Ionicons name="person-circle-outline" size={22} color={COLORS.primary} />
-            <Text style={[D.bottomCallTxt, { color: COLORS.primary }]}>{t('rent.ownListingTitle', 'Your Listing')}</Text>
+            <Text style={[D.bottomCallTxt, { color: COLORS.primary }]} numberOfLines={1}>{t('rent.ownListingTitle', 'Your Listing')}</Text>
           </View>
         ) : (
           <TouchableOpacity
@@ -325,7 +354,7 @@ export default function LabourDetail({ route, navigation }) {
             disabled={!phone}
           >
             <Ionicons name="call" size={22} color={COLORS.white} />
-            <Text style={D.bottomCallTxt}>
+            <Text style={D.bottomCallTxt} numberOfLines={1}>
               {phone ? `${t('rent.callNow')}  •  ${phone}` : t('rent.phoneNotListed')}
             </Text>
           </TouchableOpacity>
@@ -403,7 +432,10 @@ const D = StyleSheet.create({
   availWindowTxt:  { fontSize: 13, color: COLORS.primary, fontWeight: '700', flex: 1 },
 
   bottomBar:     { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 12, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.lightGray2 },
-  bottomCallBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: COLORS.primary, borderRadius: 16, paddingVertical: 15 },
+  // gap:8 + paddingHorizontal keeps the icon and (possibly long) "Call • phone"
+  // label comfortable; flexShrink + numberOfLines=1 prevent overflow on narrow
+  // phones (e.g. Samsung S24). minHeight keeps a solid touch target.
+  bottomCallBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: COLORS.primary, borderRadius: 16, paddingVertical: 15, paddingHorizontal: 12, minHeight: 50 },
   bottomOwnerBtn:{ backgroundColor: COLORS.primaryPale, borderWidth: 1.5, borderColor: COLORS.primary + '40' },
-  bottomCallTxt: { fontSize: 15, fontWeight: '800', color: COLORS.white },
+  bottomCallTxt: { fontSize: fs(15), fontWeight: '800', color: COLORS.white, flexShrink: 1 },
 });

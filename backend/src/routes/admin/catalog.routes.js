@@ -136,6 +136,88 @@ productsRouter.get(
   },
 );
 
+// Create a catalog product directly from the admin panel. Admin-created products
+// have a null sellerId (they belong to no seller). Images are Cloudinary URLs the
+// client already uploaded via POST /upload/image.
+productsRouter.post(
+  '/',
+  [
+    body('name').isString().trim().isLength({ min: 1, max: 200 }).withMessage('Product name is required'),
+    body('nameHi').optional({ nullable: true }).isString().isLength({ max: 200 }),
+    body('nameMr').optional({ nullable: true }).isString().isLength({ max: 200 }),
+    body('categoryId').isUUID().withMessage('A valid category is required'),
+    body('price').isFloat({ gt: 0 }).withMessage('Price must be greater than 0'),
+    body('mrp').optional({ nullable: true }).isFloat({ min: 0 }),
+    body('unit').optional({ nullable: true }).isString().isLength({ max: 32 }),
+    body('stock').optional().isInt({ min: 0, max: 1_000_000 }),
+    body('description').optional({ nullable: true }).isString().isLength({ max: 5000 }),
+    body('images').optional().isArray({ max: 10 }),
+    body('images.*').optional().isString().isLength({ max: 1000 }),
+    body('tags').optional().isArray({ max: 30 }),
+    body('tags.*').optional().isString().isLength({ max: 60 }),
+    body('highlights').optional().isArray({ max: 30 }),
+    body('highlights.*').optional().isString().isLength({ max: 200 }),
+    body('brand').optional({ nullable: true }).isString().isLength({ max: 120 }),
+    body('manufacturer').optional({ nullable: true }).isString().isLength({ max: 200 }),
+    body('countryOfOrigin').optional({ nullable: true }).isString().isLength({ max: 80 }),
+    body('subcategory').optional({ nullable: true }).isString().isLength({ max: 120 }),
+    body('minOrderQty').optional().isInt({ min: 1, max: 1_000_000 }),
+    body('sellScope').optional({ nullable: true }).isString().isLength({ max: 32 }),
+    body('district').optional({ nullable: true }).isString().isLength({ max: 120 }),
+    body('state').optional({ nullable: true }).isString().isLength({ max: 120 }),
+    body('taluka').optional({ nullable: true }).isString().isLength({ max: 120 }),
+    body('village').optional({ nullable: true }).isString().isLength({ max: 120 }),
+    body('isActive').optional().isBoolean(),
+    body('isFeatured').optional().isBoolean(),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const b = req.body;
+
+      // Category must exist (FK is required); fail with a clear 400 if not.
+      const category = await prisma.category.findUnique({ where: { id: b.categoryId }, select: { id: true } });
+      if (!category) {
+        return sendServerError(res, Object.assign(new Error('Selected category does not exist'), { expose: true }), 'Invalid category', 400);
+      }
+
+      const cleanStr = (v) => (typeof v === 'string' ? stripHtml(v) : v);
+      const cleanArr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()).map(cleanStr) : []);
+
+      const data = {
+        sellerId: null, // admin-created products belong to no seller
+        categoryId: b.categoryId,
+        name: cleanStr(b.name),
+        price: Number(b.price),
+        stock: b.stock !== undefined ? b.stock : 0,
+        unit: b.unit ? cleanStr(b.unit) : 'kg',
+        minOrderQty: b.minOrderQty !== undefined ? b.minOrderQty : 1,
+        sellScope: b.sellScope ? cleanStr(b.sellScope) : 'district',
+        images: cleanArr(b.images),
+        tags: cleanArr(b.tags),
+        highlights: cleanArr(b.highlights),
+        isActive: b.isActive !== undefined ? b.isActive : true,
+        isFeatured: b.isFeatured !== undefined ? b.isFeatured : false,
+      };
+      // Optional scalar fields — only set when provided (keep Prisma defaults/nulls otherwise).
+      for (const k of ['nameHi', 'nameMr', 'description', 'brand', 'manufacturer', 'countryOfOrigin', 'subcategory', 'district', 'state', 'taluka', 'village']) {
+        if (b[k] !== undefined && b[k] !== null && b[k] !== '') data[k] = cleanStr(b[k]);
+      }
+      if (b.mrp !== undefined && b.mrp !== null && b.mrp !== '') data.mrp = Number(b.mrp);
+
+      const created = await prisma.product.create({
+        data,
+        include: { category: { select: { id: true, name: true } }, seller: { select: { id: true, name: true } } },
+      });
+      await adminAudit(req, ADMIN_ACTIONS.PRODUCT_CREATE, 'Product', created.id, { after: { name: created.name, price: created.price, categoryId: created.categoryId } });
+      return sendCreated(res, created);
+    } catch (err) {
+      if (err?.code === 'P2003') return sendServerError(res, Object.assign(new Error('Selected category does not exist'), { expose: true }), 'Invalid category', 400);
+      return sendServerError(res, err, 'Failed to create product');
+    }
+  },
+);
+
 productsRouter.get('/:id', [param('id').isUUID()], validate, async (req, res) => {
   try {
     const product = await prisma.product.findUnique({

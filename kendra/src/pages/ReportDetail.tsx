@@ -7,7 +7,7 @@ import { queryClient } from '../lib/queryClient';
 import { useToast } from '../lib/toast';
 import { Layout } from '../components/Layout';
 import { Badge, Button, Card, Input, Spinner, Textarea } from '../components/ui';
-import type { Share } from '../lib/types';
+import type { Share, FulfillmentMode } from '../lib/types';
 
 export default function ReportDetailPage() {
   const { shareId } = useParams<{ shareId: string }>();
@@ -23,6 +23,7 @@ export default function ReportDetailPage() {
   const [reply, setReply] = useState('');
   const [sku, setSku] = useState('');
   const [available, setAvailable] = useState(false);
+  const [fulfillment, setFulfillment] = useState<FulfillmentMode>('NONE');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -32,6 +33,7 @@ export default function ReportDetailPage() {
       setReply(share.sellerReply || '');
       setSku(share.recommendedSku || '');
       setAvailable(!!share.available);
+      setFulfillment(share.fulfillment || 'NONE');
     }
   }, [share]);
 
@@ -45,6 +47,7 @@ export default function ReportDetailPage() {
         reply: reply.trim(),
         recommendedSku: sku.trim() || undefined,
         available,
+        fulfillment,
       });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['share', shareId] }),
@@ -135,6 +138,35 @@ export default function ReportDetailPage() {
           <div>
             <span className="mb-1 block text-sm font-medium text-slate-700">Medicine / product name (SKU)</span>
             <Input value={sku} onChange={(e) => setSku(e.target.value)} placeholder="e.g. Indofil M-45 (Mancozeb 75% WP)" />
+          </div>
+          <div>
+            <span className="mb-1 block text-sm font-medium text-slate-700">How will the farmer get it?</span>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                ['NONE', 'Not set'],
+                ['COLLECT', 'Collect from shop'],
+                ['DELIVERY', 'Home delivery'],
+              ] as [FulfillmentMode, string][]).map(([value, label]) => (
+                <label
+                  key={value}
+                  className={`flex cursor-pointer items-center justify-center rounded-lg border p-2.5 text-center text-sm font-medium transition ${
+                    fulfillment === value
+                      ? 'border-brand-600 bg-brand-50 text-brand-800'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="fulfillment"
+                    className="sr-only"
+                    value={value}
+                    checked={fulfillment === value}
+                    onChange={() => setFulfillment(value)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
           </div>
           <div>
             <span className="mb-1 block text-sm font-medium text-slate-700">Recommendation / dosage notes</span>

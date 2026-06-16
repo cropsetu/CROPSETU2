@@ -488,7 +488,7 @@ export default function AppNavigator() {
         <Tab.Screen
           name="AIAssistant"
           component={AINavigator}
-          options={{ tabBarLabel: t('tabAI') }}
+          options={{ tabBarLabel: t('aiBrand.tab') }}
         />
         <Tab.Screen
           name="AnimalTrade"

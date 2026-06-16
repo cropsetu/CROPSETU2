@@ -8,7 +8,7 @@
  * Screens that mutate the cart (ProductDetail, CartScreen) call refresh() after
  * their write so the badge stays in sync from anywhere it's rendered.
  */
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../services/api';
 import { useAuth } from './AuthContext';
 
@@ -33,8 +33,12 @@ export function CartProvider({ children }) {
   // Fetch when auth flips to logged-in; clear on logout.
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Stable identity unless count/refresh actually change — avoids re-rendering
+  // every cart consumer (e.g. the tab badge) on unrelated parent renders.
+  const value = useMemo(() => ({ count, refresh }), [count, refresh]);
+
   return (
-    <CartContext.Provider value={{ count, refresh }}>
+    <CartContext.Provider value={value}>
       {children}
     </CartContext.Provider>
   );

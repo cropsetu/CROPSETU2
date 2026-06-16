@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, Trash2, Star, StarOff, Power, Download, Upload, AlertTriangle } from 'lucide-react';
+import { Pencil, Plus, Trash2, Star, StarOff, Power, Download, Upload, AlertTriangle, X } from 'lucide-react';
 import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiUpload, errorMessage } from '../lib/api';
 import { useKeyset } from '../lib/useKeyset';
 import { useInvalidateList } from '../lib/hooks';
-import { PageHeader, Card, Button, Badge, BoolBadge, Spinner, ErrorState, Field, Input, Select } from '../components/ui';
+import { PageHeader, Card, Button, Badge, BoolBadge, Spinner, ErrorState, Field, Input, Select, Textarea } from '../components/ui';
 import { DataTable, type Column } from '../components/DataTable';
 import { Toolbar, SearchInput, FilterSelect } from '../components/filters';
 import { Modal, Drawer } from '../components/Modal';
@@ -114,6 +114,7 @@ export function ProductsPage() {
   const [selected, setSelected] = useState<Product | null>(null);
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const params = useMemo(() => { const p: Record<string, unknown> = {}; if (search) p.search = search; if (activeF) p.isActive = activeF; return p; }, [search, activeF]);
   const list = useKeyset<Product>('/admin/products', params);
@@ -163,7 +164,8 @@ export function ProductsPage() {
         actions={
           <>
             <Button variant="secondary" onClick={onExport} loading={exporting}><Download className="h-4 w-4" /> Export CSV</Button>
-            <Button variant="primary" onClick={() => setImporting(true)}><Upload className="h-4 w-4" /> Import CSV</Button>
+            <Button variant="secondary" onClick={() => setImporting(true)}><Upload className="h-4 w-4" /> Import CSV</Button>
+            <Button variant="primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Add product</Button>
           </>
         }
       />
@@ -199,7 +201,231 @@ export function ProductsPage() {
           onCommitted={() => { setImporting(false); invalidate('/admin/products'); }}
         />
       )}
+
+      {creating && (
+        <CreateProductForm
+          onClose={() => setCreating(false)}
+          onCreated={() => { setCreating(false); invalidate('/admin/products'); }}
+        />
+      )}
     </div>
+  );
+}
+
+// ── Create product (image upload + full details) ────────────────────────────────
+interface ProductCategory { id: string; name: string }
+
+// Mirrors the admin POST /admin/products body. Numeric fields are strings while
+// editing so the inputs stay controlled; they're coerced on submit.
+interface ProductForm {
+  name: string; nameHi: string; nameMr: string;
+  categoryId: string;
+  price: string; mrp: string; stock: string; minOrderQty: string;
+  unit: string; description: string;
+  brand: string; manufacturer: string; countryOfOrigin: string; subcategory: string;
+  sellScope: string; district: string; state: string; taluka: string; village: string;
+  tags: string; highlights: string;
+  isActive: boolean; isFeatured: boolean;
+}
+
+const EMPTY_PRODUCT: ProductForm = {
+  name: '', nameHi: '', nameMr: '', categoryId: '',
+  price: '', mrp: '', stock: '0', minOrderQty: '1',
+  unit: 'kg', description: '',
+  brand: '', manufacturer: '', countryOfOrigin: '', subcategory: '',
+  sellScope: 'district', district: '', state: '', taluka: '', village: '',
+  tags: '', highlights: '',
+  isActive: true, isFeatured: false,
+};
+
+function CreateProductForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const toast = useToast();
+  const [form, setForm] = useState<ProductForm>(EMPTY_PRODUCT);
+  const [images, setImages] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const fileRef = useRef<HTMLInputElement>(null);
+  const set = <K extends keyof ProductForm>(k: K, v: ProductForm[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Categories for the dropdown (products require a valid categoryId).
+  const cats = useQuery({ queryKey: ['categories'], queryFn: () => apiGet<{ items: ProductCategory[] }>('/admin/categories').then((r) => r.data.items) });
+
+  // Read a File as a data URL, then POST { base64 } to /upload/image (upload.routes.js
+  // strips the data: prefix server-side) and collect the returned Cloudinary URL.
+  const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+
+  const onPickImages = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      const picked = Array.from(files).slice(0, 10 - images.length);
+      const urls: string[] = [];
+      for (const file of picked) {
+        const base64 = await readAsDataUrl(file);
+        const { url } = await apiPost<{ url: string }>('/upload/image', { base64 });
+        urls.push(url);
+      }
+      setImages((prev) => [...prev, ...urls]);
+    } catch (e) {
+      toast.error(errorMessage(e, 'Image upload failed'));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+  const removeImage = (i: number) => setImages((prev) => prev.filter((_, idx) => idx !== i));
+
+  const splitList = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
+
+  const validate = (): boolean => {
+    const e: Record<string, string> = {};
+    if (!form.name.trim()) e.name = 'Product name is required';
+    if (!form.categoryId) e.categoryId = 'Select a category';
+    const price = Number(form.price);
+    if (!form.price || Number.isNaN(price) || price <= 0) e.price = 'Price must be greater than 0';
+    if (form.mrp && (Number.isNaN(Number(form.mrp)) || Number(form.mrp) < 0)) e.mrp = 'MRP must be a valid number';
+    if (form.stock && (Number.isNaN(Number(form.stock)) || Number(form.stock) < 0)) e.stock = 'Stock must be 0 or more';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const create = useMutation({
+    mutationFn: () => {
+      const payload: Record<string, unknown> = {
+        name: form.name.trim(),
+        categoryId: form.categoryId,
+        price: Number(form.price),
+        stock: form.stock ? Number(form.stock) : 0,
+        minOrderQty: form.minOrderQty ? Number(form.minOrderQty) : 1,
+        unit: form.unit || 'kg',
+        sellScope: form.sellScope || 'district',
+        images,
+        tags: splitList(form.tags),
+        highlights: splitList(form.highlights),
+        isActive: form.isActive,
+        isFeatured: form.isFeatured,
+      };
+      if (form.mrp) payload.mrp = Number(form.mrp);
+      for (const k of ['nameHi', 'nameMr', 'description', 'brand', 'manufacturer', 'countryOfOrigin', 'subcategory', 'district', 'state', 'taluka', 'village'] as const) {
+        const v = form[k].trim();
+        if (v) payload[k] = v;
+      }
+      return apiPost('/admin/products', payload);
+    },
+    onSuccess: () => { toast.success('Product created'); onCreated(); },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const onSubmit = () => { if (validate()) create.mutate(); };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Add product"
+      size="lg"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={create.isPending} disabled={uploading} onClick={onSubmit}>Create product</Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {/* Images */}
+        <Field label="Images" hint="Upload one or more product photos (JPEG/PNG, up to 10).">
+          <div className="space-y-2">
+            {images.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {images.map((url, i) => (
+                  <div key={url + i} className="relative">
+                    <img src={url} alt="" className="h-20 w-20 rounded-lg border border-slate-200 object-cover" />
+                    <button type="button" onClick={() => removeImage(i)} className="absolute -right-1.5 -top-1.5 rounded-full bg-red-500 p-0.5 text-white shadow" aria-label="Remove image">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="input"
+              disabled={uploading || images.length >= 10}
+              onChange={(e) => onPickImages(e.target.files)}
+            />
+            {uploading && <p className="inline-flex items-center gap-1 text-xs text-slate-500"><Spinner className="h-3.5 w-3.5" /> Uploading…</p>}
+          </div>
+        </Field>
+
+        {/* Names */}
+        <Field label="Name (English)" error={errors.name}><Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Organic Wheat Seeds" /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Name (Hindi)"><Input value={form.nameHi} onChange={(e) => set('nameHi', e.target.value)} /></Field>
+          <Field label="Name (Marathi)"><Input value={form.nameMr} onChange={(e) => set('nameMr', e.target.value)} /></Field>
+        </div>
+
+        {/* Category + pricing */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Category" error={errors.categoryId}>
+            <Select value={form.categoryId} onChange={(e) => set('categoryId', e.target.value)} disabled={cats.isLoading}>
+              <option value="">{cats.isLoading ? 'Loading…' : 'Select a category'}</option>
+              {(cats.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Subcategory"><Input value={form.subcategory} onChange={(e) => set('subcategory', e.target.value)} /></Field>
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          <Field label="Price (₹)" error={errors.price}><Input type="number" min={0} step="0.01" value={form.price} onChange={(e) => set('price', e.target.value)} /></Field>
+          <Field label="MRP (₹)" error={errors.mrp}><Input type="number" min={0} step="0.01" value={form.mrp} onChange={(e) => set('mrp', e.target.value)} /></Field>
+          <Field label="Stock" error={errors.stock}><Input type="number" min={0} value={form.stock} onChange={(e) => set('stock', e.target.value)} /></Field>
+          <Field label="Unit"><Input value={form.unit} onChange={(e) => set('unit', e.target.value)} placeholder="kg" /></Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Min order qty"><Input type="number" min={1} value={form.minOrderQty} onChange={(e) => set('minOrderQty', e.target.value)} /></Field>
+          <Field label="Sell scope"><Input value={form.sellScope} onChange={(e) => set('sellScope', e.target.value)} placeholder="district" /></Field>
+        </div>
+
+        {/* Description */}
+        <Field label="Description"><Textarea rows={3} value={form.description} onChange={(e) => set('description', e.target.value)} /></Field>
+
+        {/* Branding */}
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Brand"><Input value={form.brand} onChange={(e) => set('brand', e.target.value)} /></Field>
+          <Field label="Manufacturer"><Input value={form.manufacturer} onChange={(e) => set('manufacturer', e.target.value)} /></Field>
+          <Field label="Country of origin"><Input value={form.countryOfOrigin} onChange={(e) => set('countryOfOrigin', e.target.value)} placeholder="India" /></Field>
+        </div>
+
+        {/* Location */}
+        <div className="grid grid-cols-4 gap-3">
+          <Field label="State"><Input value={form.state} onChange={(e) => set('state', e.target.value)} /></Field>
+          <Field label="District"><Input value={form.district} onChange={(e) => set('district', e.target.value)} /></Field>
+          <Field label="Taluka"><Input value={form.taluka} onChange={(e) => set('taluka', e.target.value)} /></Field>
+          <Field label="Village"><Input value={form.village} onChange={(e) => set('village', e.target.value)} /></Field>
+        </div>
+
+        {/* Tags + highlights */}
+        <Field label="Tags" hint="Comma-separated."><Input value={form.tags} onChange={(e) => set('tags', e.target.value)} placeholder="organic, seeds, rabi" /></Field>
+        <Field label="Highlights" hint="Comma-separated key selling points."><Input value={form.highlights} onChange={(e) => set('highlights', e.target.value)} placeholder="High germination, Non-GMO" /></Field>
+
+        {/* Flags */}
+        <div className="flex items-center gap-6">
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={form.isActive} onChange={(e) => set('isActive', e.target.checked)} /> Active
+          </label>
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={form.isFeatured} onChange={(e) => set('isFeatured', e.target.checked)} /> Featured
+          </label>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

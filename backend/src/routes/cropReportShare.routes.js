@@ -391,10 +391,19 @@ router.post(
     body('recommendedProductIds').optional().isArray({ max: 10 }),
     body('recommendedProductIds.*').optional().isString(),
     body('available').optional().isBoolean(),
+    body('fulfillment').optional().isString(),
+    body('fulfillmentNote').optional().isString().isLength({ max: 300 }),
   ],
   validate,
   async (req, res) => {
-    const { reply, recommendedSku, available, recommendedProductIds } = req.body;
+    const { reply, recommendedSku, available, recommendedProductIds, fulfillmentNote } = req.body;
+
+    // Coerce fulfillment to the enum; anything unexpected falls back to NONE so
+    // a bad client value can never persist garbage or throw a Prisma error.
+    const FULFILLMENT_MODES = ['NONE', 'COLLECT', 'DELIVERY'];
+    const fulfillment = FULFILLMENT_MODES.includes(req.body.fulfillment)
+      ? req.body.fulfillment
+      : 'NONE';
 
     const share = await prisma.cropReportShare.findFirst({
       where:  { id: req.params.shareId, sellerId: req.user.id },
@@ -422,6 +431,8 @@ router.post(
         recommendedSku:        recommendedSku || null,
         recommendedProductIds: safeProductIds,
         available:             isAvailable,
+        fulfillment,
+        fulfillmentNote:       fulfillmentNote || null,
         status:                'REPLIED',
         repliedAt:             new Date(),
       },
@@ -437,20 +448,32 @@ router.post(
       || [seller?.village, seller?.taluka].filter(Boolean).join(', ')
       || 'Krushi Kendra';
 
-    // Notification text adapts to whether the seller confirmed availability.
-    const title = isAvailable
-      ? 'Pesticide available — please collect'
-      : 'Krushi Kendra recommendation received';
-    const body = isAvailable
-      ? `${sellerLabel}: please collect ${recommendedSku || 'the recommended product'}`
-      : (reply.length > 80 ? `${reply.slice(0, 80)}…` : reply);
+    // Notification text adapts to availability AND the fulfillment choice so
+    // the farmer immediately knows whether to collect from the shop or wait
+    // for a home delivery.
+    const product = recommendedSku || 'the recommended product';
+    let title;
+    let body;
+    if (isAvailable && fulfillment === 'DELIVERY') {
+      title = 'Available — out for home delivery';
+      body  = `${sellerLabel}: ${product} will be delivered to you.`;
+    } else if (isAvailable && fulfillment === 'COLLECT') {
+      title = 'Available — collect from shop';
+      body  = `${sellerLabel}: please collect ${product} from the shop.`;
+    } else if (isAvailable) {
+      title = 'Pesticide available — please collect';
+      body  = `${sellerLabel}: please collect ${product}`;
+    } else {
+      title = 'Krushi Kendra recommendation received';
+      body  = reply.length > 80 ? `${reply.slice(0, 80)}…` : reply;
+    }
 
     sendPushToUser({
       userId: share.farmerId,
       type:   'CROP_REPORT_REPLIED',
       title,
       body,
-      data:   { kind: 'crop_report_reply', shareId: share.id, reportId: share.reportId, available: isAvailable },
+      data:   { kind: 'crop_report_reply', shareId: share.id, reportId: share.reportId, available: isAvailable, fulfillment },
     }).catch(() => {});
 
     return sendSuccess(res, updated);

@@ -66,6 +66,16 @@ export const translations = {
     tabAI: 'AI',
     notSet: 'Not set',
 
+    // AI assistant brand (Krushi family)
+    aiBrand: {
+      intelligence: 'Krushi Intelligence',
+      tab: 'Krushi AI',
+      badge: 'Krushi AI',
+      drishti: 'Krushi Drishti',
+      vaani: 'Vaani',
+      gyaan: 'Gyaan',
+    },
+
     // Navigation
     nav: {
       farm: 'Farm', editFarm: 'Edit Farm', addFarm: 'Add Farm',
@@ -101,7 +111,7 @@ export const translations = {
       setActive: 'Set as Active Farm for AI', aiInsights: 'AI Insights',
       activeCrops: 'Active Crops', startCropCycle: 'Start a Crop Cycle',
       soilHealth: 'Soil Health', noSoilReport: 'No soil report uploaded yet',
-      aiPredictions: 'AI Predictions', askFarmMind: 'Ask CropSetu AI', chatAboutFarm: 'Chat about this farm',
+      aiPredictions: 'AI Predictions', askFarmMind: 'Ask Krushi Intelligence', chatAboutFarm: 'Chat about this farm',
       bestCrop: 'Best Crop', top5Soil: 'Top 5 for your soil',
       seedQty: 'Seed Qty', exactKg: 'Exact kg needed',
       income: 'Income', forecastRevenue: 'Forecast revenue',
@@ -1089,7 +1099,7 @@ export const translations = {
       treatmentPlan: 'Treatment Plan',
       buyProducts: 'Buy Recommended Products',
       pricesToday: '{{crop}} Prices Today',
-      farmMind: 'CropSetu AI', talkToFarmMind: 'Talk to CropSetu AI',
+      farmMind: 'Krushi Intelligence', talkToFarmMind: 'Talk to Krushi Intelligence',
       textMode: 'Text', credits: 'credits',
       voiceAssistant: 'Voice Assistant', tapToRetry: 'Tap to retry',
       voiceTag: 'voice', recentHistory: 'Recent History',
@@ -1108,7 +1118,7 @@ export const translations = {
       bestDayToSell: 'Best day to sell:',
       bestMonth: 'Best month to sell:',
       avoidSelling: 'Avoid selling:',
-      askFarmMind: 'Ask CropSetu AI about {{crop}}',
+      askFarmMind: 'Ask Krushi Intelligence about {{crop}}',
       uptrend: 'uptrend',
       stable: 'stable',
       risk: '{{level}} risk',
@@ -1297,7 +1307,7 @@ export const translations = {
       stage: '{{stage}} stage',
       consultExpert: 'Consult an Expert',
       consultText: 'This condition may require on-field assessment. Contact your nearest Krishi Vigyan Kendra (KVK) or call the Kisan Call Centre: 1800-180-1551 (free).',
-      askFarmMind: 'Ask CropSetu AI',
+      askFarmMind: 'Ask Krushi Intelligence',
       buyProducts: 'Buy Products',
       disclaimer: 'AI diagnosis is advisory and based on image + context. Always confirm with a local agronomist for important decisions. Kisan Call Centre: 1800-180-1551 (free, 6am-10pm).',
       weeklyActions: 'What to Do This Week', spraySchedule: 'Spray Schedule',
@@ -2055,6 +2065,16 @@ export const translations = {
     tabAI: 'AI',
     notSet: 'सेट नहीं',
 
+    // AI assistant brand (Krushi family)
+    aiBrand: {
+      intelligence: 'Krushi Intelligence · कृषि इंटेलिजेंस',
+      tab: 'Krushi AI',
+      badge: 'Krushi AI',
+      drishti: 'Krushi Drishti · कृषि दृष्टि',
+      vaani: 'Vaani · वाणी',
+      gyaan: 'Gyaan · ज्ञान',
+    },
+
     // Navigation
     nav: {
       farm: 'खेत', editFarm: 'खेत स���पादित करें', addFarm: 'खेत जोड़ें',
@@ -2089,7 +2109,7 @@ export const translations = {
       setActive: 'AI के लिए सक्रिय खेत बनाएं', aiInsights: 'AI विश्लेषण',
       activeCrops: 'सक्रिय फसलें', startCropCycle: 'फसल चक्र शुरू करें',
       soilHealth: 'मिट्टी का स्वास्थ्य', noSoilReport: 'अभी कोई मिट्टी रिपोर्ट नहीं',
-      aiPredictions: 'AI भविष्यवाणी', askFarmMind: 'CropSetu AI से पूछें', chatAboutFarm: 'इस खेत के बारे में चैट कर���ं',
+      aiPredictions: 'AI भविष्यवाणी', askFarmMind: 'Krushi Intelligence से पूछें', chatAboutFarm: 'इस खेत के बारे में चैट कर���ं',
       bestCrop: 'सर्वश्रेष्ठ फसल', top5Soil: 'आपकी मिट्टी के लिए शीर्ष 5',
       seedQty: 'बीज मात्रा', exactKg: 'सटीक किलो',
       income: 'आय', forecastRevenue: 'अनुमानित आय',
@@ -3029,7 +3049,7 @@ export const translations = {
       matchPct: '{{pct}}% मिलान', severity: '{{level}} गंभीरता',
       treatmentPlan: 'उपचार योजना', buyProducts: 'अनुशंसित उत्पाद खरीदें',
       pricesToday: '{{crop}} के आज के भाव',
-      farmMind: 'CropSetu AI', talkToFarmMind: 'CropSetu AI से बात करें',
+      farmMind: 'Krushi Intelligence', talkToFarmMind: 'Krushi Intelligence से बात करें',
       textMode: 'टेक्स्ट मोड', credits: 'क्रेडिट',
       voiceAssistant: 'आवाज सहायक', tapToRetry: 'पुनः प्रयास के लिए टैप करें',
       voiceTag: 'आवाज', recentHistory: 'हाल का इतिहास',
@@ -3040,7 +3060,7 @@ export const translations = {
       retry: 'पुनः प्रयास', today: 'आज', weekHigh: '7-दिन उच्च', weekLow: '7-दिन निम्न',
       weekTrend: '7-दिन मूल्य रुझान', bestDayToSell: 'बेचने का सबसे अच्छा दिन:',
       bestMonth: 'सबसे अच्छा महीना', avoidSelling: 'बेचने से बचें',
-      askFarmMind: '{{crop}} के बारे में CropSetu AI से पूछें',
+      askFarmMind: '{{crop}} के बारे में Krushi Intelligence से पूछें',
       uptrend: 'ऊपर का रुझान', stable: 'स्थिर', risk: '{{level}} जोखिम',
       periods: { '7d': '7 दिन', '3m': '3 महीने', '6m': '6 महीने', '12m': '12 महीने' },
       days: { Mon: 'सोम', Tue: 'मंगल', Wed: 'बुध', Thu: 'गुरु', Fri: 'शुक्र', Sat: 'शनि', Sun: 'रवि' },
@@ -3186,7 +3206,7 @@ export const translations = {
       products: 'अनुशंसित उत्पाद', stage: '{{stage}} अवस्था',
       consultExpert: 'विशेषज्ञ से सलाह लें',
       consultText: 'इस स्थिति के लिए क्षेत्र मूल्यांकन की आवश्यकता हो सकती है। निकटतम KVK से संपर्क करें या किसान कॉल सेंटर: 1800-180-1551 (निःशुल्क)।',
-      askFarmMind: 'CropSetu AI से पूछें', buyProducts: 'उत्पाद खरीदें',
+      askFarmMind: 'Krushi Intelligence से पूछें', buyProducts: 'उत्पाद खरीदें',
       disclaimer: 'AI निदान सलाहकार है। महत्वपूर्ण निर्णयों के लिए स्थानीय कृषि विशेषज्ञ से पुष्टि करें। किसान कॉल सेंटर: 1800-180-1551 (निःशुल्क)।',
       weeklyActions: 'साप्ताहिक कार्रवाई', spraySchedule: 'छिड़काव समय-सारणी',
       productCol: 'उत्पाद', doseCol: 'खुराक', whenCol: 'कब',
@@ -3903,6 +3923,16 @@ export const translations = {
     tabAI: 'AI',
     notSet: 'सेट नाही',
 
+    // AI assistant brand (Krushi family)
+    aiBrand: {
+      intelligence: 'Krushi Intelligence · कृषी इंटेलिजन्स',
+      tab: 'Krushi AI',
+      badge: 'Krushi AI',
+      drishti: 'Krushi Drishti · कृषी दृष्टी',
+      vaani: 'Vaani · वाणी',
+      gyaan: 'Gyaan · ज्ञान',
+    },
+
     // Navigation
     nav: {
       farm: 'शेत', editFarm: 'शेत संपादित करा', addFarm: 'शेत जोडा',
@@ -3937,7 +3967,7 @@ export const translations = {
       setActive: 'AI साठी सक्रिय शेत बनवा', aiInsights: 'AI विश्लेषण',
       activeCrops: 'सक्रिय पिके', startCropCycle: 'पीक चक्र सुरू करा',
       soilHealth: 'माती आरोग्य', noSoilReport: 'अजून माती अहवाल नाही',
-      aiPredictions: 'AI अंदाज', askFarmMind: 'CropSetu AI ला विचारा', chatAboutFarm: 'या शेताबद्दल चॅट करा',
+      aiPredictions: 'AI अंदाज', askFarmMind: 'Krushi Intelligence ला विचारा', chatAboutFarm: 'या शेताबद्दल चॅट करा',
       bestCrop: 'सर्वोत्तम पीक', top5Soil: 'तुमच्या मातीसाठी शीर्ष 5',
       seedQty: 'बियाणे प्रमाण', exactKg: 'अचूक किलो',
       income: 'उत्पन्न', forecastRevenue: 'अंदाजित उत्पन्न',
@@ -4886,7 +4916,7 @@ export const translations = {
       treatmentPlan: 'उपचार योजना',
       buyProducts: 'शिफारस केलेली उत्पादने खरेदी करा',
       pricesToday: '{{crop}} चे आजचे भाव',
-      farmMind: 'CropSetu AI', talkToFarmMind: 'CropSetu AI शी बोला',
+      farmMind: 'Krushi Intelligence', talkToFarmMind: 'Krushi Intelligence शी बोला',
       textMode: 'मजकूर मोड', credits: 'क्रेडिट',
       voiceAssistant: 'आवाज सहाय्यक', tapToRetry: 'पुन्हा प्रयत्नासाठी टॅप करा',
       voiceTag: 'आवाज', recentHistory: 'अलीकडील इतिहास',
@@ -4906,7 +4936,7 @@ export const translations = {
       bestDayToSell: 'विकण्याचा सर्वोत्तम दिवस:',
       bestMonth: 'सर्वोत्तम महिना',
       avoidSelling: 'विकणे टाळा',
-      askFarmMind: 'CropSetu AI ला {{crop}} च्या भावाबद्दल विचारा',
+      askFarmMind: 'Krushi Intelligence ला {{crop}} च्या भावाबद्दल विचारा',
       uptrend: 'वाढता कल',
       stable: 'स्थिर',
       risk: '{{level}} धोका',
@@ -5073,7 +5103,7 @@ export const translations = {
       products: 'शिफारस केलेली उत्पादने', stage: '{{stage}} अवस्था',
       consultExpert: 'तज्ज्ञाशी सल्ला घ्या',
       consultText: 'या स्थितीसाठी क्षेत्र मूल्यांकन आवश्यक असू शकते. जवळच्या KVK शी संपर्क करा किंवा किसान कॉल सेंटर: 1800-180-1551 (मोफत).',
-      askFarmMind: 'CropSetu AI ला विचारा', buyProducts: 'उत्पादने खरेदी करा',
+      askFarmMind: 'Krushi Intelligence ला विचारा', buyProducts: 'उत्पादने खरेदी करा',
       disclaimer: 'AI निदान सल्लागार आहे. महत्त्वाच्या निर्णयांसाठी स्थानिक कृषी तज्ज्ञाकडून पुष्टी करा. किसान कॉल सेंटर: 1800-180-1551 (मोफत).',
       weeklyActions: 'साप्ताहिक कृती', spraySchedule: 'फवारणी वेळापत्रक',
       productCol: 'उत्पादन', doseCol: 'डोस', whenCol: 'केव्हा',

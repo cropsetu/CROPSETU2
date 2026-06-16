@@ -86,6 +86,8 @@ export default function InboxPage() {
                     <p className="truncate font-medium text-slate-900">{r?.primaryDisease || 'Crop report'}</p>
                     {r?.riskLevel && <Badge tone={r.riskLevel.toLowerCase()}>{r.riskLevel}</Badge>}
                     {s.status === 'REPLIED' && <Badge tone="slate">Replied</Badge>}
+                    {s.status === 'REPLIED' && s.fulfillment === 'COLLECT' && <Badge tone="green">Collect</Badge>}
+                    {s.status === 'REPLIED' && s.fulfillment === 'DELIVERY' && <Badge tone="green">Delivery</Badge>}
                   </div>
                   <p className="mt-0.5 truncate text-sm text-slate-500">
                     {r?.cropType}{r?.growthStage ? ` · ${r.growthStage}` : ''}

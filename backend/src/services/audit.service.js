@@ -129,6 +129,7 @@ export const ADMIN_ACTIONS = {
   CATEGORY_CREATE:      'ADMIN_CATEGORY_CREATE',
   CATEGORY_UPDATE:      'ADMIN_CATEGORY_UPDATE',
   CATEGORY_DELETE:      'ADMIN_CATEGORY_DELETE',
+  PRODUCT_CREATE:       'ADMIN_PRODUCT_CREATE',         // admin created a catalog product (sellerId null)
   PRODUCT_UPDATE:       'ADMIN_PRODUCT_UPDATE',
   PRODUCT_DELETE:       'ADMIN_PRODUCT_DELETE',
   PRODUCT_IMPORT:       'ADMIN_PRODUCT_IMPORT',         // bulk CSV catalog import (committed)

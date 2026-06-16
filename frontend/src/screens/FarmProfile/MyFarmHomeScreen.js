@@ -56,12 +56,12 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
-function greetingFor(hour) {
-  if (hour < 5) return 'Still working?';
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  if (hour < 20) return 'Good evening';
-  return 'Good night';
+function greetingKeyFor(hour) {
+  if (hour < 5) return 'myFarm.greet_lateNight';
+  if (hour < 12) return 'myFarm.greet_morning';
+  if (hour < 17) return 'myFarm.greet_afternoon';
+  if (hour < 20) return 'myFarm.greet_evening';
+  return 'myFarm.greet_night';
 }
 
 const QUICK_LOG_TYPES = ['IRRIGATION', 'FERTILIZER', 'SPRAY', 'SCOUT', 'HARVEST'];
@@ -105,7 +105,7 @@ export default function MyFarmHomeScreen({ navigation }) {
   }, [refresh, loadAll]);
 
   const farmerName = user?.preferredName || user?.fullName?.split(' ')[0] || 'Farmer';
-  const greeting = greetingFor(new Date().getHours());
+  const greeting = t(greetingKeyFor(new Date().getHours()));
 
   const farmName = activeFarm?.farmName || activeFarm?.farmAlias || (activeFarm ? `Farm ${activeFarm.farmNumber}` : '');
   const farmLocation = activeFarm ? [activeFarm.village, activeFarm.taluka, activeFarm.district].filter(Boolean).join(', ') : '';
@@ -138,7 +138,7 @@ export default function MyFarmHomeScreen({ navigation }) {
   if (!hasFarms && !syncing && !loading) {
     return (
       <CosmicScreen scroll refreshing={syncing} onRefresh={onRefresh}>
-        <EmptyState onAddFarm={goAddFarm} />
+        <EmptyState onAddFarm={goAddFarm} t={t} />
       </CosmicScreen>
     );
   }
@@ -164,10 +164,11 @@ export default function MyFarmHomeScreen({ navigation }) {
         streakDays={streakDays}
         onSwitch={goFarmList}
         onOpenFarm={goFarmDetail}
+        t={t}
       />
 
       {/* Quick log */}
-      <SectionLabel title="Log today" />
+      <SectionLabel title={t('myFarm.section_logToday')} />
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -177,7 +178,7 @@ export default function MyFarmHomeScreen({ navigation }) {
           <ActivityChip
             key={type}
             type={type}
-            label={activityLabel(type)}
+            label={t(activityLabelKey(type))}
             onPress={() => goActivityPicker(type)}
             size="md"
             style={{ marginRight: 8 }}
@@ -185,20 +186,20 @@ export default function MyFarmHomeScreen({ navigation }) {
         ))}
         <Pressable onPress={() => goActivityPicker(null)} style={styles.seeMoreChip}>
           <Ionicons name="grid-outline" size={14} color={COSMIC.TEXT_2} />
-          <Text style={styles.seeMoreText}>More</Text>
+          <Text style={styles.seeMoreText}>{t('myFarm.more', 'More')}</Text>
         </Pressable>
       </ScrollView>
 
       {/* Recent activity */}
       <SectionLabel
-        title="Recent activity"
-        action={recentActivities.length > 0 ? { label: 'See all', onPress: goFarmDetail } : undefined}
+        title={t('myFarm.section_recentActivity')}
+        action={recentActivities.length > 0 ? { label: t('myFarm.seeAll', 'See all'), onPress: goFarmDetail } : undefined}
       />
       <GlassCard style={styles.section} padding={0}>
         {loadingDetail && recentActivities.length === 0 ? (
           <ActivityIndicator color={COSMIC.PRIMARY} style={{ paddingVertical: 18 }} />
         ) : recentActivities.length === 0 ? (
-          <EmptyFeed onStart={() => goActivityPicker(null)} />
+          <EmptyFeed onStart={() => goActivityPicker(null)} t={t} />
         ) : (
           recentActivities.slice(0, 5).map((a, i) => (
             <View key={a.id || i}>
@@ -218,12 +219,12 @@ export default function MyFarmHomeScreen({ navigation }) {
 
       {/* Active crops */}
       <SectionLabel
-        title="Active crops"
+        title={t('myFarm.section_activeCrops')}
         action={
           cycles.length === 0 && activeFarmId
-            ? { label: 'Start a cycle', onPress: goCycleCreate }
+            ? { label: t('myFarm.startCycle', 'Start a cycle'), onPress: goCycleCreate }
             : cycles.length > 0
-            ? { label: 'View all', onPress: goFarmDetail }
+            ? { label: t('myFarm.viewAll', 'View all'), onPress: goFarmDetail }
             : undefined
         }
       />
@@ -234,10 +235,10 @@ export default function MyFarmHomeScreen({ navigation }) {
       ) : cycles.length === 0 ? (
         <GlassCard style={styles.section}>
           <Text style={styles.emptyText}>
-            No crop cycles yet. Start one to unlock stage tracking, budget monitoring, and AI advisories.
+            {t('myFarm.noCyclesYet', 'No crop cycles yet. Start one to unlock stage tracking, budget monitoring, and AI advisories.')}
           </Text>
           {!!activeFarmId && (
-            <GlowButton label="Start a crop cycle" icon="leaf-outline" variant="primary" full onPress={goCycleCreate} style={{ marginTop: 10 }} />
+            <GlowButton label={t('myFarm.startCropCycle', 'Start a crop cycle')} icon="leaf-outline" variant="primary" full onPress={goCycleCreate} style={{ marginTop: 10 }} />
           )}
         </GlassCard>
       ) : (
@@ -249,7 +250,7 @@ export default function MyFarmHomeScreen({ navigation }) {
       )}
 
       {/* AI Insights */}
-      <SectionLabel title="AI insights" badge="CropSetu AI" />
+      <SectionLabel title={t('myFarm.section_aiInsights')} badge={t('aiBrand.badge')} />
       {insights.length === 0 ? (
         <GlassCard style={styles.section}>
           <View style={styles.insightEmptyRow}>
@@ -257,7 +258,7 @@ export default function MyFarmHomeScreen({ navigation }) {
               <Ionicons name="sparkles" size={14} color={COSMIC.INVERSE} />
             </View>
             <Text style={[styles.emptyText, { flex: 1 }]}>
-              Log a few activities and CropSetu AI will tailor advice to your plot, variety and weather.
+              {t('myFarm.insightsEmpty', 'Log a few activities and Krushi Intelligence will tailor advice to your plot, variety and weather.')}
             </Text>
           </View>
         </GlassCard>
@@ -269,7 +270,7 @@ export default function MyFarmHomeScreen({ navigation }) {
       {farms.length > 1 && (
         <Pressable onPress={goFarmList} style={({ pressed }) => [styles.footer, pressed && { opacity: 0.75 }]}>
           <Ionicons name="layers-outline" size={16} color={COSMIC.PRIMARY} />
-          <Text style={styles.footerText}>View all {farms.length} farms</Text>
+          <Text style={styles.footerText}>{t('myFarm.viewAllFarms', { count: farms.length })}</Text>
           <Ionicons name="chevron-forward" size={16} color={COSMIC.PRIMARY} />
         </Pressable>
       )}
@@ -309,23 +310,23 @@ function SectionLabel({ title, action, badge }) {
   );
 }
 
-function HeroCard({ farmName, farmLocation, farms, cycles, activeFarm, streakDays, onSwitch, onOpenFarm }) {
+function HeroCard({ farmName, farmLocation, farms, cycles, activeFarm, streakDays, onSwitch, onOpenFarm, t }) {
   const acres = Number(activeFarm?.landSizeAcres || 0);
 
   return (
     <Pressable onPress={onOpenFarm} style={styles.heroOuter}>
       <GlassCard variant="bordered" style={{ padding: CS.lg }}>
         <View style={styles.heroTopRow}>
-          <Text style={styles.heroLabel}>ACTIVE FARM</Text>
+          <Text style={styles.heroLabel}>{t('myFarm.activeFarm', 'ACTIVE FARM')}</Text>
           {farms.length > 1 && (
             <Pressable onPress={onSwitch} style={styles.switchPill}>
               <Ionicons name="swap-horizontal" size={12} color={COSMIC.PRIMARY} />
-              <Text style={styles.switchText}>Switch</Text>
+              <Text style={styles.switchText}>{t('myFarm.switch', 'Switch')}</Text>
             </Pressable>
           )}
         </View>
 
-        <Text style={styles.heroName} numberOfLines={1}>{farmName || 'Add your farm'}</Text>
+        <Text style={styles.heroName} numberOfLines={1}>{farmName || t('myFarm.addYourFarm', 'Add your farm')}</Text>
         {!!farmLocation && (
           <View style={styles.heroLocRow}>
             <Ionicons name="location-outline" size={12} color={COSMIC.TEXT_3} />
@@ -340,11 +341,11 @@ function HeroCard({ farmName, farmLocation, farms, cycles, activeFarm, streakDay
         )}
 
         <View style={styles.heroStats}>
-          <HeroStat icon="resize-outline" value={acres > 0 ? acres.toFixed(2) : '—'} label="acres" />
+          <HeroStat icon="resize-outline" value={acres > 0 ? acres.toFixed(2) : '—'} label={t('myFarm.acres', 'acres')} />
           <View style={styles.divider} />
-          <HeroStat icon="leaf-outline" value={cycles.length} label={cycles.length === 1 ? 'crop' : 'crops'} />
+          <HeroStat icon="leaf-outline" value={cycles.length} label={cycles.length === 1 ? t('myFarm.crop', 'crop') : t('myFarm.crops', 'crops')} />
           <View style={styles.divider} />
-          <HeroStat icon="map-outline" value={farms.length} label={farms.length === 1 ? 'farm' : 'farms'} />
+          <HeroStat icon="map-outline" value={farms.length} label={farms.length === 1 ? t('myFarm.farm', 'farm') : t('myFarm.farms', 'farms')} />
         </View>
       </GlassCard>
     </Pressable>
@@ -441,32 +442,32 @@ function InsightCard({ insight, navigation }) {
   );
 }
 
-function EmptyFeed({ onStart }) {
+function EmptyFeed({ onStart, t }) {
   return (
     <View style={styles.emptyFeed}>
       <View style={[styles.mediumBubble, { backgroundColor: COSMIC.PRIMARY_SOFT }]}>
         <Ionicons name="sparkles" size={18} color={COSMIC.PRIMARY} />
       </View>
-      <Text style={styles.emptyHeading}>Your farm diary starts here</Text>
+      <Text style={styles.emptyHeading}>{t('myFarm.diaryStartsHere', 'Your farm diary starts here')}</Text>
       <Text style={styles.emptyText}>
-        Log each day's work. The more you log, the smarter CropSetu AI gets.
+        {t('myFarm.diaryHint', "Log each day's work. The more you log, the smarter Krushi Intelligence gets.")}
       </Text>
-      <GlowButton label="Pick an activity" icon="add-circle-outline" variant="primary" onPress={onStart} style={{ marginTop: 10 }} size="sm" />
+      <GlowButton label={t('myFarm.pickActivity', 'Pick an activity')} icon="add-circle-outline" variant="primary" onPress={onStart} style={{ marginTop: 10 }} size="sm" />
     </View>
   );
 }
 
-function EmptyState({ onAddFarm }) {
+function EmptyState({ onAddFarm, t }) {
   return (
     <View style={styles.emptyRoot}>
       <View style={[styles.mediumBubble, { backgroundColor: COSMIC.PRIMARY_SOFT, width: 64, height: 64, borderRadius: 32 }]}>
         <Ionicons name="leaf" size={28} color={COSMIC.PRIMARY} />
       </View>
-      <Text style={styles.emptyRootHeading}>Set up your farm</Text>
+      <Text style={styles.emptyRootHeading}>{t('myFarm.setUpFarm', 'Set up your farm')}</Text>
       <Text style={[styles.emptyText, { textAlign: 'center', maxWidth: 280 }]}>
-        Add your first farm in under 3 minutes. Name, village, size, main crop — that's all we need today.
+        {t('myFarm.setUpFarmHint', "Add your first farm in under 3 minutes. Name, village, size, main crop — that's all we need today.")}
       </Text>
-      <GlowButton label="Add your first farm" icon="add" variant="primary" onPress={onAddFarm} style={{ marginTop: 16, minWidth: 220 }} />
+      <GlowButton label={t('myFarm.addFirstFarm', 'Add your first farm')} icon="add" variant="primary" onPress={onAddFarm} style={{ marginTop: 16, minWidth: 220 }} />
     </View>
   );
 }
@@ -475,16 +476,16 @@ function EmptyState({ onAddFarm }) {
 // Data helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-function activityLabel(type) {
+function activityLabelKey(type) {
   switch (type) {
-    case 'IRRIGATION': return 'Water';
-    case 'FERTILIZER': return 'Fertilize';
-    case 'SPRAY': return 'Spray';
-    case 'SCOUT': return 'Scout';
-    case 'HARVEST': return 'Harvest';
-    case 'SOWING': return 'Sow';
-    case 'LAND_PREP': return 'Prep';
-    default: return 'Log';
+    case 'IRRIGATION': return 'myFarm.act_water';
+    case 'FERTILIZER': return 'myFarm.act_fertilize';
+    case 'SPRAY': return 'myFarm.act_spray';
+    case 'SCOUT': return 'myFarm.act_scout';
+    case 'HARVEST': return 'myFarm.act_harvest';
+    case 'SOWING': return 'myFarm.act_sow';
+    case 'LAND_PREP': return 'myFarm.act_prep';
+    default: return 'myFarm.act_log';
   }
 }
 

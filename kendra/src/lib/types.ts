@@ -52,6 +52,8 @@ export interface InboxReport {
   createdAt: string;
 }
 
+export type FulfillmentMode = 'NONE' | 'COLLECT' | 'DELIVERY';
+
 export interface Share {
   id: string;
   reportId: string;
@@ -60,6 +62,8 @@ export interface Share {
   sellerReply: string | null;
   recommendedSku: string | null;
   available: boolean;
+  fulfillment: FulfillmentMode;
+  fulfillmentNote: string | null;
   readAt: string | null;
   repliedAt: string | null;
   createdAt: string;

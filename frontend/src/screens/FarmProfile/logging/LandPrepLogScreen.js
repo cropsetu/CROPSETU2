@@ -16,17 +16,17 @@ import { COSMIC } from '../theme/cosmicTheme';
 import { Haptics } from '../../../utils/haptics';
 
 const OPERATIONS = [
-  { key: 'ploughing', label: 'Ploughing', icon: 'swap-horizontal-outline', color: COSMIC.LAND_PREP },
-  { key: 'harrowing', label: 'Harrowing', icon: 'grid-outline',            color: COSMIC.LAND_PREP },
-  { key: 'levelling', label: 'Levelling', icon: 'remove-outline',          color: COSMIC.LAND_PREP },
-  { key: 'bund',      label: 'Bund',      icon: 'ellipse-outline',         color: COSMIC.LAND_PREP },
+  { key: 'ploughing', icon: 'swap-horizontal-outline', color: COSMIC.LAND_PREP },
+  { key: 'harrowing', icon: 'grid-outline',            color: COSMIC.LAND_PREP },
+  { key: 'levelling', icon: 'remove-outline',          color: COSMIC.LAND_PREP },
+  { key: 'bund',      icon: 'ellipse-outline',         color: COSMIC.LAND_PREP },
 ];
 
 const IMPLEMENTS = [
-  { key: 'tractor',      label: 'Tractor',      icon: 'car-outline' },
-  { key: 'bullock',      label: 'Bullock',      icon: 'paw-outline' },
-  { key: 'power_tiller', label: 'Power tiller', icon: 'cog-outline' },
-  { key: 'manual',       label: 'Manual',       icon: 'hand-left-outline' },
+  { key: 'tractor',      icon: 'car-outline' },
+  { key: 'bullock',      icon: 'paw-outline' },
+  { key: 'power_tiller', icon: 'cog-outline' },
+  { key: 'manual',       icon: 'hand-left-outline' },
 ];
 
 export default function LandPrepLogScreen({ navigation, route }) {
@@ -43,6 +43,9 @@ export default function LandPrepLogScreen({ navigation, route }) {
   const [celebrate, setCelebrate]   = useState(false);
 
   const canSave = !!operation;
+
+  const operations = OPERATIONS.map((o) => ({ ...o, label: t(`landPrepLog.op_${o.key}`) }));
+  const implements_ = IMPLEMENTS.map((i) => ({ ...i, label: t(`landPrepLog.impl_${i.key}`) }));
 
   const handleSave = useCallback(async () => {
     if (!canSave) { Haptics.error?.(); Alert.alert(t('landPrepLog.missingInfoTitle'), t('landPrepLog.missingInfoBody')); return; }
@@ -81,10 +84,10 @@ export default function LandPrepLogScreen({ navigation, route }) {
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
       <SectionHeader icon="trail-sign-outline" tint={COSMIC.LAND_PREP} title={t('landPrepLog.sectionOperation')} />
-      <TileGrid items={OPERATIONS} value={operation} onChange={(v) => setOperation(v)} columns={2} />
+      <TileGrid items={operations} value={operation} onChange={(v) => setOperation(v)} columns={2} />
 
       <SectionHeader icon="build-outline" tint={COSMIC.LAND_PREP} title={t('landPrepLog.sectionImplement')} optional />
-      <ChipRow items={IMPLEMENTS} value={implement} onChange={setImplement} tint={COSMIC.LAND_PREP} />
+      <ChipRow items={implements_} value={implement} onChange={setImplement} tint={COSMIC.LAND_PREP} />
 
       <SectionHeader icon="people-outline" tint={COSMIC.LAND_PREP} title={t('landPrepLog.sectionLabourCost')} optional />
       <Card><BigNumberInput value={labour} onChange={setLabour} unit="₹" tint={COSMIC.LAND_PREP} /></Card>

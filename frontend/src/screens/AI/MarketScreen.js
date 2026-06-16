@@ -166,7 +166,7 @@ function LiveDot() {
 }
 
 // ── CropPickerModal ───────────────────────────────────────────────────────────
-function CropPickerModal({ visible, selected, onSelect, onClose }) {
+function CropPickerModal({ visible, selected, onSelect, onClose, t }) {
   const insets        = useSafeAreaInsets();
   const slideAnim     = useRef(new Animated.Value(H)).current;
   const backdropAnim  = useRef(new Animated.Value(0)).current;
@@ -233,7 +233,7 @@ function CropPickerModal({ visible, selected, onSelect, onClose }) {
 
         {/* Title row */}
         <View style={M.modalTitleRow}>
-          <Text style={M.modalTitle}>Select Crop</Text>
+          <Text style={M.modalTitle}>{t('market.selectCrop', 'Select Crop')}</Text>
           <Pressable style={M.modalClose} onPress={onClose}>
             <Ionicons name="close" size={18} color={SLATE} />
           </Pressable>
@@ -244,7 +244,7 @@ function CropPickerModal({ visible, selected, onSelect, onClose }) {
           <Ionicons name="search" size={16} color={COLORS.textMedium} />
           <TextInput
             style={M.searchInput}
-            placeholder="Search crops…"
+            placeholder={t('market.searchCrops', 'Search crops…')}
             placeholderTextColor={COLORS.textLight}
             value={query}
             onChangeText={setQuery}
@@ -273,14 +273,14 @@ function CropPickerModal({ visible, selected, onSelect, onClose }) {
                 onPress={() => setActiveCategory(cat.key)}
               >
                 <Ionicons name={cat.icon + '-outline'} size={14} color={active ? COLORS.white : COLORS.textMedium} />
-                <Text style={[M.catChipText, active && { color: COLORS.white }]} numberOfLines={1}>{cat.label}</Text>
+                <Text style={[M.catChipText, active && { color: COLORS.white }]} numberOfLines={1}>{t('market.cat_' + cat.key, cat.label)}</Text>
               </Pressable>
             );
           })}
         </ScrollView>
 
         {/* Results count */}
-        <Text style={M.resultsCount}>{filtered.length} crops</Text>
+        <Text style={M.resultsCount}>{t('market.cropsCount', { count: filtered.length })}</Text>
 
         {/* Crop grid */}
         <FlatList
@@ -297,7 +297,7 @@ function CropPickerModal({ visible, selected, onSelect, onClose }) {
           ListEmptyComponent={
             <View style={{ alignItems: 'center', paddingTop: 40, gap: 8 }}>
               <Ionicons name="leaf-outline" size={36} color={COLORS.textDisabled} />
-              <Text style={{ color: COLORS.textMedium, fontSize: 13 }}>No crops found</Text>
+              <Text style={{ color: COLORS.textMedium, fontSize: 13 }}>{t('market.noCropsFound', 'No crops found')}</Text>
             </View>
           }
         />
@@ -495,7 +495,7 @@ export default function MarketScreen({ navigation }) {
         // No data for this combination — show the "no mandi data" empty state, not an error banner
         setMandiPrices([]);
       } else {
-        setMandiError('Failed to load mandi prices. Check your connection and try again.');
+        setMandiError(t('market.loadError', 'Failed to load mandi prices. Check your connection and try again.'));
       }
     } finally {
       setMandiLoading(false);
@@ -526,20 +526,20 @@ export default function MarketScreen({ navigation }) {
           <Ionicons name="chevron-back" size={22} color={SLATE} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={M.headerTitle}>Mandi Bhav</Text>
+          <Text style={M.headerTitle}>{t('market.title', 'Mandi Bhav')}</Text>
           {locationDetecting
-            ? <Text style={M.headerSub}>Detecting location…</Text>
+            ? <Text style={M.headerSub}>{t('market.detectingLocation', 'Detecting location…')}</Text>
             : detectedCity
               ? <View style={M.locationRow}>
                   <Ionicons name="location" size={10} color={COLORS.primary} />
-                  <Text style={M.locationText}>Near {detectedCity}</Text>
+                  <Text style={M.locationText}>{t('market.near', { city: detectedCity })}</Text>
                 </View>
-              : <Text style={M.headerSub}>Real data · data.gov.in</Text>
+              : <Text style={M.headerSub}>{t('market.realDataSource', 'Real data · data.gov.in')}</Text>
           }
         </View>
         <View style={M.livePill}>
           <LiveDot />
-          <Text style={M.liveTxt}>LIVE</Text>
+          <Text style={M.liveTxt}>{t('market.live', 'LIVE')}</Text>
         </View>
       </View>
 
@@ -550,12 +550,12 @@ export default function MarketScreen({ navigation }) {
             <CropIcon crop={selectedCrop} size={38} />
           </View>
           <View>
-            <Text style={M.cropSelectorLabel}>Selected Crop</Text>
+            <Text style={M.cropSelectorLabel}>{t('market.selectedCrop', 'Selected Crop')}</Text>
             <Text style={M.cropSelectorName}>{selectedCrop}</Text>
           </View>
         </View>
         <View style={M.cropSelectorRight}>
-          <Text style={M.cropSelectorHint}>Tap to change</Text>
+          <Text style={M.cropSelectorHint}>{t('market.tapToChange', 'Tap to change')}</Text>
           <View style={M.cropSelectorChevron}>
             <Ionicons name="chevron-down" size={14} color={COLORS.primary} />
           </View>
@@ -581,7 +581,7 @@ export default function MarketScreen({ navigation }) {
             style={[M.districtBtnTxt, selectedDistrict && { color: SLATE, fontWeight: '700' }]}
             numberOfLines={1}
           >
-            {selectedDistrict || 'All Districts'}
+            {selectedDistrict || t('market.allDistricts', 'All Districts')}
           </Text>
           <View style={{ flexDirection: 'row', gap: 2 }}>
             {selectedDistrict.length > 0 && (
@@ -645,7 +645,7 @@ export default function MarketScreen({ navigation }) {
               }}
             >
               <Text style={[M.stateItemTxt, !selectedDistrict && { color: COLORS.primary, fontWeight: '800' }]}>
-                All Districts
+                {t('market.allDistricts', 'All Districts')}
               </Text>
             </Pressable>
             {districts.length > 0
@@ -665,7 +665,7 @@ export default function MarketScreen({ navigation }) {
               : (
                 <View style={{ padding: 12 }}>
                   <Text style={{ fontSize: 12, color: COLORS.textMedium, textAlign: 'center' }}>
-                    No districts found for {selectedState}.
+                    {t('market.noDistricts', { state: selectedState })}
                   </Text>
                 </View>
               )
@@ -683,8 +683,8 @@ export default function MarketScreen({ navigation }) {
             <View style={M.loadingSpinner}>
               <ActivityIndicator color={COLORS.primary} size="large" />
             </View>
-            <Text style={M.loadingTxt}>Fetching live mandi prices for {selectedCrop}…</Text>
-            <Text style={[M.loadingTxt, { fontSize: 11, marginTop: 4 }]}>Source: data.gov.in</Text>
+            <Text style={M.loadingTxt}>{t('market.fetchingPrices', { crop: selectedCrop })}</Text>
+            <Text style={[M.loadingTxt, { fontSize: 11, marginTop: 4 }]}>{t('market.source', 'Source: data.gov.in')}</Text>
           </View>
         )}
 
@@ -697,7 +697,7 @@ export default function MarketScreen({ navigation }) {
             <Text style={M.errorTxt}>{mandiError}</Text>
             <Pressable onPress={() => loadMandiPrices()} style={M.retryBtn}>
               <Ionicons name="refresh" size={14} color={COLORS.primary} />
-              <Text style={M.retryTxt}>Try Again</Text>
+              <Text style={M.retryTxt}>{t('market.tryAgain', 'Try Again')}</Text>
             </Pressable>
           </View>
         )}
@@ -713,8 +713,8 @@ export default function MarketScreen({ navigation }) {
               <View style={M.staleBar}>
                 <Ionicons name="time-outline" size={12} color={AMBER} />
                 <Text style={M.staleTxt}>
-                  Showing cached data (data.gov.in unavailable).
-                  {mandiUpdatedAt ? ` Last updated: ${new Date(mandiUpdatedAt).toLocaleDateString('en-IN')}` : ''}
+                  {t('market.cachedData', 'Showing cached data (data.gov.in unavailable).')}
+                  {mandiUpdatedAt ? ` ${t('market.lastUpdated', { date: new Date(mandiUpdatedAt).toLocaleDateString('en-IN') })}` : ''}
                 </Text>
               </View>
             )}
@@ -733,7 +733,7 @@ export default function MarketScreen({ navigation }) {
                   </View>
                   <View style={M.realDataBadge}>
                     <Ionicons name="shield-checkmark" size={10} color={COLORS.skyBright} />
-                    <Text style={M.realDataBadgeTxt}>Real Data</Text>
+                    <Text style={M.realDataBadgeTxt}>{t('market.realData', 'Real Data')}</Text>
                   </View>
                 </View>
 
@@ -741,27 +741,27 @@ export default function MarketScreen({ navigation }) {
                   <View>
                     <Text style={M.priceHeroRupee}>₹</Text>
                     <Text style={M.priceHeroValue}>{topPrice?.toLocaleString() || '—'}</Text>
-                    <Text style={M.priceHeroUnit}>top modal price / quintal</Text>
+                    <Text style={M.priceHeroUnit}>{t('market.topModalPrice', 'top modal price / quintal')}</Text>
                   </View>
                   <View style={M.priceRangeBox}>
-                    <Text style={M.priceRangeLabel}>Range across {mandiPrices.length} mandis</Text>
+                    <Text style={M.priceRangeLabel}>{t('market.rangeAcross', { count: mandiPrices.length })}</Text>
                     <Text style={M.priceRangeVal}>
                       ₹{lowestPrice?.toLocaleString()} – ₹{topPrice?.toLocaleString()}
                     </Text>
                     <Text style={[M.priceRangeAvg, { color: COLORS.primary }]}>
-                      Avg ₹{avgModal?.toLocaleString()}
+                      {t('market.avg', 'Avg')} ₹{avgModal?.toLocaleString()}
                     </Text>
                   </View>
                 </View>
 
                 <View style={M.weekStatRow}>
-                  <StatPill label="HIGHEST" value={`₹${topPrice?.toLocaleString() || '—'}`} color={COLORS.primary} />
+                  <StatPill label={t('market.highest', 'HIGHEST')} value={`₹${topPrice?.toLocaleString() || '—'}`} color={COLORS.primary} />
                   <View style={M.weekStatDiv} />
-                  <StatPill label="AVERAGE" value={`₹${avgModal?.toLocaleString() || '—'}`} color={BLUE} />
+                  <StatPill label={t('market.average', 'AVERAGE')} value={`₹${avgModal?.toLocaleString() || '—'}`} color={BLUE} />
                   <View style={M.weekStatDiv} />
-                  <StatPill label="LOWEST" value={`₹${lowestPrice?.toLocaleString() || '—'}`} color={RED} />
+                  <StatPill label={t('market.lowest', 'LOWEST')} value={`₹${lowestPrice?.toLocaleString() || '—'}`} color={RED} />
                   <View style={M.weekStatDiv} />
-                  <StatPill label="MANDIS" value={`${mandiPrices.length}`} color={PURPLE} />
+                  <StatPill label={t('market.mandis', 'MANDIS')} value={`${mandiPrices.length}`} color={PURPLE} />
                 </View>
               </LinearGradient>
             </AnimCard>
@@ -770,7 +770,7 @@ export default function MarketScreen({ navigation }) {
             <AnimCard delay={60} style={M.section}>
               <View style={M.sectionHeader}>
                 <View style={[M.cardDot, { backgroundColor: BLUE }]} />
-                <Text style={M.cardTitle}>Live Mandi Prices</Text>
+                <Text style={M.cardTitle}>{t('market.liveMandiPrices', 'Live Mandi Prices')}</Text>
                 <View style={M.sourceBadge}>
                   <Text style={M.sourceBadgeText}>data.gov.in</Text>
                 </View>
@@ -787,8 +787,8 @@ export default function MarketScreen({ navigation }) {
                   if (reportDate) {
                     const dayMonth = reportDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
                     if (ageDays <= 0)      dateLabel = dayMonth;
-                    else if (ageDays === 1) dateLabel = `Yesterday · ${dayMonth}`;
-                    else                    dateLabel = `${ageDays} days ago · ${dayMonth}`;
+                    else if (ageDays === 1) dateLabel = `${t('market.yesterday', 'Yesterday')} · ${dayMonth}`;
+                    else                    dateLabel = `${t('market.daysAgo', { count: ageDays })} · ${dayMonth}`;
                   }
                   return (
                     <View key={i}>
@@ -798,7 +798,7 @@ export default function MarketScreen({ navigation }) {
                             <Text style={M.mandiName} numberOfLines={1}>{item.market || item.mandi}</Text>
                             {i === 0 && (
                               <View style={M.mandiNearestBadge}>
-                                <Text style={M.mandiNearestText}>Highest</Text>
+                                <Text style={M.mandiNearestText}>{t('market.highestBadge', 'Highest')}</Text>
                               </View>
                             )}
                           </View>
@@ -833,13 +833,13 @@ export default function MarketScreen({ navigation }) {
         {!mandiLoading && !mandiError && mandiPrices.length === 0 && (
           <View style={M.centered}>
             <Ionicons name="storefront-outline" size={48} color={COLORS.textDisabled} />
-            <Text style={[M.loadingTxt, { color: SLATE }]}>No mandi data found</Text>
+            <Text style={[M.loadingTxt, { color: SLATE }]}>{t('market.noData', 'No mandi data found')}</Text>
             <Text style={[M.loadingTxt, { fontSize: 12 }]}>
-              Try a different state or district.
+              {t('market.tryDifferent', 'Try a different state or district.')}
             </Text>
             <Pressable onPress={() => loadMandiPrices()} style={M.retryBtn}>
               <Ionicons name="refresh" size={14} color={COLORS.primary} />
-              <Text style={M.retryTxt}>Refresh</Text>
+              <Text style={M.retryTxt}>{t('market.refresh', 'Refresh')}</Text>
             </Pressable>
           </View>
         )}
@@ -859,7 +859,7 @@ export default function MarketScreen({ navigation }) {
                 style={M.askBtnGradient}
               >
                 <Ionicons name="chatbubble-ellipses-outline" size={18} color={COLORS.white} />
-                <Text style={M.askBtnText}>Ask CropSetu AI about {selectedCrop}</Text>
+                <Text style={M.askBtnText}>{t('market.askKrushiAbout', { crop: selectedCrop })}</Text>
                 <Ionicons name="arrow-forward" size={16} color="rgba(255,255,255,0.7)" />
               </LinearGradient>
             </Pressable>
@@ -874,6 +874,7 @@ export default function MarketScreen({ navigation }) {
         selected={selectedCrop}
         onSelect={handleSelectCrop}
         onClose={() => setPickerVisible(false)}
+        t={t}
       />
     </View>
     </AnimatedScreen>
