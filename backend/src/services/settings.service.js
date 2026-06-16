@@ -31,9 +31,12 @@ const LLM_MODEL_OPTIONS = [
   { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B · Groq' },
 ];
 
+// value convention: '<provider>:<modelId>' (split on the FIRST colon). The route
+// forwards the modelId to the Sarvam STT call; non-sarvam providers (e.g. Whisper)
+// are not yet implemented and safely fall back to the Sarvam default with a warning.
 const VOICE_STT_OPTIONS = [
-  { value: 'sarvam:saarika', label: 'Sarvam Saarika (Indic STT)' },
-  { value: 'openai:whisper-1', label: 'OpenAI Whisper' },
+  { value: 'sarvam:saaras:v3', label: 'Sarvam Saaras v3 (Indic STT)' },
+  { value: 'openai:whisper-1', label: 'OpenAI Whisper (falls back to Sarvam until enabled)' },
 ];
 
 // type: 'STRING' | 'NUMBER' | 'BOOL' | 'JSON' | 'ENUM'
@@ -54,7 +57,7 @@ export const SETTINGS_MANIFEST = [
   { key: 'ai.model.diagnose', type: 'ENUM', category: 'AI Models', label: 'Disease diagnosis model', description: 'Vision LLM for crop-disease scan diagnosis (must be vision-capable).', envKey: 'AI_CROP_DIAGNOSE_MODEL', default: 'gemini-2.5-flash', options: LLM_MODEL_OPTIONS },
   { key: 'ai.model.treatment', type: 'ENUM', category: 'AI Models', label: 'Treatment plan model', description: 'LLM that drafts the treatment plan after diagnosis.', envKey: 'AI_CROP_TREATMENT_MODEL', default: 'gemini-2.5-pro', options: LLM_MODEL_OPTIONS },
   { key: 'ai.model.soilOcr', type: 'ENUM', category: 'AI Models', label: 'Soil-card OCR model', description: 'Vision LLM that reads soil health cards.', envKey: 'AI_SOIL_OCR_MODEL', default: 'gemini-2.5-flash', options: LLM_MODEL_OPTIONS },
-  { key: 'ai.model.voiceStt', type: 'ENUM', category: 'AI Models', label: 'Voice / audio STT model', description: 'Speech-to-text engine for the voice assistant.', envKey: 'AI_VOICE_STT_MODEL', default: 'sarvam:saarika', options: VOICE_STT_OPTIONS },
+  { key: 'ai.model.voiceStt', type: 'ENUM', category: 'AI Models', label: 'Voice / audio STT model', description: 'Speech-to-text engine for the voice assistant.', envKey: 'AI_VOICE_STT_MODEL', default: 'sarvam:saaras:v3', options: VOICE_STT_OPTIONS },
 
   // ── Marketplace ─────────────────────────────────────────────────────────────
   { key: 'marketplace.commissionRatePct', type: 'NUMBER', category: 'Marketplace', label: 'Seller commission (%)', description: 'Platform commission deducted from seller sales when computing settlement balances.', default: 5 },

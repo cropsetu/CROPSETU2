@@ -77,15 +77,18 @@ export function normaliseLangCode(code = 'hi-IN') {
  * @param {Buffer}  audioBuffer   Raw audio bytes
  * @param {string}  fileName      e.g. "voice.m4a" — extension tells Sarvam the codec
  * @param {string}  languageCode  BCP-47 tag, e.g. "hi-IN". Pass null for auto-detect.
+ * @param {string}  [model]       Sarvam STT model id. Defaults to saaras:v3. The
+ *                                admin App Settings value (ai.model.voiceStt) is
+ *                                forwarded here as the bare model id by the route.
  * @returns {Promise<{ transcript: string, languageCode: string }>}
  */
-export async function sarvamSTT(audioBuffer, fileName = 'audio.m4a', languageCode = null) {
+export async function sarvamSTT(audioBuffer, fileName = 'audio.m4a', languageCode = null, model = 'saaras:v3') {
   const mimeType = mimeFromExt(fileName);
 
   // Use Node 18+ built-in FormData + Blob
   const form = new FormData();
   form.append('file', new Blob([audioBuffer], { type: mimeType }), fileName);
-  form.append('model', 'saaras:v3');
+  form.append('model', model || 'saaras:v3');
   form.append('mode', 'transcribe');
   if (languageCode) {
     form.append('language_code', normaliseLangCode(languageCode));

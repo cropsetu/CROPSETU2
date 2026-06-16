@@ -50,6 +50,7 @@ import redis from '../config/redis.js';
 import { uploadBuffer } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
 import logger from '../utils/logger.js';
+import { getSetting } from '../services/settings.service.js';
 
 /**
  * Kick off Cloudinary uploads for the base64 image array sent with a scan.
@@ -254,9 +255,14 @@ async function buildEnrichedProfile(userId, frontendOverrides = {}) {
 }
 
 // ── Free-user AI limits ───────────────────────────────────────────────────────
-const FREE_SCAN_DAILY_LIMIT   = 500;       // max crop scans per day (raised for testing)
-const FREE_CHAT_DAILY_LIMIT   = 200;       // max AI chat messages per day
-const FREE_TOKEN_DAILY_LIMIT  = 1_000_000; // max tokens per day (raised for testing)
+// These consts are the SAFE FALLBACKS. The live caps are resolved per request
+// from the admin App Settings (ai.freeScanDailyLimit / ai.freeChatDailyLimit /
+// ai.freeTokenDailyLimit) via getSetting, which itself falls back to these when
+// no DB override exists. A stored 0/NaN falls back too (so a bad value can't
+// silently block everyone) — set a deliberate cap from the panel to change it.
+const FREE_SCAN_DAILY_LIMIT   = 500;       // max crop scans per day (fallback)
+const FREE_CHAT_DAILY_LIMIT   = 200;       // max AI chat messages per day (fallback)
+const FREE_TOKEN_DAILY_LIMIT  = 1_000_000; // max tokens per day (fallback)
 
 /**
  * Get today's AIUsage row for the user (ISO date string key = YYYY-MM-DD).
@@ -297,9 +303,11 @@ async function recordScanUsage(userId, tokenUsage) {
 async function checkScanLimits(userId) {
   const usage = await getTodayUsage(userId);
   if (!usage) return null; // no usage yet — allow
-  if (usage.scanCount >= FREE_SCAN_DAILY_LIMIT)
-    return `Daily limit reached — free users can run ${FREE_SCAN_DAILY_LIMIT} crop scans per day. Try again tomorrow.`;
-  if (usage.totalTokens >= FREE_TOKEN_DAILY_LIMIT)
+  const scanLimit  = Number(await getSetting('ai.freeScanDailyLimit').catch(() => FREE_SCAN_DAILY_LIMIT)) || FREE_SCAN_DAILY_LIMIT;
+  const tokenLimit = Number(await getSetting('ai.freeTokenDailyLimit').catch(() => FREE_TOKEN_DAILY_LIMIT)) || FREE_TOKEN_DAILY_LIMIT;
+  if (usage.scanCount >= scanLimit)
+    return `Daily limit reached — free users can run ${scanLimit} crop scans per day. Try again tomorrow.`;
+  if (usage.totalTokens >= tokenLimit)
     return `Daily AI token limit reached. Try again tomorrow or upgrade to premium.`;
   return null;
 }
@@ -407,12 +415,17 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
     // Inject user's preferred language into farm profile for AI response localisation
     if (language) enrichedProfile.language = language;
 
+    // Admin-selected chat model (App Settings → ai.model.chat). Forwarded to
+    // FastAPI as body.model; omitted if unresolved so FastAPI keeps its default.
+    const chatModel = await getSetting('ai.model.chat').catch(() => undefined);
+
     const result = await callFastAPI('/ai/chat', {
       message:         (message || '').trim(),
       history,
       farm_profile:    enrichedProfile,
       response_length: respLen,
       mode:            'text',
+      ...(chatModel ? { model: chatModel } : {}),
       ...(hasImage ? { image: { data: image.data, mime_type: image.mime_type || 'image/jpeg' } } : {}),
     }, req.user.id, 120_000, req.id);  // Indic chat models can be slow; output is capped server-side
 
@@ -509,8 +522,10 @@ router.post('/soil-card-ocr', authenticate, aiChatLimit, async (req, res) => {
   }
 
   try {
+    const soilOcrModel = await getSetting('ai.model.soilOcr').catch(() => undefined);
     const result = await callFastAPI('/ai/soil-card-ocr', {
       image: { data: image.data, mime_type: image.mime_type || 'image/jpeg' },
+      ...(soilOcrModel ? { model: soilOcrModel } : {}),
     }, req.user.id, 60_000);
 
     const tokens = result?.token_info?.total_tokens || 0;
@@ -569,10 +584,25 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
       await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
       return sendError(res, 'Voice is temporarily unavailable. Please type your question instead.', 503);
     }
+    // Admin-selected STT model (App Settings → ai.model.voiceStt), value form
+    // '<provider>:<modelId>'. Only a sarvam:* model overrides the Sarvam call;
+    // any other provider (e.g. openai:whisper-1, not yet implemented) safely
+    // falls back to the Sarvam default with a warning so voice never breaks.
+    let sttModel; // undefined → sarvamSTT default (saaras:v3)
+    try {
+      const sttSetting = String(await getSetting('ai.model.voiceStt') || '');
+      const sepIdx = sttSetting.indexOf(':');
+      const provider = sepIdx >= 0 ? sttSetting.slice(0, sepIdx) : sttSetting;
+      const modelId  = sepIdx >= 0 ? sttSetting.slice(sepIdx + 1) : '';
+      if (provider === 'sarvam' && modelId) sttModel = modelId;
+      else if (provider && provider !== 'sarvam')
+        logger.warn('[Voice] STT model "%s" not supported by the Sarvam path — using default', sttSetting);
+    } catch { /* fall back to sarvamSTT default */ }
+
     let sttError = null;
     try {
       const audioBuffer = fs.readFileSync(renamedPath);
-      const r = await sarvamSTT(audioBuffer, `audio.${ext}`, detectedLanguage);
+      const r = await sarvamSTT(audioBuffer, `audio.${ext}`, detectedLanguage, sttModel);
       transcription    = (r.transcript || '').trim();
       detectedLanguage = r.languageCode || detectedLanguage;
     } catch (e) {
@@ -662,12 +692,14 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
     // the native client's ~60s OkHttp upload ceiling (was unbounded → default
     // 90s, so a slow reply aborted on-device after credits had settled). Voice
     // forces a SHORT, single-call reply, so 55s is ample headroom.
+    const voiceChatModel = await getSetting('ai.model.chat').catch(() => undefined);
     const result = await callFastAPI('/ai/chat', {
       message:         transcription,
       history,
       farm_profile:    enrichedProfile,
       mode:            speakReply ? 'voice' : 'text',
       response_length: voiceRespLen,
+      ...(voiceChatModel ? { model: voiceChatModel } : {}),
     }, req.user.id, 55_000, req.id);
 
     const { reply, type, structured_data: structuredData, token_info: voiceTokenInfo, followUps } = result;
@@ -988,6 +1020,13 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
 
   const lat = parseFloat(req.body.lat);
   const lon = parseFloat(req.body.lon);
+  // Admin-selected scan models (App Settings → ai.model.diagnose / ai.model.treatment).
+  // Carried inside params so they survive the enqueue→Celery→worker hop; FastAPI
+  // honours them per-request and falls back to its own env/default when absent.
+  const [modelDiagnose, modelTreatment] = await Promise.all([
+    getSetting('ai.model.diagnose').catch(() => undefined),
+    getSetting('ai.model.treatment').catch(() => undefined),
+  ]);
   const fastapiParams = {
     crop_name:           farmCtx.cropName || 'Unknown',
     crop_growth_stage:   farmCtx.growthStage || (farmCtx.cropAge != null ? String(farmCtx.cropAge) : 'Unknown'),
@@ -1014,6 +1053,8 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
     farm_address:        farmCtx.farmAddress || '',
     language:            farmCtx.language || 'en',
     tier:                farmCtx.tier || 'fast',
+    ...(modelDiagnose  ? { model_diagnose: modelDiagnose }   : {}),
+    ...(modelTreatment ? { model_treatment: modelTreatment } : {}),
   };
 
   try {
@@ -1334,6 +1375,10 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
       diagnosisMethod = 'fastapi-agentic';
       // Translate the existing Node-side params shape into the FastAPI
       // shape (snake_case keys that orchestrator.run_diagnosis expects).
+      const [modelDiagnose, modelTreatment] = await Promise.all([
+        getSetting('ai.model.diagnose').catch(() => undefined),
+        getSetting('ai.model.treatment').catch(() => undefined),
+      ]);
       const fastapiParams = {
         crop_name:           farmCtx.cropName || 'Unknown',
         crop_growth_stage:   farmCtx.growthStage || (farmCtx.cropAge != null ? String(farmCtx.cropAge) : 'Unknown'),
@@ -1357,6 +1402,8 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
         // CropScanScreen sends this via farmContext; AsyncStorage persists
         // the last choice. FastAPI maps it to per-stage model chains.
         tier:                farmCtx.tier || 'fast',
+        ...(modelDiagnose  ? { model_diagnose: modelDiagnose }   : {}),
+        ...(modelTreatment ? { model_treatment: modelTreatment } : {}),
       };
 
       try {
@@ -1618,10 +1665,12 @@ router.post('/scan/:sessionId/chat', authenticate, aiChatLimit, async (req, res)
       language: convo.language || 'en',
     };
 
+    const followupChatModel = await getSetting('ai.model.chat').catch(() => undefined);
     const result = await callFastAPI('/ai/chat', {
       message:      message.trim(),
       history,
       farm_profile: farmProfile,
+      ...(followupChatModel ? { model: followupChatModel } : {}),
     }, req.user.id);
 
     const { reply, type, structured_data: structuredData, token_info: tokenInfo } = result;
@@ -1793,9 +1842,12 @@ router.post('/scan/feedback', authenticate, async (req, res) => {
 // GET /api/v1/ai/usage  — today's usage counts for the current user
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/usage', authenticate, async (req, res) => {
-  const [usage, creditSummary] = await Promise.all([
+  const [usage, creditSummary, scanDaily, chatDaily, tokensDaily] = await Promise.all([
     getTodayUsage(req.user.id),
     getCreditSummary(req.user.id).catch(() => null),
+    getSetting('ai.freeScanDailyLimit').then(v => Number(v) || FREE_SCAN_DAILY_LIMIT).catch(() => FREE_SCAN_DAILY_LIMIT),
+    getSetting('ai.freeChatDailyLimit').then(v => Number(v) || FREE_CHAT_DAILY_LIMIT).catch(() => FREE_CHAT_DAILY_LIMIT),
+    getSetting('ai.freeTokenDailyLimit').then(v => Number(v) || FREE_TOKEN_DAILY_LIMIT).catch(() => FREE_TOKEN_DAILY_LIMIT),
   ]);
   return sendSuccess(res, {
     scanCount:         usage?.scanCount       ?? 0,
@@ -1805,11 +1857,11 @@ router.get('/usage', authenticate, async (req, res) => {
     monthlyTokens:     usage?.monthlyTokens   ?? 0,
     monthlyCostUsd:    usage?.monthlyCostUsd  ?? 0,
     limits: {
-      scanDaily:   FREE_SCAN_DAILY_LIMIT,
-      chatDaily:   FREE_CHAT_DAILY_LIMIT,
-      tokensDaily: FREE_TOKEN_DAILY_LIMIT,
+      scanDaily,
+      chatDaily,
+      tokensDaily,
     },
-    scansRemaining: Math.max(0, FREE_SCAN_DAILY_LIMIT - (usage?.scanCount ?? 0)),
+    scansRemaining: Math.max(0, scanDaily - (usage?.scanCount ?? 0)),
     credits: creditSummary ? {
       balance:         creditSummary.balance,
       tier:            creditSummary.tier,
