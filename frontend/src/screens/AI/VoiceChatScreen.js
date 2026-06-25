@@ -22,6 +22,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
 import { WebView } from 'react-native-webview';
 import { sendVoiceChatMessage } from '../../services/aiApi';
+import { connectSocket, getSocket } from '../../services/socket';
 import { useFarm } from '../../context/FarmContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { COLORS } from '../../constants/colors';
@@ -331,6 +332,18 @@ export default function VoiceChatScreen({ navigation }) {
   const recStartAtRef = useRef(0);        // recording start timestamp
   const maxDurationTimerRef = useRef(null); // hard cap auto-stop
 
+  // ── Streaming (low-latency) refs ───────────────────────────────────────────
+  // When a socket is available we stream the reply: the server pushes audio
+  // chunks (one per sentence) which we enqueue and play in order, so the farmer
+  // hears sentence 1 while later sentences are still being generated.
+  const socketRef = useRef(null);
+  const streamIdRef = useRef(null);        // id of the in-flight turn (filters stale events)
+  const isStreamingRef = useRef(false);    // typewriter is driven by deltas while true
+  const chunkQueueRef = useRef([]);        // pending {seq, audio, mimeType} to play
+  const playingRef = useRef(false);        // a clip is currently playing
+  const streamDoneRef = useRef(false);     // server emitted voice:done (no more chunks)
+  const cancelledRef = useRef(false);      // user left the screen — drop everything NOW
+
   // Animations
   const transcriptFade = useRef(new Animated.Value(0)).current;
   const micScale = useRef(new Animated.Value(1)).current;
@@ -365,6 +378,9 @@ export default function VoiceChatScreen({ navigation }) {
   // Tuned fast (~6 chars / 20ms ≈ a full spoken reply in ~1.5s) so the text keeps
   // pace with the audio instead of lagging ~6s behind it.
   useEffect(() => {
+    // While streaming, reply text is revealed directly from socket deltas (see the
+    // voice:reply_delta handler) — the typewriter must not fight it.
+    if (isStreamingRef.current) return;
     if (!aiReply) { setTypedReply(''); return; }
     setTypedReply('');
     let i = 0;
@@ -406,11 +422,16 @@ export default function VoiceChatScreen({ navigation }) {
     if (isProcessing || isPlaying || lockRef.current) return;
     lockRef.current = true;
 
-    // Clear previous transcripts
+    // Clear previous transcripts + any leftover streaming state from the last turn
     setUserTranscript('');
     setAiReply('');
     setErrorMsg('');
     setShowTranscript(false);
+    streamIdRef.current = null;
+    isStreamingRef.current = false;
+    streamDoneRef.current = false;
+    cancelledRef.current = false;
+    chunkQueueRef.current = [];
 
     try {
       const { status } = await Audio.requestPermissionsAsync();
@@ -422,11 +443,15 @@ export default function VoiceChatScreen({ navigation }) {
         allowsRecordingIOS: true, playsInSilentModeIOS: true,
         staysActiveInBackground: false, shouldDuckAndroid: true,
       });
+      // 16 kHz mono is the native rate for speech STT — Sarvam (and every Indic
+      // speech model) downsamples to it anyway. Recording at 16 kHz / 32 kbps
+      // instead of 44.1 kHz / 64 kbps cuts the upload to roughly a third with zero
+      // transcription-quality loss, so turns start faster on rural 3G/4G.
       const { recording } = await Audio.Recording.createAsync({
         isMeteringEnabled: true,
-        android: { extension: '.m4a', outputFormat: 2, audioEncoder: 3, sampleRate: 44100, numberOfChannels: 1, bitRate: 64000 },
-        ios: { extension: '.m4a', outputFormat: 'aac ', audioQuality: 0x60, sampleRate: 44100, numberOfChannels: 1, bitRate: 64000 },
-        web: { mimeType: 'audio/webm', bitsPerSecond: 64000 },
+        android: { extension: '.m4a', outputFormat: 2, audioEncoder: 3, sampleRate: 16000, numberOfChannels: 1, bitRate: 32000 },
+        ios: { extension: '.m4a', outputFormat: 'aac ', audioQuality: 0x60, sampleRate: 16000, numberOfChannels: 1, bitRate: 32000 },
+        web: { mimeType: 'audio/webm', bitsPerSecond: 32000 },
       });
       recordRef.current = recording;
       recStartAtRef.current = Date.now();
@@ -501,13 +526,32 @@ export default function VoiceChatScreen({ navigation }) {
     silenceStartRef.current = null;
     Animated.spring(micScale, { toValue: 1, useNativeDriver: true, friction: 4 }).start();
 
+    // Stream when a live socket is available: the server pushes the reply text +
+    // per-sentence audio over the socket so playback starts on sentence 1. With no
+    // socket we fall back to the one-shot HTTP path (audio in the JSON response).
+    const useStream = !!socketRef.current?.connected;
+    let streamId = null;
+    if (useStream) {
+      streamId = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      streamIdRef.current = streamId;
+      isStreamingRef.current = true;
+      chunkQueueRef.current = [];
+      streamDoneRef.current = false;
+      cancelledRef.current = false;
+      playingRef.current = false;
+      setTypedReply('');
+      setAiReply('');
+    } else {
+      isStreamingRef.current = false;
+    }
+
     try {
       await recordRef.current.stopAndUnloadAsync();
       const uri = recordRef.current.getURI();
       recordRef.current = null;
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
 
-      const result = await sendVoiceChatMessage(uri, sarvamLang, conversationId, getAIContext());
+      const result = await sendVoiceChatMessage(uri, sarvamLang, conversationId, getAIContext(), true, streamId);
 
       if (result.conversationId && !conversationId) setConvId(result.conversationId);
 
@@ -516,6 +560,8 @@ export default function VoiceChatScreen({ navigation }) {
       // If STT returned nothing meaningful, surface a friendly hint instead of
       // a fake voice bubble + garbage reply.
       if (!transcribed) {
+        streamIdRef.current = null;
+        isStreamingRef.current = false;
         setUserTranscript('');
         setAiReply('I didn’t catch that — try speaking closer to the mic.');
         setShowTranscript(true);
@@ -524,13 +570,20 @@ export default function VoiceChatScreen({ navigation }) {
       }
 
       setUserTranscript(transcribed);
-      if (result.reply) setAiReply(result.reply);
       setShowTranscript(true);
-      setIsProcessing(false);
 
-      // Audio came back in the SAME /ai/voice response (tts=true) — no separate
-      // /ai/tts round-trip and no second credit charge. Play it directly.
-      // Best-effort: a missing/failed clip just leaves the reply on screen.
+      // Streaming: the reply text + audio now arrive over the socket
+      // (voice:reply_delta / voice:audio_chunk / voice:done). Stop showing
+      // "Thinking…"; the socket handlers drive the rest.
+      if (useStream && result.streaming) {
+        setIsProcessing(false);
+        return;
+      }
+
+      // Non-streaming fallback — reply + audio came back in the HTTP response.
+      isStreamingRef.current = false;
+      if (result.reply) setAiReply(result.reply);
+      setIsProcessing(false);
       if (result.audio?.audio) {
         try {
           await playBase64Audio(result.audio.audio, result.audio.mimeType || 'audio/wav');
@@ -540,6 +593,9 @@ export default function VoiceChatScreen({ navigation }) {
       }
     } catch (err) {
       recordRef.current = null;
+      streamIdRef.current = null;
+      isStreamingRef.current = false;
+      streamDoneRef.current = true;
       setErrorMsg(humanReadableVoiceError(err));
       setShowTranscript(true);
       setIsProcessing(false);
@@ -561,6 +617,46 @@ export default function VoiceChatScreen({ navigation }) {
       try { await Audio.setAudioModeAsync({ allowsRecordingIOS: false }); } catch {}
       recordRef.current = null;
     }
+  }, []);
+
+  // ── Streaming playback queue ────────────────────────────────────────────────
+  // Plays queued audio chunks strictly in seq order, one clip at a time. Re-invoked
+  // as each clip finishes and whenever a new chunk arrives, so sentence 1 starts the
+  // moment it lands while later sentences are still synthesising server-side.
+  const playNextInQueue = useCallback(async () => {
+    if (playingRef.current || cancelledRef.current) return;  // already playing, or torn down
+    chunkQueueRef.current.sort((a, b) => a.seq - b.seq);  // enforce order (socket is ordered, this is belt-and-braces)
+    const next = chunkQueueRef.current.shift();
+    if (!next) {
+      if (streamDoneRef.current) setIsPlaying(false);     // nothing left + server done
+      return;
+    }
+    playingRef.current = true;
+    setIsPlaying(true);
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false, playsInSilentModeIOS: true, shouldDuckAndroid: true,
+      });
+      const uri = `data:${next.mimeType || 'audio/wav'};base64,${next.audio}`;
+      const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
+      soundRef.current = sound;
+      // Cancelled while the clip was loading — stop immediately, don't play it.
+      if (cancelledRef.current) {
+        try { await sound.unloadAsync(); } catch {}
+        if (soundRef.current === sound) soundRef.current = null;
+        playingRef.current = false;
+        return;
+      }
+      await new Promise((resolve) => {
+        sound.setOnPlaybackStatusUpdate((st) => { if (st.didJustFinish || st.error) resolve(); });
+      });
+      try { await sound.unloadAsync(); } catch {}
+      if (soundRef.current === sound) soundRef.current = null;
+    } catch (e) {
+      if (__DEV__) console.warn('[VoiceChat] chunk playback failed (skipped):', e?.message);
+    }
+    playingRef.current = false;
+    if (!cancelledRef.current) playNextInQueue();   // drain the rest (or settle to not-playing)
   }, []);
 
   // ── Play base64 audio ───────────────────────────────────────────────────────
@@ -589,11 +685,23 @@ export default function VoiceChatScreen({ navigation }) {
   // Hard-stop + unload the active sound so audio never bleeds into the next
   // screen. Used by the blur cleanup and the Back / end-call / switch-to-chat taps.
   const stopPlayback = useCallback(async () => {
+    // Hard teardown: mark cancelled so the queue worker bails and any in-flight
+    // socket chunks are ignored, drop the active stream id, and tell the server to
+    // TERMINATE the background pipeline (stops generation/TTS, refunds the hold).
+    cancelledRef.current = true;
+    streamDoneRef.current = true;
+    chunkQueueRef.current = [];
+    const sid = streamIdRef.current;
+    streamIdRef.current = null;
+    if (sid) {
+      try { socketRef.current?.emit('voice:cancel', { streamId: sid }); } catch { /* ignore */ }
+    }
     if (soundRef.current) {
       try { await soundRef.current.stopAsync(); } catch {}
       try { await soundRef.current.unloadAsync(); } catch {}
       soundRef.current = null;
     }
+    playingRef.current = false;
     setIsPlaying(false);
   }, []);
 
@@ -605,6 +713,69 @@ export default function VoiceChatScreen({ navigation }) {
       cancelRecording?.();
     }, [stopPlayback, cancelRecording])
   );
+
+  // ── Socket streaming: connect + wire reply/audio events ─────────────────────
+  // All handlers filter on streamIdRef so late events from a previous turn are
+  // ignored. If the socket can't connect, streaming simply never engages and the
+  // screen uses the one-shot HTTP path (see stopAndSend) — nothing breaks.
+  useEffect(() => {
+    let active = true;
+    const matches = (p) => p && p.streamId && p.streamId === streamIdRef.current;
+
+    const onDelta = (p) => {
+      if (!active || !matches(p)) return;
+      setIsProcessing(false);
+      isStreamingRef.current = true;
+      const text = p.text || '';
+      if (text) { setTypedReply((prev) => prev + text); setAiReply((prev) => prev + text); }
+    };
+    const onChunk = (p) => {
+      if (!active || !matches(p) || !p.audio) return;
+      chunkQueueRef.current.push({ seq: p.seq ?? 0, audio: p.audio, mimeType: p.mimeType });
+      playNextInQueue();
+    };
+    const onDone = (p) => {
+      if (!active || !matches(p)) return;
+      streamDoneRef.current = true;
+      setIsProcessing(false);
+      if (p.reply) { setAiReply(p.reply); setTypedReply(p.reply); }   // authoritative final text
+      if (p.conversationId) setConvId((cur) => cur || p.conversationId);
+      if (!playingRef.current && chunkQueueRef.current.length === 0) setIsPlaying(false);
+    };
+    const onStreamErr = (p) => {
+      if (!active || !matches(p)) return;
+      streamDoneRef.current = true;
+      setIsProcessing(false);
+      // Only surface the banner if we haven't already spoken anything.
+      if (!playingRef.current && chunkQueueRef.current.length === 0) {
+        setErrorMsg(p?.message || 'Voice service had a problem. Please try again.');
+      }
+    };
+
+    (async () => {
+      try {
+        const sock = await connectSocket();
+        if (!active) return;
+        socketRef.current = sock;
+        sock.on('voice:reply_delta', onDelta);
+        sock.on('voice:audio_chunk', onChunk);
+        sock.on('voice:done', onDone);
+        sock.on('voice:error', onStreamErr);
+      } catch { /* socket unavailable → non-stream HTTP fallback in stopAndSend */ }
+    })();
+
+    return () => {
+      active = false;
+      const sock = socketRef.current || getSocket();
+      if (sock) {
+        sock.off('voice:reply_delta', onDelta);
+        sock.off('voice:audio_chunk', onChunk);
+        sock.off('voice:done', onDone);
+        sock.off('voice:error', onStreamErr);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playNextInQueue]);
 
   // Status hint — minimal, action-only. Shown below the sphere when idle/listening;
   // hidden while the AI reply types in at the top.

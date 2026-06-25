@@ -392,9 +392,14 @@ export async function sendVoiceMessage(audioUri, conversationId = null, farmProf
  * @param {string} language   BCP-47 language code (e.g. 'mr-IN', 'hi-IN')
  * @param {string|null} conversationId
  * @param {object} farmProfile
- * @returns {{ transcription, detectedLanguage, reply, conversationId, audio: { audio: base64, mimeType } }}
+ * @param {boolean} tts        request spoken audio back
+ * @param {string|null} streamId  when set, server streams the reply + audio chunks
+ *                                 over Socket.IO (low-latency); the HTTP response
+ *                                 then carries only { transcription, conversationId,
+ *                                 streaming:true } and the audio arrives via socket.
+ * @returns {{ transcription, detectedLanguage, reply?, conversationId, streaming?, audio?: { audio: base64, mimeType } }}
  */
-export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', conversationId = null, farmProfile = {}, tts = true) {
+export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', conversationId = null, farmProfile = {}, tts = true, streamId = null) {
   const isWeb = typeof document !== 'undefined';
   const idemKey = newIdemKey();
 
@@ -402,7 +407,8 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
   // {transcription, reply, audio}. This removes the separate /ai/tts call — a full
   // extra round-trip AND a second credit charge (voice was billing 3 credits/turn
   // instead of the intended 2, since ai_voice's price already includes TTS) — and
-  // gets the spoken audio back faster.
+  // gets the spoken audio back faster. When streamId is set, the reply+audio come
+  // over the socket instead and this response is just the transcription ack.
   if (isWeb) {
     const formData = new FormData();
     const resp = await fetch(audioUri);
@@ -412,6 +418,7 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
     if (conversationId) formData.append('conversationId', conversationId);
     formData.append('farmProfile', JSON.stringify(farmProfile));
     if (tts) formData.append('tts', 'true');
+    if (streamId) formData.append('streamId', streamId);
     const { data } = await api.post('/ai/voice', formData, {
       headers: { 'Content-Type': 'multipart/form-data', 'Idempotency-Key': idemKey },
       timeout: 90000,
@@ -423,6 +430,7 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
   const params = { farmProfile: JSON.stringify(farmProfile), language };
   if (conversationId) params.conversationId = conversationId;
   if (tts) params.tts = 'true';
+  if (streamId) params.streamId = streamId;
 
   const uploadResult = await FileSystem.uploadAsync(
     `${API_BASE_URL}/ai/voice`,

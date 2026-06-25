@@ -32,6 +32,7 @@ import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
 import { createConnectionLimiter, onLimited } from './socketRateLimit.js';
 import { ConnectionRegistry } from './connectionLimiter.js';
+import { cancelVoiceStream } from '../services/voiceStream.registry.js';
 
 // Per-user socket cap (SCALE-5). One registry per process; entries are dropped
 // as users' last sockets disconnect, so it stays bounded.
@@ -205,6 +206,15 @@ export function registerChatSocket(io) {
         data: { readAt: new Date() },
       });
       io.to(`user:${msgSenderId}`).emit('dm_read_receipt', { by: userId });
+    });
+
+    // ── Voice streaming cancel ────────────────────────────────────────────────
+    // Client left the voice screen mid-reply — terminate the background pipeline
+    // (stops generation, TTS, audio emits, and refunds the credit hold). Honoured
+    // unconditionally (not rate-limited): it only flips an in-memory flag, and
+    // dropping it would leave audio playing.
+    socket.on('voice:cancel', ({ streamId } = {}) => {
+      if (streamId) cancelVoiceStream(`${userId}:${streamId}`);
     });
 
     // ── Disconnect ──────────────────────────────────────────────────────────────

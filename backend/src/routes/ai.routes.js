@@ -82,7 +82,8 @@ function uploadScanImagesToCloudinary(images, userId) {
 // All Express → FastAPI calls now route through utils/fastapi-signed.js which
 // adds HMAC-SHA256 signatures over (ts, METHOD, path, body_hash). The contract
 // must stay in lock-step with fastapi/security/auth.py — change them together.
-import { callFastAPI } from '../utils/fastapi-signed.js';
+import { callFastAPI, streamSignedSSE } from '../utils/fastapi-signed.js';
+import { registerVoiceStream, unregisterVoiceStream } from '../services/voiceStream.registry.js';
 import { archiveResource } from '../services/softDelete.service.js';
 
 /**
@@ -252,6 +253,189 @@ async function buildEnrichedProfile(userId, frontendOverrides = {}) {
   }
 
   return { profile: enrichedProfile, farmCtx };
+}
+
+// ── Enriched-profile cache (per user+conversation) ────────────────────────────
+// buildEnrichedProfile → buildFarmerChatContext runs several DB queries, but the
+// result barely changes within a single conversation. Caching it for a short TTL
+// removes that work from turns 2+ of a voice/text conversation. The TTL bounds
+// staleness if the farmer edits their profile mid-conversation.
+const ENRICHED_PROFILE_TTL_MS = 90_000;
+const _enrichedProfileCache = new Map(); // key -> { profile, expiresAt }
+
+function getCachedEnrichedProfile(key) {
+  const entry = _enrichedProfileCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { _enrichedProfileCache.delete(key); return null; }
+  return entry.profile;
+}
+
+function setCachedEnrichedProfile(key, profile) {
+  // Store a shallow copy so a later per-turn mutation of the returned profile
+  // (e.g. setting .language) can never corrupt the cached entry.
+  _enrichedProfileCache.set(key, { profile: { ...profile }, expiresAt: Date.now() + ENRICHED_PROFILE_TTL_MS });
+  // Opportunistic eviction to bound memory — no dedicated timer needed.
+  if (_enrichedProfileCache.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of _enrichedProfileCache) if (now > v.expiresAt) _enrichedProfileCache.delete(k);
+  }
+}
+
+// ── Voice streaming pipeline (Socket.IO) ──────────────────────────────────────
+// Consumes the FastAPI SSE token stream, synthesises each finished sentence via
+// Sarvam TTS, and pushes audio chunks to the user's socket room as they're ready —
+// so playback starts on sentence 1 while later sentences are still being written.
+// Self-contained: owns the credit hold (settles on success, releases on failure)
+// and never touches the already-sent HTTP response; failures surface as a
+// voice:error socket event the client maps to a friendly message.
+const VOICE_TTS_MIN_CHARS = 12;   // don't synthesise tiny fragments
+const VOICE_TTS_MAX_CHARS = 180;  // force a cut if one "sentence" runs long
+
+// Pull the next complete sentence from `buf`. Cuts at the first . ! ? । or newline;
+// force-cuts at a space past MAX; on flush emits whatever remains. Returns
+// [sentence|null, remainingBuf].
+function _nextVoiceSentence(buf, flush) {
+  const at = buf.search(/[.!?।\n]/);
+  if (at !== -1) {
+    const sentence = buf.slice(0, at + 1).trim();
+    const rest = buf.slice(at + 1);
+    if (sentence.length >= VOICE_TTS_MIN_CHARS || flush) return [sentence, rest];
+    return [null, buf]; // too short — keep buffering toward a fuller sentence
+  }
+  if (buf.length >= VOICE_TTS_MAX_CHARS) {
+    let cut = buf.lastIndexOf(' ', VOICE_TTS_MAX_CHARS);
+    if (cut < VOICE_TTS_MIN_CHARS) cut = VOICE_TTS_MAX_CHARS;
+    return [buf.slice(0, cut).trim(), buf.slice(cut)];
+  }
+  if (flush && buf.trim()) return [buf.trim(), ''];
+  return [null, buf];
+}
+
+async function runVoiceStreamPipeline(ctx) {
+  const {
+    io, userId, streamId, convo, transcription, detectedLanguage,
+    history, enrichedProfile, voiceRespLen, voiceChatModel, hold, requestId,
+  } = ctx;
+  const room    = io.to(`user:${userId}`);
+  const ttsLang = detectedLanguage || 'hi-IN';
+  const emit = (event, payload) => { try { room.emit(event, { streamId, ...payload }); } catch { /* ignore */ } };
+
+  // Cancellation: the client emits voice:cancel on leaving the screen; the socket
+  // handler flips state.cancelled, which we check between SSE frames and before
+  // every TTS/emit so the pipeline stops promptly instead of running to completion.
+  const cancelKey = `${userId}:${streamId}`;
+  const state = registerVoiceStream(cancelKey);
+
+  let buffer = '';        // un-spoken text awaiting a sentence boundary
+  let fullReply = '';     // everything streamed (fallback if no `final`)
+  let seq = 0;            // audio chunk ordering
+  let finalReply = '';
+  let followUps = [];
+  let tokenInfo = null;
+  let settled = false;
+
+  const ttsAndEmit = async (text) => {
+    const t = (text || '').trim();
+    if (!t || !ENV.SARVAM_API_KEY || state.cancelled) return;
+    try {
+      const r = await sarvamTTS(t, ttsLang);
+      if (state.cancelled) return;                 // user left while we synthesised — don't emit
+      emit('voice:audio_chunk', { seq: seq++, text: t, audio: r.audio, mimeType: r.mimeType });
+    } catch (e) {
+      logger.warn('[AI Voice stream] TTS chunk failed (non-fatal): %s', e.message);
+    }
+  };
+
+  try {
+    await streamSignedSSE('/ai/chat/stream', {
+      message:         transcription,
+      history,
+      farm_profile:    enrichedProfile,
+      response_length: voiceRespLen,
+      ...(voiceChatModel ? { model: voiceChatModel } : {}),
+    }, { userId, requestId, timeoutMs: 60_000 }, async (evt) => {
+      // Abort the upstream SSE read the moment a cancel is seen (throwing here
+      // propagates out of streamSignedSSE, which aborts the FastAPI request).
+      if (state.cancelled) { const e = new Error('cancelled'); e._cancelled = true; throw e; }
+      if (evt.type === 'delta') {
+        const text = evt.text || '';
+        if (!text) return;
+        fullReply += text;
+        buffer    += text;
+        emit('voice:reply_delta', { text });
+        // Speak every complete sentence now sitting in the buffer, in order.
+        let sentence;
+        for (;;) {
+          [sentence, buffer] = _nextVoiceSentence(buffer, false);
+          if (!sentence) break;
+          await ttsAndEmit(sentence);
+        }
+      } else if (evt.type === 'final') {
+        finalReply = evt.reply || fullReply;
+        followUps  = Array.isArray(evt.followUps) ? evt.followUps : [];
+        tokenInfo  = evt.token_info || null;
+      } else if (evt.type === 'error') {
+        throw new Error(evt.error || 'voice stream error');
+      }
+    });
+
+    // If the user left while the stream was finishing, bail before flushing more
+    // audio or persisting — the catch below refunds the hold.
+    if (state.cancelled) { const e = new Error('cancelled'); e._cancelled = true; throw e; }
+
+    // Flush the trailing buffer as the final sentence(s).
+    let tail;
+    for (;;) {
+      [tail, buffer] = _nextVoiceSentence(buffer, true);
+      if (!tail) break;
+      await ttsAndEmit(tail);
+    }
+
+    const reply       = (finalReply || fullReply || '').trim();
+    const voiceTokens = tokenInfo?.total_tokens || 0;
+    const voiceModel  = tokenInfo?.model || voiceChatModel || 'unknown';
+
+    await prisma.voiceMessage.createMany({
+      data: [
+        { conversationId: convo.id, role: 'user',      content: transcription,
+          language: detectedLanguage || 'hi-IN' },
+        { conversationId: convo.id, role: 'assistant', content: reply,
+          language: detectedLanguage || 'hi-IN', modelUsed: voiceModel },
+      ],
+    });
+    await prisma.voiceConversation.update({
+      where: { id: convo.id },
+      data:  { updatedAt: new Date(), messageCount: { increment: 2 } },
+    });
+    const vToday = new Date(); vToday.setUTCHours(0, 0, 0, 0);
+    prisma.aIUsage.upsert({
+      where:  { userId_date: { userId, date: vToday } },
+      create: { userId, date: vToday, chatCount: 1, totalTokens: voiceTokens, monthlyTokens: voiceTokens },
+      update: { chatCount: { increment: 1 }, totalTokens: { increment: voiceTokens }, monthlyTokens: { increment: voiceTokens } },
+    }).catch(() => {});
+    await settleCredits(userId, 'ai_voice', {
+      reserved: hold.reserved, holdId: hold.holdId, tokensUsed: voiceTokens, model: voiceModel,
+      description: `Voice chat: ${voiceModel}`, costUsd: tokenInfo?.cost_usd,
+    });
+    settled = true;
+
+    emit('voice:done', { reply, followUps, conversationId: convo.id });
+  } catch (err) {
+    // Refund the hold for any incomplete turn (cancel, partial, or total failure).
+    if (!settled) {
+      await releaseCredits(userId, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId }).catch(() => {});
+    }
+    if (err && err._cancelled) {
+      // User left the screen — terminate quietly. No voice:error (nobody's listening),
+      // and the upstream FastAPI request was already aborted by streamSignedSSE.
+      logger.info('[AI Voice stream] cancelled by client (user=%s)', userId);
+    } else {
+      logger.error('[AI Voice stream] %s', err.message);
+      emit('voice:error', { message: 'Voice service had a problem. Please try again.' });
+    }
+  } finally {
+    unregisterVoiceStream(cancelKey);
+  }
 }
 
 // ── Free-user AI limits ───────────────────────────────────────────────────────
@@ -661,12 +845,22 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
       select: { role: true, content: true },
     });
 
-    // ── Enrich with farm context (same as /chat) ─────────────────────────────
+    // ── Enrich with farm context (same as /chat), cached per conversation ─────
+    // convo.id already exists here, so turn 1 seeds the cache and turns 2+ skip
+    // the multi-query rebuild. Work on a COPY so the per-turn language override
+    // below never mutates the cached object.
     let enrichedProfile = {};
-    try {
-      const { profile } = await buildEnrichedProfile(req.user.id, farmProfile);
-      enrichedProfile = profile;
-    } catch (ctxErr) { logger.warn('[AI Voice] Farm context failed (non-fatal): %s', ctxErr.message); }
+    const enrichKey = `${req.user.id}:${convo.id}`;
+    const cachedProfile = getCachedEnrichedProfile(enrichKey);
+    if (cachedProfile) {
+      enrichedProfile = { ...cachedProfile };
+    } else {
+      try {
+        const { profile } = await buildEnrichedProfile(req.user.id, farmProfile);
+        enrichedProfile = profile;
+        setCachedEnrichedProfile(enrichKey, profile);
+      } catch (ctxErr) { logger.warn('[AI Voice] Farm context failed (non-fatal): %s', ctxErr.message); }
+    }
 
     // Honour the user-selected chat language so the LLM replies in the same
     // tongue (matches the text /chat behaviour at line ~368). Falls back to
@@ -693,6 +887,25 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
     // 90s, so a slow reply aborted on-device after credits had settled). Voice
     // forces a SHORT, single-call reply, so 55s is ample headroom.
     const voiceChatModel = await getSetting('ai.model.chat').catch(() => undefined);
+
+    // ── Streaming voice path (low-latency) ────────────────────────────────────
+    // When the client opens a Socket.IO stream (passes streamId) and wants spoken
+    // audio, generate + speak the reply sentence-by-sentence over the socket so
+    // playback starts on sentence 1. We respond to the HTTP request immediately
+    // (transcription + conversationId) and hand the credit hold to the background
+    // pipeline, which settles/releases it. No streamId / no socket → falls through
+    // to the one-shot path below (unchanged), so older clients keep working.
+    const streamId = (req.body.streamId || '').toString().trim() || null;
+    const io = req.app.get('io');
+    if (streamId && speakReply && io) {
+      sendSuccess(res, { transcription, detectedLanguage, conversationId: convo.id, streaming: true });
+      runVoiceStreamPipeline({
+        io, userId: req.user.id, streamId, convo, transcription, detectedLanguage,
+        history, enrichedProfile, voiceRespLen, voiceChatModel, hold, requestId: req.id,
+      }).catch((e) => logger.error('[AI Voice stream] pipeline crashed: %s', e.message));
+      return;
+    }
+
     const result = await callFastAPI('/ai/chat', {
       message:         transcription,
       history,
@@ -706,48 +919,54 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
     const voiceTokens = voiceTokenInfo?.total_tokens || 0;
     const voiceModel  = voiceTokenInfo?.model || 'unknown';
 
-    await prisma.voiceMessage.createMany({
-      data: [
-        { conversationId: convo.id, role: 'user',      content: transcription,
-          language: detectedLanguage || 'hi-IN' },
-        { conversationId: convo.id, role: 'assistant', content: reply,
-          language: detectedLanguage || 'hi-IN', modelUsed: voiceModel },
-      ],
-    });
-    await prisma.voiceConversation.update({
-      where: { id: convo.id },
-      data:  { updatedAt: new Date(), messageCount: { increment: 2 } },
-    });
+    // ── Start TTS NOW, concurrently with persistence + settle ─────────────────
+    // TTS (~1–2s) is the slowest remaining step and only needs `reply`. Running it
+    // in parallel with the DB writes + credit settle (instead of after them) hides
+    // ~100–300ms of serial DB latency under the synthesis, so time-to-audio ≈
+    // max(TTS, persist+settle) instead of their sum.
+    // The reply is ALREADY in the user's language (enrichedProfile.language was set
+    // to replyLang above), so speak it directly — no re-translation. ttsPromise
+    // swallows its own failure → null, so a missing clip is non-fatal and never
+    // rejects the Promise.all below.
+    const ttsPromise = (speakReply && ENV.SARVAM_API_KEY && reply)
+      ? sarvamTTS(reply, detectedLanguage || 'hi-IN')
+          .then((r) => ({ audio: r.audio, mimeType: r.mimeType }))
+          .catch((e) => { logger.warn('[Sarvam TTS] failed (non-fatal): %s', e.message); return null; })
+      : Promise.resolve(null);
 
-    // Track usage + deduct credits
-    const vToday = new Date(); vToday.setUTCHours(0, 0, 0, 0);
-    prisma.aIUsage.upsert({
-      where:  { userId_date: { userId: req.user.id, date: vToday } },
-      create: { userId: req.user.id, date: vToday, chatCount: 1, totalTokens: voiceTokens, monthlyTokens: voiceTokens },
-      update: { chatCount: { increment: 1 }, totalTokens: { increment: voiceTokens }, monthlyTokens: { increment: voiceTokens } },
-    }).catch(() => {});
-    // SETTLE the hold against actual tokens (awaited).
-    await settleCredits(req.user.id, 'ai_voice', {
-      reserved: hold.reserved, holdId: hold.holdId, tokensUsed: voiceTokens, model: voiceModel,
-      description: `Voice chat: ${voiceModel}`, costUsd: voiceTokenInfo?.cost_usd,
-    });
+    // Persist the turn, THEN settle the hold. Order is preserved (persist → settle)
+    // so a DB failure still leaves the hold UNSETTLED and the outer catch refunds it
+    // correctly — never a settle-then-release double-handling of the same hold.
+    const persistAndSettle = (async () => {
+      await prisma.voiceMessage.createMany({
+        data: [
+          { conversationId: convo.id, role: 'user',      content: transcription,
+            language: detectedLanguage || 'hi-IN' },
+          { conversationId: convo.id, role: 'assistant', content: reply,
+            language: detectedLanguage || 'hi-IN', modelUsed: voiceModel },
+        ],
+      });
+      await prisma.voiceConversation.update({
+        where: { id: convo.id },
+        data:  { updatedAt: new Date(), messageCount: { increment: 2 } },
+      });
+      // Track usage (fire-and-forget — never blocks billing or the response).
+      const vToday = new Date(); vToday.setUTCHours(0, 0, 0, 0);
+      prisma.aIUsage.upsert({
+        where:  { userId_date: { userId: req.user.id, date: vToday } },
+        create: { userId: req.user.id, date: vToday, chatCount: 1, totalTokens: voiceTokens, monthlyTokens: voiceTokens },
+        update: { chatCount: { increment: 1 }, totalTokens: { increment: voiceTokens }, monthlyTokens: { increment: voiceTokens } },
+      }).catch(() => {});
+      // SETTLE the hold against actual tokens (awaited).
+      await settleCredits(req.user.id, 'ai_voice', {
+        reserved: hold.reserved, holdId: hold.holdId, tokensUsed: voiceTokens, model: voiceModel,
+        description: `Voice chat: ${voiceModel}`, costUsd: voiceTokenInfo?.cost_usd,
+      });
+    })();
 
-    // ── Optional TTS ─────────────────────────────────────────────────────────
-    let audioData = null;
-    const wantsTTS = req.query.tts === '1' || req.body.tts === true || req.body.tts === 'true';
-    if (wantsTTS && ENV.SARVAM_API_KEY && reply) {
-      try {
-        // The reply is ALREADY generated in the user's language (we set
-        // enrichedProfile.language = replyLang above), so speak it directly.
-        // The previous en-IN→ttsLang pre-translation mislabeled an already-
-        // localised (e.g. Marathi) reply as English and garbled it.
-        const ttsLang = detectedLanguage || 'hi-IN';
-        const ttsResult = await sarvamTTS(reply, ttsLang);
-        audioData = { audio: ttsResult.audio, mimeType: ttsResult.mimeType };
-      } catch (e) {
-        logger.warn('[Sarvam TTS] failed (non-fatal): %s', e.message);
-      }
-    }
+    // Wait for both tracks. Only persist/settle can reject here (ttsPromise can't),
+    // so a failure routes to the outer catch which releases the hold.
+    const [audioData] = await Promise.all([ttsPromise, persistAndSettle]);
 
     return sendSuccess(res, {
       transcription, detectedLanguage, reply, type,

@@ -179,3 +179,79 @@ export async function callFastAPI(path, body, userId, timeoutMs, requestId) {
   const envelope = await postSignedJSON(path, body, { userId, timeoutMs, requestId });
   return envelope?.data;
 }
+
+/**
+ * Stream a signed POST to a FastAPI SSE endpoint, invoking onEvent(obj) for each
+ * parsed `data:` JSON frame. Resolves when the stream ends.
+ *
+ * Deliberately bypasses the circuit breaker: it's a latency-optimisation path
+ * (voice streaming) with a non-streaming fallback, and a long-lived stream doesn't
+ * fit the breaker's per-call timeout model. Request signing is identical to a
+ * normal POST — only the RESPONSE is streamed, so the HMAC contract is unchanged.
+ *
+ * @param {string}   path      e.g. '/ai/chat/stream'
+ * @param {object}   body      JSON-serialisable payload
+ * @param {object}   options   { userId, requestId, timeoutMs }
+ * @param {(evt:object)=>void|Promise<void>} onEvent  called per SSE frame (awaited)
+ */
+export async function streamSignedSSE(path, body, options = {}, onEvent = () => {}) {
+  const { userId, requestId, timeoutMs = 90_000 } = options;
+  const rawBody = Buffer.from(JSON.stringify(body || {}), 'utf-8');
+  const { ts, signature } = _sign('POST', path, rawBody);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(`${AI_BACKEND}${path}`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':    'application/json',
+        'Accept':          'text/event-stream',
+        'X-Sig-Timestamp': ts,
+        'X-Sig-Signature': signature,
+        ...(userId    ? { 'x-user-id':    userId }    : {}),
+        ...(requestId ? { 'x-request-id': requestId } : {}),
+      },
+      body:   rawBody,
+      signal: controller.signal,
+    });
+
+    if (!resp.ok || !resp.body) {
+      const errText = await resp.text().catch(() => '');
+      const err = new Error(`FastAPI ${path} stream ${resp.status}: ${errText.slice(0, 200)}`);
+      err.status = resp.status;
+      throw err;
+    }
+
+    // Parse SSE frames (separated by a blank line) out of the byte stream.
+    // An onEvent that THROWS (e.g. the caller cancelling) propagates out so the
+    // catch below aborts the upstream request — that closes the read side and
+    // tells FastAPI to stop generating, instead of letting it run to completion.
+    const decoder = new TextDecoder();
+    let buf = '';
+    for await (const chunk of resp.body) {
+      buf += decoder.decode(chunk, { stream: true });
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) !== -1) {
+        const frame = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
+        if (!dataLine) continue;
+        const json = dataLine.slice(5).trim();
+        if (!json) continue;
+        let parsed;
+        try { parsed = JSON.parse(json); }
+        catch { logger.warn('[FastAPI stream] dropping malformed frame'); continue; }
+        // A throw from onEvent (e.g. caller cancellation) is intentional — let it
+        // propagate to the catch below so the upstream request is aborted.
+        await onEvent(parsed);
+      }
+    }
+  } catch (err) {
+    // Stop reading the upstream stream now (cancellation or a malformed frame).
+    try { controller.abort(); } catch { /* ignore */ }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}

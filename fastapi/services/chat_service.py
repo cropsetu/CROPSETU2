@@ -25,7 +25,12 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
-from agents.llm_dispatch import call_llm_text, call_llm_vision, get_feature_config
+from agents.llm_dispatch import (
+    call_llm_text,
+    call_llm_vision,
+    get_feature_config,
+    stream_llm_text,
+)
 from security.input_sanitize import clean_user_text
 from utils.json_extractor import extract_json
 
@@ -464,6 +469,95 @@ async def _voice_reply(message, history, farm_profile, response_length, model_ov
     answer, follow_ups = _split_followups(reply, "voice")
     return {"reply": answer, "type": "text", "structured_data": None,
             "token_info": usage, "followUps": follow_ups}
+
+
+async def stream_voice_reply(message, history, farm_profile, response_length="short", model_override=None):
+    """Streaming variant of _voice_reply for the low-latency voice path.
+
+    Yields, in order:
+      {"type": "delta", "text": <answer fragment>}   # zero or more, MARKER-stripped
+      {"type": "final", "reply": <full answer>, "followUps": [...], "token_info": {...}}
+
+    Follow-up markers are split out here (never streamed), so the consumer only
+    ever sees clean spoken answer text. If the provider has no streaming path, or
+    streaming fails BEFORE any text is emitted, we fall back to the fully-resilient
+    non-streaming _voice_reply and emit its result as a single delta + final — so
+    the caller's contract is identical either way and the multi-provider fallback
+    chain is preserved. A failure AFTER partial output finalises with what streamed
+    (we can't restart without double-speaking).
+    """
+    message = clean_user_text(message, max_len=_CHAT_MSG_MAX_LEN)
+    history = [
+        {"role": ("assistant" if (m or {}).get("role") == "assistant" else "user"),
+         "content": clean_user_text((m or {}).get("content"), max_len=_CHAT_HISTORY_MAX_LEN)}
+        for m in (history or [])
+        if isinstance(m, dict) and (m.get("content") or "").strip()
+    ]
+
+    history_block = _format_history(history[-20:])
+    user_prompt = f"{history_block}Farmer: {message}\nFarmMind:"
+    system = _writer_system(farm_profile, response_length, "voice", with_followups=True)
+    cfg = get_feature_config("CHAT_WRITER", model_override=model_override)
+    usage = _new_usage()
+
+    raw = ""           # full raw accumulation (answer + marker + follow-ups)
+    emitted = 0        # length of answer already emitted as deltas
+    any_delta = False
+    token_info = None
+    marker = _FOLLOWUP_MARKER
+
+    try:
+        async for evt in stream_llm_text(cfg, system, user_prompt, max_tokens=512):
+            if evt.get("type") == "usage":
+                token_info = evt.get("token_info")
+                continue
+            piece = evt.get("text") or ""
+            if not piece:
+                continue
+            raw += piece
+            # Safe-to-emit answer = everything before the follow-up marker. Until the
+            # marker appears, hold back the last len(marker) chars so a marker split
+            # across chunks never leaks into the spoken text.
+            idx = raw.upper().find(marker)
+            answer_so_far = raw[:idx] if idx != -1 else raw[: max(0, len(raw) - len(marker))]
+            if len(answer_so_far) > emitted:
+                yield {"type": "delta", "text": answer_so_far[emitted:]}
+                emitted = len(answer_so_far)
+                any_delta = True
+
+        # Stream ended cleanly — flush any held-back tail and split follow-ups.
+        answer, follow_ups = _split_followups(raw, "voice")
+        if len(answer) > emitted:
+            yield {"type": "delta", "text": answer[emitted:]}
+        if token_info:
+            _accumulate(usage, token_info)
+            usage["model"] = token_info.get("model", cfg.model)
+        else:
+            usage["model"] = cfg.model
+        yield {"type": "final", "reply": answer, "followUps": follow_ups, "token_info": usage}
+        return
+
+    except Exception as exc:  # noqa: BLE001
+        if any_delta:
+            # Already spoke part of it — finalise with what we have rather than
+            # restarting and double-speaking. Best-effort token_info.
+            logger.warning("[ChatService] voice stream broke mid-reply (%s) — finalising partial", exc)
+            answer, follow_ups = _split_followups(raw, "voice")
+            if token_info:
+                _accumulate(usage, token_info)
+            usage["model"] = (token_info or {}).get("model", cfg.model)
+            yield {"type": "final", "reply": answer or raw.strip(), "followUps": follow_ups,
+                   "token_info": usage, "partial": True}
+            return
+        # Nothing emitted yet → safe to fall back to the resilient non-streaming path.
+        logger.warning("[ChatService] voice stream unavailable (%s) — non-stream fallback", exc)
+        result = await _voice_reply(message, history, farm_profile, response_length,
+                                    model_override=model_override)
+        if result.get("reply"):
+            yield {"type": "delta", "text": result["reply"]}
+        yield {"type": "final", "reply": result.get("reply", ""),
+               "followUps": result.get("followUps", []), "token_info": result.get("token_info", usage)}
+        return
 
 
 async def _vision_reply(message, history, farm_profile, image, response_length, mode):
