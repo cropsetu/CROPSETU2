@@ -5,11 +5,12 @@ public FastAPI URL can't be hit directly to burn LLM spend (AISVC-1).
 """
 from __future__ import annotations
 import asyncio
+import json
 import logging
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from security.auth import verify_signed_request
-from services.chat_service import chat_with_farmmind
+from services.chat_service import chat_with_farmmind, stream_voice_reply
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Chat"])
@@ -73,3 +74,42 @@ async def ai_chat(request: Request):
             {"success": False, "error": msg, "detail": {"code": code, "message": msg}},
             status_code=status,
         )
+
+
+@router.post("/ai/chat/stream", dependencies=[Depends(verify_signed_request)])
+async def ai_chat_stream(request: Request):
+    """Server-Sent-Events streaming variant for the low-latency VOICE path only.
+
+    Streams the spoken reply as it is generated so Express can synthesise and play
+    each sentence while later ones are still being written. Emits SSE frames whose
+    `data:` payload is one JSON event from stream_voice_reply:
+        {"type":"delta","text":...}   then   {"type":"final","reply":...,"followUps":[...],"token_info":{...}}
+    On error a single {"type":"error","error":...} frame is emitted and the stream
+    closes — Express maps that to a voice:error for the client.
+    """
+    body = await request.json()
+    message         = body.get("message", "")
+    history         = body.get("history", [])
+    farm_profile    = body.get("farm_profile", {})
+    response_length = body.get("response_length", "short")
+    model_override  = body.get("model")
+
+    if not message.strip():
+        return JSONResponse({"success": False, "error": "message is required"}, 400)
+
+    async def event_gen():
+        try:
+            async for evt in stream_voice_reply(
+                message, history, farm_profile,
+                response_length=response_length, model_override=model_override,
+            ):
+                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            logger.error("[ChatStream] %s", exc, exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'error': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

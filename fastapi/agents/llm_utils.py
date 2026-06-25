@@ -402,6 +402,123 @@ async def call_groq_text(
     return text, tok
 
 
+# ── Streaming text (voice low-latency path) ──────────────────────────────────
+# Async generators that yield incremental text as the model produces it, then a
+# final usage event. Only Gemini + Groq have a streaming path (the two providers
+# the voice writer uses); other providers raise upstream so the caller falls back
+# to the non-streaming one-shot call. Each yields:
+#   {"type": "delta", "text": <incremental text>}        # zero or more
+#   {"type": "usage", "token_info": <_make_token_info()>} # exactly one, last
+# A failure mid-stream propagates as an exception — the service layer decides
+# whether to finalise with the partial text or fall back to a fresh non-stream call.
+
+async def stream_gemini_text(
+    system_prompt: str,
+    user_prompt: str,
+    gemini_api_key: str,
+    *,
+    model: str = "gemini-2.5-flash",
+    max_tokens: int = 512,
+    temperature: float = 0.3,
+):
+    """Stream Gemini text via :streamGenerateContent?alt=sse. Yields delta/usage events."""
+    url = f"{_GEMINI_BASE}/{model}:streamGenerateContent?alt=sse"
+    headers = {"x-goog-api-key": gemini_api_key}
+    gen_config = {"maxOutputTokens": max_tokens, "temperature": temperature}
+    if _gemini_disable_thinking(model):
+        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+    payload = {
+        "contents": [{"parts": [{"text": f"{system_prompt}\n\n{user_prompt}"}]}],
+        "generationConfig": gen_config,
+    }
+
+    client = get_gemini()
+    prompt_toks, cand_toks = 0, 0
+    async with client.stream("POST", url, json=payload, headers=headers, timeout=90) as resp:
+        if resp.status_code >= 400:
+            body = (await resp.aread()).decode("utf-8", "replace")
+            logger.error("[Gemini stream] %s HTTP %d — %s", model, resp.status_code, body[:300])
+            raise httpx.HTTPStatusError(
+                f"Gemini stream {resp.status_code}", request=resp.request, response=resp
+            )
+        async for line in resp.aiter_lines():
+            if not line or not line.startswith("data:"):
+                continue
+            chunk = line[5:].strip()
+            if not chunk or chunk == "[DONE]":
+                continue
+            try:
+                data = json.loads(chunk)
+            except json.JSONDecodeError:
+                continue
+            try:
+                parts = data["candidates"][0]["content"]["parts"]
+                text = "".join(p.get("text", "") for p in parts)
+            except (KeyError, IndexError):
+                text = ""
+            usage = data.get("usageMetadata")
+            if usage:
+                prompt_toks = usage.get("promptTokenCount", prompt_toks)
+                cand_toks = usage.get("candidatesTokenCount", cand_toks)
+            if text:
+                yield {"type": "delta", "text": text}
+    yield {"type": "usage", "token_info": _make_token_info(model, prompt_toks, cand_toks)}
+
+
+async def stream_groq_text(
+    system_prompt: str,
+    user_prompt: str,
+    groq_api_key: str,
+    *,
+    model: str = "llama-3.3-70b-versatile",
+    max_tokens: int = 512,
+    temperature: float = 0.3,
+):
+    """Stream Groq's OpenAI-compatible chat API (stream=True). Yields delta/usage events."""
+    headers = {"Authorization": f"Bearer {groq_api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+
+    client = get_groq()
+    prompt_toks, comp_toks = 0, 0
+    async with client.stream("POST", _GROQ_BASE, headers=headers, json=payload, timeout=90) as resp:
+        if resp.status_code >= 400:
+            body = (await resp.aread()).decode("utf-8", "replace")
+            logger.error("[Groq stream] %s HTTP %d — %s", model, resp.status_code, body[:300])
+            raise httpx.HTTPStatusError(
+                f"Groq stream {resp.status_code}", request=resp.request, response=resp
+            )
+        async for line in resp.aiter_lines():
+            if not line or not line.startswith("data:"):
+                continue
+            chunk = line[5:].strip()
+            if chunk == "[DONE]":
+                break
+            try:
+                data = json.loads(chunk)
+            except json.JSONDecodeError:
+                continue
+            choices = data.get("choices") or []
+            if choices:
+                text = (choices[0].get("delta") or {}).get("content") or ""
+                if text:
+                    yield {"type": "delta", "text": text}
+            usage = data.get("usage")
+            if usage:
+                prompt_toks = usage.get("prompt_tokens", prompt_toks)
+                comp_toks = usage.get("completion_tokens", comp_toks)
+    yield {"type": "usage", "token_info": _make_token_info(model, prompt_toks, comp_toks)}
+
+
 # ── OpenAI Vision (crop-diagnosis ensemble voter) ────────────────────────────
 # GPT-4o joins the crop-disease ensemble as ONE extra cross-vendor vision voter
 # (alongside Gemini Pro + Flash); the reconciler fuses its diagnosis with the

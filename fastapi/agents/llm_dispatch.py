@@ -46,6 +46,8 @@ from agents.llm_utils import (
     call_groq_text,
     call_openai_text,
     call_openai_vision,
+    stream_gemini_text,
+    stream_groq_text,
 )
 from config import GEMINI_API_KEY, GROQ_API_KEY, GROQ_FALLBACK_MODEL
 
@@ -368,6 +370,43 @@ async def call_llm_text(
                 pass  # Groq also failed — surface the original Gemini failure below.
 
         raise primary_exc  # surface the original failure, not a fallback's
+
+
+class StreamingUnsupported(RuntimeError):
+    """Raised when stream_llm_text is asked for a provider without a streaming path."""
+
+
+async def stream_llm_text(
+    cfg: FeatureConfig,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    max_tokens: int = 512,
+    temperature: float = 0.3,
+):
+    """Streaming text generation for the gemini/groq providers (the ones the voice
+    writer uses). Yields {"type":"delta","text":...} events then a final
+    {"type":"usage","token_info":...}.
+
+    Unlike call_llm_text there is NO multi-provider fallback here: streaming is a
+    latency optimisation, and the caller (chat_service.stream_voice_reply) is
+    expected to fall back to the fully-resilient non-streaming call_llm_text if
+    this raises before producing output. A provider without a streaming helper
+    raises StreamingUnsupported so that fallback triggers immediately.
+    """
+    provider = _detect_provider(cfg.model, cfg.base_url)
+    logger.info("[LLMDispatch] STREAM feature=%s provider=%s model=%s",
+                cfg.feature, provider, cfg.model)
+    if provider == "gemini":
+        gen = stream_gemini_text(system_prompt, user_prompt, cfg.api_key,
+                                 model=cfg.model, max_tokens=max_tokens, temperature=temperature)
+    elif provider == "groq":
+        gen = stream_groq_text(system_prompt, user_prompt, cfg.api_key,
+                               model=cfg.model, max_tokens=max_tokens, temperature=temperature)
+    else:
+        raise StreamingUnsupported(provider)
+    async for evt in gen:
+        yield evt
 
 
 async def call_llm_vision(
