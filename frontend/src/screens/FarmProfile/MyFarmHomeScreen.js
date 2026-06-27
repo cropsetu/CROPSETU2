@@ -131,6 +131,7 @@ export default function MyFarmHomeScreen({ navigation }) {
   };
   const goFarmList = () => navigation.navigate('FarmList');
   const goAddFarm = () => navigation.navigate('FarmAddEdit');
+  const goAddFarmVoice = () => navigation.navigate('FarmVoiceAgent');
   const goFarmDetail = () => activeFarmId && navigation.navigate('FarmDetail', { farmId: activeFarmId });
   const goCycleCreate = () => activeFarmId && navigation.navigate('CropCycleCreate', { farmId: activeFarmId });
   const goCycleDetail = (id) => navigation.navigate('CropCycleDetail', { cycleId: id });
@@ -138,7 +139,7 @@ export default function MyFarmHomeScreen({ navigation }) {
   if (!hasFarms && !syncing && !loading) {
     return (
       <CosmicScreen scroll refreshing={syncing} onRefresh={onRefresh}>
-        <EmptyState onAddFarm={goAddFarm} t={t} />
+        <EmptyState onAddFarm={goAddFarm} onAddFarmVoice={goAddFarmVoice} t={t} />
       </CosmicScreen>
     );
   }
@@ -457,7 +458,7 @@ function EmptyFeed({ onStart, t }) {
   );
 }
 
-function EmptyState({ onAddFarm, t }) {
+function EmptyState({ onAddFarm, onAddFarmVoice, t }) {
   return (
     <View style={styles.emptyRoot}>
       <View style={[styles.mediumBubble, { backgroundColor: COSMIC.PRIMARY_SOFT, width: 64, height: 64, borderRadius: 32 }]}>
@@ -467,7 +468,9 @@ function EmptyState({ onAddFarm, t }) {
       <Text style={[styles.emptyText, { textAlign: 'center', maxWidth: 280 }]}>
         {t('myFarm.setUpFarmHint', "Add your first farm in under 3 minutes. Name, village, size, main crop — that's all we need today.")}
       </Text>
-      <GlowButton label={t('myFarm.addFirstFarm', 'Add your first farm')} icon="add" variant="primary" onPress={onAddFarm} style={{ marginTop: 16, minWidth: 220 }} />
+      {/* Voice-first: "Hey Krushi" sets up the whole farm by speaking. Manual form stays as the fallback. */}
+      <GlowButton label={t('voiceAgent.setupByVoice', 'Set up by voice')} icon="mic" variant="primary" onPress={onAddFarmVoice} style={{ marginTop: 16, minWidth: 220 }} />
+      <GlowButton label={t('voiceAgent.addManually', 'Or fill the form')} icon="create-outline" variant="ghost" onPress={onAddFarm} style={{ marginTop: 10, minWidth: 220 }} />
     </View>
   );
 }

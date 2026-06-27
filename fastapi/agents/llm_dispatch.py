@@ -67,6 +67,8 @@ AI_FEATURES = (
     "CROP_TREATMENT",   # RAG-grounded treatment plan
     "ALERT",            # Smart farm alerts
     "PEST",             # KisanRakshak pest enhancement
+    "VOICE_AGENT",      # "Hey Krushi" voice assistant — generic structured field extraction (JSON),
+                        # domain-agnostic (farm / animal-post / rent / …). One model, many domains.
 )
 
 
@@ -88,6 +90,7 @@ _DEFAULTS: dict[str, str] = {
     "CROP_TREATMENT":     "gemini-2.5-flash",
     "ALERT":              "gemini-2.5-flash",
     "PEST":               "gemini-2.5-flash",
+    "VOICE_AGENT":        "gemini-2.5-flash",
 }
 
 
@@ -370,6 +373,70 @@ async def call_llm_text(
                 pass  # Groq also failed — surface the original Gemini failure below.
 
         raise primary_exc  # surface the original failure, not a fallback's
+
+
+async def call_llm_structured(
+    cfg: FeatureConfig,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    max_tokens: int = 2048,
+    temperature: float = 0.1,
+) -> tuple[str, dict]:
+    """One-shot JSON-mode text call for structured extraction. Returns (raw_json_text, token_info).
+
+    Used by the generic VOICE_AGENT engine (and any future structured feature).
+    Low temperature for deterministic field extraction. For a Gemini primary we
+    set responseMimeType=application/json (syntactically-valid JSON guaranteed)
+    and keep the Flash↔Pro capacity fallback. Other providers are called in plain
+    text mode — the prompt still demands JSON and the caller parses with
+    utils.json_extractor.extract_json, so a 'gpt-*'/'claude-*' override still works.
+    No cross-provider Groq fallback here: JSON-shape fidelity matters more than a
+    last-resort reply, and the caller degrades gracefully on a parse miss.
+    """
+    provider = _detect_provider(cfg.model, cfg.base_url)
+    logger.info("[LLMDispatch] STRUCTURED feature=%s provider=%s model=%s",
+                cfg.feature, provider, cfg.model)
+    label = f"{cfg.feature}/{provider}/json"
+
+    # Non-Gemini: direct call, no JSON-mode flag (prompt-driven JSON + parse fallback).
+    if provider == "anthropic":
+        return await _with_retry(lambda: call_anthropic_text(
+            system_prompt, user_prompt, cfg.api_key,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+        ), label=label)
+    if provider == "openai":
+        return await _with_retry(lambda: call_openai_text(
+            system_prompt, user_prompt, cfg.api_key,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+        ), label=label)
+    if provider == "groq":
+        return await _with_retry(lambda: call_groq_text(
+            system_prompt, user_prompt, cfg.api_key,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+        ), label=label)
+
+    # Gemini (primary) → Gemini-family capacity fallback (Flash↔Pro). JSON mode on.
+    try:
+        return await _with_retry(lambda: call_gemini_text(
+            system_prompt, user_prompt, cfg.api_key,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature, json_mode=True,
+        ), label=label)
+    except Exception as primary_exc:  # noqa: BLE001
+        fb = _fallback_model(cfg.feature, cfg.model)
+        if fb:
+            logger.warning(
+                "[LLMDispatch] %s structured primary %s failed (%s) — capacity fallback to %s",
+                cfg.feature, cfg.model, type(primary_exc).__name__, fb,
+            )
+            try:
+                return await _with_retry(lambda: call_gemini_text(
+                    system_prompt, user_prompt, cfg.api_key,
+                    model=fb, max_tokens=max_tokens, temperature=temperature, json_mode=True,
+                ), label=f"{label}/fallback:{fb}")
+            except Exception:  # noqa: BLE001
+                pass
+        raise primary_exc
 
 
 class StreamingUnsupported(RuntimeError):

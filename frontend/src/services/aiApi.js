@@ -462,6 +462,84 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
 }
 
 /**
+ * "Hey Krushi" voice assistant — send ONE turn of a guided voice form.
+ * Generic + domain-agnostic: `domain` picks what's being filled ('farm' today;
+ * animal-post / rent / crop-cycle / activity later). The server keeps the
+ * accumulating draft in a session keyed by `sessionId` (omit on the first turn;
+ * the response returns one to pass back on subsequent turns).
+ *
+ * @param {string} audioUri  recorded m4a/webm clip
+ * @param {object} opts
+ * @param {string} opts.domain      e.g. 'farm' (required)
+ * @param {string} opts.language    BCP-47 (e.g. 'mr-IN')
+ * @param {string|null} opts.sessionId  null on first turn
+ * @param {object|null} opts.context    optional domain context (e.g. { farmId } for edits)
+ * @param {object|null} opts.farmProfile optional profile override for enrichment
+ * @returns {{ sessionId, domain, transcription, detectedLanguage, intent, draft,
+ *            missingRequired, readyToSave, nextAction, speak, fieldConfidence,
+ *            audio?: { audio: base64, mimeType } }}
+ */
+export async function sendVoiceAgentTurn(audioUri, { domain, language = 'hi-IN', sessionId = null, context = null, farmProfile = null } = {}) {
+  const isWeb = typeof document !== 'undefined';
+  const idemKey = newIdemKey();
+
+  if (isWeb) {
+    const formData = new FormData();
+    const resp = await fetch(audioUri);
+    const blob = await resp.blob();
+    formData.append('audio', blob, audioUri.split('/').pop() || 'voice.m4a');
+    formData.append('domain', domain);
+    formData.append('language', language);
+    if (sessionId) formData.append('sessionId', sessionId);
+    if (context) formData.append('context', JSON.stringify(context));
+    if (farmProfile) formData.append('farmProfile', JSON.stringify(farmProfile));
+    const { data } = await api.post('/ai/voice-agent/turn', formData, {
+      headers: { 'Content-Type': 'multipart/form-data', 'Idempotency-Key': idemKey },
+      timeout: 90000,
+    });
+    return data.data;
+  }
+
+  const token = await getAccessToken();
+  const params = { domain, language };
+  if (sessionId) params.sessionId = sessionId;
+  if (context) params.context = JSON.stringify(context);
+  if (farmProfile) params.farmProfile = JSON.stringify(farmProfile);
+
+  const uploadResult = await FileSystem.uploadAsync(
+    `${API_BASE_URL}/ai/voice-agent/turn`,
+    audioUri,
+    {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: 'audio',
+      mimeType: 'audio/m4a',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Idempotency-Key': idemKey },
+      parameters: params,
+    },
+  );
+
+  if (uploadResult.status < 200 || uploadResult.status >= 300) {
+    let errBody;
+    try { errBody = JSON.parse(uploadResult.body); } catch { errBody = {}; }
+    const e = new Error(errBody?.error?.message || `HTTP ${uploadResult.status}`);
+    e.status = uploadResult.status;
+    e.response = { status: uploadResult.status, data: errBody };
+    throw e;
+  }
+
+  return JSON.parse(uploadResult.body).data;
+}
+
+/**
+ * Cancel an in-progress voice-agent session (nothing is saved).
+ */
+export async function cancelVoiceAgentSession(sessionId) {
+  if (!sessionId) return;
+  try { await api.post('/ai/voice-agent/cancel', { sessionId }, { timeout: 8000 }); } catch { /* best-effort */ }
+}
+
+/**
  * Text-to-speech — convert text to audio in the given language.
  * @returns {{ audio: base64, mimeType: string }}
  */

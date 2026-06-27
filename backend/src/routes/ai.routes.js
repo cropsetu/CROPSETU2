@@ -84,6 +84,14 @@ function uploadScanImagesToCloudinary(images, userId) {
 // must stay in lock-step with fastapi/security/auth.py — change them together.
 import { callFastAPI, streamSignedSSE } from '../utils/fastapi-signed.js';
 import { registerVoiceStream, unregisterVoiceStream } from '../services/voiceStream.registry.js';
+import {
+  getSession as getVoiceAgentSession,
+  saveSession as saveVoiceAgentSession,
+  clearSession as clearVoiceAgentSession,
+  newSessionId as newVoiceAgentSessionId,
+  appendTurn as appendVoiceAgentTurn,
+  VOICE_AGENT_DOMAINS,
+} from '../services/voiceAgentSession.service.js';
 import { archiveResource } from '../services/softDelete.service.js';
 
 /**
@@ -983,6 +991,185 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
     if (err.name === 'AbortError') return sendError(res, 'AI response timed out.', 504);
     return sendError(res, 'Voice processing failed. Please try again.', 500);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/ai/voice-agent/turn  — "Hey Krushi" voice assistant (GENERIC)
+//   Sarvam STT → FastAPI /ai/voice-agent (structured field extraction) → Sarvam TTS.
+//   Domain-agnostic: body.domain picks what we're filling (farm today; animal-post /
+//   rent / crop-cycle / activity later). The multi-turn draft lives server-side in
+//   Redis (voiceAgentSession). One ai_voice credit per turn (STT+LLM+TTS bundled).
+//   No streaming + no DB conversation row: each `speak` is one short clip and the
+//   session is ephemeral — the FINAL save runs on the client via MultiFarmContext.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/voice-agent/turn', authenticate, aiVoiceLimit, idempotency('voice_agent'), audioUpload.single('audio'), async (req, res) => {
+  const file = req.file;
+  if (!file) return sendError(res, 'audio file is required (field name: audio)', 400);
+
+  const cleanUp = (p) => { try { fs.unlinkSync(p); } catch { /* ignore */ } };
+  const domain = String(req.body.domain || '').trim().toLowerCase();
+  // Reject an unknown domain BEFORE spending STT + a credit hold.
+  if (!VOICE_AGENT_DOMAINS.has(domain)) {
+    cleanUp(file.path);
+    return sendError(res, `Unsupported voice-agent domain: ${domain || '(none)'}`, 400);
+  }
+
+  const hold = await reserveCredits(req.user.id, 'ai_voice');
+  if (!hold.ok) {
+    cleanUp(file.path);
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
+  }
+
+  try {
+    const ext         = (file.originalname?.match(/\.(\w+)$/)?.[1] || 'm4a').toLowerCase();
+    const renamedPath = `${file.path}.${ext}`;
+    fs.renameSync(file.path, renamedPath);
+
+    let transcription    = '';
+    let detectedLanguage = req.body.language || null;
+
+    if (!ENV.SARVAM_API_KEY) {
+      cleanUp(renamedPath);
+      await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
+      return sendError(res, 'Voice is temporarily unavailable. Please use the form instead.', 503);
+    }
+
+    // Admin-selected Sarvam STT model (App Settings → ai.model.voiceStt). Same
+    // resolution as /voice; any non-sarvam provider falls back to the default.
+    let sttModel;
+    try {
+      const sttSetting = String(await getSetting('ai.model.voiceStt') || '');
+      const sepIdx   = sttSetting.indexOf(':');
+      const provider = sepIdx >= 0 ? sttSetting.slice(0, sepIdx) : sttSetting;
+      const modelId  = sepIdx >= 0 ? sttSetting.slice(sepIdx + 1) : '';
+      if (provider === 'sarvam' && modelId) sttModel = modelId;
+    } catch { /* fall back to sarvamSTT default */ }
+
+    let sttError = null;
+    try {
+      const audioBuffer = fs.readFileSync(renamedPath);
+      const r = await sarvamSTT(audioBuffer, `audio.${ext}`, detectedLanguage, sttModel);
+      transcription    = (r.transcript || '').trim();
+      detectedLanguage = r.languageCode || detectedLanguage;
+    } catch (e) {
+      sttError = e;
+      logger.warn('[VoiceAgent STT] failed: %s', e.message);
+    }
+    cleanUp(renamedPath);
+
+    if (sttError) {
+      await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
+      return sendError(res, 'Voice service is temporarily unavailable. Please try again in a moment.', 503);
+    }
+    if (!transcription) {
+      await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
+      return sendError(res, 'Could not transcribe audio — please speak clearly and try again.', 422);
+    }
+
+    // ── Multi-turn session (accumulating draft) ───────────────────────────────
+    let sessionId = String(req.body.sessionId || '').trim() || null;
+    const session = sessionId ? await getVoiceAgentSession(req.user.id, sessionId) : null;
+    if (!sessionId) sessionId = newVoiceAgentSessionId();
+    const priorDraft  = session?.draft || {};
+    const turnHistory = session?.turnHistory || [];
+    let context = {};
+    try { context = JSON.parse(req.body.context || '{}'); } catch { /* ignore */ }
+    if (session?.context) context = { ...session.context, ...context };
+
+    // ── Farm context enrichment (cached per session) ──────────────────────────
+    let farmProfileOverride = {};
+    try { farmProfileOverride = JSON.parse(req.body.farmProfile || '{}'); } catch { /* ignore */ }
+    let enrichedProfile = {};
+    const enrichKey = `${req.user.id}:va:${sessionId}`;
+    const cachedProfile = getCachedEnrichedProfile(enrichKey);
+    if (cachedProfile) {
+      enrichedProfile = { ...cachedProfile };
+    } else {
+      try {
+        const { profile } = await buildEnrichedProfile(req.user.id, farmProfileOverride);
+        enrichedProfile = profile;
+        setCachedEnrichedProfile(enrichKey, profile);
+      } catch (ctxErr) { logger.warn('[VoiceAgent] context failed (non-fatal): %s', ctxErr.message); }
+    }
+    // Reply/extraction language: user choice → Sarvam-detected → English. Short code.
+    const replyLang = (
+      (req.body.language || '').split('-')[0].toLowerCase()
+      || (detectedLanguage || '').split('-')[0].toLowerCase()
+      || 'en'
+    );
+    if (replyLang) enrichedProfile.language = replyLang;
+
+    // ── FastAPI structured extraction (one fast JSON turn) ────────────────────
+    const result = await callFastAPI('/ai/voice-agent', {
+      domain,
+      transcript:   transcription,
+      draft:        priorDraft,
+      turn_history: turnHistory,
+      farm_profile: enrichedProfile,
+      context,
+    }, req.user.id, 45_000, req.id);
+
+    const {
+      intent, draft, missing_required: missingRequired, ready_to_save: readyToSave,
+      next_action: nextAction, speak, field_confidence: fieldConfidence, token_info: tokenInfo,
+    } = result || {};
+    const tokens = tokenInfo?.total_tokens || 0;
+    const model  = tokenInfo?.model || 'unknown';
+    const mergedDraft = draft || priorDraft;
+
+    // ── TTS the spoken line, concurrent with session persist + credit settle ──
+    const ttsPromise = (ENV.SARVAM_API_KEY && speak)
+      ? sarvamTTS(speak, detectedLanguage || 'hi-IN')
+          .then((r) => ({ audio: r.audio, mimeType: r.mimeType }))
+          .catch((e) => { logger.warn('[VoiceAgent TTS] failed (non-fatal): %s', e.message); return null; })
+      : Promise.resolve(null);
+
+    const conversationOver = nextAction === 'save' || nextAction === 'cancelled';
+    const persistAndSettle = (async () => {
+      if (conversationOver) {
+        await clearVoiceAgentSession(req.user.id, sessionId);
+      } else {
+        await saveVoiceAgentSession(req.user.id, sessionId, {
+          domain,
+          draft:       mergedDraft,
+          turnHistory: appendVoiceAgentTurn(turnHistory, transcription, speak),
+          context,
+        });
+      }
+      await settleCredits(req.user.id, 'ai_voice', {
+        reserved: hold.reserved, holdId: hold.holdId, tokensUsed: tokens, model,
+        description: `Voice agent (${domain}): ${model}`, costUsd: tokenInfo?.cost_usd,
+      });
+    })();
+
+    const [audioData] = await Promise.all([ttsPromise, persistAndSettle]);
+
+    return sendSuccess(res, {
+      sessionId, domain, transcription, detectedLanguage,
+      intent: intent || 'capture',
+      draft: mergedDraft,
+      missingRequired: Array.isArray(missingRequired) ? missingRequired : [],
+      readyToSave: !!readyToSave,
+      nextAction: nextAction || 'ask',
+      speak: speak || '',
+      fieldConfidence: fieldConfidence || {},
+      ...(audioData ? { audio: audioData } : {}),
+    });
+
+  } catch (err) {
+    await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
+    try { if (req.file?.path) fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+    logger.error('[VoiceAgent] %s', err.message);
+    if (err.name === 'AbortError') return sendError(res, 'Voice assistant timed out.', 504);
+    return sendError(res, 'Voice assistant failed. Please try again.', 500);
+  }
+});
+
+// POST /api/v1/ai/voice-agent/cancel — drop an in-progress session (nothing saved)
+router.post('/voice-agent/cancel', authenticate, async (req, res) => {
+  const sessionId = String(req.body.sessionId || '').trim();
+  if (sessionId) await clearVoiceAgentSession(req.user.id, sessionId);
+  return sendSuccess(res, { cleared: true });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -249,8 +249,15 @@ async def call_gemini_text(
     model: str = "gemini-2.5-flash",
     max_tokens: int = 4096,
     temperature: float = 0.3,
+    json_mode: bool = False,
 ) -> tuple[str, dict]:
-    """Call Gemini text-only (no images). Returns (raw_text, token_info)."""
+    """Call Gemini text-only (no images). Returns (raw_text, token_info).
+
+    json_mode=True sets responseMimeType=application/json so Gemini is
+    constrained to emit a single syntactically-valid JSON document (used by the
+    structured-extraction features like FARM_AGENT — the prompt describes the
+    shape; the caller validates the semantics).
+    """
     url = f"{_GEMINI_BASE}/{model}:generateContent"
     headers = {"x-goog-api-key": gemini_api_key}
 
@@ -258,6 +265,8 @@ async def call_gemini_text(
         "maxOutputTokens": max_tokens,
         "temperature": temperature,
     }
+    if json_mode:
+        gen_config["responseMimeType"] = "application/json"
     # See call_gemini_vision / _gemini_disable_thinking — only Flash allows
     # turning thinking off; Pro requires it (else HTTP 400).
     if _gemini_disable_thinking(model):
