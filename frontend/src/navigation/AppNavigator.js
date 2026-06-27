@@ -214,6 +214,7 @@ import AICreditsScreen      from '../screens/AI/AICreditsScreen';
 import AnimalTradeHome  from '../screens/AnimalTrade/AnimalTradeHome';
 import AnimalDetail     from '../screens/AnimalTrade/AnimalDetail';
 import AddAnimalListing from '../screens/AnimalTrade/AddAnimalListing';
+import AnimalVoiceAgentScreen from '../screens/AnimalTrade/AnimalVoiceAgentScreen';
 import MyAnimalChatsScreen from '../screens/AnimalTrade/MyAnimalChatsScreen';
 import ChatScreen       from '../screens/AnimalTrade/ChatScreen';
 
@@ -223,6 +224,7 @@ import MachineryDetail    from '../screens/Rent/MachineryDetail';
 import LabourDetail       from '../screens/Rent/LabourDetail';
 import AddMachineryScreen from '../screens/Rent/AddMachineryScreen';
 import AddWorkerScreen    from '../screens/Rent/AddWorkerScreen';
+import RentVoiceAgentScreen from '../screens/Rent/RentVoiceAgentScreen';
 import RentBookingsScreen from '../screens/Rent/RentBookingsScreen';
 
 // Weather
@@ -233,6 +235,7 @@ import StateCropsScreen from '../screens/Weather/StateCropsScreen';
 
 // Profile
 import ProfileScreen           from '../screens/Profile/ProfileScreen';
+import ProfileVoiceAgentScreen from '../screens/Profile/ProfileVoiceAgentScreen';
 import MyRentListingsScreen    from '../screens/Rent/MyRentListingsScreen';
 import MyOrdersScreen          from '../screens/Profile/MyOrdersScreen';
 import SavedPostsScreen        from '../screens/Profile/SavedPostsScreen';
@@ -243,6 +246,7 @@ import MyFarmHomeScreen         from '../screens/FarmProfile/MyFarmHomeScreen';
 import FarmListScreen           from '../screens/FarmProfile/FarmListScreen';
 import FarmDetailScreen         from '../screens/FarmProfile/FarmDetailScreen';
 import FarmAddEditScreen        from '../screens/FarmProfile/FarmAddEditScreen';
+import FarmVoiceAgentScreen     from '../screens/FarmProfile/FarmVoiceAgentScreen';
 import CropCycleCreateScreen    from '../screens/FarmProfile/CropCycleCreateScreen';
 import CropCycleDetailScreen    from '../screens/FarmProfile/CropCycleDetailScreen';
 import GrowthStoryScreen        from '../screens/FarmProfile/GrowthStoryScreen';
@@ -337,6 +341,7 @@ function AINavigator() {
       <AIStack.Screen name="FarmList"               component={FarmListScreen}         options={{ headerShown: false }} />
       <AIStack.Screen name="FarmDetail"             component={FarmDetailScreen}       options={{ headerShown: false }} />
       <AIStack.Screen name="FarmAddEdit"            component={FarmAddEditScreen}      options={{ headerShown: false }} />
+      <AIStack.Screen name="FarmVoiceAgent"         component={FarmVoiceAgentScreen}   options={{ headerShown: false }} />
       <AIStack.Screen name="CropCycleCreate"        component={CropCycleCreateScreen}  options={{ headerShown: false }} />
       <AIStack.Screen name="CropCycleDetail"        component={CropCycleDetailScreen}  options={{ headerShown: false }} />
       <AIStack.Screen name="GrowthStory"            component={GrowthStoryScreen}      options={{ headerShown: false }} />
@@ -366,6 +371,7 @@ function AnimalTradeNavigator() {
       <AnimalStack.Screen name="AnimalTradeHome"  component={AnimalTradeHome}  options={{ headerShown: false }} />
       <AnimalStack.Screen name="AnimalDetail"     component={AnimalDetail}     options={{ title: t('animalDetail.animalDetails') }} />
       <AnimalStack.Screen name="AddAnimalListing" component={AddAnimalListing} options={{ title: t('sellYourAnimal') }} />
+      <AnimalStack.Screen name="AnimalVoiceAgent" component={AnimalVoiceAgentScreen} options={{ headerShown: false }} />
       <AnimalStack.Screen name="MyAnimalChats"    component={MyAnimalChatsScreen} options={{ headerShown: false }} />
       <AnimalStack.Screen name="Chat"             component={ChatScreen}       options={{ headerShown: false }} />
     </AnimalStack.Navigator>
@@ -380,6 +386,7 @@ function RentNavigator() {
       <RentStack.Screen name="LabourDetail"    component={LabourDetail}       options={{ headerShown: false }} />
       <RentStack.Screen name="AddMachinery"    component={AddMachineryScreen} options={{ headerShown: false }} />
       <RentStack.Screen name="AddWorker"       component={AddWorkerScreen}    options={{ headerShown: false }} />
+      <RentStack.Screen name="RentVoiceAgent"  component={RentVoiceAgentScreen} options={{ headerShown: false }} />
       <RentStack.Screen name="RentBookings"    component={RentBookingsScreen} options={{ headerShown: false }} />
     </RentStack.Navigator>
   );
@@ -394,6 +401,7 @@ function MyFarmNavigator() {
       <MyFarmStack.Screen name="FarmList"               component={FarmListScreen} />
       <MyFarmStack.Screen name="FarmDetail"             component={FarmDetailScreen} />
       <MyFarmStack.Screen name="FarmAddEdit"            component={FarmAddEditScreen} />
+      <MyFarmStack.Screen name="FarmVoiceAgent"         component={FarmVoiceAgentScreen} />
       <MyFarmStack.Screen name="CropCycleCreate"        component={CropCycleCreateScreen} />
       <MyFarmStack.Screen name="CropCycleDetail"        component={CropCycleDetailScreen} />
       <MyFarmStack.Screen name="GrowthStory"            component={GrowthStoryScreen} />
@@ -438,6 +446,7 @@ function ProfileNavigator() {
   return (
     <ProfileStack.Navigator screenOptions={defaultScreenOptions}>
       <ProfileStack.Screen name="ProfileHome"         component={ProfileScreen}           options={{ headerShown: false }} />
+      <ProfileStack.Screen name="ProfileVoiceAgent"   component={ProfileVoiceAgentScreen} options={{ headerShown: false }} />
       <ProfileStack.Screen name="MyRentListings"      component={MyRentListingsScreen}    options={{ headerShown: false }} />
       <ProfileStack.Screen name="SellerPortal"        component={SellerNavigator}         options={{ headerShown: false }} />
       <ProfileStack.Screen name="MyOrders"            component={MyOrdersScreen}          options={{ headerShown: false }} />
@@ -447,6 +456,7 @@ function ProfileNavigator() {
       <ProfileStack.Screen name="FarmList"                component={FarmListScreen}          options={{ headerShown: false }} />
       <ProfileStack.Screen name="FarmDetail"              component={FarmDetailScreen}        options={{ headerShown: false }} />
       <ProfileStack.Screen name="FarmAddEdit"             component={FarmAddEditScreen}       options={{ headerShown: false }} />
+      <ProfileStack.Screen name="FarmVoiceAgent"          component={FarmVoiceAgentScreen}    options={{ headerShown: false }} />
       <ProfileStack.Screen name="CropCycleCreate"         component={CropCycleCreateScreen}   options={{ headerShown: false }} />
       <ProfileStack.Screen name="CropCycleDetail"         component={CropCycleDetailScreen}   options={{ headerShown: false }} />
       <ProfileStack.Screen name="ActivityTypePicker"      component={ActivityTypePickerScreen} options={{ headerShown: false }} />
