@@ -33,6 +33,7 @@ import { MultiFarmProvider } from './src/context/MultiFarmContext';
 import { LocationProvider } from './src/context/LocationContext';
 import LocationSync from './src/context/LocationSync';
 import { CartProvider } from './src/context/CartContext';
+import { KrushiAssistantProvider } from './src/context/KrushiAssistantContext';
 import LoginScreen from './src/screens/Auth/LoginScreen';
 import RootErrorBoundary from './src/components/RootErrorBoundary';
 import InAppChatBanner from './src/components/InAppChatBanner';
@@ -125,11 +126,13 @@ export default function App() {
               <FarmProvider>
                 <MultiFarmProvider>
                   <LocationProvider>
-                    <LocationSync />
-                    <StatusBar style="light" />
-                    <RootNavigator />
-                    {/* WhatsApp-style in-app heads-up for new chat messages. */}
-                    <InAppChatBanner />
+                    <KrushiAssistantProvider>
+                      <LocationSync />
+                      <StatusBar style="light" />
+                      <RootNavigator />
+                      {/* WhatsApp-style in-app heads-up for new chat messages. */}
+                      <InAppChatBanner />
+                    </KrushiAssistantProvider>
                   </LocationProvider>
                 </MultiFarmProvider>
               </FarmProvider>

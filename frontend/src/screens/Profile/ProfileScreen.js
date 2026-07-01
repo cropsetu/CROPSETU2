@@ -604,7 +604,6 @@ export default function ProfileScreen({ navigation }) {
           <SectionCard delay={120}>
             <SectionHeader title={t('profile.accountSettings')} icon="settings-outline" iconColor={D.cyan} />
             {/* "Edit Profile" lives in the hero header — no duplicate row here. */}
-            <RowItem icon="mic-outline"           iconColor={D.blue}   label={t('voiceAgent.editByVoice', 'Edit profile by voice')} subtitle={t('voiceAgent.editByVoiceHint', 'Just say what to change')} onPress={() => navigation.navigate('ProfileVoiceAgent')} />
             <RowItem icon="location-outline"      iconColor={D.green}  label={t('profile.savedAddresses')}   subtitle={user?.city ? `${[user.city, user.district].filter(Boolean).join(', ')}` : t('profile.addAddress')} onPress={() => setShowEditModal(true)} />
             <RowItem
               icon="globe-outline" iconColor={D.cyan}

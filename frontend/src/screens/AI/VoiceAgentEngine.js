@@ -30,10 +30,10 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mic, Square as SquareIcon, X as CloseIcon, Check } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
 import { sendVoiceAgentTurn, cancelVoiceAgentSession } from '../../services/aiApi';
 import { useLanguage } from '../../context/LanguageContext';
+import KrushiEdgeGlow from './KrushiEdgeGlow';
 
 const { width: W } = Dimensions.get('window');
 
@@ -100,6 +100,7 @@ export default function VoiceAgentEngine({
   onSave,
   renderDraft,
   onClose,
+  autoStart = false,
 }) {
   const insets = useSafeAreaInsets();
   const { language, t } = useLanguage();
@@ -145,7 +146,8 @@ export default function VoiceAgentEngine({
     }
   }, []);
 
-  useFocusEffect(useCallback(() => {
+  // Mount/unmount lifecycle (works both as a nav screen AND a root overlay).
+  useEffect(() => {
     aliveRef.current = true;
     return () => {
       aliveRef.current = false;
@@ -156,7 +158,7 @@ export default function VoiceAgentEngine({
         cancelVoiceAgentSession(sessionIdRef.current);
       }
     };
-  }, [teardownRecording, teardownSound]));
+  }, [teardownRecording, teardownSound]);
 
   // Orb pulse while recording / speaking.
   useEffect(() => {
@@ -340,6 +342,15 @@ export default function VoiceAgentEngine({
   // auto-restart (in handleAfterSpeak's setTimeout) never calls a stale closure.
   useEffect(() => { startRecordingRef.current = startRecording; }, [startRecording]);
 
+  // Wake-word entry: begin listening as soon as the assistant opens (hands-free).
+  useEffect(() => {
+    if (!autoStart) return undefined;
+    const id = setTimeout(() => {
+      if (aliveRef.current && !finishedRef.current && startRecordingRef.current) startRecordingRef.current();
+    }, 450);
+    return () => clearTimeout(id);
+  }, [autoStart]);
+
   const handleClose = useCallback(async () => {
     finishedRef.current = true;
     await teardownRecording();
@@ -367,6 +378,9 @@ export default function VoiceAgentEngine({
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
       <LinearGradient colors={['#0B1F12', '#0E2A18', '#0A1A10']} style={StyleSheet.absoluteFill} />
+
+      {/* "Hey Krushi" — animated gradient glow on the screen edges, coloured by state. */}
+      <KrushiEdgeGlow phase={phase} visible={phase !== 'done' && phase !== 'cancelled'} />
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
