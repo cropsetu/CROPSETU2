@@ -1132,26 +1132,6 @@ export default function RentHome({ navigation }) {
             </TouchableOpacity>
           )}
 
-          {/* ── List by voice ("Hey Krushi") ── */}
-          {!loading && (
-            <TouchableOpacity
-              style={S.voiceBanner}
-              onPress={() =>
-                navigation.navigate("RentVoiceAgent", {
-                  kind: tab === "machinery" ? "machinery" : "labour",
-                })
-              }
-              activeOpacity={0.9}
-            >
-              <Ionicons name="mic" size={22} color="#fff" />
-              <Text style={S.voiceBannerTxt}>
-                {tab === "machinery"
-                  ? t("voiceAgent.listMachineryByVoice", "List machinery by voice")
-                  : t("voiceAgent.listLabourByVoice", "List labour by voice")}
-              </Text>
-            </TouchableOpacity>
-          )}
-
           <View style={{ height: 30 }} />
         </ScrollView>
 
@@ -1167,12 +1147,6 @@ export default function RentHome({ navigation }) {
 const S = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
-  voiceBanner: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    marginHorizontal: 16, marginTop: 12, paddingVertical: 14, borderRadius: 16,
-    backgroundColor: '#0EA5E9',
-  },
-  voiceBannerTxt: { color: '#fff', fontSize: 15, fontWeight: '800' },
 
   header: {
     flexDirection: "row",

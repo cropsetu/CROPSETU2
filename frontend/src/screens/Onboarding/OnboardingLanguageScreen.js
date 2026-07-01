@@ -109,11 +109,6 @@ export default function OnboardingLanguageScreen({ navigation }) {
     navigation.navigate("OnboardingProfile");
   };
 
-  const handleVoice = async () => {
-    await setLanguage(selected);
-    navigation.navigate("OnboardingVoiceAgent");
-  };
-
   const selectedLang = LANGS.find((l) => l.code === selected);
 
   return (
@@ -170,16 +165,6 @@ export default function OnboardingLanguageScreen({ navigation }) {
               <Ionicons name="arrow-forward" size={16} color={KHET.primaryForeground} />
             </View>
           </LinearGradient>
-        </TouchableOpacity>
-
-        {/* Voice-first onboarding — set up the whole account by speaking */}
-        <TouchableOpacity
-          onPress={handleVoice}
-          activeOpacity={0.9}
-          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12, paddingVertical: 14, borderRadius: 18, borderWidth: 1.4, borderColor: KHET.primary }}
-        >
-          <Ionicons name="mic" size={18} color={KHET.primary} />
-          <Text style={[sty.btnTxt, { color: KHET.primary }]}>{t('voiceAgent.setupByVoice', 'Set up by voice')}</Text>
         </TouchableOpacity>
       </View>
     </LinearGradient>

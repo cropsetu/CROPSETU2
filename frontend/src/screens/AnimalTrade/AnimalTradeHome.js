@@ -547,11 +547,6 @@ export default function AnimalTradeHome({ navigation, route }) {
         )}
       />
 
-      {/* Voice FAB — post an animal by speaking ("Hey Krushi") */}
-      <TouchableOpacity style={S.voiceFab} onPress={() => navigation.navigate('AnimalVoiceAgent')}>
-        <Ionicons name="mic" size={22} color={COLORS.white} />
-      </TouchableOpacity>
-
       {/* FAB */}
       <TouchableOpacity style={S.fab} onPress={() => navigation.navigate('AddAnimalListing')}>
         <Ionicons name="add" size={20} color={COLORS.white} />
@@ -719,12 +714,4 @@ const S = StyleSheet.create({
     shadowOffset: { width: 0, height: 5 }, elevation: 8,
   },
   fabTxt: { color: COLORS.white, fontSize: 14, fontWeight: '800', fontFamily: 'Inter_800ExtraBold' },
-  voiceFab: {
-    position: 'absolute', bottom: 84, right: 20,
-    width: 52, height: 52, borderRadius: 26,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#0EA5E9',
-    shadowColor: '#0EA5E9', shadowOpacity: 0.40, shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }, elevation: 8,
-  },
 });

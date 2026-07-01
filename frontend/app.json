@@ -19,7 +19,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "CropSetu needs camera access to photograph your crops for AI disease analysis.",
         "NSPhotoLibraryUsageDescription": "CropSetu needs photo library access to upload crop images for analysis.",
-        "NSLocationWhenInUseUsageDescription": "CropSetu uses your location to show local weather conditions for your farm."
+        "NSLocationWhenInUseUsageDescription": "CropSetu uses your location to show local weather conditions for your farm.",
+        "NSMicrophoneUsageDescription": "CropSetu uses your microphone for the ‘Hey Krushi’ voice assistant and voice chat."
       }
     },
     "android": {
@@ -59,7 +60,10 @@
     "extra": {
       "eas": {
         "projectId": "f1df1b28-f453-4395-8134-e389cadb394a"
-      }
+      },
+      "picovoiceAccessKey": "",
+      "picovoiceKeywordPath": "hey_krushi.ppn",
+      "picovoiceModelPath": ""
     },
     "owner": "shubhamyeljale2025"
   }
