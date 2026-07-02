@@ -55,7 +55,8 @@
         }
       ],
       "expo-secure-store",
-      "react-native-compressor"
+      "react-native-compressor",
+      "./plugins/withKrushiKeyword"
     ],
     "extra": {
       "eas": {
