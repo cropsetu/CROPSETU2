@@ -1,52 +1,51 @@
-# "Hey Krushi" — wake-word voice assistant
+# "Hey Krushi" — voice assistant setup
 
-The app has **no voice buttons**. The farmer just says **"Hey Krushi"**; an animated
-gradient glow sweeps the screen edges (green = listening, amber = thinking, blue =
-speaking) and the assistant fills+saves the right form by voice, picking the domain
-from whatever screen they're on (Animal → sell animal, Rent → machinery, Profile →
-edit profile, MyFarm → farm, new user → onboarding).
+The Krushi voice assistant opens two ways:
+1. **Mic button** on the **Profile tab** (bottom-right) — tap to talk. Works today, no setup.
+2. **"Hey Krushi" wake word** — hands-free, always-listening. Needs the native setup below.
 
-## What's already wired (code)
-- `src/screens/AI/KrushiEdgeGlow.js` — the screen-edge gradient glow animation.
-- `src/screens/AI/VoiceAgentEngine.js` — the multi-turn voice form (now shows the glow, `autoStart`s on open).
-- `src/context/KrushiAssistantContext.js` — global provider: owns the wake word, context-aware domain routing, the full-screen overlay, and every domain's save path. Mounted in `App.js`.
-- `src/services/wakeWord.js` — Picovoice Porcupine wrapper, **guarded**: if the native module / key / model are missing it silently no-ops, so Expo Go never crashes.
-- `app.json` — `NSMicrophoneUsageDescription` added (Android `RECORD_AUDIO` was already there); `extra.picovoiceAccessKey / picovoiceKeywordPath / picovoiceModelPath` placeholders.
-- `package.json` — added `@picovoice/porcupine-react-native`, `@picovoice/react-native-voice-processor`, `expo-constants`.
+When active, an animated gradient glow sweeps the screen edges (🟢 listening → 🟡 thinking →
+🔵 speaking) and the assistant fills + saves the right form by voice, picking the domain from
+the current screen (Animal → sell animal, Rent → machinery, Profile → edit profile, MyFarm →
+farm, new user → onboarding).
 
-## ⚠️ Wake word can't run in Expo Go — you need 3 things + a native build
-### 1. Picovoice access key
-Sign up at https://console.picovoice.ai → copy your **AccessKey**.
-Put it in `app.json` → `expo.extra.picovoiceAccessKey` (or better, inject via an EAS secret + `app.config.js` so it isn't committed).
+## Code (already wired)
+- `src/screens/AI/KrushiEdgeGlow.js` — the screen-edge glow.
+- `src/context/KrushiAssistantContext.js` — global provider: wake word + overlay + per-domain save. Mounted in `App.js`. Exposes `useKrushiAssistant().openAssistant()`.
+- `src/services/wakeWord.js` — Picovoice Porcupine wrapper, **guarded** (inert/no-op without the native module / key / model, so Expo Go never crashes).
+- `plugins/withKrushiKeyword.js` — bundles the `.ppn` into the Android build (guarded).
+- `app.config.js` — injects the Picovoice access key from `PICOVOICE_ACCESS_KEY` (env / EAS secret), never committed.
+- `app.json` — mic permission (`NSMicrophoneUsageDescription`, Android `RECORD_AUDIO`), plugin registered, `extra.picovoiceKeywordPath = hey_krushi.ppn`.
 
-### 2. Train the "Hey Krushi" keyword
-In the Picovoice Console → **Porcupine** → create keyword **"Hey Krushi"** → download the `.ppn` for **both** platforms (Android and iOS are separate files).
-*(Optional: for a non-English acoustic model, also download `porcupine_params_<lang>.pv` and set `extra.picovoiceModelPath`.)*
+## Enable the real wake word — 3 steps + a native build
+Wake word can't run in Expo Go; it needs a dev/preview **native build**.
 
-### 3. Bundle the model + build natively
+### 1. Picovoice access key → EAS secret (not committed)
+Sign up at https://console.picovoice.ai → copy your **AccessKey**, then:
 ```bash
 cd frontend
-npm install                     # pulls the 3 new deps (or: npx expo install …)
-npx expo prebuild               # generates android/ + ios/ (expo-dev-client already set up)
+eas env:create --name PICOVOICE_ACCESS_KEY --value "<your-picovoice-key>" --environment preview
+# (repeat for the 'production' environment when you ship)
 ```
-Then place the keyword file(s) so `extra.picovoiceKeywordPath` resolves:
-- **Android:** copy the Android `.ppn` to `android/app/src/main/assets/hey_krushi.ppn`
-- **iOS:** add the iOS `.ppn` to the app target in Xcode (Copy Bundle Resources) as `hey_krushi.ppn`
+`app.config.js` reads it at build time. (For a quick local run you can instead `export PICOVOICE_ACCESS_KEY=…`.)
 
-Build a dev client:
+### 2. Train "Hey Krushi" → drop the .ppn in the repo
+Picovoice Console → **Porcupine** → keyword **"Hey Krushi"** → download the **Android** `.ppn`, then:
+```
+frontend/assets/wakeword/hey_krushi.ppn
+```
+Commit it. The plugin copies it into the Android assets automatically on build.
+*(iOS: download the iOS `.ppn` too and add it to the app target in Xcode → Copy Bundle Resources.)*
+
+### 3. Build
 ```bash
-eas build --profile development --platform android   # or: npx expo run:android
+cd frontend
+eas build --platform android --profile preview     # same profile you've been using
 ```
-Install that build (NOT Expo Go), set the access key, and "Hey Krushi" is live.
+Install that APK, and "Hey Krushi" listens while the app is open. The Profile mic button keeps working regardless.
 
-## Notes / current scope
-- **Foreground-only listening** (while the app is open). Always-on background listening would add an Android foreground service + notification — a later step.
-- **Privacy:** Porcupine runs fully on-device; no audio leaves the phone until *after* the wake word, when the assistant records a turn (same Sarvam STT path as before).
-- **Mic hand-off:** while the assistant records, the wake word is paused (`pauseWakeWord`) and resumes on close — they can't fight over the mic.
-- **Testing before the native build:** since there are no buttons, you can trigger the overlay from anywhere during development with
-  ```js
-  import { useKrushiAssistant } from '../context/KrushiAssistantContext';
-  const { openAssistant } = useKrushiAssistant();
-  openAssistant();            // or openAssistant('animal_post')
-  ```
-  Wire that to a temp dev button if you want to test the flow in Expo Go without the wake word.
+## Notes
+- **Foreground-only** listening (app open). Background always-on would add an Android foreground service — a later step.
+- **Privacy:** Porcupine runs fully on-device; no audio leaves the phone until *after* the wake word, when a turn is recorded (same Sarvam STT path as chat).
+- **Mic hand-off:** the wake word pauses while the assistant records, then resumes — no mic conflict.
+- **Backend:** the assistant calls `/ai/voice-agent/turn` on the API the build points to (preview → prod Railway). Needs a working `GEMINI_API_KEY` + `SARVAM_API_KEY` there.

@@ -12,6 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useLanguage } from '../../context/LanguageContext';
 import { getStatesByRegion, REGION_ORDER } from '../../i18n/stateMappings';
 import { useAuth } from '../../context/AuthContext';
+import { useKrushiAssistant } from '../../context/KrushiAssistantContext';
 import api from '../../services/api';
 import { getAICredits } from '../../services/aiApi';
 import { fetchWeatherForCurrentLocation } from '../../services/weatherApi';
@@ -257,6 +258,7 @@ const STAT_CONFIGS = [
 export default function ProfileScreen({ navigation }) {
   const { user, updateUser, logout, refreshUser } = useAuth();
   const { t, language, setLanguage, setLanguageByState, selectedState, LANGUAGES } = useLanguage();
+  const { openAssistant } = useKrushiAssistant();
 
   // Live rental-listing count, fetched from the same endpoints My Rent Listings uses
   // (authoritative — always matches what the user sees on that screen).
@@ -907,12 +909,30 @@ export default function ProfileScreen({ navigation }) {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Talk to Krushi — voice assistant entry (opens the profile voice flow;
+          also works hands-free via "Hey Krushi" once the wake word is configured). */}
+      <TouchableOpacity
+        style={S.krushiFab}
+        activeOpacity={0.85}
+        onPress={() => openAssistant()}
+        accessibilityLabel={t('voiceAgent.talkToKrushi', 'Talk to Krushi')}
+      >
+        <LinearGradient colors={['#34D399', '#0EA5E9']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={S.krushiFabInner}>
+          <Ionicons name="mic" size={26} color="#fff" />
+        </LinearGradient>
+      </TouchableOpacity>
     </AnimatedScreen>
   );
 }
 
 const S = StyleSheet.create({
   root: { flex: 1, backgroundColor: KHET.background },
+  krushiFab: {
+    position: 'absolute', right: 18, bottom: 90, width: 60, height: 60, borderRadius: 30,
+    shadowColor: '#0EA5E9', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 10,
+  },
+  krushiFabInner: { flex: 1, borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
 
   hero: {
     paddingTop: Platform.OS === 'android' ? 52 : 52,
