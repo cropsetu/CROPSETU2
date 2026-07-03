@@ -1,64 +1,20 @@
 /**
  * Market Data Service — FarmMind
  *
- * Uses Gemini (gemini-2.5-flash) to generate realistic, seasonally-accurate
- * mandi prices for Indian commodities.
+ * NO AI / NO external LLM. Mandi prices are served as deterministic ESTIMATES
+ * derived from embedded historical price ranges (PRICE_CONTEXT), clearly marked
+ * `isFallback: true`, until a real mandi-price API (e.g. Agmarknet / data.gov.in)
+ * is wired in. The previous Gemini price-generation was removed — it hallucinated
+ * prices AND was expensive (it ran on every cache-warm tick, burning tokens 24/7).
  *
- * Data is grounded in:
- *   - Real historical price ranges per crop (embedded in prompt)
- *   - Current month / season context
- *   - State-specific market knowledge
- *   - 7-day trend prediction
- *
- * Cache: 30-min in-memory per crop+state to avoid repeated AI calls.
+ * To plug in a real source later: replace the body of getMarketPrices() /
+ * getPricePrediction() / getExtendedForecast() with the API call; the cache
+ * (L1 Map + L2 Redis) and the response shapes below can stay exactly as-is.
  */
-import OpenAI from 'openai';
-import { ENV } from '../config/env.js';
-import { getCurrentSeason } from './ai.chat.service.js';
 import { singleFlight } from '../utils/singleFlight.js';
 import { recordCacheHit, recordCacheMiss } from '../utils/cacheMetrics.js';
 import redis from '../config/redis.js';
 import logger from '../utils/logger.js';
-
-// ── Gemini client (OpenAI-compatible endpoint) ─────────────────────────────────
-const MARKET_LLM_MODEL = ENV.GEMINI_MODEL || 'gemini-2.5-flash';
-let _llm = null;
-function getLLM() {
-  if (!_llm) {
-    if (!ENV.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
-    _llm = new OpenAI({
-      apiKey: ENV.GEMINI_API_KEY,
-      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-    });
-  }
-  return _llm;
-}
-
-// Tolerant JSON extraction from a (Gemini-via-OpenAI-compat) completion. The model
-// usually honours response_format:json_object, but on truncation (finish_reason
-// 'length') or an occasional ```-fenced reply a naive JSON.parse throws "Expected
-// double-quoted property name…". Try a direct parse, then a fenced/substring
-// recovery, and on failure surface finish_reason so a truncated reply (→ raise
-// max_tokens) is distinguishable from malformed output.
-function parseModelJson(completion, label) {
-  const choice = completion?.choices?.[0];
-  const raw = (choice?.message?.content || '').trim();
-  try {
-    return JSON.parse(raw);
-  } catch {
-    let body = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-    const s = body.indexOf('{');
-    const e = body.lastIndexOf('}');
-    if (s !== -1 && e > s) body = body.slice(s, e + 1);
-    try {
-      return JSON.parse(body);
-    } catch (err) {
-      const reason = choice?.finish_reason || 'unknown';
-      const hint = reason === 'length' ? ' (response truncated — raise max_tokens)' : '';
-      throw new Error(`${label}: unparseable model JSON [finish_reason=${reason}]${hint}`);
-    }
-  }
-}
 
 // ── 30-min cache (stampede-guarded: single-flight + jittered TTL) ──────────────
 const cache = new Map();
@@ -214,174 +170,63 @@ const STATE_MANDIS = {
   MP:               ['Indore', 'Bhopal', 'Jabalpur', 'Gwalior', 'Ujjain'],
 };
 
-// getCurrentSeason() imported from ai.chat.service.js (DRY — single source of truth)
-
-// ── Build the AI prompt ────────────────────────────────────────────────────────
-function buildPricePrompt(crop, state, city = null) {
-  const ctx     = PRICE_CONTEXT[crop] || { low: 1000, high: 5000, avg: 2500, unit: 'quintal', notes: '' };
-  const allMandis = STATE_MANDIS[state] || STATE_MANDIS['Maharashtra'];
-  // Put the user's city first if it's in the list
-  let mandis = city
-    ? [...new Set([city, ...allMandis])].slice(0, 4)
-    : allMandis.slice(0, 4);
-  const now     = new Date();
-  const month   = now.toLocaleString('en-IN', { month: 'long' });
-  const year    = now.getFullYear();
-  const season  = getCurrentSeason();
-
-  return `You are an Indian commodity market expert with deep knowledge of Agmarknet mandi prices.
-
-Today: ${month} ${year}, Season: ${season}
-Crop: ${crop}, State: ${state}${city ? `, User's city: ${city}` : ''}
-Mandis to cover: ${mandis.join(', ')}
-
-Historical price range for ${crop}: ₹${ctx.low}–₹${ctx.high}/quintal (typical avg ₹${ctx.avg})
-Market notes: ${ctx.notes}
-
-Generate realistic current wholesale mandi prices for ${month} ${year} based on seasonal patterns.
-Also predict the 7-day price trend.
-
-Return ONLY this exact JSON (no other text):
-{
-  "current": <avg modal price as integer>,
-  "weekHigh": <highest price across mandis as integer>,
-  "weekLow": <lowest price across mandis as integer>,
-  "unit": "quintal",
-  "trend": "up|down|stable",
-  "changePercent": <% change from last week, can be negative, 1 decimal>,
-  "forecast7d": [<7 integers, daily price prediction for next 7 days>],
-  "insight": "<2 sentences: current market situation and selling advice for farmer>",
-  "recommendation": "sell|hold|wait",
-  "prices": [
-    {"mandi": "${mandis[0]}", "price": <integer>, "minPrice": <integer>, "maxPrice": <integer>},
-    {"mandi": "${mandis[1]}", "price": <integer>, "minPrice": <integer>, "maxPrice": <integer>},
-    {"mandi": "${mandis[2]}", "price": <integer>, "minPrice": <integer>, "maxPrice": <integer>},
-    {"mandi": "${mandis[3] || mandis[0]}", "price": <integer>, "minPrice": <integer>, "maxPrice": <integer>}
-  ]
-}`;
-}
-
 // ── Main export ────────────────────────────────────────────────────────────────
 export async function getMarketPrices(commodity = 'Tomato', state = 'Maharashtra', city = null) {
   const key = `${commodity}:${state}:${city || ''}`;
   const cached = cacheGet(key);
   if (cached) return { ...cached, fromCache: true };
 
-  // Single-flight: concurrent misses on this key coalesce into ONE Groq call.
+  // Single-flight so concurrent misses on this key coalesce into one compute.
   return singleFlight(`mkt:${key}`, async () => {
-    // L2 (shared Redis): another instance may already have this commodity's
-    // context cached. Serve it and warm L1 so subsequent local reads skip Redis.
+    // L2 (shared Redis): another instance may already have this key cached.
     const l2 = await redisGet(key);
     if (l2) { cacheSet(key, l2); return { ...l2, fromCache: true }; }
 
-    try {
-      const client = getLLM();
-      const completion = await client.chat.completions.create({
-        model: MARKET_LLM_MODEL,
-        messages: [{ role: 'user', content: buildPricePrompt(commodity, state, city) }],
-        temperature: 0.4,
-        max_tokens: 1500,
-        response_format: { type: 'json_object' },
-      });
-
-      const parsed = parseModelJson(completion, 'price');
-
-      const result = {
-        crop:           commodity,
-        unit:           parsed.unit        || 'quintal',
-        current:        parsed.current     || 2200,
-        weekHigh:       parsed.weekHigh    || 2600,
-        weekLow:        parsed.weekLow     || 1800,
-        trend:          parsed.trend       || 'stable',
-        change:         parsed.changePercent ?? 0,
-        forecast7d:     Array.isArray(parsed.forecast7d) ? parsed.forecast7d : [],
-        insight:        parsed.insight     || '',
-        recommendation: parsed.recommendation || 'hold',
-        prices:         (parsed.prices || []).map((p, i) => ({
-          mandi:    p.mandi,
-          price:    p.price,
-          minPrice: p.minPrice,
-          maxPrice: p.maxPrice,
-          dist:     ['18 km', '42 km', '65 km', '110 km'][i] || '100 km',
-        })),
-        lastUpdated: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        source:      'AI Market Intelligence (Groq)',
-        isFallback:  false,
-      };
-
-      cacheSet(key, result);
-      await redisSet(key, result, CACHE_TTL);
-      return result;
-    } catch (err) {
-      // Don't cache the fallback — let the next request retry the real source.
-      console.error(`[Market] Groq price generation failed for ${commodity}/${state}:`, err.message);
-      return buildFallback(commodity, state);
-    }
+    // NO AI: deterministic estimate from historical price context. Cache it like a
+    // real result so behaviour/shape is unchanged; swap this line for a real
+    // mandi-price API call when one is wired in.
+    const result = buildFallback(commodity, state);
+    cacheSet(key, result);
+    await redisSet(key, result, CACHE_TTL);
+    return result;
   });
 }
 
-// ── 7-day price prediction ─────────────────────────────────────────────────────
+// ── 7-day price prediction (NO AI — deterministic estimate) ───────────────────
 export async function getPricePrediction(commodity = 'Tomato', state = 'Maharashtra') {
   const key = `pred:${commodity}:${state}`;
   const cached = cacheGet(key);
   if (cached) return { ...cached, fromCache: true };
 
-  const ctx    = PRICE_CONTEXT[commodity] || {};
-  const month  = new Date().toLocaleString('en-IN', { month: 'long' });
-  const season = getCurrentSeason();
+  const result = buildPredictionFallback(commodity, state);
+  cacheSet(key, result);
+  return result;
+}
 
-  const prompt = `You are an Indian commodity market analyst.
-
-Crop: ${commodity}, State: ${state}
-Month: ${month}, Season: ${season}
-Historical range: ₹${ctx.low || 1000}–₹${ctx.high || 5000}/quintal
-Notes: ${ctx.notes || ''}
-
-Provide a 7-day price forecast and analysis for ${commodity} in ${state}.
-
-Return ONLY this JSON:
-{
-  "forecast": [
-    {"day": "Mon", "price": <integer>, "confidence": <50-95>},
-    {"day": "Tue", "price": <integer>, "confidence": <50-95>},
-    {"day": "Wed", "price": <integer>, "confidence": <50-95>},
-    {"day": "Thu", "price": <integer>, "confidence": <50-95>},
-    {"day": "Fri", "price": <integer>, "confidence": <50-95>},
-    {"day": "Sat", "price": <integer>, "confidence": <50-95>},
-    {"day": "Sun", "price": <integer>, "confidence": <50-95>}
-  ],
-  "trend": "up|down|stable",
-  "bestDayToSell": "Mon|Tue|Wed|Thu|Fri|Sat|Sun",
-  "reasoning": "<2 sentences explaining the forecast>",
-  "riskLevel": "low|medium|high",
-  "factors": ["factor1", "factor2", "factor3"]
-}`;
-
-  // Single-flight: concurrent misses on this key coalesce into ONE Groq call.
-  return singleFlight(`mkt:${key}`, async () => {
-    const l2 = await redisGet(key);
-    if (l2) { cacheSet(key, l2); return { ...l2, fromCache: true }; }
-
-    try {
-      const client = getLLM();
-      const completion = await client.chat.completions.create({
-        model: MARKET_LLM_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        max_tokens: 1200,
-        response_format: { type: 'json_object' },
-      });
-
-      const parsed = parseModelJson(completion, 'commodity-detail');
-      const result = { commodity, state, ...parsed, generatedAt: new Date().toISOString() };
-      cacheSet(key, result);
-      await redisSet(key, result, CACHE_TTL);
-      return result;
-    } catch (err) {
-      console.error('[Market] prediction failed:', err.message);
-      throw err;
-    }
-  });
+// Deterministic 7-day forecast from the crop's historical average — a gentle
+// intra-week wave. Clearly marked isFallback until a real price API is wired in.
+function buildPredictionFallback(commodity, state) {
+  const ctx = PRICE_CONTEXT[commodity] || { avg: 2500 };
+  const avg = ctx.avg || 2500;
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const forecast = days.map((day, i) => ({
+    day,
+    price: Math.round(avg * (0.96 + Math.sin((i / 7) * Math.PI) * 0.08)),
+    confidence: 55,
+  }));
+  const prices = forecast.map(f => f.price);
+  const bestIdx = prices.indexOf(Math.max(...prices));
+  return {
+    commodity, state,
+    forecast,
+    trend: 'stable',
+    bestDayToSell: forecast[bestIdx]?.day || 'Wed',
+    reasoning: `Estimated range for ${commodity} in ${state} from historical seasonal patterns. Live mandi rates are not connected yet — check your local mandi for exact prices.`,
+    riskLevel: 'medium',
+    factors: ['Seasonal supply cycles', 'Local mandi arrivals', 'Government MSP / procurement'],
+    isFallback: true,
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 // ── Extended multi-month forecast (3m / 6m / 12m) ─────────────────────────────
@@ -391,11 +236,9 @@ export async function getExtendedForecast(commodity = 'Tomato', state = 'Maharas
   if (cached) return { ...cached, fromCache: true };
 
   const periodMonths = { '3m': 3, '6m': 6, '12m': 12 }[period] || 3;
-  const ctx    = PRICE_CONTEXT[commodity] || {};
-  const now    = new Date();
-  const month  = now.toLocaleString('en-IN', { month: 'long' });
-  const year   = now.getFullYear();
-  const season = getCurrentSeason();
+  const ctx  = PRICE_CONTEXT[commodity] || {};
+  const now  = new Date();
+  const EXT_TTL = 2 * 60 * 60 * 1000; // 2h — extended forecasts change slowly
 
   // Build array of future month labels
   const monthLabels = Array.from({ length: periodMonths }, (_, i) => {
@@ -403,79 +246,14 @@ export async function getExtendedForecast(commodity = 'Tomato', state = 'Maharas
     return d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
   });
 
-  const prompt = `You are an expert Indian agricultural commodity market analyst specializing in ${periodMonths}-month price forecasting.
-
-Crop: ${commodity}, State: ${state}
-Starting From: ${month} ${year}, Season: ${season}
-Historical price range: ₹${ctx.low || 1000}–₹${ctx.high || 5000}/quintal (typical avg ₹${ctx.avg || 2500})
-Market context: ${ctx.notes || ''}
-
-Forecast months to cover: ${monthLabels.join(', ')}
-
-Generate a realistic ${periodMonths}-month price outlook for ${commodity} in ${state}. Consider:
-- Seasonal harvest/sowing cycles and their effect on supply
-- Monsoon and weather risk for Kharif/Rabi transitions
-- MSP floors and government procurement
-- Export/import policy trends for this commodity
-- Post-harvest storage availability and cold chain
-
-Return ONLY valid JSON (no other text):
-{
-  "forecast": [
-    ${monthLabels.map(m => `{"month":"${m}","avgPrice":<integer>,"minPrice":<integer>,"maxPrice":<integer>,"confidence":<60-88>,"trend":"up|down|stable","keyDriver":"<one key factor 10 words max>"}`).join(',\n    ')}
-  ],
-  "overallTrend": "up|down|stable|volatile",
-  "bestMonthToSell": "<one of the forecast months>",
-  "worstMonthToSell": "<one of the forecast months>",
-  "peakPriceMonth": "<month name>",
-  "peakPrice": <integer>,
-  "lowPriceMonth": "<month name>",
-  "lowPrice": <integer>,
-  "reasoning": "<3 sentences on the ${periodMonths}-month price outlook>",
-  "riskLevel": "low|medium|high",
-  "factors": ["<factor 1>", "<factor 2>", "<factor 3>"],
-  "sellingStrategy": "<1 actionable selling strategy for farmers over this period>"
-}`;
-
-  // Tokens scale with number of months: each month entry ~120 tokens + overhead
-  const maxTokens = Math.max(1200, periodMonths * 150 + 600);
-  const EXT_TTL = 2 * 60 * 60 * 1000; // 2h — extended forecasts change slowly
-
-  // Single-flight: concurrent misses on this key coalesce into ONE Groq call.
-  return singleFlight(`mkt:${key}`, async () => {
-    const l2 = await redisGet(key);
-    if (l2) { cacheSet(key, l2, EXT_TTL); return { ...l2, fromCache: true }; }
-
-    try {
-      const client = getLLM();
-      const completion = await client.chat.completions.create({
-        model: MARKET_LLM_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.25,
-        max_tokens: maxTokens,
-        response_format: { type: 'json_object' },
-      });
-
-      const parsed = parseModelJson(completion, 'forecast');
-
-      // Validate we got a usable forecast array
-      if (!Array.isArray(parsed.forecast) || parsed.forecast.length === 0) {
-        throw new Error('Empty forecast array from AI');
-      }
-
-      const result = { commodity, state, period, periodMonths, ...parsed, generatedAt: new Date().toISOString() };
-      cacheSet(key, result, EXT_TTL);
-      await redisSet(key, result, EXT_TTL);
-      return result;
-    } catch (err) {
-      // Don't cache the fallback — let the next request retry the real source.
-      console.error('[Market] extended forecast failed, using synthetic fallback:', err.message);
-      return buildExtendedFallback(commodity, state, period, periodMonths, monthLabels, ctx);
-    }
-  });
+  // NO AI: deterministic seasonal-wave estimate. Swap for a real API later.
+  const result = buildExtendedFallback(commodity, state, period, periodMonths, monthLabels, ctx);
+  cacheSet(key, result, EXT_TTL);
+  await redisSet(key, result, EXT_TTL);
+  return result;
 }
 
-// ── Synthetic extended forecast when AI is unavailable ─────────────────────────
+// ── Synthetic extended forecast (deterministic seasonal wave) ─────────────────
 function buildExtendedFallback(commodity, state, period, periodMonths, monthLabels, ctx) {
   const avg  = ctx.avg  || 2500;
   const low  = ctx.low  || Math.round(avg * 0.7);
