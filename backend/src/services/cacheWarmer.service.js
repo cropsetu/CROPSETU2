@@ -1,32 +1,19 @@
 /**
  * Cache warming / preloading for high-traffic data.
  *
- * The hottest user-facing dataset — mandi (market) prices — is served from an
- * in-process cache backed by slow, rate-limited Groq LLM calls. After a deploy or
- * a TTL expiry that cache is COLD, so the first user to ask for a popular
- * commodity/state pays the full recompute latency (a multi-second LLM round-trip).
- *
- * This module preloads the hottest keys so that first request hits a warm cache
- * instead. Run it on startup (per instance — the cache is in-process, so every
- * instance must warm its own) and on a scheduled refresh just under the cache TTL
- * so hot keys never lapse to cold during quiet periods.
- *
- * It's deliberately small and gentle: a curated set of top combos, warmed in
- * small concurrent batches, well under the Groq free-tier rate limit. Warming
- * reuses getMarketPrices(), so it shares the single-flight guard — a real user
- * racing in during warming still triggers only ONE recompute, not two.
- *
- * SCALE-2: because the market cache is in-process, warming runs on each instance.
- * If/when the hot dataset moves to a shared Redis cache, this becomes a
- * single-instance job (one warmer fills Redis for the whole fleet).
+ * NOTE: mandi (market) prices are now served as instant, deterministic estimates
+ * (no LLM — see market.data.service.js), so there's no cold-start latency left to
+ * hide. Warming is therefore near-pointless today and is OFF unless
+ * CACHE_WARMING_ENABLED=true (see server.js). It's kept only so that if/when a
+ * real, slow mandi-price API is wired in, preloading the hot keys becomes useful
+ * again with no code change. Warming reuses getMarketPrices() and its single-flight
+ * guard, so a user racing in still triggers only one compute.
  */
 import logger from '../utils/logger.js';
-import { ENV } from '../config/env.js';
 import { getMarketPrices } from './market.data.service.js';
 import { isEnabled } from './featureFlag.service.js';
 
-// Curated hottest commodity/state combos (highest mandi-bhav traffic). Kept small
-// so a full warm stays well under the Groq rate limit and finishes within seconds.
+// Curated hottest commodity/state combos (highest mandi-bhav traffic). Kept small.
 const HOT_MARKET_COMBOS = [
   ['Tomato', 'Maharashtra'],     ['Onion', 'Maharashtra'],
   ['Potato', 'Uttar Pradesh'],   ['Wheat', 'Punjab'],
@@ -36,7 +23,7 @@ const HOT_MARKET_COMBOS = [
   ['Tomato', 'Andhra Pradesh'],  ['Wheat', 'Uttar Pradesh'],
 ];
 
-const WARM_BATCH = 4; // concurrent warm calls per batch — gentle on the LLM provider
+const WARM_BATCH = 4; // combos preloaded per batch
 
 /**
  * Preload the hot mandi-price keys into the in-process cache.
@@ -44,12 +31,6 @@ const WARM_BATCH = 4; // concurrent warm calls per batch — gentle on the LLM p
  */
 export async function warmMarketCache() {
   const total = HOT_MARKET_COMBOS.length;
-  // Nothing to warm without an LLM key — getMarketPrices would only return
-  // (uncached) fallbacks, so skip the pointless calls.
-  if (!ENV.GEMINI_API_KEY) {
-    logger.info('[CacheWarm] GEMINI_API_KEY not set — skipping market cache warm');
-    return { ok: 0, fail: 0, total, skipped: true };
-  }
 
   let ok = 0;
   let fail = 0;
