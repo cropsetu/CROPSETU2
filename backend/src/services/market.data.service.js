@@ -47,18 +47,17 @@ function cacheSet(k, data, ttl = CACHE_TTL) {
 }
 
 // ── L2: shared Redis cache (CACHE-6 / CACHE-10) ────────────────────────────────
-// The Map above is L1 — per process, lost on restart, so EACH instance pays its
-// own Groq call for the same commodity/state. Backing it with Redis makes the
-// per-commodity context shared across the fleet: the first instance to compute a
-// key populates Redis, and every other instance (and a restarted one) serves the
-// repeat lookup from cache within the TTL instead of refetching from Groq.
+// The Map above is L1 — per process, lost on restart. Backing it with Redis makes
+// the per-commodity result shared across the fleet: the first instance to compute
+// a key populates Redis, and every other instance (and a restarted one) serves the
+// repeat lookup from cache within the TTL instead of recomputing.
 // Fail-open: any Redis unavailability degrades to the L1-only behaviour, never
 // an error — the service always works.
 const REDIS_READY = () => redis?.status === 'ready';
 const RKEY = (k) => `market:${k}`;
 
 // Jittered TTL in whole seconds (±10%) so keys the fleet populated together (e.g.
-// the startup seed) don't all expire — and stampede Groq — at the same instant.
+// the startup seed) don't all expire — and recompute in lockstep — at once.
 function jitteredSec(ttlMs) {
   const jitter = ttlMs * TTL_JITTER * (Math.random() * 2 - 1);
   return Math.max(1, Math.round((ttlMs + jitter) / 1000));
@@ -297,7 +296,7 @@ function buildExtendedFallback(commodity, state, period, periodMonths, monthLabe
   };
 }
 
-// ── Fallback (when Groq is unavailable) ───────────────────────────────────────
+// ── Static price estimate (no external source) ────────────────────────────────
 // Built dynamically from PRICE_CONTEXT so we never need to maintain a separate list
 const FALLBACK_PRICES = Object.fromEntries(
   Object.entries(PRICE_CONTEXT).map(([crop, ctx]) => [

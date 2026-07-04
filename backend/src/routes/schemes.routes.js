@@ -12,7 +12,7 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError } from '../utils/response.js';
-import { callClaude } from '../services/claude.service.js';
+import { askSchemeQuestion } from '../services/schemeGemini.service.js';
 import { BoundedMap } from '../utils/boundedMap.js';
 import { equalsIgnoreCase } from '../utils/strMatch.js';
 import prisma from '../config/db.js';
@@ -177,7 +177,7 @@ Respond in ${language === 'hi' ? 'Hindi' : language === 'mr' ? 'Marathi' : 'Engl
 If the question is not about government schemes or farming, say you can only help with government agricultural schemes.`;
 
   try {
-    const answer = await callClaude({
+    const answer = await askSchemeQuestion({
       systemPrompt,
       userMessage: question.trim(),
       maxTokens: 600,
