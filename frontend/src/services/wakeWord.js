@@ -48,6 +48,12 @@ let listening = false;
 let onWakeCb = null;
 let lastFireAt = 0;
 const DEBOUNCE_MS = 2500; // ignore repeat matches within this window
+// Loading the offline model can take ~20-30s on first run (it unpacks a 54MB
+// model). If the provider effect tears us down mid-load, `stopWakeWord()` bumps
+// this token so the in-flight `startWakeWord` aborts cleanly instead of touching
+// a released recogniser. `starting` blocks a second concurrent load.
+let starting = false;
+let startToken = 0;
 
 // ── Diagnostic status (surfaced on-screen so we can see WHY it isn't firing in a
 // release build, without needing adb). The provider subscribes and shows a badge. ──
@@ -98,31 +104,51 @@ async function beginRecognition() {
 /** Start always-listening for "Hey Krushi". Returns true if it actually started. */
 export async function startWakeWord(onWake) {
   if (!isWakeWordAvailable()) { setStatus('unavailable: native module not found'); return false; }
-  if (vosk) return true;
+  if (vosk || starting) return true; // already listening or a load is in flight
   onWakeCb = onWake;
+  starting = true;
+  const myToken = ++startToken;
+  // Work on a LOCAL instance; only publish to the module-level `vosk` once fully
+  // wired. That way a teardown during the long model load can't null it mid-flight.
+  const v = new Vosk();
+  const superseded = () => myToken !== startToken;
   try {
     setStatus('loading model…');
-    vosk = new Vosk();
-    await vosk.loadModel(MODEL_NAME);
+    await v.loadModel(MODEL_NAME);
+    if (superseded()) { try { v.unload?.(); } catch { /* ignore */ } return false; }
+    vosk = v;
     subs = [
-      vosk.onResult?.(handleText),
-      vosk.onPartialResult?.(handleText),
-      vosk.onFinalResult?.(handleText),
-      vosk.onError?.((e) => setStatus('recogniser error: ' + (e?.message || String(e)).slice(0, 60))),
+      v.onResult?.(handleText),
+      v.onPartialResult?.(handleText),
+      v.onFinalResult?.(handleText),
+      v.onError?.((e) => {
+        // eslint-disable-next-line no-console
+        console.error('[WakeWord/Vosk] recogniser error:', e?.message || e);
+        setStatus('recogniser error: ' + (e?.message || String(e)).slice(0, 120));
+      }),
     ].filter(Boolean);
     setStatus('starting…');
     await beginRecognition();
+    if (superseded()) { await stopWakeWord(); return false; }
     setStatus('listening');
     return true;
   } catch (e) {
-    setStatus('error: ' + (e?.message || String(e)).slice(0, 80));
-    await stopWakeWord();
+    // Log the FULL error to logcat / the `expo run:android` Metro terminal — the
+    // on-screen badge only shows a slice. View with: adb logcat -s ReactNativeJS:*
+    // eslint-disable-next-line no-console
+    console.error('[WakeWord/Vosk] loadModel/init FAILED:', e?.message || e, '\n', e?.stack || '');
+    setStatus('error: ' + (e?.message || String(e)).slice(0, 180));
+    try { v.unload?.(); } catch { /* ignore */ }
+    if (vosk === v) await stopWakeWord();
     return false;
+  } finally {
+    starting = false;
   }
 }
 
 /** Stop + release the recogniser entirely. */
 export async function stopWakeWord() {
+  startToken++; // supersede any start() still awaiting loadModel
   listening = false;
   try { vosk?.stop?.(); } catch { /* ignore */ }
   try { subs.forEach((s) => s?.remove?.()); } catch { /* ignore */ }
