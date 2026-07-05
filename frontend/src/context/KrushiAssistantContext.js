@@ -14,7 +14,7 @@
  * openAssistant(domain?) can also be called directly (e.g. a future header entry).
  */
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { Modal, AppState } from 'react-native';
+import { Modal, AppState, View, Text } from 'react-native';
 import VoiceAgentEngine from '../screens/AI/VoiceAgentEngine';
 import { useMultiFarm } from './MultiFarmContext';
 import { useAuth } from './AuthContext';
@@ -22,7 +22,7 @@ import { useLanguage } from './LanguageContext';
 import api from '../services/api';
 import { completeOnboarding } from '../services/farmApi';
 import { getActiveRoute } from '../navigation/navigationRef';
-import { startWakeWord, stopWakeWord, isWakeWordAvailable } from '../services/wakeWord';
+import { startWakeWord, stopWakeWord, isWakeWordAvailable, getWakeWordStatus, setWakeWordStatusListener } from '../services/wakeWord';
 
 const KrushiAssistantContext = createContext(null);
 
@@ -61,6 +61,12 @@ export function KrushiAssistantProvider({ children }) {
   const [domain, setDomain] = useState('farm');
   // Whether the app is currently in the foreground (drives battery-safe listening).
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  // TEMP diagnostic: live wake-word status, shown as an on-screen badge (remove once fixed).
+  const [wakeStatus, setWakeStatus] = useState(getWakeWordStatus());
+  useEffect(() => {
+    setWakeWordStatusListener(setWakeStatus);
+    return () => setWakeWordStatusListener(null);
+  }, []);
 
   const openAssistant = useCallback((d) => {
     setDomain(d || deriveDomain(user));
@@ -160,6 +166,12 @@ export function KrushiAssistantProvider({ children }) {
           />
         )}
       </Modal>
+
+      {/* TEMP on-screen wake-word diagnostic badge — read this to see why "Hey Krushi"
+          isn't firing (unavailable / error / listening / heard). Remove once fixed. */}
+      <View pointerEvents="none" style={{ position: 'absolute', left: 6, bottom: 6, zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+        <Text style={{ color: '#7CFC9A', fontSize: 9 }}>Krushi: {wakeStatus}</Text>
+      </View>
     </KrushiAssistantContext.Provider>
   );
 }

@@ -49,6 +49,17 @@ let onWakeCb = null;
 let lastFireAt = 0;
 const DEBOUNCE_MS = 2500; // ignore repeat matches within this window
 
+// ── Diagnostic status (surfaced on-screen so we can see WHY it isn't firing in a
+// release build, without needing adb). The provider subscribes and shows a badge. ──
+let _status = Vosk ? 'idle' : 'unavailable: react-native-vosk native module not found';
+let _statusCb = null;
+function setStatus(s) { _status = s; try { _statusCb?.(s); } catch { /* ignore */ } }
+export function getWakeWordStatus() { return _status; }
+export function setWakeWordStatusListener(cb) {
+  _statusCb = cb;
+  if (cb) { try { cb(_status); } catch { /* ignore */ } }
+}
+
 /** True only when the native Vosk module is present in the build. */
 export function isWakeWordAvailable() {
   return !!Vosk;
@@ -61,11 +72,16 @@ function matches(text) {
 
 function handleText(res) {
   // react-native-vosk gives the recognised string (or { result } depending on ver).
-  const text = typeof res === 'string' ? res : (res?.result ?? res?.text ?? '');
+  const text = typeof res === 'string' ? res : (res?.result ?? res?.text ?? res?.partial ?? '');
+  if (!text) return;
+  // Showing the last heard words confirms mic+model+recognition are alive — so if
+  // this updates but never triggers, only the phrase-match needs tuning.
+  setStatus(`heard: "${String(text).slice(0, 40)}"`);
   if (!matches(text)) return;
   const now = Date.now();
   if (now - lastFireAt < DEBOUNCE_MS) return;
   lastFireAt = now;
+  setStatus('TRIGGERED ✔');
   try { onWakeCb?.(); } catch { /* ignore */ }
 }
 
@@ -81,21 +97,25 @@ async function beginRecognition() {
 
 /** Start always-listening for "Hey Krushi". Returns true if it actually started. */
 export async function startWakeWord(onWake) {
-  if (!isWakeWordAvailable() || vosk) return !!vosk;
+  if (!isWakeWordAvailable()) { setStatus('unavailable: native module not found'); return false; }
+  if (vosk) return true;
   onWakeCb = onWake;
   try {
+    setStatus('loading model…');
     vosk = new Vosk();
     await vosk.loadModel(MODEL_NAME);
     subs = [
       vosk.onResult?.(handleText),
       vosk.onPartialResult?.(handleText),
       vosk.onFinalResult?.(handleText),
-      vosk.onError?.((e) => { if (__DEV__) console.warn('[WakeWord/Vosk] error:', e?.message || e); }),
+      vosk.onError?.((e) => setStatus('recogniser error: ' + (e?.message || String(e)).slice(0, 60))),
     ].filter(Boolean);
+    setStatus('starting…');
     await beginRecognition();
+    setStatus('listening');
     return true;
   } catch (e) {
-    if (__DEV__) console.warn('[WakeWord/Vosk] init failed (non-fatal):', e?.message || e);
+    setStatus('error: ' + (e?.message || String(e)).slice(0, 80));
     await stopWakeWord();
     return false;
   }
