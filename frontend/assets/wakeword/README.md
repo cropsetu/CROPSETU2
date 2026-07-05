@@ -1,17 +1,18 @@
-# Wake-word model goes here
+# Wake-word model goes here (Vosk)
 
-Drop the trained **"Hey Krushi"** Porcupine keyword file here as:
+The "Hey Krushi" wake word uses **Vosk** — a free, offline speech recogniser. No
+API key, no account, no per-user fee.
+
+Extract a small Vosk model into this folder, renamed to **`vosk-model`**:
 
 ```
-assets/wakeword/hey_krushi.ppn      # the ANDROID .ppn from the Picovoice Console
+assets/wakeword/vosk-model/      # the extracted model (conf/, am/, graph/, ivector/, ...)
 ```
 
-The `plugins/withKrushiKeyword.js` config plugin auto-copies it into the Android
-app during `expo prebuild` / EAS build. If this file is absent, the build still
-succeeds and the wake word simply stays inert.
+Recommended: **vosk-model-small-en-in-0.4** (Indian English, ~40 MB) — best for
+"krushi". Download from https://alphacephei.com/vosk/models → unzip → rename the
+extracted folder to `vosk-model`, then commit it.
 
-Train it at https://console.picovoice.ai → Porcupine → keyword "Hey Krushi" →
-download the **Android** `.ppn` (iOS is a separate file; add it to the iOS target).
-
-The Picovoice **access key** is NOT stored here — it's injected at build time from
-the `PICOVOICE_ACCESS_KEY` env var / EAS secret (see `app.config.js`).
+`plugins/withVoskModel.js` copies it into the Android app during `expo prebuild` /
+EAS build. If this folder is absent, the build still succeeds and the wake word
+simply stays inert.

@@ -56,15 +56,12 @@
       ],
       "expo-secure-store",
       "react-native-compressor",
-      "./plugins/withKrushiKeyword"
+      "./plugins/withVoskModel"
     ],
     "extra": {
       "eas": {
         "projectId": "f1df1b28-f453-4395-8134-e389cadb394a"
-      },
-      "picovoiceAccessKey": "",
-      "picovoiceKeywordPath": "hey_krushi.ppn",
-      "picovoiceModelPath": ""
+      }
     },
     "owner": "shubhamyeljale2025"
   }
