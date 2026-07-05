@@ -14,7 +14,7 @@
  * openAssistant(domain?) can also be called directly (e.g. a future header entry).
  */
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { Modal } from 'react-native';
+import { Modal, AppState } from 'react-native';
 import VoiceAgentEngine from '../screens/AI/VoiceAgentEngine';
 import { useMultiFarm } from './MultiFarmContext';
 import { useAuth } from './AuthContext';
@@ -22,7 +22,7 @@ import { useLanguage } from './LanguageContext';
 import api from '../services/api';
 import { completeOnboarding } from '../services/farmApi';
 import { getActiveRoute } from '../navigation/navigationRef';
-import { startWakeWord, stopWakeWord, pauseWakeWord, resumeWakeWord, isWakeWordAvailable } from '../services/wakeWord';
+import { startWakeWord, stopWakeWord, isWakeWordAvailable } from '../services/wakeWord';
 
 const KrushiAssistantContext = createContext(null);
 
@@ -59,26 +59,35 @@ export function KrushiAssistantProvider({ children }) {
   const { t, setLanguage } = useLanguage();
   const [active, setActive] = useState(false);
   const [domain, setDomain] = useState('farm');
+  // Whether the app is currently in the foreground (drives battery-safe listening).
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
 
   const openAssistant = useCallback((d) => {
     setDomain(d || deriveDomain(user));
     setActive(true);
-    pauseWakeWord(); // release the mic so the assistant can record
   }, [user]);
 
   const closeAssistant = useCallback(() => {
     setActive(false);
-    resumeWakeWord();
   }, []);
 
-  // Start/stop the wake word with the session. Inert (no-op) until a native build
-  // with react-native-vosk + the bundled Vosk model is in place — never crashes Expo Go.
+  // Track foreground/background.
   useEffect(() => {
-    if (!isLoggedIn) return undefined;
+    const sub = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
+    return () => sub.remove();
+  }, []);
+
+  // BATTERY: the wake word listens ONLY while logged in AND the app is in the
+  // foreground AND the assistant isn't already open — and fully stops/unloads
+  // otherwise. It never runs in the background (continuous ASR is expensive).
+  // Inert (no-op) until a native build with react-native-vosk + the bundled Vosk
+  // model is in place — never crashes Expo Go.
+  const shouldListen = isLoggedIn && appActive && !active;
+  useEffect(() => {
     let mounted = true;
-    startWakeWord(() => { if (mounted) openAssistant(); });
+    if (shouldListen) startWakeWord(() => { if (mounted) openAssistant(); });
     return () => { mounted = false; stopWakeWord(); };
-  }, [isLoggedIn, openAssistant]);
+  }, [shouldListen, openAssistant]);
 
   const onSave = useCallback(async (draft) => {
     switch (domain) {
