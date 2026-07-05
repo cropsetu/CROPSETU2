@@ -1,78 +1,127 @@
 /**
- * Wake-word engine — "Hey Krushi" (Picovoice Porcupine), guarded + optional.
+ * Wake-word engine — "Hey Krushi", powered by Vosk (offline, FREE, no account/key).
  *
- * IMPORTANT: always-listening wake word needs a CUSTOM NATIVE BUILD — it cannot
- * run in Expo Go. This module is written to be totally inert until three things
- * exist, so the app keeps running everywhere in the meantime:
- *   1. the native module (@picovoice/porcupine-react-native) is in the build,
- *   2. a Picovoice access key   → app.json  extra.picovoiceAccessKey,
- *   3. a trained "Hey Krushi" keyword file bundled in the app, referenced by
- *      app.json extra.picovoiceKeywordPath (+ optional non-English acoustic model
- *      via extra.picovoiceModelPath).
- * If any is missing, every function no-ops and logs — never throws.
+ * How it works: Vosk runs a small offline speech recogniser continuously and we
+ * watch the transcript for the phrase "hey krushi" (+ common mishears). No audio
+ * ever leaves the device, and there's no API key or per-user fee.
  *
- * See docs/HEY_KRUSHI_WAKEWORD.md for the one-time setup + EAS build steps.
+ * IMPORTANT: this needs a CUSTOM NATIVE BUILD (react-native-vosk) + a bundled Vosk
+ * model — it cannot run in Expo Go. This module is GUARDED so it's totally inert
+ * until both exist: if the native module or the model is missing, every function
+ * no-ops (never throws), so the app keeps running everywhere. See
+ * docs/HEY_KRUSHI_WAKEWORD.md for the one-time model + EAS build setup.
+ *
+ * Exposes the same interface the KrushiAssistantProvider already uses:
+ *   isWakeWordAvailable() / startWakeWord(onWake) / stopWakeWord()
+ *   pauseWakeWord() / resumeWakeWord()
  */
-import Constants from 'expo-constants';
 
-// Guarded require: absent in Expo Go → PorcupineManager stays null (no crash).
-let PorcupineManager = null;
+// Guarded require: absent in Expo Go → Vosk stays null (no crash). Handle both
+// ESM-default and CommonJS export shapes.
+let Vosk = null;
 try {
   // eslint-disable-next-line global-require
-  PorcupineManager = require('@picovoice/porcupine-react-native').PorcupineManager;
+  const mod = require('react-native-vosk');
+  Vosk = mod?.default || mod || null;
 } catch {
-  PorcupineManager = null;
+  Vosk = null;
 }
 
-const extra = Constants.expoConfig?.extra ?? Constants.manifest?.extra ?? {};
-const ACCESS_KEY   = extra.picovoiceAccessKey || '';
-const KEYWORD_PATH = extra.picovoiceKeywordPath || 'hey_krushi.ppn';
-const MODEL_PATH   = extra.picovoiceModelPath || undefined; // optional (non-English acoustic model)
+// Folder name of the bundled Vosk model (see plugins/withVoskModel.js). Small
+// Indian/US English model is plenty for a two-word wake phrase.
+const MODEL_NAME = 'vosk-model';
 
-let manager = null;
+// The wake phrase + common recogniser mishears ("krushi" is often heard as
+// krishi/krushni/crushy). Matched case-insensitively as a substring so partial
+// results trigger quickly.
+const WAKE_PHRASES = [
+  'hey krushi', 'hey krishi', 'hey krushni', 'hey krushy', 'hey crushy',
+  'a krushi', 'hey krush', 'he krushi',
+];
+// Restricted grammar = keyword-spotting mode: far lower CPU/battery and fewer
+// false triggers than open-vocabulary ASR. '[unk]' catches everything else.
+const GRAMMAR = [...WAKE_PHRASES, '[unk]'];
 
-/** True only when the native module AND an access key are present. */
+let vosk = null;
+let subs = [];
+let listening = false;
+let onWakeCb = null;
+let lastFireAt = 0;
+const DEBOUNCE_MS = 2500; // ignore repeat matches within this window
+
+/** True only when the native Vosk module is present in the build. */
 export function isWakeWordAvailable() {
-  return !!(PorcupineManager && ACCESS_KEY);
+  return !!Vosk;
 }
 
-/**
- * Start listening for "Hey Krushi". onWake(keywordIndex) fires on detection.
- * Returns true if listening actually started, false if unavailable (no-op).
- */
-export async function startWakeWord(onWake) {
-  if (!isWakeWordAvailable() || manager) return !!manager;
+function matches(text) {
+  const t = String(text || '').toLowerCase();
+  return t && WAKE_PHRASES.some((p) => t.includes(p));
+}
+
+function handleText(res) {
+  // react-native-vosk gives the recognised string (or { result } depending on ver).
+  const text = typeof res === 'string' ? res : (res?.result ?? res?.text ?? '');
+  if (!matches(text)) return;
+  const now = Date.now();
+  if (now - lastFireAt < DEBOUNCE_MS) return;
+  lastFireAt = now;
+  try { onWakeCb?.(); } catch { /* ignore */ }
+}
+
+async function beginRecognition() {
+  // Try grammar-constrained (KWS) first; fall back to open ASR if unsupported.
   try {
-    manager = await PorcupineManager.fromKeywordPaths(
-      ACCESS_KEY,
-      [KEYWORD_PATH],
-      (idx) => { try { onWake?.(idx); } catch { /* ignore */ } },
-      (e) => { if (__DEV__) console.warn('[WakeWord] runtime error:', e?.message); },
-      MODEL_PATH,
-    );
-    await manager.start();
+    await vosk.start({ grammar: GRAMMAR });
+  } catch {
+    try { await vosk.start(); } catch { /* ignore */ }
+  }
+  listening = true;
+}
+
+/** Start always-listening for "Hey Krushi". Returns true if it actually started. */
+export async function startWakeWord(onWake) {
+  if (!isWakeWordAvailable() || vosk) return !!vosk;
+  onWakeCb = onWake;
+  try {
+    vosk = new Vosk();
+    await vosk.loadModel(MODEL_NAME);
+    subs = [
+      vosk.onResult?.(handleText),
+      vosk.onPartialResult?.(handleText),
+      vosk.onFinalResult?.(handleText),
+      vosk.onError?.((e) => { if (__DEV__) console.warn('[WakeWord/Vosk] error:', e?.message || e); }),
+    ].filter(Boolean);
+    await beginRecognition();
     return true;
   } catch (e) {
-    if (__DEV__) console.warn('[WakeWord] init failed (non-fatal):', e?.message);
-    manager = null;
+    if (__DEV__) console.warn('[WakeWord/Vosk] init failed (non-fatal):', e?.message || e);
+    await stopWakeWord();
     return false;
   }
 }
 
-/** Stop + release the engine entirely. */
+/** Stop + release the recogniser entirely. */
 export async function stopWakeWord() {
-  if (!manager) return;
-  try { await manager.stop(); } catch { /* ignore */ }
-  try { await manager.delete(); } catch { /* ignore */ }
-  manager = null;
+  listening = false;
+  try { vosk?.stop?.(); } catch { /* ignore */ }
+  try { subs.forEach((s) => s?.remove?.()); } catch { /* ignore */ }
+  subs = [];
+  try { vosk?.unload?.(); } catch { /* ignore */ }
+  vosk = null;
 }
 
-/** Temporarily release the mic (so the assistant can record), keep the engine. */
+/** Release the mic so the assistant can record; keep the model loaded. */
 export async function pauseWakeWord() {
-  if (manager) { try { await manager.stop(); } catch { /* ignore */ } }
+  if (vosk && listening) {
+    listening = false;
+    try { vosk.stop?.(); } catch { /* ignore */ }
+  }
 }
 
 /** Resume listening after the assistant closes. */
 export async function resumeWakeWord() {
-  if (manager) { try { await manager.start(); } catch { /* ignore */ } }
+  if (vosk && !listening) {
+    try { await beginRecognition(); } catch { /* ignore */ }
+  }
 }

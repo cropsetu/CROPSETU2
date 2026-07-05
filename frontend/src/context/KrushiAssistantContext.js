@@ -71,8 +71,8 @@ export function KrushiAssistantProvider({ children }) {
     resumeWakeWord();
   }, []);
 
-  // Start/stop the wake word with the session. Inert (no-op) until the native
-  // build + Picovoice key + "Hey Krushi" model are in place — never crashes Expo Go.
+  // Start/stop the wake word with the session. Inert (no-op) until a native build
+  // with react-native-vosk + the bundled Vosk model is in place — never crashes Expo Go.
   useEffect(() => {
     if (!isLoggedIn) return undefined;
     let mounted = true;
