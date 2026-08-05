@@ -22,7 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import CosmicScreen from './ui/CosmicScreen';
 import CosmicHeader from './ui/CosmicHeader';
 import ActivityChip from './ui/ActivityChip';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useMultiFarm } from '../../context/MultiFarmContext';
 import { COSMIC, CR, CS, CT, ACTIVITY_TYPES } from './theme/cosmicTheme';
 

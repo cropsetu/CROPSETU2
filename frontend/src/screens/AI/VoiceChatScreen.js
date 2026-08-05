@@ -22,11 +22,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
 import { WebView } from 'react-native-webview';
 import { sendVoiceChatMessage } from '../../services/aiApi';
-import { connectSocket, getSocket } from '../../services/socket';
+import { connectSocket, getSocket } from '@cropsetu/shared/services/socket';
 import { useFarm } from '../../context/FarmContext';
-import { useLanguage } from '../../context/LanguageContext';
-import { COLORS } from '../../constants/colors';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS } from '@cropsetu/shared/constants/colors';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 
 const { width: W, height: H } = Dimensions.get('window');
 

@@ -26,18 +26,18 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import AppNavigator from './src/navigation/AppNavigator';
 import OnboardingNavigator from './src/navigation/OnboardingNavigator';
-import { LanguageProvider } from './src/context/LanguageContext';
-import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { LanguageProvider } from '@cropsetu/shared/context/LanguageContext';
+import { AuthProvider, useAuth } from '@cropsetu/shared/context/AuthContext';
 import { FarmProvider } from './src/context/FarmContext';
 import { MultiFarmProvider } from './src/context/MultiFarmContext';
 import { LocationProvider } from './src/context/LocationContext';
 import LocationSync from './src/context/LocationSync';
 import { CartProvider } from './src/context/CartContext';
 import { KrushiAssistantProvider } from './src/context/KrushiAssistantContext';
-import LoginScreen from './src/screens/Auth/LoginScreen';
-import RootErrorBoundary from './src/components/RootErrorBoundary';
+import LoginScreen from '@cropsetu/shared/screens/LoginScreen';
+import RootErrorBoundary from '@cropsetu/shared/components/RootErrorBoundary';
 import InAppChatBanner from './src/components/InAppChatBanner';
-import { COLORS } from './src/constants/colors';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 
 function RootNavigator() {
   const { isLoggedIn, loading, user } = useAuth();

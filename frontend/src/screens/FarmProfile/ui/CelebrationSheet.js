@@ -11,8 +11,8 @@ import Svg, { Circle, Path, Ellipse, G } from 'react-native-svg';
 import { COSMIC, CR, CS, CT } from '../theme/cosmicTheme';
 import GlowButton from './GlowButton';
 import StreakBadge from './StreakBadge';
-import { Haptics } from '../../../utils/haptics';
-import { useLanguage } from '../../../context/LanguageContext';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 
 const { height: H } = Dimensions.get('window');
 

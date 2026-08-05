@@ -342,3 +342,100 @@ describe('Profile write rate limiting', () => {
     expect(res.status).toBe(200);
   });
 });
+
+// ── DELETE /me — account erasure (DPDP Act §8) ───────────────────────────────
+// Each test uses a throwaway user: erasure is irreversible, so reusing the
+// shared `farmer` above would poison every test that runs after it.
+describe('DELETE /api/v1/users/me', () => {
+  // The dev bypass ("000000") still requires a LIVE OtpSession for the phone —
+  // verifyOtp returns early when no session exists. Seed one via the service so
+  // these tests don't depend on the /auth/send-otp rate limiter.
+  const seedOtpSession = async (phone) => {
+    const { sendOtp } = await import('../../../src/services/otp.service.js');
+    await sendOtp(phone);
+  };
+
+  test('401 — unauthenticated', async () => {
+    const res = await request(app).delete('/api/v1/users/me').send({ otp: '000000' });
+    expect(res.status).toBe(401);
+  });
+
+  // The shared `validate` middleware answers malformed input with 400 (several
+  // older tests in this file still assert 422 and fail — see the suite notes).
+  test('400 — rejects a missing or malformed OTP', async () => {
+    const { headers } = await createTestUser();
+    for (const body of [{}, { otp: '123' }, { otp: 'abcdef' }]) {
+      const res = await request(app).delete('/api/v1/users/me').set(headers).send(body);
+      expect(res.status).toBe(400);
+    }
+  });
+
+  test('401 — rejects a wrong OTP and leaves the account intact', async () => {
+    const { user, headers } = await createTestUser();
+    await seedOtpSession(user.phone);
+
+    const res = await request(app)
+      .delete('/api/v1/users/me')
+      .set(headers)
+      .send({ otp: '999999' });
+
+    expect(res.status).toBe(401);
+    const after = await prisma.user.findUnique({ where: { id: user.id } });
+    expect(after.phone).toBe(user.phone);
+    expect(after.isActive).toBe(true);
+  });
+
+  test('200 — erases PII, deactivates the account and revokes tokens', async () => {
+    const { user, headers } = await createTestUser({
+      name: 'Erase Me', village: 'Testpur', district: 'Pune', state: 'Maharashtra',
+    });
+    // Personal rows that must be hard-deleted by the cascade.
+    await prisma.pushToken.create({ data: { userId: user.id, token: `ExponentPushToken[${user.id}]` } });
+    await seedOtpSession(user.phone);
+
+    const res = await request(app)
+      .delete('/api/v1/users/me')
+      .set(headers)
+      .send({ otp: '000000' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.erased).toBe(true);
+
+    const after = await prisma.user.findUnique({ where: { id: user.id } });
+    expect(after).not.toBeNull();               // row kept, not hard-deleted
+    expect(after.phone).toBe(`deleted_${user.id}`);
+    expect(after.name).toBe('Deleted User');
+    expect(after.isActive).toBe(false);
+    expect(after.village).toBeNull();
+    expect(after.district).toBeNull();
+    expect(after.state).toBeNull();
+    // tokenVersion bump is what invalidates already-issued JWTs.
+    expect(after.tokenVersion).toBeGreaterThan(user.tokenVersion);
+
+    expect(await prisma.pushToken.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.refreshToken.count({ where: { userId: user.id } })).toBe(0);
+  }, 30000);
+
+  test('the erased user’s access token no longer authenticates', async () => {
+    const { user, headers } = await createTestUser();
+    await seedOtpSession(user.phone);
+
+    await request(app).delete('/api/v1/users/me').set(headers).send({ otp: '000000' });
+
+    // Same token, now stale: tokenVersion was bumped and the account deactivated.
+    const res = await request(app).get('/api/v1/users/me').set(headers);
+    expect(res.status).toBe(401);
+  }, 30000);
+
+  test('the freed phone number can register a new account', async () => {
+    const { user, headers } = await createTestUser();
+    const originalPhone = user.phone;
+    await seedOtpSession(originalPhone);
+
+    await request(app).delete('/api/v1/users/me').set(headers).send({ otp: '000000' });
+
+    // The sentinel released the unique constraint on the real number.
+    const reborn = await prisma.user.create({ data: { phone: originalPhone, name: 'New Owner' } });
+    expect(reborn.id).not.toBe(user.id);
+  }, 30000);
+});

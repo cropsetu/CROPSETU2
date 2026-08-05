@@ -5,7 +5,7 @@
  */
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { getSecureJSON, setSecureJSON } from '../utils/secureCache';
-import { useAuth } from './AuthContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import * as farmApi from '../services/farmApi';
 import { withWrite } from '../services/writeQueue';
 

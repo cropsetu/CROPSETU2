@@ -13,11 +13,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import api from '../../services/api';
-import { compressImage, compressVideo } from '../../utils/mediaCompressor';
-import { useLanguage } from '../../context/LanguageContext';
+import api from '@cropsetu/shared/services/api';
+import { compressImage, compressVideo } from '@cropsetu/shared/utils/mediaCompressor';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useLocation } from '../../context/LocationContext';
-import { COLORS, SHADOWS } from '../../constants/colors';
+import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
 import RentAvailabilityPicker from '../../components/ui/RentAvailabilityPicker';
 
 

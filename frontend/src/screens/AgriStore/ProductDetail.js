@@ -7,11 +7,11 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { COLORS, SHADOWS } from '../../constants/colors';
-import api from '../../services/api';
-import { useLanguage } from '../../context/LanguageContext';
+import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import api from '@cropsetu/shared/services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useCart } from '../../context/CartContext';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 import { fs } from '../../utils/responsive';
 

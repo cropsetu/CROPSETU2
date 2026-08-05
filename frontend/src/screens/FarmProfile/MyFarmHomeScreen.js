@@ -30,13 +30,13 @@ import CelebrationSheet from './ui/CelebrationSheet';
 import ActivityFeedItem from './ui/ActivityFeedItem';
 import StageTimelineBar from './ui/StageTimelineBar';
 import WhyThisButton from './ui/WhyThisButton';
-import { CropIcon } from '../../components/CropIcons';
+import { CropIcon } from '@cropsetu/shared/components/CropIcons';
 import { COSMIC, GLOW, CR, CS, CT } from './theme/cosmicTheme';
 
 import { useMultiFarm } from '../../context/MultiFarmContext';
 import { useSyncStatus } from '../../services/writeQueue';
-import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import * as farmApi from '../../services/farmApi';
 
 // ──────────────────────────────────────────────────────────────────────────────

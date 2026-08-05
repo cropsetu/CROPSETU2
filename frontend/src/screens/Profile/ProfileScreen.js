@@ -9,21 +9,23 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { getStatesByRegion, REGION_ORDER } from '../../i18n/stateMappings';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useKrushiAssistant } from '../../context/KrushiAssistantContext';
-import api from '../../services/api';
+import api from '@cropsetu/shared/services/api';
 import { getAICredits } from '../../services/aiApi';
 import { fetchWeatherForCurrentLocation } from '../../services/weatherApi';
-import { compressImage } from '../../utils/mediaCompressor';
+import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
 import { safeOpenURL } from '../../utils/sanitize';
 import { getWeatherImage } from '../../utils/weatherBackground';
-import { API_BASE_URL } from '../../constants/config';
+import { API_BASE_URL } from '@cropsetu/shared/constants/config';
 import { EntrySlide, D } from '../../components/ui/ImmersiveKit';
-import { COLORS } from '../../constants/colors';
-import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import { COLORS } from '@cropsetu/shared/constants/colors';
+import { isSellerAccount, isKycVerified } from '@cropsetu/shared/utils/roles';
+import { KHET, KFONT, KSHADOW } from '@cropsetu/shared/constants/khetTheme';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import DeleteAccountModal from './DeleteAccountModal';
 import Svg, { Circle, Defs, RadialGradient as SvgRadialGradient, Stop, Path } from 'react-native-svg';
 
 // Header scrim — a NEUTRAL dark gradient (NOT green) so the weather photo's true
@@ -299,6 +301,7 @@ export default function ProfileScreen({ navigation }) {
   const [showStateModal,  setShowStateModal] = useState(false);
   const [showEditModal,   setShowEditModal]  = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [uploadingPhoto, setUploadingPhoto]  = useState(false);
   // Bumped after each avatar upload to cache-bust the <Image> — RN otherwise
   // keeps showing the cached photo until the component is remounted.
@@ -313,16 +316,9 @@ export default function ProfileScreen({ navigation }) {
     ? user.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)
     : '?';
 
-  // Role is the source of truth — backend flips FARMER → SELLER on first BusinessProfile save.
-  // Fall back to legacy field checks for accounts that filled the form before the role flip existed.
-  const isSeller = (
-    user?.role === 'SELLER' ||
-    user?.role === 'VERIFIED_FARMER' ||
-    user?.role === 'ADMIN' ||
-    !!user?.sellerProfile?.bankAccountNumber ||
-    !!user?.gstNumber ||
-    !!user?.businessType
-  );
+  // Read-only label for the trust badge below. Selling itself lives in the
+  // separate seller app (../../seller-app) — this screen has no seller actions.
+  const isSeller = isSellerAccount(user);
 
   const heroScale   = scrollY.interpolate({ inputRange: [0, 180], outputRange: [1, 0.92], extrapolate: 'clamp' });
   const heroOpacity = scrollY.interpolate({ inputRange: [0, 140], outputRange: [1, 0.7],  extrapolate: 'clamp' });
@@ -423,7 +419,7 @@ export default function ProfileScreen({ navigation }) {
   const currentLang = LANGUAGES.find((l) => l.code === language);
 
   // ── Trust / verification badges (derived from existing role + KYC data) ──────
-  const kycVerified = user?.kycStatus === 'VERIFIED' || !!user?.sellerProfile?.kycVerifiedAt;
+  const kycVerified = isKycVerified(user);
   const trustBadges = [];
   if (kycVerified) {
     trustBadges.push({ key: 'verified', icon: 'shield-checkmark', label: t('profile.badgeVerified', 'Verified'), verified: true });
@@ -711,42 +707,6 @@ export default function ProfileScreen({ navigation }) {
             <RowItem icon="chatbubble-ellipses-outline" iconColor={D.cyan} label={t('profile.browseFAQs')}          subtitle={t('profile.faqsSub')}           onPress={() => Linking.openURL('https://cropsetu.app/faqs')} isLast />
           </SectionCard>
 
-          <EntrySlide delay={480} fromY={16}>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => navigation.navigate('SellerPortal', isSeller ? undefined : { screen: 'BusinessProfile' })}
-              accessibilityRole="button"
-              accessibilityLabel={isSeller
-                ? t('profile.sellerDashboardTitle', 'Seller Dashboard')
-                : t('profile.becomeSellerTitle', 'Become a Seller')}
-            >
-              <LinearGradient
-                colors={['#E65100', '#F57C00', '#FF9800']}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                style={S.sellerBanner}
-              >
-                <View style={S.sellerIconWrap}>
-                  <Ionicons name={isSeller ? 'storefront' : 'add-circle'} size={22} color={COLORS.white} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={S.sellerTitle}>
-                    {isSeller
-                      ? t('profile.sellerDashboardTitle', 'Seller Dashboard')
-                      : t('profile.becomeSellerTitle', 'Become a Seller')}
-                  </Text>
-                  <Text style={S.sellerSub}>
-                    {isSeller
-                      ? t('profile.sellerDashboardSub', 'Manage products, orders & earnings')
-                      : t('profile.becomeSellerSub', 'Set up your shop & start selling on CropSetu')}
-                  </Text>
-                </View>
-                <View style={S.bannerArrow}>
-                  <Ionicons name="arrow-forward" size={16} color={COLORS.white} />
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
-          </EntrySlide>
-
           {/* Krushi Seva Kendra portal — opens the dedicated onboarding website.
               Farmers forward this to their local agri-input dealer (Kendra), who
               registers there with a licence and then receives crop reports. */}
@@ -792,6 +752,36 @@ export default function ProfileScreen({ navigation }) {
             </TouchableOpacity>
           </EntrySlide>
 
+          {/* Delete account — DPDP §8 right to erasure. Same banner language as
+              the Kendra card above, inverted into a warm red so it reads as the
+              heavier of the two account actions. The real confirmation (and the
+              OTP re-auth) lives in the modal, so this stays a plain entry point. */}
+          <EntrySlide delay={570} fromY={16}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setShowDeleteAccount(true)}
+              accessibilityRole="button"
+              accessibilityLabel={t('deleteAccount.title', 'Delete account')}
+            >
+              <LinearGradient
+                colors={['#7f1d1d', '#b91c1c', '#ef4444']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={S.deleteBanner}
+              >
+                <View style={S.deleteIconWrap}>
+                  <Ionicons name="trash-outline" size={22} color={COLORS.white} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.deleteTitle}>{t('deleteAccount.entry', 'Delete my account')}</Text>
+                  <Text style={S.deleteSub}>{t('deleteAccount.entrySub', 'Permanently erase your data')}</Text>
+                </View>
+                <View style={S.deleteArrow}>
+                  <Ionicons name="chevron-forward" size={16} color={COLORS.white} />
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+          </EntrySlide>
+
           <Text style={S.version}>{t('profile.versionText')}</Text>
           <View style={{ height: 40 }} />
           </View>
@@ -803,6 +793,11 @@ export default function ProfileScreen({ navigation }) {
         user={user}
         onClose={() => setShowEditModal(false)}
         onSaved={(updated) => { updateUser(updated); setShowEditModal(false); }}
+      />
+
+      <DeleteAccountModal
+        visible={showDeleteAccount}
+        onClose={() => setShowDeleteAccount(false)}
       />
 
       {/* Logout confirmation — custom in-app popup (not a native Alert). */}
@@ -1160,6 +1155,27 @@ const S = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   logoutLabel: { flex: 1, fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.destructive },
+
+  // Mirrors sellerBanner's proportions so the two banners on this screen read as
+  // one family; only the palette differs.
+  deleteBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 14, paddingHorizontal: 20, paddingVertical: 18,
+    borderRadius: 20, marginTop: 6, marginBottom: 4,
+    ...KSHADOW.elegant,
+  },
+  deleteIconWrap: {
+    width: 44, height: 44, borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  deleteTitle: { fontSize: 16, fontFamily: KFONT.displaySemi, color: KHET.white, letterSpacing: -0.3 },
+  deleteSub:   { fontSize: 12, color: 'rgba(255,255,255,0.85)', fontFamily: KFONT.sans, marginTop: 3 },
+  deleteArrow: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center', alignItems: 'center',
+  },
 
   version: { textAlign: 'center', fontSize: 12, color: KHET.mutedForeground, fontFamily: KFONT.sans, marginTop: 12, marginBottom: 8 },
 

@@ -3,10 +3,10 @@
  * All AI, market, and planner endpoints hit the same Express backend (port 3001).
  * Auth token is injected automatically via the existing api.js interceptors.
  */
-import api, { getAccessToken } from './api';
-import { compressImage } from '../utils/mediaCompressor';
+import api, { getAccessToken } from '@cropsetu/shared/services/api';
+import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
 import * as FileSystem from 'expo-file-system/legacy';
-import { API_BASE_URL } from '../constants/config';
+import { API_BASE_URL } from '@cropsetu/shared/constants/config';
 
 // One key per *send action* (NOT per HTTP attempt) so a 401-replay / network
 // retry reuses it and the server returns the cached response instead of

@@ -8,11 +8,11 @@ import { fs } from '../../utils/responsive';
 import { formatLocation } from '../../utils/location';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { COLORS, SHADOWS } from '../../constants/colors';
-import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
+import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import AnimalIcon from '../../components/AnimalIcons';
 
 const { width: W } = Dimensions.get('window');

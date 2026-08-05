@@ -16,7 +16,7 @@ import {
   Sprout, BookOpen, ScanLine, ClipboardList, MessageSquare, MapPin,
   FlaskConical, ChevronRight, Sparkles, Leaf,
 } from 'lucide-react-native';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { getSoilReports } from '../../services/aiApi';
 import {
   BG, BG_GRADIENT, PRIMARY, P_LIGHT, ACCENT, TEXT, TEXT2, MUTED, SURFACE, BORDER,

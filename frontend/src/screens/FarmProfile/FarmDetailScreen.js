@@ -25,13 +25,13 @@ import GlassCard    from './ui/GlassCard';
 import GlowButton   from './ui/GlowButton';
 import StageTimelineBar from './ui/StageTimelineBar';
 import WhyThisButton    from './ui/WhyThisButton';
-import { CropIcon }  from '../../components/CropIcons';
+import { CropIcon }  from '@cropsetu/shared/components/CropIcons';
 import { RadialGauge } from '../../components/charts';
 import { useMultiFarm } from '../../context/MultiFarmContext';
-import { useLanguage }  from '../../context/LanguageContext';
+import { useLanguage }  from '@cropsetu/shared/context/LanguageContext';
 import * as farmApi     from '../../services/farmApi';
 import { COSMIC, CR, CS, CT, GLOW } from './theme/cosmicTheme';
-import { Haptics } from '../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Screen

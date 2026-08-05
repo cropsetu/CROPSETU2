@@ -14,11 +14,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { COLORS } from '../../constants/colors';
-import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
-import api from '../../services/api';
-import { connectSocket } from '../../services/socket';
+import { COLORS } from '@cropsetu/shared/constants/colors';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import api from '@cropsetu/shared/services/api';
+import { connectSocket } from '@cropsetu/shared/services/socket';
 
 function timeAgo(iso) {
   if (!iso) return '';

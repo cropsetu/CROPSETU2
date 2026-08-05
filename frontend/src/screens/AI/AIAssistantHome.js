@@ -19,13 +19,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAuth } from '../../context/AuthContext';
-import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { fetchWeatherForCurrentLocation } from '../../services/weatherApi';
 import { getAICredits } from '../../services/aiApi';
 import FarmProfileBanner from '../../components/FarmProfileBanner';
-import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import { COLORS, TYPE, RADIUS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import WeatherIcon from '../../components/WeatherIcons';
 import SoilIcon from '../../components/SoilIcons';
 import TabIcon from '../../components/TabIcons';

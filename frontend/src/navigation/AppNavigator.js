@@ -8,12 +8,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import linking from './linking';
 import TabIcon from '../components/TabIcons';
 import { navigationRef } from './navigationRef';
-import { useLanguage } from '../context/LanguageContext';
-import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useCart } from '../context/CartContext';
-import { COLORS, TYPE, RADIUS, SHADOWS } from '../constants/colors';
-import { Haptics } from '../utils/haptics';
-import { SoundEffects } from '../utils/sounds';
+import { COLORS, TYPE, RADIUS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { SoundEffects } from '@cropsetu/shared/utils/sounds';
 import { CardStyleInterpolators } from '@react-navigation/stack';
 
 const ACTIVE_COLOR   = COLORS.primary;
@@ -261,16 +261,6 @@ import ExpenseLogScreen         from '../screens/FarmProfile/logging/ExpenseLogS
 import IncomeLogScreen          from '../screens/FarmProfile/logging/IncomeLogScreen';
 import CustomActivityLogScreen  from '../screens/FarmProfile/logging/CustomActivityLogScreen';
 
-// Seller Portal (integrated)
-import SellerDashboard      from '../screens/Seller/DashboardScreen';
-import SellerMyProducts     from '../screens/Seller/MyProductsScreen';
-import SellerAddProduct     from '../screens/Seller/AddProductScreen';
-import SellerOrders         from '../screens/Seller/OrdersScreen';
-import SellerProfile        from '../screens/Seller/SellerProfileScreen';
-import SellerBusiness       from '../screens/Seller/BusinessProfileScreen';
-import ReceivedReports      from '../screens/Seller/ReceivedReportsScreen';
-import ReceivedReportDetail from '../screens/Seller/ReceivedReportDetailScreen';
-
 // ── Navigators ────────────────────────────────────────────────────────────────
 const Tab           = createBottomTabNavigator();
 const AgriStack     = createStackNavigator();
@@ -279,7 +269,6 @@ const AnimalStack   = createStackNavigator();
 const RentStack     = createStackNavigator();
 const MyFarmStack   = createStackNavigator();
 const ProfileStack  = createStackNavigator();
-const SellerStack   = createStackNavigator();
 
 const defaultScreenOptions = {
   headerStyle: { backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.border },
@@ -419,28 +408,6 @@ function MyFarmNavigator() {
   );
 }
 
-function SellerNavigator() {
-  const { t } = useLanguage();
-  return (
-    <SellerStack.Navigator screenOptions={{
-      headerStyle: { backgroundColor: COLORS.cta, borderBottomWidth: 0 },
-      headerTintColor: COLORS.textWhite,
-      headerTitleStyle: { fontWeight: TYPE.weight.bold, fontSize: 17 },
-      headerBackTitleVisible: false,
-      cardStyleInterpolator: CardStyleInterpolators.forFadeFromCenter,
-    }}>
-      <SellerStack.Screen name="SellerDashboard"    component={SellerDashboard}  options={{ headerShown: false }} />
-      <SellerStack.Screen name="SellerMyProducts"   component={SellerMyProducts} options={{ title: t('dash.myProducts') }} />
-      <SellerStack.Screen name="AddProduct"         component={SellerAddProduct} options={{ title: t('nav.listProduct') }} />
-      <SellerStack.Screen name="SellerOrders"       component={SellerOrders}     options={{ title: t('dash.orders') }} />
-      <SellerStack.Screen name="SellerProfile"      component={SellerProfile}    options={{ headerShown: false }} />
-      <SellerStack.Screen name="BusinessProfile"    component={SellerBusiness}   options={{ title: t('sellerProfile.bizProfileKyc') }} />
-      <SellerStack.Screen name="ReceivedReports"        component={ReceivedReports}       options={{ headerShown: false }} />
-      <SellerStack.Screen name="ReceivedReportDetail"   component={ReceivedReportDetail}  options={{ headerShown: false }} />
-    </SellerStack.Navigator>
-  );
-}
-
 function ProfileNavigator() {
   const { t } = useLanguage();
   return (
@@ -448,7 +415,6 @@ function ProfileNavigator() {
       <ProfileStack.Screen name="ProfileHome"         component={ProfileScreen}           options={{ headerShown: false }} />
       <ProfileStack.Screen name="ProfileVoiceAgent"   component={ProfileVoiceAgentScreen} options={{ headerShown: false }} />
       <ProfileStack.Screen name="MyRentListings"      component={MyRentListingsScreen}    options={{ headerShown: false }} />
-      <ProfileStack.Screen name="SellerPortal"        component={SellerNavigator}         options={{ headerShown: false }} />
       <ProfileStack.Screen name="MyOrders"            component={MyOrdersScreen}          options={{ headerShown: false }} />
       <ProfileStack.Screen name="SavedPosts"          component={SavedPostsScreen}        options={{ headerShown: false }} />
       <ProfileStack.Screen name="MyAnimalListings"    component={MyAnimalListingsScreen}  options={{ headerShown: false }} />

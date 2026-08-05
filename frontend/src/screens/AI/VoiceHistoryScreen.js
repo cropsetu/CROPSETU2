@@ -12,10 +12,10 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOWS, RADIUS } from '../../constants/colors';
-import { useLanguage } from '../../context/LanguageContext';
+import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { getVoiceConversations, deleteVoiceConversation } from '../../services/aiApi';
-import { safeErrorMessage } from '../../services/api';
+import { safeErrorMessage } from '@cropsetu/shared/services/api';
 
 function formatDate(iso) {
   if (!iso) return '';

@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "CropSetu Seller",
+    "slug": "cropsetu-seller",
+    "scheme": "cropsetu-seller",
+    "version": "1.0.0",
+    "newArchEnabled": true,
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1B4332"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.cropsetu.seller",
+      "infoPlist": {
+        "NSCameraUsageDescription": "CropSetu Seller needs camera access to photograph the products you list.",
+        "NSPhotoLibraryUsageDescription": "CropSetu Seller needs photo library access to upload product images."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1B4332"
+      },
+      "package": "com.cropsetu.seller",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CropSetu Seller needs photo library access to upload product images.",
+          "cameraPermission": "CropSetu Seller needs camera access to photograph the products you list."
+        }
+      ],
+      "expo-secure-store"
+    ]
+  }
+}

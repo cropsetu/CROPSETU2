@@ -6,8 +6,8 @@
  */
 import React, { useCallback } from 'react';
 import VoiceAgentEngine from '../AI/VoiceAgentEngine';
-import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { completeOnboarding } from '../../services/farmApi';
 
 const ONBOARDING_FIELDS = ['firstName', 'lastName', 'state', 'district', 'taluka', 'village',

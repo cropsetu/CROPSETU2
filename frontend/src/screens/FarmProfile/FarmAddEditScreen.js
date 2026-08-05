@@ -29,13 +29,13 @@ import CosmicHeader from './ui/CosmicHeader';
 import CosmicPicker from './ui/CosmicPicker';
 import GlassCard    from './ui/GlassCard';
 import GlowButton   from './ui/GlowButton';
-import { STATE_LIST, getDistrictsForState, getTalukas } from '../../constants/locations';
+import { STATE_LIST, getDistrictsForState, getTalukas } from '@cropsetu/shared/constants/locations';
 import SoilIcon       from '../../components/SoilIcons';
 import IrrigationIcon from '../../components/IrrigationIcons';
 import { useMultiFarm } from '../../context/MultiFarmContext';
-import { useLanguage }  from '../../context/LanguageContext';
+import { useLanguage }  from '@cropsetu/shared/context/LanguageContext';
 import { COSMIC, CR, CS, CT, GLOW, GRADIENT } from './theme/cosmicTheme';
-import { Haptics } from '../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 // Soil swatches — earth gradients keyed to the Prisma SoilType enum.
 const SOILS = [

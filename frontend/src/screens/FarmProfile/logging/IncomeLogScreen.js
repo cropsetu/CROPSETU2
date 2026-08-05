@@ -2,10 +2,10 @@ import React, { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
 import { LoggerScaffold, SectionHeader, TileGrid, BigNumberInput, NotesField, Card } from './_loggerKit';
 import * as farmApi from '../../../services/farmApi';
-import { useLanguage } from '../../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useMultiFarm } from '../../../context/MultiFarmContext';
 import { COSMIC } from '../theme/cosmicTheme';
-import { Haptics } from '../../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 export default function IncomeLogScreen({ navigation, route }) {
   const { t } = useLanguage();

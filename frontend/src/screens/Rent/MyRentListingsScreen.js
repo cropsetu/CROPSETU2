@@ -11,9 +11,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import api from '../../services/api';
-import { useLanguage } from '../../context/LanguageContext';
-import { COLORS, SHADOWS } from '../../constants/colors';
+import api from '@cropsetu/shared/services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
 
 const RED   = COLORS.error;
 

@@ -10,10 +10,10 @@ import {
   LoggerScaffold, SectionHeader, TileGrid, ChipRow, BigNumberInput, NotesField, Card,
 } from './_loggerKit';
 import * as farmApi from '../../../services/farmApi';
-import { useLanguage } from '../../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useMultiFarm } from '../../../context/MultiFarmContext';
 import { COSMIC } from '../theme/cosmicTheme';
-import { Haptics } from '../../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 const OPERATIONS = [
   { key: 'ploughing', icon: 'swap-horizontal-outline', color: COSMIC.LAND_PREP },

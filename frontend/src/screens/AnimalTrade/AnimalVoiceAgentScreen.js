@@ -5,8 +5,8 @@
  */
 import React, { useCallback } from 'react';
 import VoiceAgentEngine from '../AI/VoiceAgentEngine';
-import { useLanguage } from '../../context/LanguageContext';
-import api from '../../services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import api from '@cropsetu/shared/services/api';
 
 // Text fields POST /animals accepts (images are added later via the normal form).
 const ANIMAL_TEXT_FIELDS = ['animal', 'breed', 'age', 'gender', 'weight', 'price', 'milkYield', 'description', 'sellerLocation'];

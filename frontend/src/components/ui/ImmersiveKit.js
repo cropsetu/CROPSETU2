@@ -3,7 +3,7 @@
  * Bright vivid 3D design language used across all screens.
  */
 import { useRef, useEffect } from 'react';
-import { COLORS } from '../../constants/colors';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 import {
   View, StyleSheet, Animated, PanResponder, Dimensions,
 } from 'react-native';

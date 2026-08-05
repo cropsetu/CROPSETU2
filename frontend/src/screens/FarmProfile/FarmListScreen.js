@@ -17,9 +17,9 @@ import CosmicHeader from './ui/CosmicHeader';
 import GlassCard from './ui/GlassCard';
 import GlowButton from './ui/GlowButton';
 import { useMultiFarm } from '../../context/MultiFarmContext';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COSMIC, CR, CS, GLOW, GRADIENT } from './theme/cosmicTheme';
-import { Haptics } from '../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 const SOIL_COLORS = {
   BLACK_COTTON: '#4B3B32',

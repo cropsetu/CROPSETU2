@@ -17,9 +17,9 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { Modal, AppState } from 'react-native';
 import VoiceAgentEngine from '../screens/AI/VoiceAgentEngine';
 import { useMultiFarm } from './MultiFarmContext';
-import { useAuth } from './AuthContext';
-import { useLanguage } from './LanguageContext';
-import api from '../services/api';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import api from '@cropsetu/shared/services/api';
 import { completeOnboarding } from '../services/farmApi';
 import { getActiveRoute } from '../navigation/navigationRef';
 import { startWakeWord, stopWakeWord, isWakeWordAvailable } from '../services/wakeWord';

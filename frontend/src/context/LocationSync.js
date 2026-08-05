@@ -11,9 +11,9 @@
  * hammer the API.
  */
 import { useEffect, useRef } from 'react';
-import { useAuth } from './AuthContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useLocation } from './LocationContext';
-import api from '../services/api';
+import api from '@cropsetu/shared/services/api';
 
 // ~0.0045 deg ≈ 500 m at the equator. Good enough as a "did the user move"
 // heuristic — exact distance doesn't matter, we just want to skip no-ops.
