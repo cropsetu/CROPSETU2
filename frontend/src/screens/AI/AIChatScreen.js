@@ -22,15 +22,15 @@ import {
 } from '../../services/aiApi';
 import { useFarm } from '../../context/FarmContext';
 import { useMultiFarm } from '../../context/MultiFarmContext';
-import { useLanguage } from '../../context/LanguageContext';
-import { COLORS } from '../../constants/colors';
-import { SoundEffects } from '../../utils/sounds';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS } from '@cropsetu/shared/constants/colors';
+import { SoundEffects } from '@cropsetu/shared/utils/sounds';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import VoiceWaveform from './components/VoiceWaveform';
 import LanguageSelector from './components/LanguageSelector';
 import ResponseLengthSelector from './components/ResponseLengthSelector';
 import * as ImagePicker from 'expo-image-picker';
-import { compressImage } from '../../utils/mediaCompressor';
+import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
 import { detectLanguage } from '../../utils/languageDetect';
 
 const { width: W } = Dimensions.get('window');

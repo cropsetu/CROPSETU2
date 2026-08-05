@@ -17,9 +17,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { COLORS, SHADOWS, RADIUS } from '../../constants/colors';
-import { useLanguage } from '../../context/LanguageContext';
-import api, { safeErrorMessage } from '../../services/api';
+import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
 
 const RISK_COLOR = {
   CRITICAL: COLORS.error,

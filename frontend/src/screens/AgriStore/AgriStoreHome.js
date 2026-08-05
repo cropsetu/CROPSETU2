@@ -17,19 +17,19 @@ import Animated, {
   FadeIn, FadeInDown,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import { Haptics } from '../../utils/haptics';
-import { SPRINGS, AnimatedCard, enterAnimation } from '../../components/ui/motion';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { SPRINGS, AnimatedCard, enterAnimation } from '@cropsetu/shared/components/ui/motion';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useScrollHeader from '../../hooks/useScrollHeader';
-import api from '../../services/api';
-import { useLanguage } from '../../context/LanguageContext';
-import { COLORS, TYPE, RADIUS, SHADOWS } from '../../constants/colors';
-import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import api from '@cropsetu/shared/services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS, TYPE, RADIUS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import { KHET, KFONT, KSHADOW } from '@cropsetu/shared/constants/khetTheme';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
-import { StoreCategoryIcon } from '../../components/StoreCategoryIcons';
+import { StoreCategoryIcon } from '@cropsetu/shared/components/StoreCategoryIcons';
 
 const { width: W, height: H } = Dimensions.get('window');
 const GREEN    = COLORS.primary;

@@ -1,0 +1,23 @@
+{
+  "name": "@cropsetu/shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Code shared by the CropSetu buyer app (frontend/) and seller app (seller-app/).",
+  "main": "index.js",
+  "peerDependencies": {
+    "@expo/vector-icons": "*",
+    "axios": "*",
+    "expo-av": "*",
+    "expo-constants": "*",
+    "expo-file-system": "*",
+    "expo-haptics": "*",
+    "expo-image-manipulator": "*",
+    "expo-secure-store": "*",
+    "js-sha256": "*",
+    "react": "*",
+    "react-native": "*",
+    "react-native-reanimated": "*",
+    "react-native-svg": "*",
+    "socket.io-client": "*"
+  }
+}

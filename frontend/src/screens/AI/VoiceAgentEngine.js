@@ -32,7 +32,7 @@ import { Mic, Square as SquareIcon, X as CloseIcon, Check } from 'lucide-react-n
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import { sendVoiceAgentTurn, cancelVoiceAgentSession } from '../../services/aiApi';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import KrushiEdgeGlow from './KrushiEdgeGlow';
 
 const { width: W } = Dimensions.get('window');

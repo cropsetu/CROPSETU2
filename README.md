@@ -16,10 +16,24 @@ CROPSETU2/
 │                 disease pipeline, FarmMind chat, smart alerts,
 │                 AgriPredict price forecasts, KisanRakshak pest predict.
 ├── frontend/     Expo 54 + React Native 0.81 + React 19
-│                 Mobile app (Android primary, iOS supported). JavaScript.
+│                 Buyer / farmer mobile app (Android primary, iOS supported).
+│                 Store, AI assistant, animal trade, rent, farm profile.
+├── seller-app/   Expo 54 + React Native 0.81 + React 19
+│                 Seller mobile app. Products, orders, KYC, received crop
+│                 reports. Same backend and same OTP account as frontend/.
+├── shared/       Code imported by BOTH mobile apps as `@cropsetu/shared/*`
+│                 (API client, auth + language context, i18n, theme, utils).
+│                 Not an installed package — each app's metro.config.js maps
+│                 the specifier at this folder. See shared/README.md.
+├── admin/        Vite + React + TypeScript. Internal admin console.
+├── kendra/       Vite + React + TypeScript. Krushi Seva Kendra onboarding.
 ├── docs/         Architecture and review documents.
 └── README.md
 ```
+
+The two mobile apps are separate builds (`com.cropsetu.app` and
+`com.cropsetu.seller`) that share one backend, one account, and `shared/`.
+Editing anything under `shared/` affects both — see its README before adding to it.
 
 ## Local development
 
@@ -58,7 +72,7 @@ Required env: `DATABASE_URL` (same Postgres as backend). At least one of
 `GROQ_API_KEY` / `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` if you want AI
 features; otherwise the service runs with those endpoints disabled.
 
-### Frontend (Expo)
+### Frontend — buyer app (Expo)
 
 ```bash
 cd frontend
@@ -69,6 +83,20 @@ npx expo start                # Metro bundler — open in dev client, web, or tu
 
 The native projects (`android/`, `ios/`) are gitignored; `expo prebuild`
 regenerates them from `app.json`. EAS Build does the same in the cloud.
+
+### Seller app (Expo)
+
+```bash
+cd seller-app
+cp .env.example .env          # same backend as the buyer app
+npm install
+npx expo start --port 8082    # 8081 is usually taken by the buyer app's Metro
+```
+
+Both apps read `../shared` straight off disk via `metro.config.js`, so there is
+nothing to build or link there — but each app needs its own `npm install`, and a
+package used by `shared/` must be present in **both** apps' dependencies.
+See [seller-app/README.md](seller-app/README.md) for the EAS Build caveat.
 
 #### Run on a physical Pixel (or any Android device)
 

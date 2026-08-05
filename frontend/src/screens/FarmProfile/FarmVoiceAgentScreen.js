@@ -13,7 +13,7 @@ import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import VoiceAgentEngine from '../AI/VoiceAgentEngine';
 import { useMultiFarm } from '../../context/MultiFarmContext';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 
 const { width: W } = Dimensions.get('window');
 

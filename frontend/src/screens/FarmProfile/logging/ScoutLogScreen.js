@@ -10,10 +10,10 @@ import {
   LoggerScaffold, SectionHeader, TileGrid, BigNumberInput, LabeledInput, NotesField, Card,
 } from './_loggerKit';
 import * as farmApi from '../../../services/farmApi';
-import { useLanguage } from '../../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useMultiFarm } from '../../../context/MultiFarmContext';
 import { COSMIC } from '../theme/cosmicTheme';
-import { Haptics } from '../../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 const ISSUE_TYPES = [
   { key: 'pest',       icon: 'bug-outline',               color: COSMIC.SCOUT },

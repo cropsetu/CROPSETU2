@@ -15,7 +15,7 @@ import { Pressable, Text, View, StyleSheet, ActivityIndicator } from 'react-nati
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { COSMIC, GRADIENT, GLOW, CR, TAP } from '../theme/cosmicTheme';
-import { Haptics } from '../../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 export default function GlowButton({
   label,

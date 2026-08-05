@@ -20,11 +20,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOWS } from '../../constants/colors';
-import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
-import api from '../../services/api';
-import { connectSocket } from '../../services/socket';
+import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import api from '@cropsetu/shared/services/api';
+import { connectSocket } from '@cropsetu/shared/services/socket';
 
 const POLL_MS    = 8000;   // socket is primary; polling is fallback only
 const MAX_CHARS  = 2000;

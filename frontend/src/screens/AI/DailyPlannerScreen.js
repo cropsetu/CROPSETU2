@@ -6,8 +6,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getPlannerTasks, updateTaskDone, generateAITasks } from '../../services/aiApi';
-import { useLanguage } from '../../context/LanguageContext';
-import { COLORS } from '../../constants/colors';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 import ActivityIcon from '../../components/ActivityIcons';
 
 const { width: W } = Dimensions.get('window');

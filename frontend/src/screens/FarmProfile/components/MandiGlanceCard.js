@@ -13,7 +13,7 @@ import { Sparkline } from '../../../components/charts';
 import SpeakerButton from '../ui/SpeakerButton';
 import GlassCard from '../ui/GlassCard';
 import { COSMIC, CR, CT } from '../theme/cosmicTheme';
-import { useLanguage } from '../../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 
 const fmtDate = (iso) => {
   if (!iso) return '';

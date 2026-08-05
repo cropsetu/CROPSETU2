@@ -5,8 +5,8 @@
  */
 import React, { useCallback } from 'react';
 import VoiceAgentEngine from '../AI/VoiceAgentEngine';
-import { useLanguage } from '../../context/LanguageContext';
-import api from '../../services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import api from '@cropsetu/shared/services/api';
 
 const MACHINERY_FIELDS = ['name', 'category', 'brand', 'horsePower', 'fuelType', 'ageYears',
   'mileageHours', 'pricePerDay', 'pricePerHour', 'pricePerAcre', 'features', 'description', 'location', 'district'];

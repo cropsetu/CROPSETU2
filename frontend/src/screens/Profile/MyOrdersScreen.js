@@ -1,7 +1,7 @@
 /**
  * MyOrdersScreen — shows buyer's AgriStore orders
  */
-import { COLORS } from '../../constants/colors';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
@@ -9,9 +9,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import api from '../../services/api';
-import { useLanguage } from '../../context/LanguageContext';
-import DashboardStatIcon from '../../components/DashboardStatIcons';
+import api from '@cropsetu/shared/services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import DashboardStatIcon from '@cropsetu/shared/components/DashboardStatIcons';
 
 const STATUS_META = {
   PENDING:    { labelKey: 'orders.statusPending',   color: COLORS.gold, bg: COLORS.goldPale },

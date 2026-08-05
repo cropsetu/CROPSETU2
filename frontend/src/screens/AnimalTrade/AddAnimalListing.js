@@ -7,11 +7,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocation } from '../../context/LocationContext';
-import { COLORS, SHADOWS } from '../../constants/colors';
-import { useLanguage } from '../../context/LanguageContext';
-import api from '../../services/api';
-import { useAuth } from '../../context/AuthContext';
-import { prepareImageForFormData } from '../../utils/mediaCompressor';
+import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import api from '@cropsetu/shared/services/api';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import { prepareImageForFormData } from '@cropsetu/shared/utils/mediaCompressor';
 import { formatLocation } from '../../utils/location';
 
 const ANIMAL_TYPE_KEYS = ['animalCow', 'animalBuffalo', 'animalGoat', 'animalBullock', 'animalSheep', 'animalPig', 'animalHorse', 'animalCamel'];

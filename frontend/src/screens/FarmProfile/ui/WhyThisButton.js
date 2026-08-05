@@ -9,8 +9,8 @@ import React from 'react';
 import { Pressable, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COSMIC, CR, CT } from '../theme/cosmicTheme';
-import { Haptics } from '../../../utils/haptics';
-import { useLanguage } from '../../../context/LanguageContext';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 
 export default function WhyThisButton({ onPress, label, compact = false, style }) {
   const { t } = useLanguage();

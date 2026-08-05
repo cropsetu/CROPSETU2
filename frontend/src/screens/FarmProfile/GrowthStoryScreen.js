@@ -26,9 +26,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import CosmicScreen from './ui/CosmicScreen';
 import CosmicHeader from './ui/CosmicHeader';
 import GlassCard from './ui/GlassCard';
-import CropIcon from '../../components/CropIcons';
+import CropIcon from '@cropsetu/shared/components/CropIcons';
 import * as farmApi from '../../services/farmApi';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COSMIC, CR, CS, CT } from './theme/cosmicTheme';
 
 // ──────────────────────────────────────────────────────────────────────────────

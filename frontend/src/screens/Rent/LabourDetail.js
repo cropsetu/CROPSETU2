@@ -14,11 +14,11 @@ import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import api from '../../services/api';
-import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
-import { COLORS } from '../../constants/colors';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import api from '@cropsetu/shared/services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import { COLORS } from '@cropsetu/shared/constants/colors';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 
 const { width: W } = Dimensions.get('window');
 
@@ -119,6 +119,42 @@ export default function LabourDetail({ route, navigation }) {
   ];
   const initials = (l.leader || l.name || 'W').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
+  // Availability is two facts that used to be rendered independently and could
+  // contradict each other: the provider's `available` toggle, and the date
+  // window. A listing whose window had already closed still showed a green
+  // "Available" badge. Resolve them into one state and drive both the badge and
+  // the window card from it.
+  //   'open'     — available now (no window, or today falls inside it)
+  //   'upcoming' — window starts in the future
+  //   'ended'    — window closed
+  //   'busy'     — provider toggled themselves off
+  const avail = (() => {
+    const from = l.availableFrom ? new Date(l.availableFrom) : null;
+    const to   = l.availableTo   ? new Date(l.availableTo)   : null;
+    // Compare on date, not timestamp: a window ending "today" is still open.
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (to && to < today) return 'ended';
+    if (!l.available) return 'busy';
+    if (from && from > today) return 'upcoming';
+    return 'open';
+  })();
+
+  const AVAIL_UI = {
+    open:     { bg: COLORS.primaryPale, fg: COLORS.primary,   label: t('rent.listAvailable') },
+    upcoming: { bg: COLORS.yellowAmber, fg: COLORS.amber,     label: t('rent.listAvailable') },
+    busy:     { bg: COLORS.orangeWarm,  fg: COLORS.cta,       label: t('rent.busy') },
+    ended:    { bg: COLORS.lightGray2,  fg: COLORS.grayMid2,  label: t('rent.busy') },
+  }[avail];
+
+  // DD/MM/YYYY built by hand. `toLocaleDateString('en-IN')` was hardcoded to one
+  // locale in a 10-language app, and Hermes ships without full ICU, so passing
+  // the user's locale instead would silently fall back (or throw) on device.
+  const fmtDate = (d) => {
+    const x = new Date(d);
+    if (Number.isNaN(x.getTime())) return '';
+    return `${String(x.getDate()).padStart(2, '0')}/${String(x.getMonth() + 1).padStart(2, '0')}/${x.getFullYear()}`;
+  };
+
   const handleCall = () => {
     if (!phone) { return; }
     safeOpenURL(`tel:${sanitizePhone(phone)}`);
@@ -164,16 +200,13 @@ export default function LabourDetail({ route, navigation }) {
               style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
               pointerEvents="none"
             />
-            {/* Back button overlay */}
+            {/* Back only. The sticky bottom bar is always on screen — including
+                at scroll-top — so a third call button here was redundant and sat
+                a thumb's width from Back. */}
             <View style={[D.galleryNav, { paddingTop: insets.top + 8 }]}>
               <TouchableOpacity onPress={() => navigation.goBack()} style={D.navBtn}>
                 <Ionicons name="arrow-back" size={22} color={COLORS.white} />
               </TouchableOpacity>
-              {phone && !isOwner ? (
-                <TouchableOpacity onPress={handleCall} style={D.navBtn}>
-                  <Ionicons name="call-outline" size={22} color={COLORS.white} />
-                </TouchableOpacity>
-              ) : null}
             </View>
             {allMedia.length > 1 && (
               <View style={D.dots}>
@@ -185,18 +218,17 @@ export default function LabourDetail({ route, navigation }) {
           <LinearGradient
             colors={[COLORS.primary, COLORS.greenDeep]}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-            style={D.avatarHero}
+            // Unlike the gallery path there is no photo to bleed under the
+            // status bar, so the avatar must start BELOW the notch and the nav
+            // row. A static paddingTop put its top edge under the status bar on
+            // any device with a non-zero top inset.
+            style={[D.avatarHero, { paddingTop: insets.top + 56 }]}
           >
             {/* Back button for no-media path */}
             <View style={[D.galleryNav, { paddingTop: insets.top + 8 }]}>
               <TouchableOpacity onPress={() => navigation.goBack()} style={D.navBtn}>
                 <Ionicons name="arrow-back" size={22} color={COLORS.white} />
               </TouchableOpacity>
-              {phone && !isOwner ? (
-                <TouchableOpacity onPress={handleCall} style={D.navBtn}>
-                  <Ionicons name="call-outline" size={22} color={COLORS.white} />
-                </TouchableOpacity>
-              ) : null}
             </View>
             <View style={D.bigAvatar}>
               <Text style={D.bigAvatarTxt}>{initials}</Text>
@@ -218,11 +250,9 @@ export default function LabourDetail({ route, navigation }) {
                 </View>
               )}
             </View>
-            <View style={[D.availBadge, { backgroundColor: l.available ? COLORS.primaryPale : COLORS.orangeWarm }]}>
-              <View style={[D.availDot, { backgroundColor: l.available ? COLORS.primary : COLORS.cta }]} />
-              <Text style={[D.availTxt, { color: l.available ? COLORS.primary : COLORS.cta }]}>
-                {l.available ? t('rent.listAvailable') : t('rent.busy')}
-              </Text>
+            <View style={[D.availBadge, { backgroundColor: AVAIL_UI.bg }]}>
+              <View style={[D.availDot, { backgroundColor: AVAIL_UI.fg }]} />
+              <Text style={[D.availTxt, { color: AVAIL_UI.fg }]}>{AVAIL_UI.label}</Text>
             </View>
           </View>
 
@@ -326,13 +356,27 @@ export default function LabourDetail({ route, navigation }) {
             </>
           ) : null}
 
-          {/* ── Availability window ── */}
-          {l.availableFrom ? (
-            <View style={D.availWindowCard}>
-              <Ionicons name="calendar-outline" size={16} color={COLORS.primary} />
-              <Text style={D.availWindowTxt}>
-                {t('rent.listAvailable')} {new Date(l.availableFrom).toLocaleDateString('en-IN')}
-                {l.availableTo ? ` – ${new Date(l.availableTo).toLocaleDateString('en-IN')}` : ` ${t('rent.onwards')}`}
+          {/* ── Availability window ──
+              Colour tracks the resolved state, so a window that has closed no
+              longer renders green, and one that has not opened yet reads amber.
+              The text is a real translated sentence — it used to concatenate the
+              badge word "Available" with a date, which is broken word order in
+              every Indian language. */}
+          {(l.availableFrom || l.availableTo) ? (
+            <View style={[D.availWindowCard, { backgroundColor: AVAIL_UI.bg }]}>
+              <Ionicons
+                name={avail === 'ended' ? 'calendar-clear-outline' : 'calendar-outline'}
+                size={16}
+                color={AVAIL_UI.fg}
+              />
+              <Text style={[D.availWindowTxt, { color: AVAIL_UI.fg }]}>
+                {avail === 'ended'
+                  ? t('rent.availEnded', 'Availability ended {{date}}', { date: fmtDate(l.availableTo) })
+                  : l.availableFrom && l.availableTo
+                    ? t('rent.availWindow', 'Available {{from}} – {{to}}', { from: fmtDate(l.availableFrom), to: fmtDate(l.availableTo) })
+                    : l.availableFrom
+                      ? t('rent.availFrom', 'Available from {{date}}', { date: fmtDate(l.availableFrom) })
+                      : t('rent.availUntil', 'Available until {{date}}', { date: fmtDate(l.availableTo) })}
               </Text>
             </View>
           ) : null}
@@ -377,7 +421,8 @@ const D = StyleSheet.create({
   dot:      { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.5)' },
   dotActive:{ backgroundColor: COLORS.white, width: 20 },
 
-  avatarHero:    { paddingTop: 40, paddingBottom: 48, alignItems: 'center', position: 'relative' },
+  // paddingTop is applied inline from the safe-area inset — see the render.
+  avatarHero:    { paddingBottom: 48, alignItems: 'center', position: 'relative' },
   bigAvatar:     { width: 104, height: 104, borderRadius: 52, backgroundColor: 'rgba(255,255,255,0.18)', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: 'rgba(255,255,255,0.5)' },
   bigAvatarTxt:  { fontSize: 38, fontWeight: '800', color: COLORS.white },
 
@@ -428,8 +473,9 @@ const D = StyleSheet.create({
 
   descTxt: { fontSize: 14, color: COLORS.grayMid2, lineHeight: 22, marginBottom: 16 },
 
-  availWindowCard: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.primaryPale, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 14 },
-  availWindowTxt:  { fontSize: 13, color: COLORS.primary, fontWeight: '700', flex: 1 },
+  // backgroundColor / color come from AVAIL_UI at render time.
+  availWindowCard: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 14 },
+  availWindowTxt:  { fontSize: 13, fontWeight: '700', flex: 1 },
 
   bottomBar:     { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 12, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.lightGray2 },
   // gap:8 + paddingHorizontal keeps the icon and (possibly long) "Call • phone"

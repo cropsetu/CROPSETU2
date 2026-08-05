@@ -11,8 +11,8 @@
  *  GET /irrigation/today?crop=Soybean&lat=18.52&lon=73.85  → { shouldIrrigate, reason, et0, kc, rainfall, waterAmount, weeklyForecast, id }
  *  POST /irrigation/log { logId, farmerAction }             → update existing log
  */
-import { COLORS } from '../../constants/colors';
-import { CropIcon } from '../../components/CropIcons';
+import { COLORS } from '@cropsetu/shared/constants/colors';
+import { CropIcon } from '@cropsetu/shared/components/CropIcons';
 import IrrigationIcon from '../../components/IrrigationIcons';
 import { useState, useCallback } from 'react';
 import {
@@ -21,11 +21,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAuth } from '../../context/AuthContext';
-import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { getIrrigationToday, logIrrigation, getCrops } from '../../services/aiApi';
 import { useLocation } from '../../context/LocationContext';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 
 const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 

@@ -15,9 +15,9 @@ import {
   ActivityIndicator, TextInput, StyleSheet, Alert, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, RADIUS, SHADOWS } from '../constants/colors';
-import { useLanguage } from '../context/LanguageContext';
-import api, { safeErrorMessage } from '../services/api';
+import { COLORS, RADIUS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
 
 const PROXIMITY_LABELS = {
   gps:      { tKey: 'gpsNear',      color: COLORS.primary },

@@ -8,7 +8,15 @@
  * • Worker cards with booking calendar preview
  * • FAB to list your own machinery / register as worker
  */
-import { useState, useCallback, useEffect, useRef } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  useMemo,
+  useDeferredValue,
+  memo,
+} from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
@@ -31,26 +39,26 @@ import Animated, {
   FadeInDown,
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
-import { Haptics } from "../../utils/haptics";
+import { Haptics } from "@cropsetu/shared/utils/haptics";
 import {
   SPRINGS,
   AppPressable,
   AnimatedCard,
   isReducedMotion,
   enterAnimation,
-} from "../../components/ui/motion";
+} from "@cropsetu/shared/components/ui/motion";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import useScrollHeader from "../../hooks/useScrollHeader";
 import ScrollToTopButton from "../../components/ScrollToTopButton";
 import { useLocation } from "../../context/LocationContext";
-import api from "../../services/api";
-import { useLanguage } from "../../context/LanguageContext";
-import { useAuth } from "../../context/AuthContext";
+import api from "@cropsetu/shared/services/api";
+import { useLanguage } from "@cropsetu/shared/context/LanguageContext";
+import { useAuth } from "@cropsetu/shared/context/AuthContext";
 import MockImagePlaceholder from "../../components/MockImagePlaceholder";
-import { COLORS, TYPE, SHADOWS } from "../../constants/colors";
-import { KHET } from "../../constants/khetTheme";
-import AnimatedScreen from "../../components/ui/AnimatedScreen";
+import { COLORS, TYPE, SHADOWS } from "@cropsetu/shared/constants/colors";
+import { KHET } from "@cropsetu/shared/constants/khetTheme";
+import AnimatedScreen from "@cropsetu/shared/components/ui/AnimatedScreen";
 import TractorLoader from "../../components/ui/TractorLoader";
 import { MachineryIcon } from "../../components/MachineryIcons";
 import { LabourIcon } from "../../components/LabourIcon";
@@ -251,7 +259,7 @@ function BookedTag({ status, t }) {
 }
 
 // ── Machinery card ─────────────────────────────────────────────────────────────
-function MachineryCard({
+const MachineryCard = memo(function MachineryCard({
   item,
   onPress,
   index = 0,
@@ -431,10 +439,12 @@ function MachineryCard({
       </View>
     </AnimatedCard>
   );
-}
+});
 
 // ── Worker card ────────────────────────────────────────────────────────────────
-function WorkerCard({
+// memo'd: without it every keystroke in the search box re-ran each card's
+// Reanimated hooks, initials split and subtitle join for every row on screen.
+const WorkerCard = memo(function WorkerCard({
   item,
   onPress,
   index = 0,
@@ -453,10 +463,29 @@ function WorkerCard({
     transform: [{ scale: sc.value }],
   }));
 
+  // The name line already shows `leader || name`. The subtitle carries only the
+  // parts it does NOT: the group's name (only meaningful when a leader is the
+  // title) and the head-count. Both absent → no empty second line.
+  const subtitle = [
+    item.leader && item.name !== item.leader ? item.name : null,
+    item.groupSize > 1 ? t("rent.workersCount", { count: item.groupSize }) : null,
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+  const statusColor =
+    item.bookedStatus === "BOOKED"
+      ? COLORS.error
+      : item.bookedStatus === "RESERVED"
+        ? COLORS.cta
+        : item.available
+          ? GREEN
+          : COLORS.cta;
+
   return (
     <Animated.View entering={enterAnimation(index)} style={[S.wCard, scStyle]}>
       <Pressable
-        style={{ flex: 1, flexDirection: "row", gap: 12 }}
+        style={{ flex: 1 }}
         onPress={() => {
           Haptics.light();
           onPress(item);
@@ -468,53 +497,51 @@ function WorkerCard({
           sc.value = withSpring(1, SPRINGS.snappy);
         }}
       >
-        {/* Avatar */}
-        <View style={S.wAvatarWrap}>
-          {item.image ? (
-            <Image source={{ uri: item.image }} style={S.wAvatar} />
-          ) : (
-            <View style={S.wAvatarPlaceholder}>
-              <Text style={S.wInitials}>{initials}</Text>
-            </View>
-          )}
-          <View
-            style={[
-              S.wAvailDot,
-              {
-                backgroundColor:
-                  item.bookedStatus === "BOOKED"
-                    ? COLORS.error
-                    : item.bookedStatus === "RESERVED"
-                      ? COLORS.cta
-                      : item.available
-                        ? GREEN
-                        : COLORS.cta,
-              },
-            ]}
-          />
+        {/* Header — avatar + status, stacked like MachineryCard's photo block.
+            This card renders in a 2-column grid (~155px wide). The old layout
+            was a horizontal row (avatar | info | price+Call) needing ~192px of
+            fixed width before the name got a single pixel, which crushed names
+            to "R.." and slid the Call button on top of the price. */}
+        <View style={S.wHeader}>
+          <View style={S.wAvatarWrap}>
+            {item.image ? (
+              <Image source={{ uri: item.image }} style={S.wAvatar} />
+            ) : (
+              <View style={S.wAvatarPlaceholder}>
+                <Text style={S.wInitials}>{initials}</Text>
+              </View>
+            )}
+            <View style={[S.wAvailDot, { backgroundColor: statusColor }]} />
+          </View>
+
+          <View style={S.wHeaderTxt}>
+            <Text style={S.wName} numberOfLines={1}>
+              {item.leader || item.name}
+            </Text>
+            {/* Second line only when it adds something the name line does not.
+                A solo worker has no `leader`, so `name` is already the title —
+                printing it again rendered the same text twice. */}
+            {!!subtitle && (
+              <Text style={S.wGroup} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            )}
+          </View>
         </View>
 
-        <View style={S.wInfo}>
-          <Text style={S.wName} numberOfLines={1}>
-            {item.leader || item.name}
-          </Text>
-          <Text style={S.wGroup} numberOfLines={1}>
-            {item.name}
-            {item.groupSize > 1
-              ? ` • ${t("rent.workersCount", { count: item.groupSize })}`
-              : ""}
-          </Text>
-
+        <View style={S.wBody}>
+          {/* Two skills max — a third never fit on one line at this width and
+              wrapped into a ragged second row. */}
           {(item.skills || []).length > 0 && (
             <View style={S.wSkillsWrap}>
-              {(item.skills || []).slice(0, 3).map((s, i) => (
+              {(item.skills || []).slice(0, 2).map((s, i) => (
                 <View key={i} style={S.skillTag}>
                   <Text style={S.skillTagTxt} numberOfLines={1}>{s}</Text>
                 </View>
               ))}
-              {(item.skills || []).length > 3 && (
+              {(item.skills || []).length > 2 && (
                 <View style={S.skillMore}>
-                  <Text style={S.skillMoreTxt}>+{(item.skills || []).length - 3}</Text>
+                  <Text style={S.skillMoreTxt}>+{(item.skills || []).length - 2}</Text>
                 </View>
               )}
             </View>
@@ -526,6 +553,30 @@ function WorkerCard({
               {item.location || item.district || "—"}
               {item.distanceKm != null ? ` · ${item.distanceKm} ${t("rent.kmAway")}` : ""}
             </Text>
+          </View>
+
+          {/* Price and rating share one row; the CTA gets its own full-width
+              row below, so they can no longer overlap. */}
+          <View style={S.wPriceRow}>
+            <View style={S.wPriceCol}>
+              <Text style={S.wPrice} numberOfLines={1}>
+                ₹{item.pricePerDay?.toLocaleString() ?? "—"}
+              </Text>
+              <Text style={S.wPriceUnit}>{t("rent.perDayUnit", "/day")}</Text>
+            </View>
+            {/* Only show a rating once there is one. `(0).toFixed(1)` is the
+                truthy string "0.0", so the old `|| "—"` fallback never fired
+                and every unrated worker advertised a 0.0 star score. */}
+            {item.rating > 0 ? (
+              <View style={S.ratingPill}>
+                <Ionicons name="star" size={11} color={COLORS.yellowDark2} />
+                <Text style={S.ratingTxt}>{item.rating.toFixed(1)}</Text>
+              </View>
+            ) : (
+              <View style={S.newPill}>
+                <Text style={S.newPillTxt}>{t("rent.newWorker", "New")}</Text>
+              </View>
+            )}
           </View>
 
           {item.bookedStatus && (
@@ -540,45 +591,19 @@ function WorkerCard({
                 },
               ]}
             >
-              <Ionicons
-                name="lock-closed"
-                size={10}
-                color={
-                  item.bookedStatus === "BOOKED" ? COLORS.error : COLORS.cta
-                }
-              />
-              <Text
-                style={[
-                  S.workerBookedTxt,
-                  {
-                    color:
-                      item.bookedStatus === "BOOKED"
-                        ? COLORS.error
-                        : COLORS.cta,
-                  },
-                ]}
-              >
+              <Ionicons name="lock-closed" size={10} color={statusColor} />
+              <Text style={[S.workerBookedTxt, { color: statusColor }]}>
                 {item.bookedStatus === "BOOKED"
                   ? t("rent.bookedNow", "Booked")
                   : t("rent.reservedSoon", "Reserved")}
               </Text>
             </View>
           )}
-        </View>
 
-        <View style={S.wRight}>
-          <View style={S.ratingPill}>
-            <Ionicons name="star" size={11} color={COLORS.yellowDark2} />
-            <Text style={S.ratingTxt}>{item.rating?.toFixed(1) || "—"}</Text>
-          </View>
-          <View style={S.wPriceCol}>
-            <Text style={S.wPrice}>₹{item.pricePerDay?.toLocaleString()}</Text>
-            <Text style={S.wPriceUnit}>/day</Text>
-          </View>
           {isOwner ? (
             <View style={S.ownTag}>
               <Ionicons name="person-circle-outline" size={13} color={GREEN} />
-              <Text style={S.ownTagTxt}>
+              <Text style={S.ownTagTxt} numberOfLines={1}>
                 {t("rent.ownListingTitle", "Your Listing")}
               </Text>
             </View>
@@ -587,14 +612,14 @@ function WorkerCard({
           ) : (
             <TouchableOpacity style={S.callBtn} onPress={() => onPress(item)}>
               <Ionicons name="call" size={13} color={COLORS.white} />
-              <Text style={S.callBtnTxt}>{t("rent.call")}</Text>
+              <Text style={S.callBtnTxt} numberOfLines={1}>{t("rent.call")}</Text>
             </TouchableOpacity>
           )}
         </View>
       </Pressable>
     </Animated.View>
   );
-}
+});
 
 // ── Distance chip (Rent screen) ────────────────────────────────────────────────
 function RentDistChip({ opt, active, disabled, onPress }) {
@@ -752,30 +777,67 @@ export default function RentHome({ navigation }) {
   );
 
   // ── Filters (client-side category/search) ─────────────────────────────────
-  const q = search.toLowerCase();
-  const filteredMachinery = machinery.filter((m) => {
-    if (category !== "all" && m.category !== category) return false;
-    if (!q) return true;
-    return (
-      (m.name || "") +
-      (m.equipment || "") +
-      (m.brand || "") +
-      (m.location || "")
-    )
-      .toLowerCase()
-      .includes(q);
-  });
-  const filteredLabour = labour.filter((l) => {
-    if (!q) return true;
-    return (
-      (l.name || "") +
-      (l.leader || "") +
-      (l.location || "") +
-      (l.skills || []).join(" ")
-    )
-      .toLowerCase()
-      .includes(q);
-  });
+  // Typing used to be janky for four compounding reasons, all fixed here:
+  //
+  //  1. The filters ran on EVERY render, not just when the query changed — any
+  //     unrelated state update (scroll header, bookingMap, radius) re-filtered
+  //     both lists.
+  //  2. Each pass rebuilt a concatenated string per item and lowercased it, so
+  //     every keystroke allocated 2 strings × every listing.
+  //  3. `filter()` returned a fresh array identity every render, so FlatList's
+  //     `data` always looked new and re-rendered every row.
+  //  4. Filtering ran synchronously on the keystroke, so the character painted
+  //     only after the whole list had re-rendered.
+
+  // (2) Lowercase haystack built ONCE per fetch, not once per keystroke.
+  const machineryIndexed = useMemo(
+    () =>
+      machinery.map((m) => ({
+        ...m,
+        _s: `${m.name || ""} ${m.equipment || ""} ${m.brand || ""} ${m.location || ""}`.toLowerCase(),
+      })),
+    [machinery]
+  );
+  const labourIndexed = useMemo(
+    () =>
+      labour.map((l) => ({
+        ...l,
+        _s: `${l.name || ""} ${l.leader || ""} ${l.location || ""} ${(l.skills || []).join(" ")}`.toLowerCase(),
+      })),
+    [labour]
+  );
+
+  // (4) The input keeps `search` so typing echoes instantly; the lists filter on
+  // the deferred value, which React renders at lower priority.
+  const deferredSearch = useDeferredValue(search);
+  const q = deferredSearch.trim().toLowerCase();
+
+  // Stable handler identities. These were inline arrows inside renderItem, so
+  // every card got a brand-new `onPress` on every render — which would have made
+  // the memo() on the cards a no-op.
+  const openMachinery = useCallback(
+    (i) => navigation.navigate("MachineryDetail", { id: i.id, machinery: i }),
+    [navigation]
+  );
+  const openLabour = useCallback(
+    (i) => navigation.navigate("LabourDetail", { id: i.id, labour: i }),
+    [navigation]
+  );
+
+  // (1)+(3) Recompute only when the data, query or category actually change, and
+  // return the SAME array identity otherwise.
+  const filteredMachinery = useMemo(
+    () =>
+      machineryIndexed.filter((m) => {
+        if (category !== "all" && m.category !== category) return false;
+        return !q || m._s.includes(q);
+      }),
+    [machineryIndexed, category, q]
+  );
+  const filteredLabour = useMemo(
+    () => (q ? labourIndexed.filter((l) => l._s.includes(q)) : labourIndexed),
+    [labourIndexed, q]
+  );
 
   return (
     <AnimatedScreen>
@@ -1028,12 +1090,7 @@ export default function RentHome({ navigation }) {
                         (myId === item.owner?.id || myId === item.ownerId)
                       }
                       bookingStatus={bookingMap[item.id]}
-                      onPress={(i) =>
-                        navigation.navigate("MachineryDetail", {
-                          id: i.id,
-                          machinery: i,
-                        })
-                      }
+                      onPress={openMachinery}
                     />
                   )}
                 />
@@ -1085,12 +1142,7 @@ export default function RentHome({ navigation }) {
                         (myId === item.provider?.id || myId === item.providerId)
                       }
                       bookingStatus={bookingMap[item.id]}
-                      onPress={(i) =>
-                        navigation.navigate("LabourDetail", {
-                          id: i.id,
-                          labour: i,
-                        })
-                      }
+                      onPress={openLabour}
                     />
                   )}
                 />
@@ -1400,6 +1452,15 @@ const S = StyleSheet.create({
     paddingVertical: 3,
   },
   ratingTxt: { fontSize: 11, color: COLORS.amber, fontWeight: "700" },
+  // Shown in the rating pill's place for a worker with no ratings yet, so the
+  // slot keeps its height and the card layout does not shift between the two.
+  newPill: {
+    backgroundColor: GREEN + "12",
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  newPillTxt: { fontSize: 11, color: GREEN, fontWeight: "700" },
   metaPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1448,7 +1509,7 @@ const S = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 10,
   },
-  ownTagTxt: { color: GREEN, fontSize: 12, fontWeight: "800" },
+  ownTagTxt: { color: GREEN, fontSize: 12, fontWeight: "800", flexShrink: 1 },
   bookedTag: {
     flexDirection: "row",
     alignItems: "center",
@@ -1462,35 +1523,45 @@ const S = StyleSheet.create({
   bookedTagTxt: { fontSize: 12, fontWeight: "800", flexShrink: 1 },
 
   // Worker card
+  // Vertical card — it lives in a 2-column grid (~155px wide), so the content
+  // stacks rather than sitting in three side-by-side columns.
   wCard: {
     flex: 1,
     backgroundColor: COLORS.surface,
     borderRadius: 20,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+    overflow: "hidden",
     ...SHADOWS.small,
   },
+  wHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+  },
+  wHeaderTxt: { flex: 1, minWidth: 0 },
+  wBody: { paddingHorizontal: 12, paddingBottom: 12, paddingTop: 8, gap: 6 },
   wAvatarWrap: { position: "relative" },
+  // 44 not 56: at ~155px column width the avatar plus its gap was eating a
+  // third of the row before the name started.
   wAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 2.5,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
     borderColor: GREEN + "40",
   },
   wAvatarPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: GREEN + "15",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
     borderColor: GREEN + "30",
   },
-  wInitials: { fontSize: 19, fontWeight: "800", color: GREEN },
+  wInitials: { fontSize: 15, fontWeight: "800", color: GREEN },
   wAvailDot: {
     position: "absolute",
     bottom: 1,
@@ -1501,18 +1572,19 @@ const S = StyleSheet.create({
     borderWidth: 2.5,
     borderColor: COLORS.white,
   },
-  wInfo: { flex: 1, gap: 2 },
-  wName: { fontSize: 15.5, fontWeight: TYPE.weight.black, color: COLORS.textDark },
-  wGroup: { fontSize: 12, color: COLORS.textLight },
-  wSkillsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 5, marginTop: 5 },
+  wName: { fontSize: 14, fontWeight: TYPE.weight.black, color: COLORS.textDark },
+  wGroup: { fontSize: 11, color: COLORS.textLight, marginTop: 1 },
+  wSkillsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
   skillTag: {
     backgroundColor: GREEN + "12",
     borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderWidth: 1,
     borderColor: GREEN + "25",
-    maxWidth: 120,
+    // Cap relative to the column, not a fixed 120px that overflowed it.
+    maxWidth: "100%",
+    flexShrink: 1,
   },
   skillTagTxt: { fontSize: 10, color: GREEN, fontWeight: "700" },
   skillMore: {
@@ -1522,12 +1594,20 @@ const S = StyleSheet.create({
     paddingVertical: 4,
   },
   skillMoreTxt: { fontSize: 10, color: COLORS.grayMedium, fontWeight: "700" },
-  wMetaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
-  wMetaTxt: { fontSize: 11.5, color: COLORS.textLight, flex: 1 },
-  wRight: { alignItems: "flex-end", justifyContent: "center", gap: 8 },
-  wPriceCol: { flexDirection: "row", alignItems: "baseline", gap: 1 },
+  wMetaRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  wMetaTxt: { fontSize: 11, color: COLORS.textLight, flex: 1 },
+  // Price and rating share a row; the CTA is full-width below them, so the
+  // Call button can no longer land on top of the price.
+  wPriceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+  },
+  wPriceCol: { flexDirection: "row", alignItems: "baseline", gap: 1, flexShrink: 1 },
   wPrice: { fontSize: 15, fontWeight: "900", color: GREEN },
   wPriceUnit: { fontSize: 10, color: COLORS.textLight, fontWeight: "600" },
+  // Full-width CTA at the bottom of the card, matching machinery's bookBtn.
   callBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1535,8 +1615,8 @@ const S = StyleSheet.create({
     gap: 5,
     backgroundColor: GREEN,
     borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 9,
+    marginTop: 2,
   },
   callBtnTxt: { color: COLORS.white, fontSize: 12, fontWeight: "800" },
 

@@ -1,7 +1,7 @@
 /**
  * MyAnimalListingsScreen — shows the user's own animal listings
  */
-import { COLORS } from '../../constants/colors';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import api from '../../services/api';
+import api from '@cropsetu/shared/services/api';
 import { formatLocation } from '../../utils/location';
 
 function ListingCard({ item, onDelete, onEdit }) {

@@ -25,8 +25,8 @@ import Animated, {
   interpolate,
   FadeIn,
 } from 'react-native-reanimated';
-import { COLORS } from '../../constants/colors';
-import { isReducedMotion } from './motion';
+import { COLORS } from '@cropsetu/shared/constants/colors';
+import { isReducedMotion } from '@cropsetu/shared/components/ui/motion';
 
 // ── Colors ───────────────────────────────────────────────────────────────────
 const TRACTOR_RED    = '#E53935';

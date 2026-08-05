@@ -23,8 +23,8 @@ import GlassCard from '../ui/GlassCard';
 import GlowButton from '../ui/GlowButton';
 import CelebrationSheet from '../ui/CelebrationSheet';
 import { COSMIC, CR, CS } from '../theme/cosmicTheme';
-import { Haptics } from '../../../utils/haptics';
-import { useLanguage } from '../../../context/LanguageContext';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { ActivityIcon } from '../../../components/ActivityIcons';
 
 // Conservative colourisation for the shared SectionHeader (used by 9 loggers).

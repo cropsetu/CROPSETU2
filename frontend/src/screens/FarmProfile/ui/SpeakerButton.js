@@ -6,10 +6,10 @@
 import React, { useState, useEffect } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLanguage } from '../../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { speak, stopSpeaking, isSpeechAvailable } from '../../../utils/speak';
 import { COSMIC, CR } from '../theme/cosmicTheme';
-import { Haptics } from '../../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 export default function SpeakerButton({ text, size = 18, tint = COSMIC.PRIMARY, style }) {
   const { language, t } = useLanguage();

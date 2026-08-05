@@ -1,4 +1,4 @@
-import { COLORS } from '../../constants/colors';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 import { useRef, useEffect, useState, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, FlatList,
@@ -11,10 +11,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location'; // reverseGeocodeAsync only
 import { useLocation } from '../../context/LocationContext';
 import { getMandiPrices } from '../../services/aiApi';
-import { INDIA_STATES_LIST, INDIA_DISTRICTS, STATE_GPS_MAP, getDistricts } from '../../constants/indiaLocations';
-import { useLanguage } from '../../context/LanguageContext';
-import CropIcon from '../../components/CropIcons';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import { INDIA_STATES_LIST, INDIA_DISTRICTS, STATE_GPS_MAP, getDistricts } from '@cropsetu/shared/constants/indiaLocations';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import CropIcon from '@cropsetu/shared/components/CropIcons';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 
 const { width: W, height: H } = Dimensions.get('window');
 

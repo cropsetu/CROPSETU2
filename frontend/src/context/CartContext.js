@@ -9,8 +9,8 @@
  * their write so the badge stays in sync from anywhere it's rendered.
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import api from '../services/api';
-import { useAuth } from './AuthContext';
+import api from '@cropsetu/shared/services/api';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
 
 const CartContext = createContext(null);
 

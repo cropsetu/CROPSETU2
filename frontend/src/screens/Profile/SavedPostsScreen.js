@@ -1,7 +1,7 @@
 /**
  * SavedPostsScreen — shows community posts the user has bookmarked
  */
-import { COLORS } from '../../constants/colors';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
@@ -9,8 +9,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import api from '../../services/api';
-import { useLanguage } from '../../context/LanguageContext';
+import api from '@cropsetu/shared/services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 
 const CATEGORY_COLORS = {
   TIP:       COLORS.emerald,

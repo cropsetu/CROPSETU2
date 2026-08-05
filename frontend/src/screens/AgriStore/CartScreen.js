@@ -2,7 +2,7 @@
  * CartScreen — Redesigned to match KisanMart reference UI
  * Staggered entrance, pill qty selector, animated progress bar, bottom action bar
  */
-import { COLORS } from '../../constants/colors';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
@@ -10,13 +10,13 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Haptics } from '../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import api from '../../services/api';
-import { useLanguage } from '../../context/LanguageContext';
+import api from '@cropsetu/shared/services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useCart } from '../../context/CartContext';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
-import { StoreCategoryIcon } from '../../components/StoreCategoryIcons';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import { StoreCategoryIcon } from '@cropsetu/shared/components/StoreCategoryIcons';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 
 const W = Dimensions.get('window').width;

@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { Haptics } from '../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location   from 'expo-location';
@@ -27,12 +27,12 @@ import { listCropCycles, getCropCycle } from '../../services/farmApi';
 import { summarizeFertilizers, summarizePesticides, buildFarmHistory } from '../../utils/farmHistory';
 
 import { useFarm, COMMON_CROPS, COMMON_CROP_KEYS, SOIL_TYPES, IRRIGATION_TYPES } from '../../context/FarmContext';
-import { useAuth } from '../../context/AuthContext';
-import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import FarmProfileBanner from '../../components/FarmProfileBanner';
-import { SoundEffects } from '../../utils/sounds';
-import { COLORS } from '../../constants/colors';
-import { CropIcon } from '../../components/CropIcons';
+import { SoundEffects } from '@cropsetu/shared/utils/sounds';
+import { COLORS } from '@cropsetu/shared/constants/colors';
+import { CropIcon } from '@cropsetu/shared/components/CropIcons';
 import SoilIcon from '../../components/SoilIcons';
 import IrrigationIcon from '../../components/IrrigationIcons';
 

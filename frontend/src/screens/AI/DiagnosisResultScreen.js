@@ -23,17 +23,17 @@ import {
 } from 'react-native';
 import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
 import { Ionicons } from '@expo/vector-icons';
-import { Haptics } from '../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import * as FileSystem from 'expo-file-system/legacy';
 import logger from '../../utils/logger';
-import { SoundEffects } from '../../utils/sounds';
-import { COLORS } from '../../constants/colors';
-import api from '../../services/api';
+import { SoundEffects } from '@cropsetu/shared/utils/sounds';
+import { COLORS } from '@cropsetu/shared/constants/colors';
+import api from '@cropsetu/shared/services/api';
 import KrushiKendraShareSheet from '../../components/KrushiKendraShareSheet';
 
 const { width: W } = Dimensions.get('window');

@@ -33,11 +33,11 @@ import { DonutChart, GrowthRing } from '../../components/charts';
 import MandiGlanceCard from './components/MandiGlanceCard';
 import SpeakerButton from './ui/SpeakerButton';
 
-import CropIcon from '../../components/CropIcons';
+import CropIcon from '@cropsetu/shared/components/CropIcons';
 import * as farmApi from '../../services/farmApi';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COSMIC, CR, CS, activityMeta } from './theme/cosmicTheme';
-import { Haptics } from '../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers

@@ -3,7 +3,7 @@
  * 3-step flow: Address → Order Summary → Payment
  * Staggered entrance, spring selection, animated radio, icon circles
  */
-import { COLORS } from '../../constants/colors';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -13,10 +13,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import api from '../../services/api';
-import { useLanguage } from '../../context/LanguageContext';
-import { isValidPhone, isValidPincode, normalizePhone } from '../../utils/validators';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import api from '@cropsetu/shared/services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { isValidPhone, isValidPincode, normalizePhone } from '@cropsetu/shared/utils/validators';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 
 const { width: W } = Dimensions.get('window');
 

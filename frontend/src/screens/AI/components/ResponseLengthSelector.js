@@ -11,7 +11,7 @@ import {
 import { Gauge, ChevronDown, Check } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLanguage } from '../../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 
 const { height: H } = Dimensions.get('window');
 

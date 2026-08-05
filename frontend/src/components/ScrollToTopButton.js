@@ -5,7 +5,7 @@
 import React from 'react';
 import { TouchableOpacity, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../constants/colors';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 
 export default function ScrollToTopButton({ visible, onPress }) {
   if (!visible) return null;

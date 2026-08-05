@@ -4,7 +4,7 @@
  * Shows: balance left, used this month, and a Buy button.
  * Runs on a fixed monthly credit budget.
  */
-import { COLORS, TYPE, SHADOWS } from '../../constants/colors';
+import { COLORS, TYPE, SHADOWS } from '@cropsetu/shared/constants/colors';
 import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -12,9 +12,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { getAICredits } from '../../services/aiApi';
-import AnimatedScreen from '../../components/ui/AnimatedScreen';
+import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 
 // Fallback monthly allowance used only until the API returns the live value. The
 // real budget is data.monthlyAllowance from the credit summary, so the bar tracks

@@ -3,7 +3,7 @@ import Svg, {
   Defs, LinearGradient, Stop,
   Rect, Circle, Path, Ellipse, G, Line,
 } from 'react-native-svg';
-import { COLORS } from '../constants/colors';
+import { COLORS } from '@cropsetu/shared/constants/colors';
 
 const Shadow = ({ cx = 100, rx = 50, ry = 7 }) => (
   <Ellipse cx={cx} cy={180} rx={rx} ry={ry} fill="rgba(0,0,0,0.12)" />

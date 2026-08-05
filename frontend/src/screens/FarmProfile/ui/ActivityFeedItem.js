@@ -20,7 +20,7 @@ import React from 'react';
 import { View, Text, Pressable, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COSMIC, CR, activityMeta } from '../theme/cosmicTheme';
-import { useLanguage } from '../../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 
 export default function ActivityFeedItem({
   type,

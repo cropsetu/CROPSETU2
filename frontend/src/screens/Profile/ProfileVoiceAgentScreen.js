@@ -5,9 +5,9 @@
  */
 import React, { useCallback } from 'react';
 import VoiceAgentEngine from '../AI/VoiceAgentEngine';
-import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
-import api from '../../services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import api from '@cropsetu/shared/services/api';
 
 const PROFILE_FIELDS = ['name', 'statusQuote', 'village', 'taluka', 'district', 'city', 'state',
   'pincode', 'language', 'gender', 'education', 'farmingExperienceYrs'];

@@ -20,7 +20,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSecureJSON, setSecureJSON } from '../utils/secureCache';
 import * as Location from 'expo-location';
-import { API_BASE_URL } from '../constants/config';
+import { API_BASE_URL } from '@cropsetu/shared/constants/config';
 
 // ── TTLs ──────────────────────────────────────────────────────────────────────
 const WEATHER_CACHE_TTL_MS  = 60 * 60 * 1000;   // 1 hour  — weather data

@@ -12,8 +12,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KHET, KFONT, KSHADOW } from '../../constants/khetTheme';
-import { useLanguage } from '../../context/LanguageContext';
+import { KHET, KFONT, KSHADOW } from '@cropsetu/shared/constants/khetTheme';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { tc } from '../../data/contentI18n';
 import { getCropGuide } from '../../data/cropGuide';
 

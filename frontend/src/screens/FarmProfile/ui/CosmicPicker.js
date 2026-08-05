@@ -12,7 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COSMIC, CR, CS, CT } from '../theme/cosmicTheme';
-import { Haptics } from '../../../utils/haptics';
+import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 export default function CosmicPicker({
   title,

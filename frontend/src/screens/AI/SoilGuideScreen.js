@@ -13,7 +13,7 @@ import {
   BookOpen, MapPin, Coins, FileText, Clock, RefreshCw,
   Check, X as XIcon, Sprout, ClipboardList,
 } from 'lucide-react-native';
-import { useLanguage } from '../../context/LanguageContext';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import {
   BG, BG_GRADIENT, P_LIGHT, ACCENT, DANGER, TEXT, TEXT2, MUTED, SURFACE, BORDER,
   INTER_REG, INTER_SEMI, INTER_BOLD, INTER_EXTRA, CosmicHeader,
