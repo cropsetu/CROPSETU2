@@ -1,224 +1,282 @@
 /**
- * ReceivedReportsScreen — Seller inbox of crop diagnosis reports
- * shared by farmers via DiagnosisResultScreen → KrushiKendraShareSheet.
+ * ReceivedReportsScreen — seller inbox of crop diagnosis reports shared by
+ * farmers via DiagnosisResultScreen → KrushiKendraShareSheet.
  *
- * Uses GET /api/v1/crop-reports/seller/inbox.
+ * Endpoint unchanged: GET /api/v1/crop-reports/seller/inbox
+ *
+ * THE ROW READS AS A CASE FILE
+ * ----------------------------
+ * Each row is one farmer's problem, and the seller's job is to triage it. So
+ * the row is ordered by what triage needs, top to bottom: the disease name in
+ * Fraunces (what), the crop and stage (context), the farmer and village (who),
+ * then risk and elapsed time on one footing line (how urgent). Risk is a
+ * coloured rail down the left edge AND an icon-bearing pill in the footer —
+ * risk is the one field on this screen that must never be carried by hue
+ * alone, since "high" and "low" are the red/green pair.
+ *
+ * Unread is stated in words. It used to be a coloured border and an 8px dot,
+ * which is invisible to anyone who can't separate those hues and ambiguous to
+ * everyone else; a filled "New" badge says it outright, and the row's
+ * accessibility label leads with it.
+ *
+ * What else changed from the original:
+ *   - The list re-rendered every row on every parent state change (the
+ *     renderItem closure was inline). Rows are memoised components.
+ *   - `useEffect` + `useFocusEffect` both called `load()`, so opening the
+ *     screen fired two identical requests. The shared list hook does it once.
+ *   - The filter tabs were generic buttons; they carry tab semantics and
+ *     selected state for screen readers.
+ *   - Relative timestamps recomputed `Date.now()` inside render for every row.
  */
-import { useState, useEffect, useCallback } from 'react';
-import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
-  RefreshControl, ActivityIndicator, SafeAreaView,
-} from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Animated, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
+import api from '@cropsetu/shared/services/api';
 import { CropIcon } from '@cropsetu/shared/components/CropIcons';
 
-const RISK_COLOR = {
-  HIGH:     COLORS.error,
-  MEDIUM:   COLORS.amberDark,
-  MODERATE: COLORS.amberDark,
-  LOW:      COLORS.primary,
-};
+import { C, R, SP, T, riskMeta, useResponsive } from '../theme';
+import useAsyncData from '../hooks/useAsyncData';
+import { useEntrance } from '../hooks/useMotion';
+import {
+  Screen, AppHeader, Card, Chip, FilterBar, Badge, PressableRow,
+  EmptyState, ErrorState, SkeletonList,
+} from '../components/ui';
 
-function relativeTime(iso, t) {
+const TABS = [
+  { key: 'ALL', tKey: 'inbox.tabAll', fallback: 'All' },
+  { key: 'PENDING', tKey: 'inbox.tabPending', fallback: 'Pending' },
+  { key: 'REPLIED', tKey: 'inbox.tabReplied', fallback: 'Replied' },
+];
+
+/** `now` is passed in so a 40-row list doesn't call Date.now() 40 times. */
+function relativeTime(iso, t, now) {
   if (!iso) return '';
-  const ms = Date.now() - new Date(iso).getTime();
-  const min = Math.floor(ms / 60000);
-  if (min < 1)    return t('share.justNow', 'Just now');
-  if (min < 60)   return t('share.minAgo', { n: min, defaultValue: '{{n}} min ago' });
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const min = Math.floor((now - then) / 60000);
+  if (min < 1) return t('share.justNow', 'Just now');
+  if (min < 60) return t('share.minAgo', { n: min, defaultValue: '{{n}} min ago' });
   const hr = Math.floor(min / 60);
-  if (hr < 24)    return t('share.hourAgo', { n: hr, defaultValue: '{{n}} h ago' });
+  if (hr < 24) return t('share.hourAgo', { n: hr, defaultValue: '{{n}} h ago' });
   const day = Math.floor(hr / 24);
-  if (day < 7)    return t('share.dayAgo', { n: day, defaultValue: '{{n}} d ago' });
+  if (day < 7) return t('share.dayAgo', { n: day, defaultValue: '{{n}} d ago' });
   return new Date(iso).toLocaleDateString();
 }
 
-export default function ReceivedReportsScreen({ navigation }) {
-  const { t } = useLanguage();
-  const [items, setItems]         = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [refreshing, setRefresh]  = useState(false);
-  const [error, setError]         = useState(null);
-  const [filter, setFilter]       = useState('ALL');  // ALL | PENDING | REPLIED
+// ── Row ──────────────────────────────────────────────────────────────────────
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const params = filter === 'ALL' ? {} : { status: filter };
-      const res = await api.get('/crop-reports/seller/inbox', { params });
-      setItems(res.data.data || []);
-    } catch (e) {
-      setError(safeErrorMessage(e, t('share.loadFailed', 'Could not load reports.')));
-    }
-  }, [filter, t]);
+const ReportRow = React.memo(function ReportRow({ item, index, onPress, t, now }) {
+  const entrance = useEntrance({ index, distance: 16 });
 
-  useEffect(() => { load().finally(() => setLoading(false)); }, [load]);
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  const report = item.report || {};
+  const farmer = item.farmer || {};
+  const risk = riskMeta(report.riskLevel);
+  const unread = !item.readAt;
+  const replied = item.status === 'REPLIED';
 
-  const onRefresh = async () => {
-    setRefresh(true);
-    await load();
-    setRefresh(false);
-  };
-
-  if (loading) {
-    return (
-      <SafeAreaView style={S.center}>
-        <ActivityIndicator size="large" color={COLORS.sellerPrimary} />
-      </SafeAreaView>
-    );
-  }
+  const disease = report.primaryDisease || t('share.unknownDisease', 'Unknown disease');
+  const farmerLabel = [
+    farmer.name || (farmer.phone ? `+91 ${farmer.phone}` : t('orders.buyerFallback', 'Farmer')),
+    farmer.village,
+  ].filter(Boolean).join(' · ');
+  const when = relativeTime(item.createdAt, t, now);
 
   return (
-    <SafeAreaView style={S.safe}>
-      {/* Header */}
-      <View style={S.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={S.backBtn}>
-          <Ionicons name="chevron-back" size={22} color={COLORS.white} />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={S.headerTitle}>{t('inbox.title', 'Received Reports')}</Text>
-          <Text style={S.headerSub}>{t('inbox.subtitle', 'Crop diagnosis from nearby farmers')}</Text>
-        </View>
-      </View>
+    <Animated.View style={entrance}>
+      <Card padded={false} accent={risk.color} style={[ri.card, unread && ri.cardUnread]}>
+        <PressableRow
+          onPress={() => onPress(item.id)}
+          // One announcement per row instead of eight fragments, and it leads
+          // with the unread state because that is what decides whether the
+          // seller opens it.
+          accessibilityLabel={[
+            unread ? t('inbox.unread', 'Unread') : null,
+            disease,
+            report.cropType,
+            farmerLabel,
+            report.riskLevel ? `${t('share.risk', 'Risk')}: ${report.riskLevel}` : null,
+            when,
+          ].filter(Boolean).join('. ')}
+          accessibilityHint={t('inbox.openHint', 'Opens the full report so you can reply')}
+          style={ri.pressable}
+        >
+          <View style={ri.topRow}>
+            <Text style={ri.disease} numberOfLines={2}>{disease}</Text>
+            {unread ? <Badge label={t('inbox.new', 'New')} color={C.brand} filled /> : null}
+          </View>
 
-      {/* Filter tabs */}
-      <View style={S.tabs}>
-        {[
-          { key: 'ALL',     tKey: 'tabAll',     label: 'All' },
-          { key: 'PENDING', tKey: 'tabPending', label: 'Pending' },
-          { key: 'REPLIED', tKey: 'tabReplied', label: 'Replied' },
-        ].map((tab) => (
-          <TouchableOpacity
-            key={tab.key}
-            style={[S.tab, filter === tab.key && S.tabActive]}
-            onPress={() => setFilter(tab.key)}
-            activeOpacity={0.85}
-          >
-            <Text style={[S.tabTxt, filter === tab.key && S.tabTxtActive]}>
-              {t(`inbox.${tab.tKey}`, tab.label)}
+          {report.cropType || report.growthStage ? (
+            <Text style={ri.crop} numberOfLines={1}>
+              {[report.cropType, report.growthStage].filter(Boolean).join(' · ')}
             </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+          ) : null}
 
-      {error ? (
-        <View style={S.empty}>
-          <Ionicons name="cloud-offline-outline" size={48} color={COLORS.gray175} />
-          <Text style={S.emptyTitle}>{error}</Text>
-          <TouchableOpacity style={S.retryBtn} onPress={() => { setLoading(true); load().finally(() => setLoading(false)); }}>
-            <Text style={S.retryTxt}>{t('retry', 'Retry')}</Text>
-          </TouchableOpacity>
-        </View>
-      ) : items.length === 0 ? (
-        <View style={S.empty}>
-          <CropIcon crop="Wheat" size={56} />
-          <Text style={S.emptyTitle}>{t('inbox.emptyTitle', 'No reports yet')}</Text>
-          <Text style={S.emptyText}>
-            {t('inbox.emptyText', 'When a nearby farmer sends you a crop diagnosis, it will appear here.')}
-          </Text>
-        </View>
+          <View style={ri.metaRow}>
+            <Ionicons name="person-circle-outline" size={15} color={C.textFaint} />
+            <Text style={ri.farmer} numberOfLines={1}>{farmerLabel}</Text>
+          </View>
+
+          <View style={ri.footRow}>
+            <View style={[ri.riskPill, { backgroundColor: risk.tint }]}>
+              <Ionicons name={risk.icon} size={12} color={risk.color} />
+              <Text style={[ri.riskTxt, { color: risk.color }]} numberOfLines={1}>
+                {report.riskLevel || t('common.unknown', 'UNKNOWN')}
+                {report.confidenceScore != null ? ` · ${Math.round(report.confidenceScore)}%` : ''}
+              </Text>
+            </View>
+
+            {replied ? (
+              <View style={ri.repliedRow}>
+                <Ionicons name="checkmark-done" size={13} color={C.success} />
+                <Text style={ri.repliedTxt}>{t('inbox.replied', 'You replied')}</Text>
+              </View>
+            ) : null}
+
+            <Text style={ri.time} numberOfLines={1}>{when}</Text>
+          </View>
+        </PressableRow>
+      </Card>
+    </Animated.View>
+  );
+});
+
+// ── Screen ───────────────────────────────────────────────────────────────────
+
+export default function ReceivedReportsScreen({ navigation }) {
+  const { t } = useLanguage();
+  const { gutter, isExpanded, contentMaxWidth } = useResponsive();
+  const [filter, setFilter] = useState('ALL');
+
+  const inbox = useAsyncData(
+    useCallback(({ signal }) => {
+      const params = filter === 'ALL' ? {} : { status: filter };
+      return api.get('/crop-reports/seller/inbox', { params, signal })
+        .then((res) => res.data.data || []);
+    }, [filter]),
+    [filter],
+    {
+      initialData: [],
+      refetchOnFocus: true,
+      errorFallback: t('share.loadFailed', 'Could not load reports.'),
+    },
+  );
+
+  const items = inbox.data || [];
+
+  // Recomputed once per render pass, not once per row.
+  const now = useMemo(() => Date.now(), [items]);
+
+  const openDetail = useCallback((shareId) => {
+    navigation.navigate('ReceivedReportDetail', { shareId });
+  }, [navigation]);
+
+  const renderItem = useCallback(({ item, index }) => (
+    <ReportRow item={item} index={index} onPress={openDetail} t={t} now={now} />
+  ), [openDetail, t, now]);
+
+  const keyExtractor = useCallback(
+    (item, index) => (item?.id != null ? String(item.id) : `report-${index}`),
+    [],
+  );
+
+  return (
+    <Screen edges={['top', 'left', 'right']}>
+      <AppHeader
+        title={t('inbox.title', 'Received Reports')}
+        subtitle={t('inbox.subtitle', 'Crop diagnosis from nearby farmers')}
+        onBack={() => navigation.goBack()}
+      />
+
+      <FilterBar>
+        {TABS.map((tab) => (
+          <Chip
+            key={tab.key}
+            label={t(tab.tKey, tab.fallback)}
+            selected={filter === tab.key}
+            onPress={() => setFilter(tab.key)}
+            accessibilityRole="tab"
+            size="sm"
+          />
+        ))}
+      </FilterBar>
+
+      {inbox.isInitialLoading ? (
+        <SkeletonList count={4} thumb={false} />
+      ) : inbox.error && items.length === 0 ? (
+        <ErrorState error={inbox.error} onRetry={inbox.retry} />
       ) : (
         <FlatList
           data={items}
-          keyExtractor={(it) => it.id}
-          contentContainerStyle={{ padding: 16 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.sellerPrimary} />}
-          renderItem={({ item }) => {
-            const r = item.report || {};
-            const farmer = item.farmer || {};
-            const riskCol = RISK_COLOR[r.riskLevel] || COLORS.textMedium;
-            const unread = !item.readAt;
-
-            return (
-              <TouchableOpacity
-                style={[S.card, unread && S.cardUnread]}
-                onPress={() => navigation.navigate('ReceivedReportDetail', { shareId: item.id })}
-                activeOpacity={0.85}
-              >
-                <View style={[S.riskBar, { backgroundColor: riskCol }]} />
-                <View style={{ flex: 1, padding: 12 }}>
-                  <View style={S.rowTop}>
-                    <Text style={S.disease} numberOfLines={1}>{r.primaryDisease || t('share.unknownDisease', 'Unknown disease')}</Text>
-                    {unread ? <View style={S.unreadDot} /> : null}
-                  </View>
-                  <Text style={S.crop}>
-                    {r.cropType || ''}{r.growthStage ? ` · ${r.growthStage}` : ''}
-                  </Text>
-                  <View style={S.rowMeta}>
-                    <Ionicons name="person-circle-outline" size={14} color={COLORS.textLight} />
-                    <Text style={S.farmer} numberOfLines={1}>
-                      {farmer.name || `+91 ${farmer.phone}`}{farmer.village ? ` · ${farmer.village}` : ''}
-                    </Text>
-                  </View>
-                  <View style={S.rowFoot}>
-                    <View style={[S.riskPill, { backgroundColor: riskCol + '15' }]}>
-                      <Text style={[S.riskTxt, { color: riskCol }]}>
-                        {r.riskLevel || 'UNKNOWN'} · {Math.round((r.confidenceScore || 0))}%
-                      </Text>
-                    </View>
-                    <Text style={S.time}>{relativeTime(item.createdAt, t)}</Text>
-                  </View>
-                  {item.status === 'REPLIED' ? (
-                    <View style={S.repliedRow}>
-                      <Ionicons name="checkmark-done" size={12} color={COLORS.primary} />
-                      <Text style={S.repliedTxt}>{t('inbox.replied', 'You replied')}</Text>
-                    </View>
-                  ) : null}
-                </View>
-              </TouchableOpacity>
-            );
-          }}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          contentContainerStyle={[
+            { padding: gutter, flexGrow: 1, paddingBottom: SP.huge },
+            isExpanded && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
+          ]}
+          refreshControl={
+            <RefreshControl
+              refreshing={inbox.refreshing}
+              onRefresh={inbox.refresh}
+              tintColor={C.brand}
+              colors={[C.brand]}
+            />
+          }
+          ListEmptyComponent={
+            <EmptyState
+              illustration={<CropIcon crop="Wheat" size={56} />}
+              title={
+                filter === 'ALL'
+                  ? t('inbox.emptyTitle', 'No reports yet')
+                  : t('inbox.emptyFiltered', 'Nothing in this tab')
+              }
+              body={t('inbox.emptyText', 'When a nearby farmer sends you a crop diagnosis, it will appear here.')}
+              actionLabel={filter !== 'ALL' ? t('orders.clearFilter', 'Show all') : undefined}
+              onAction={filter !== 'ALL' ? () => setFilter('ALL') : undefined}
+            />
+          }
+          initialNumToRender={7}
+          maxToRenderPerBatch={9}
+          windowSize={9}
         />
       )}
-    </SafeAreaView>
+    </Screen>
   );
 }
 
-const S = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: COLORS.sellerBg },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.sellerBg },
+const ri = StyleSheet.create({
+  card: { marginBottom: SP.lg },
+  // Supplementary to the "New" badge, never the only signal.
+  cardUnread: { borderColor: C.brand },
+  pressable: { paddingVertical: SP.lg, paddingLeft: SP.xl, paddingRight: SP.lg, borderRadius: R.xl },
 
-  header: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 14, paddingVertical: 14,
-    backgroundColor: COLORS.cta,
+  topRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SP.sm },
+  disease: { ...T.subhead, flex: 1, color: C.text },
+  crop: { ...T.caption, color: C.textMuted, marginTop: SP.xs },
+
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: SP.xs, marginTop: SP.sm },
+  farmer: { ...T.caption, flex: 1, color: C.textFaint },
+
+  footRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SP.sm,
+    marginTop: SP.lg,
+    flexWrap: 'wrap',
   },
-  backBtn:     { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.18)' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: COLORS.white },
-  headerSub:   { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 1 },
-
-  tabs:       { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  tab:        { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: COLORS.surface },
-  tabActive:  { backgroundColor: COLORS.sellerPrimary },
-  tabTxt:     { fontSize: 12, fontWeight: '700', color: COLORS.textMedium },
-  tabTxtActive: { color: COLORS.white },
-
-  card: {
-    flexDirection: 'row', backgroundColor: COLORS.white, borderRadius: RADIUS.lg,
-    overflow: 'hidden', marginBottom: 10, ...SHADOWS.small,
+  riskPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SP.xs,
+    borderRadius: R.pill,
+    paddingHorizontal: SP.md,
+    paddingVertical: 4,
+    flexShrink: 1,
   },
-  cardUnread: { borderWidth: 1.5, borderColor: COLORS.sellerPrimary },
-  riskBar:    { width: 4 },
-  rowTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
-  disease:    { flex: 1, fontSize: 15, fontWeight: '800', color: COLORS.textDark, marginRight: 8 },
-  unreadDot:  { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.sellerPrimary },
-  crop:       { fontSize: 12, color: COLORS.textMedium, marginBottom: 6 },
-  rowMeta:    { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
-  farmer:     { flex: 1, fontSize: 12, color: COLORS.textLight },
-  rowFoot:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  riskPill:   { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  riskTxt:    { fontSize: 10, fontWeight: '800' },
-  time:       { fontSize: 11, color: COLORS.textLight },
-  repliedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
-  repliedTxt: { fontSize: 11, color: COLORS.primary, fontWeight: '700' },
+  riskTxt: { ...T.micro, textTransform: 'uppercase' },
 
-  empty:      { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 10 },
-  emptyTitle: { fontSize: 16, fontWeight: '700', color: COLORS.textDark, textAlign: 'center' },
-  emptyText:  { fontSize: 13, color: COLORS.textLight, textAlign: 'center', lineHeight: 20 },
-  retryBtn:   { marginTop: 8, paddingHorizontal: 18, paddingVertical: 8, borderRadius: 8, backgroundColor: COLORS.sellerPrimary + '15' },
-  retryTxt:   { color: COLORS.sellerPrimary, fontWeight: '700' },
+  repliedRow: { flexDirection: 'row', alignItems: 'center', gap: SP.xs },
+  repliedTxt: { ...T.micro, color: C.success, textTransform: 'uppercase' },
+
+  time: { ...T.caption, color: C.textFaint, marginLeft: 'auto' },
 });
