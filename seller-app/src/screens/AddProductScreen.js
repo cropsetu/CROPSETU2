@@ -1,256 +1,254 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * AddProductScreen — create / edit a listing.
+ *
+ * Payload, endpoints and field names are unchanged.
+ *
+ * THE FORM HAS A SHAPE NOW
+ * ------------------------
+ * This is the longest form in the app and the one sellers abandon. Three
+ * things were added to make the distance legible instead of infinite:
+ *
+ *   1. A progress card at the top counting the five REQUIRED fields — not the
+ *      thirty optional ones. It answers "how much of this actually matters"
+ *      before the seller starts scrolling, and it turns green the moment the
+ *      listing is publishable, which is the only threshold that matters.
+ *   2. Every section is numbered "01 / 05" in its head. A numbered section is
+ *      a landmark; an unnumbered one is more form.
+ *   3. Each section head states in one line what the section is for, so a
+ *      seller can skip "Highlights & specifications" with confidence rather
+ *      than reading four fields to discover it is optional.
+ *
+ * The photo grid was rebuilt around the fact that photos are the single
+ * highest-leverage thing on a listing: the tiles are large, the first one is
+ * marked as the cover (it is what a buyer sees in search), and upload state is
+ * drawn ON the tile it belongs to rather than as a sentence somewhere below.
+ *
+ * WHAT ELSE THIS SCREEN ALREADY FIXED, AND STILL DOES:
+ *
+ *   - VALIDATION. It used to be a chain of `Alert.alert` calls that reported one
+ *     problem at a time — and on web, where Alert is a no-op, reported nothing
+ *     at all: tapping Save on an invalid form did visibly nothing. Errors are
+ *     now inline, per field, all at once, and the form scrolls to the first one.
+ *   - IMAGE UPLOADS. Five images were uploaded in a sequential loop with no
+ *     progress; a failure on image 4 discarded the three already uploaded and
+ *     failed the whole save, so retrying re-uploaded everything. Successful
+ *     uploads are now cached by URI, so a retry only sends what is missing, and
+ *     progress is visible per image.
+ *   - PERMISSIONS. `launchImageLibraryAsync` was called without ever requesting
+ *     or checking permission; a denial just returned `canceled`, which looked
+ *     identical to the user backing out. Permission is now requested, and a
+ *     permanent denial explains how to fix it in Settings.
+ *   - Camera capture is offered alongside the library.
+ *   - Leaving with unsaved edits asks first.
+ *   - Save is blocked (with an explanation) while offline rather than failing
+ *     after a 15-second timeout.
+ */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, Image, Alert, ActivityIndicator,
-  KeyboardAvoidingView, Platform, SafeAreaView, Modal,
-  TouchableWithoutFeedback,
+  ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform,
+  Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
-import api from '@cropsetu/shared/services/api';
-import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
+import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
 import { DISTRICT_LIST, getTalukas, SELLING_SCOPES } from '@cropsetu/shared/constants/locations';
 import { SUBCATEGORIES_MAP } from '@cropsetu/shared/constants/categories';
-import LocationPicker from '@cropsetu/shared/components/LocationPicker';
+
+import { C, E, R, SP, T, alpha, useResponsive } from '../theme';
+import { useNetwork } from '../hooks/useNetwork';
+import useUnsavedChanges from '../hooks/useUnsavedChanges';
+import {
+  Screen, ActionBar, Button, IconButton, Field, TextField, CharCount,
+  Chip, ChipGroup, OptionRow, FormSection, SelectSheet, InlineNotice,
+  Card, ProgressBar, Badge,
+  useConfirm, useToast,
+} from '../components/ui';
 
 const UNITS = ['kg', 'quintal', 'gram', 'litre', 'ml', 'piece', 'bag', 'packet', 'bundle', 'acre', 'dozen'];
+const MAX_IMAGES = 5;
+const MAX_NAME = 120;
+const MAX_DESC = 2000;
+/** Sections in the form, in scroll order. Drives the "01 / 05" counters. */
+const TOTAL_SECTIONS = 5;
 
-// ── Reusable field wrapper ─────────────────────────────────────────────────────
-function Field({ label, children, required, hint }) {
-  return (
-    <View style={f.fieldWrap}>
-      <Text style={f.label}>{label}{required ? ' *' : ''}</Text>
-      {children}
-      {hint ? <Text style={f.hint}>{hint}</Text> : null}
-    </View>
-  );
+/**
+ * The fields that decide whether this listing can go live at all. The progress
+ * meter counts ONLY these — a meter that also counted `manufacturer` and
+ * `harvestDate` would sit at 40% on a perfectly publishable listing and read
+ * as "you are not done".
+ */
+function requiredProgress(form) {
+  const done = [
+    !!form.categoryId,
+    form.name.trim().length >= 3,
+    Number(form.price) > 0,
+    form.stock.trim() !== '' && Number(form.stock) >= 0,
+    !!form.district,
+  ].filter(Boolean).length;
+  return { done, total: 5, percent: Math.round((done / 5) * 100) };
 }
 
-function TextF({ value, onChangeText, placeholder, keyboardType = 'default', multiline = false, autoCapitalize = 'sentences', maxLength }) {
-  return (
-    <TextInput
-      style={[f.input, multiline && { height: 90, textAlignVertical: 'top' }]}
-      value={value}
-      onChangeText={onChangeText}
-      placeholder={placeholder}
-      placeholderTextColor={COLORS.textLight}
-      keyboardType={keyboardType}
-      multiline={multiline}
-      numberOfLines={multiline ? 4 : 1}
-      autoCapitalize={autoCapitalize}
-      maxLength={maxLength}
-    />
-  );
+// ── Validation ───────────────────────────────────────────────────────────────
+
+/**
+ * Pure: form values in, `{ field: message }` out. Kept separate from the
+ * component so the rules are readable in one place and every rule fires on the
+ * same pass — the old sequential Alerts stopped at the first failure, so a
+ * seller with three problems had to submit three times to find them all.
+ */
+function validate(form, t) {
+  const errors = {};
+
+  if (!form.categoryId) {
+    errors.categoryId = t('products.selectCategoryMsg');
+  }
+
+  const name = form.name.trim();
+  if (!name) errors.name = t('products.productNameRequired');
+  else if (name.length < 3) {
+    errors.name = t('products.nameTooShort', 'Use at least 3 characters so buyers can find it.');
+  }
+
+  const price = Number(form.price);
+  if (!form.price.trim()) errors.price = t('products.validPrice');
+  else if (!Number.isFinite(price) || price <= 0) errors.price = t('products.validPrice');
+  else if (price > 10_000_000) {
+    errors.price = t('products.priceTooHigh', 'That price looks wrong. Please check it.');
+  }
+
+  if (form.mrp.trim()) {
+    const mrp = Number(form.mrp);
+    if (!Number.isFinite(mrp) || mrp < 0) {
+      errors.mrp = t('products.validMrp', 'Enter a valid MRP, or leave it blank.');
+    } else if (Number.isFinite(price) && mrp > 0 && mrp < price) {
+      // Selling above MRP is not legal retail practice, and buyers see the
+      // strikethrough as an increase — worth catching before it goes live.
+      errors.mrp = t('products.mrpBelowPrice', 'MRP cannot be less than your selling price.');
+    }
+  }
+
+  const stock = Number(form.stock);
+  if (!form.stock.trim()) errors.stock = t('products.validStock');
+  else if (!Number.isFinite(stock) || stock < 0) errors.stock = t('products.validStock');
+  else if (!Number.isInteger(stock)) {
+    errors.stock = t('products.stockWhole', 'Stock must be a whole number.');
+  }
+
+  if (form.moq.trim()) {
+    const moq = Number(form.moq);
+    if (!Number.isFinite(moq) || moq < 1 || !Number.isInteger(moq)) {
+      errors.moq = t('products.validMoq', 'Minimum order must be a whole number of 1 or more.');
+    } else if (Number.isFinite(stock) && stock > 0 && moq > stock) {
+      errors.moq = t('products.moqOverStock', 'Minimum order cannot be more than your stock.');
+    }
+  }
+
+  if (!form.district) errors.district = t('products.selectDistrictMsg');
+
+  return errors;
 }
 
-// ── Category Picker (modal) ───────────────────────────────────────────────────
-function CategoryPicker({ categories, catsLoading, catsError, onRetry, selected, onSelect }) {
-  const { t } = useLanguage();
-  const [open, setOpen] = useState(false);
-  const cat = categories.find((c) => c.id === selected);
+// ── Image tile ───────────────────────────────────────────────────────────────
+
+/**
+ * One photo. Upload state is drawn on the tile — a scrim plus a spinner while
+ * it uploads, a red scrim plus a warning glyph when it failed — so a seller
+ * can see *which* of five photos is the problem. The first tile is marked
+ * "Cover", because that is the one that appears in buyer search results and
+ * nothing else in the UI ever said so.
+ */
+function ImageTile({ uri, onRemove, status, label, isCover, coverLabel, uploadingLabel, failedLabel }) {
+  const uploading = status === 'uploading';
+  const failed = status === 'failed';
 
   return (
-    <>
-      <TouchableOpacity style={f.pickerBtn} onPress={() => setOpen(true)} activeOpacity={0.75}>
-        <Text style={[f.pickerTxt, !cat && { color: COLORS.textLight }]}>
-          {cat ? cat.name : t('products.selectCategory')}
-        </Text>
-        <Ionicons name="chevron-down" size={18} color={COLORS.gray550} />
-      </TouchableOpacity>
+    <View
+      style={s.imgWrap}
+      accessible
+      accessibilityLabel={[
+        isCover ? coverLabel : null,
+        uploading ? uploadingLabel : null,
+        failed ? failedLabel : null,
+      ].filter(Boolean).join('. ') || undefined}
+    >
+      <Image
+        source={{ uri }}
+        style={s.imgThumb}
+        resizeMode="cover"
+        accessibilityIgnoresInvertColors
+        accessible={false}
+      />
 
-      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <TouchableWithoutFeedback onPress={() => setOpen(false)}>
-          <View style={f.modalBackdrop} />
-        </TouchableWithoutFeedback>
-        <View style={f.modalSheet}>
-          <View style={f.modalHandle} />
-          <Text style={f.modalTitle}>{t('products.selectCategoryTitle')}</Text>
-          {catsLoading ? (
-            <View style={{ padding: 32, alignItems: 'center' }}>
-              <ActivityIndicator color={COLORS.sellerPrimary} size="large" />
-              <Text style={{ marginTop: 12, color: COLORS.textMedium, fontSize: 14 }}>{t('products.modalLoading')}</Text>
-            </View>
-          ) : catsError ? (
-            <View style={{ padding: 32, alignItems: 'center', gap: 12 }}>
-              <Ionicons name="cloud-offline-outline" size={48} color={COLORS.gray175} />
-              <Text style={{ color: COLORS.textMedium, fontSize: 14, textAlign: 'center' }}>{t('products.catsError')}</Text>
-              <TouchableOpacity style={{ backgroundColor: COLORS.sellerPrimary, borderRadius: RADIUS.md, paddingHorizontal: 24, paddingVertical: 10 }} onPress={onRetry}>
-                <Text style={{ color: COLORS.white, fontWeight: '700' }}>{t('retry')}</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <ScrollView style={f.listScroll} showsVerticalScrollIndicator={false}>
-              {categories.map((c) => (
-                <React.Fragment key={c.id}>
-                  <TouchableOpacity style={[f.dropItem, c.id === selected && f.dropItemActive]} onPress={() => { onSelect(c.id); setOpen(false); }} activeOpacity={0.7}>
-                    <Text style={[f.dropTxt, c.id === selected && { color: COLORS.sellerPrimary, fontWeight: '700' }]}>{c.name}</Text>
-                    {c.id === selected && <Ionicons name="checkmark-circle" size={20} color={COLORS.sellerPrimary} />}
-                  </TouchableOpacity>
-                  <View style={{ height: 1, backgroundColor: COLORS.grayBg }} />
-                </React.Fragment>
-              ))}
-            </ScrollView>
-          )}
-          <TouchableOpacity style={f.modalCancel} onPress={() => setOpen(false)}>
-            <Text style={f.modalCancelTxt}>{t('cancel')}</Text>
-          </TouchableOpacity>
+      {uploading || failed ? (
+        <View style={[s.imgOverlay, failed && { backgroundColor: alpha(C.dangerBold, 0.62) }]}>
+          {uploading
+            ? <ActivityIndicator color={C.onBrand} />
+            : <Ionicons name="alert-circle" size={26} color={C.onBrand} />}
         </View>
-      </Modal>
-    </>
-  );
-}
+      ) : null}
 
-// ── Subcategory Picker (modal) ─────────────────────────────────────────────────
-function SubcategoryPicker({ subcategories, selected, onSelect }) {
-  const { t } = useLanguage();
-  const [open, setOpen] = useState(false);
-
-  if (!subcategories || subcategories.length === 0) return null;
-
-  return (
-    <>
-      <TouchableOpacity style={f.pickerBtn} onPress={() => setOpen(true)} activeOpacity={0.75}>
-        <Text style={[f.pickerTxt, !selected && { color: COLORS.textLight }]}>
-          {selected || t('products.talukaOptional')}
-        </Text>
-        <Ionicons name="chevron-down" size={18} color={COLORS.gray550} />
-      </TouchableOpacity>
-
-      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <TouchableWithoutFeedback onPress={() => setOpen(false)}>
-          <View style={f.modalBackdrop} />
-        </TouchableWithoutFeedback>
-        <View style={f.modalSheet}>
-          <View style={f.modalHandle} />
-          <Text style={f.modalTitle}>{t('products.selectSubcategoryTitle')}</Text>
-          <ScrollView style={f.listScroll} showsVerticalScrollIndicator={false}>
-            <TouchableOpacity
-              style={[f.dropItem, !selected && f.dropItemActive]}
-              onPress={() => { onSelect(''); setOpen(false); }}
-              activeOpacity={0.7}
-            >
-              <Text style={[f.dropTxt, !selected && { color: COLORS.sellerPrimary, fontWeight: '700' }]}>
-                {t('products.noneGeneral')}
-              </Text>
-              {!selected && <Ionicons name="checkmark-circle" size={20} color={COLORS.sellerPrimary} />}
-            </TouchableOpacity>
-            <View style={{ height: 1, backgroundColor: COLORS.grayBg }} />
-            {subcategories.map((sub) => (
-              <React.Fragment key={sub}>
-                <TouchableOpacity
-                  style={[f.dropItem, sub === selected && f.dropItemActive]}
-                  onPress={() => { onSelect(sub); setOpen(false); }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[f.dropTxt, sub === selected && { color: COLORS.sellerPrimary, fontWeight: '700' }]}>
-                    {sub}
-                  </Text>
-                  {sub === selected && <Ionicons name="checkmark-circle" size={20} color={COLORS.sellerPrimary} />}
-                </TouchableOpacity>
-                <View style={{ height: 1, backgroundColor: COLORS.grayBg }} />
-              </React.Fragment>
-            ))}
-          </ScrollView>
-          <TouchableOpacity style={f.modalCancel} onPress={() => setOpen(false)}>
-            <Text style={f.modalCancelTxt}>{t('cancel')}</Text>
-          </TouchableOpacity>
+      {isCover && !uploading && !failed ? (
+        <View style={s.imgCover} importantForAccessibility="no">
+          <Text style={s.imgCoverTxt} numberOfLines={1}>{coverLabel}</Text>
         </View>
-      </Modal>
-    </>
-  );
-}
+      ) : null}
 
-// ── Unit Picker ────────────────────────────────────────────────────────────────
-function UnitPicker({ selected, onSelect }) {
-  return (
-    <View style={f.chipRow}>
-      {UNITS.map((u) => (
-        <TouchableOpacity key={u} style={[f.chip, selected === u && f.chipActive]} onPress={() => onSelect(u)}>
-          <Text style={[f.chipTxt, selected === u && f.chipTxtActive]}>{u}</Text>
-        </TouchableOpacity>
-      ))}
+      <IconButton
+        icon="close"
+        size={16}
+        color={C.onBrand}
+        background={C.text}
+        onPress={onRemove}
+        accessibilityLabel={label}
+        style={s.imgRemove}
+        buttonStyle={s.imgRemoveBtn}
+      />
     </View>
   );
 }
 
-// ── Selling Scope Picker ───────────────────────────────────────────────────────
-function ScopePicker({ selected, onSelect }) {
-  const { t } = useLanguage();
-  return (
-    <View style={{ gap: 8 }}>
-      {SELLING_SCOPES.map((sc) => {
-        const active = selected === sc.key;
-        return (
-          <TouchableOpacity
-            key={sc.key}
-            style={[sc_s.item, active && sc_s.itemActive]}
-            onPress={() => onSelect(sc.key)}
-            activeOpacity={0.8}
-          >
-            <View style={[sc_s.iconWrap, active && sc_s.iconWrapActive]}>
-              <Ionicons name={sc.icon} size={18} color={active ? COLORS.sellerPrimary : COLORS.gray550} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[sc_s.label, active && sc_s.labelActive]}>{t('scope.' + sc.tKey)}</Text>
-              <Text style={sc_s.desc}>{t('scope.' + sc.descKey)}</Text>
-            </View>
-            {active && <Ionicons name="checkmark-circle" size={20} color={COLORS.sellerPrimary} />}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-}
+// ── Screen ───────────────────────────────────────────────────────────────────
 
-// ── Section divider ───────────────────────────────────────────────────────────
-function SectionTitle({ icon, title }) {
-  return (
-    <View style={st.wrap}>
-      <View style={st.line} />
-      <View style={st.pill}>
-        <Ionicons name={icon} size={13} color={COLORS.sellerPrimary} />
-        <Text style={st.txt}>{title}</Text>
-      </View>
-      <View style={st.line} />
-    </View>
-  );
-}
-
-// ── Main Screen ────────────────────────────────────────────────────────────────
 export default function AddProductScreen({ route, navigation }) {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const { isOffline } = useNetwork();
+  const { gutter, isExpanded, contentMaxWidth } = useResponsive();
+
   const editProduct = route.params?.product || null;
   const isEdit = !!editProduct;
 
-  const [categories,    setCategories]    = useState([]);
-  const [catsLoading,   setCatsLoading]   = useState(true);
-  const [catsError,     setCatsError]     = useState(false);
-  const [categoryId,    setCategoryId]    = useState(editProduct?.categoryId || '');
-  const [subcategory,   setSubcategory]   = useState(editProduct?.subcategory || '');
-  const [name,          setName]          = useState(editProduct?.name || '');
-  const [desc,          setDesc]          = useState(editProduct?.description || '');
-  const [price,         setPrice]         = useState(editProduct?.price?.toString() || '');
-  const [mrp,           setMrp]           = useState(editProduct?.mrp?.toString() || '');
-  const [unit,          setUnit]          = useState(editProduct?.unit || 'kg');
-  const [stock,         setStock]         = useState(editProduct?.stock?.toString() || '');
-  const [moq,           setMoq]           = useState(editProduct?.minOrderQty?.toString() || '1');
-  const [tags,          setTags]          = useState(editProduct?.tags?.join(', ') || '');
-  const [harvestDate,   setHarvestDate]   = useState(editProduct?.harvestDate || '');
-  const [images,        setImages]        = useState(editProduct?.images || []);
-  const [localImgs,     setLocalImgs]     = useState([]); // [{ uri }]
-  const [saving,        setSaving]        = useState(false);
+  // ── Form state ─────────────────────────────────────────────────────────────
+  const [form, setForm] = useState(() => ({
+    categoryId: editProduct?.categoryId || '',
+    subcategory: editProduct?.subcategory || '',
+    name: editProduct?.name || '',
+    desc: editProduct?.description || '',
+    price: editProduct?.price?.toString() || '',
+    mrp: editProduct?.mrp?.toString() || '',
+    unit: editProduct?.unit || 'kg',
+    stock: editProduct?.stock?.toString() || '',
+    moq: editProduct?.minOrderQty?.toString() || '1',
+    tags: editProduct?.tags?.join(', ') || '',
+    harvestDate: editProduct?.harvestDate || '',
+    brand: editProduct?.brand || '',
+    manufacturer: editProduct?.manufacturer || '',
+    countryOfOrigin: editProduct?.countryOfOrigin || 'India',
+    district: editProduct?.district || user?.district || '',
+    taluka: editProduct?.taluka || user?.taluka || '',
+    village: editProduct?.village || user?.village || '',
+    sellScope: editProduct?.sellScope || 'district',
+  }));
 
-  // Product detail fields
-  const [brand,           setBrand]           = useState(editProduct?.brand || '');
-  const [manufacturer,    setManufacturer]    = useState(editProduct?.manufacturer || '');
-  const [countryOfOrigin, setCountryOfOrigin] = useState(editProduct?.countryOfOrigin || 'India');
-  const [highlights,      setHighlights]      = useState(
-    editProduct?.highlights?.length ? editProduct.highlights : ['']
-  );
+  const [highlights, setHighlights] = useState(() => (
+    editProduct?.highlights?.length ? [...editProduct.highlights] : ['']
+  ));
+
   const [specPairs, setSpecPairs] = useState(() => {
     const specs = editProduct?.specifications;
     if (specs && typeof specs === 'object' && Object.keys(specs).length > 0) {
@@ -259,536 +257,948 @@ export default function AddProductScreen({ route, navigation }) {
     return [{ key: '', value: '' }];
   });
 
-  // Location — default to seller's own location
-  const [district,  setDistrict]  = useState(editProduct?.district  || user?.district  || '');
-  const [taluka,    setTaluka]    = useState(editProduct?.taluka    || user?.taluka    || '');
-  const [village,   setVillage]   = useState(editProduct?.village   || user?.village   || '');
-  const [sellScope, setSellScope] = useState(editProduct?.sellScope || 'district');
+  const [images, setImages] = useState(() => editProduct?.images || []); // remote urls
+  const [localImgs, setLocalImgs] = useState([]);                        // [{ uri }]
 
-  // Reset subcategory when category changes
-  const [categoryTouched, setCategoryTouched] = useState(false);
-  useEffect(() => {
-    if (categoryTouched) setSubcategory('');
-  }, [categoryId]);
+  const [errors, setErrors] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [uploadState, setUploadState] = useState({});   // uri -> 'uploading'|'failed'
+  const [uploadProgress, setUploadProgress] = useState(null); // { done, total }
 
-  // Reset taluka when district changes (only if user manually changed it)
-  const [districtTouched, setDistrictTouched] = useState(false);
-  useEffect(() => {
-    if (districtTouched) setTaluka('');
-  }, [district]);
+  // Successful uploads survive a failed save, so a retry re-sends only what is
+  // still missing instead of paying for every image again.
+  const uploadedCache = useRef(new Map());              // localUri -> remote url
 
-  const fetchCategories = () => {
+  // ── Categories ─────────────────────────────────────────────────────────────
+  const [categories, setCategories] = useState([]);
+  const [catsLoading, setCatsLoading] = useState(true);
+  const [catsError, setCatsError] = useState(null);
+
+  const fetchCategories = useCallback(async () => {
     setCatsLoading(true);
-    setCatsError(false);
-    api.get('/agristore/categories')
-      .then(({ data }) => {
-        const list = data.data || data || [];
-        setCategories(Array.isArray(list) ? list : []);
-        setCatsLoading(false);
-      })
-      .catch(() => { setCatsLoading(false); setCatsError(true); });
-  };
+    setCatsError(null);
+    try {
+      const { data } = await api.get('/agristore/categories');
+      const listRaw = data?.data ?? data ?? [];
+      setCategories(Array.isArray(listRaw) ? listRaw : []);
+    } catch (e) {
+      setCatsError({ message: safeErrorMessage(e, t('products.catsError')) });
+    } finally {
+      setCatsLoading(false);
+    }
+  }, [t]);
 
   useEffect(() => {
-    navigation.setOptions({ title: isEdit ? t('products.updateProduct') : t('products.listProduct') });
+    navigation.setOptions({
+      title: isEdit ? t('products.updateProduct') : t('products.listProduct'),
+    });
     fetchCategories();
+  }, [fetchCategories, isEdit, navigation, t]);
+
+  // ── Field updates ──────────────────────────────────────────────────────────
+  const dirtyRef = useRef(false);
+
+  const setField = useCallback((key) => (value) => {
+    dirtyRef.current = true;
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      // Changing the parent invalidates the child selection.
+      if (key === 'categoryId' && value !== prev.categoryId) next.subcategory = '';
+      if (key === 'district' && value !== prev.district) next.taluka = '';
+      return next;
+    });
+    // Clear a field's error the moment the user edits it — leaving red text
+    // under a field they just fixed reads as "still wrong".
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
   }, []);
 
-  // ── Image picker ────────────────────────────────────────────────────────────
-  const pickImages = async () => {
-    const total = images.length + localImgs.length;
-    if (total >= 5) { Alert.alert(t('required'), t('products.limitMsg')); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: 'images',
-      allowsMultipleSelection: true,
-      quality: 0.8,
-      selectionLimit: 5 - total,
-    });
-    if (!result.canceled) {
-      setLocalImgs((prev) => [...prev, ...result.assets.map((a) => ({ uri: a.uri }))]);
-    }
-  };
+  // Live re-validation, but only after the first submit attempt. Validating
+  // while someone types their first character is hostile.
+  useEffect(() => {
+    if (!submitted) return;
+    setErrors(validate(form, t));
+  }, [form, submitted, t]);
 
-  const removeImage = (index, isLocal) => {
-    if (isLocal) {
-      setLocalImgs((prev) => prev.filter((_, i) => i !== index));
+  const isDirty = dirtyRef.current || localImgs.length > 0
+    || images.length !== (editProduct?.images?.length || 0);
+
+  const confirmDiscard = useCallback(() => confirm({
+    title: t('products.discardTitle', 'Discard changes?'),
+    message: t('products.discardMsg', 'Your edits to this listing will be lost.'),
+    confirmLabel: t('products.discard', 'Discard'),
+    cancelLabel: t('products.keepEditing', 'Keep editing'),
+    destructive: true,
+    icon: 'trash-outline',
+  }), [confirm, t]);
+
+  const { allowNext } = useUnsavedChanges(isDirty && !saving, confirmDiscard);
+
+  // ── Scroll-to-error ────────────────────────────────────────────────────────
+  const scrollRef = useRef(null);
+  const fieldY = useRef({});
+  const registerY = useCallback((key) => (y) => { fieldY.current[key] = y; }, []);
+
+  const scrollToFirstError = useCallback((errs) => {
+    const order = ['categoryId', 'name', 'price', 'mrp', 'stock', 'moq', 'district'];
+    const first = order.find((k) => errs[k]);
+    if (!first) return;
+    const y = fieldY.current[first];
+    if (typeof y === 'number') {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 24), animated: true });
+    }
+  }, []);
+
+  // ── Images ─────────────────────────────────────────────────────────────────
+  const allImages = useMemo(() => [
+    ...images.map((u) => ({ uri: u, local: false })),
+    ...localImgs.map((img) => ({ uri: img.uri, local: true })),
+  ], [images, localImgs]);
+
+  const remainingSlots = MAX_IMAGES - allImages.length;
+
+  /**
+   * Ask for permission, and tell the user what to do when the OS will no longer
+   * show the prompt (`canAskAgain: false`) — otherwise the picker silently does
+   * nothing forever and looks like a broken button.
+   */
+  const ensurePermission = useCallback(async (kind) => {
+    const request = kind === 'camera'
+      ? ImagePicker.requestCameraPermissionsAsync
+      : ImagePicker.requestMediaLibraryPermissionsAsync;
+
+    const result = await request();
+    if (result.granted) return true;
+
+    if (result.canAskAgain === false) {
+      const open = await confirm({
+        title: t('products.permissionTitle', 'Permission needed'),
+        message: kind === 'camera'
+          ? t('products.cameraDeniedMsg', 'Allow camera access in Settings to photograph your products.')
+          : t('products.photosDeniedMsg', 'Allow photo access in Settings to upload product images.'),
+        confirmLabel: t('products.openSettings', 'Open Settings'),
+        cancelLabel: t('cancel'),
+        icon: 'lock-closed-outline',
+      });
+      if (open) Linking.openSettings?.().catch(() => {});
     } else {
-      setImages((prev) => prev.filter((_, i) => i !== index));
+      toast.warning(
+        kind === 'camera'
+          ? t('products.cameraDenied', 'Camera access was denied.')
+          : t('products.photosDenied', 'Photo access was denied.'),
+      );
     }
-  };
+    return false;
+  }, [confirm, t, toast]);
 
-  const uploadImage = async (uri) => {
-    const { base64 } = await compressImage(uri);
-    const { data } = await api.post('/upload/image', { base64 }, { timeout: 60000 });
-    return data.data.url;
-  };
+  const addAssets = useCallback((assets) => {
+    if (!assets?.length) return;
+    dirtyRef.current = true;
+    setLocalImgs((prev) => {
+      const room = MAX_IMAGES - (images.length + prev.length);
+      return [...prev, ...assets.slice(0, Math.max(0, room)).map((a) => ({ uri: a.uri }))];
+    });
+  }, [images.length]);
 
-  // ── Save ────────────────────────────────────────────────────────────────────
-  const handleSave = async () => {
-    if (!categoryId) { Alert.alert(t('required'), t('products.selectCategoryMsg')); return; }
-    if (!name.trim()) { Alert.alert(t('required'), t('products.productNameRequired')); return; }
-    if (!price || isNaN(Number(price)) || Number(price) <= 0) { Alert.alert(t('required'), t('products.validPrice')); return; }
-    if (!stock || isNaN(Number(stock))) { Alert.alert(t('required'), t('products.validStock')); return; }
-    if (!district) { Alert.alert(t('required'), t('products.selectDistrictMsg')); return; }
+  const pickFromLibrary = useCallback(async () => {
+    if (remainingSlots <= 0) {
+      toast.warning(t('products.limitMsg'));
+      return;
+    }
+    if (!(await ensurePermission('library'))) return;
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: 'images',
+        allowsMultipleSelection: true,
+        quality: 0.8,
+        selectionLimit: remainingSlots,
+      });
+      if (!result.canceled) addAssets(result.assets);
+    } catch (e) {
+      toast.error(t('products.pickerError', 'Could not open your photos. Please try again.'));
+    }
+  }, [remainingSlots, ensurePermission, addAssets, toast, t]);
+
+  const takePhoto = useCallback(async () => {
+    if (remainingSlots <= 0) {
+      toast.warning(t('products.limitMsg'));
+      return;
+    }
+    if (!(await ensurePermission('camera'))) return;
+
+    try {
+      const result = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', quality: 0.8 });
+      if (!result.canceled) addAssets(result.assets);
+    } catch (e) {
+      toast.error(t('products.cameraError', 'Could not open the camera. Please try again.'));
+    }
+  }, [remainingSlots, ensurePermission, addAssets, toast, t]);
+
+  const removeImage = useCallback((uri, isLocal) => {
+    dirtyRef.current = true;
+    if (isLocal) {
+      setLocalImgs((prev) => prev.filter((img) => img.uri !== uri));
+      uploadedCache.current.delete(uri);
+      setUploadState((prev) => {
+        const next = { ...prev };
+        delete next[uri];
+        return next;
+      });
+    } else {
+      setImages((prev) => prev.filter((u) => u !== uri));
+    }
+  }, []);
+
+  // ── Highlights / specs ─────────────────────────────────────────────────────
+  const updateHighlight = useCallback((i, value) => {
+    dirtyRef.current = true;
+    setHighlights((prev) => prev.map((h, idx) => (idx === i ? value : h)));
+  }, []);
+
+  const updateSpec = useCallback((i, key, value) => {
+    dirtyRef.current = true;
+    setSpecPairs((prev) => prev.map((pair, idx) => (idx === i ? { ...pair, [key]: value } : pair)));
+  }, []);
+
+  // ── Save ───────────────────────────────────────────────────────────────────
+  const uploadOne = useCallback(async (uri) => {
+    const cached = uploadedCache.current.get(uri);
+    if (cached) return cached;
+
+    setUploadState((prev) => ({ ...prev, [uri]: 'uploading' }));
+    try {
+      const { base64 } = await compressImage(uri);
+      const { data } = await api.post('/upload/image', { base64 }, { timeout: 60_000 });
+      const url = data?.data?.url;
+      if (!url) throw new Error('Upload returned no URL');
+      uploadedCache.current.set(uri, url);
+      setUploadState((prev) => {
+        const next = { ...prev };
+        delete next[uri];
+        return next;
+      });
+      return url;
+    } catch (e) {
+      setUploadState((prev) => ({ ...prev, [uri]: 'failed' }));
+      throw e;
+    }
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    setSubmitted(true);
+    const errs = validate(form, t);
+    setErrors(errs);
+
+    if (Object.keys(errs).some((k) => errs[k])) {
+      toast.error(t('products.fixErrors', 'Please fix the highlighted fields.'));
+      scrollToFirstError(errs);
+      return;
+    }
+
+    if (isOffline) {
+      toast.warning(t('common.offlineAction', 'You are offline. Reconnect to save this.'));
+      return;
+    }
 
     setSaving(true);
     try {
-      const uploadedUrls = [];
+      // Upload sequentially — the compressor is memory-hungry and five parallel
+      // base64 payloads is how low-end devices get killed by the OS.
+      const uploaded = [];
+      const pending = localImgs.filter((img) => !uploadedCache.current.has(img.uri));
+      if (pending.length) setUploadProgress({ done: 0, total: pending.length });
+
       for (const img of localImgs) {
-        const url = await uploadImage(img.uri);
-        uploadedUrls.push(url);
+        const wasCached = uploadedCache.current.has(img.uri);
+        uploaded.push(await uploadOne(img.uri));
+        if (!wasCached) {
+          setUploadProgress((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
+        }
       }
+      setUploadProgress(null);
 
-      const tagList = tags.trim()
-        ? tags.split(',').map((t) => t.trim()).filter(Boolean)
-        : undefined;
-
-      // Build specifications object from key-value pairs (skip empty rows)
       const specsObj = {};
       specPairs.forEach(({ key, value }) => {
         if (key.trim() && value.trim()) specsObj[key.trim()] = value.trim();
       });
 
-      // Filter empty highlight lines
-      const highlightList = highlights.map(h => h.trim()).filter(Boolean);
+      const highlightList = highlights.map((h) => h.trim()).filter(Boolean);
+      const tagList = form.tags.trim()
+        ? form.tags.split(',').map((tag) => tag.trim()).filter(Boolean)
+        : undefined;
 
       const payload = {
-        categoryId,
-        subcategory: subcategory || undefined,
-        name:        name.trim(),
-        description: desc.trim() || undefined,
-        price:       Number(price),
-        mrp:         mrp ? Number(mrp) : undefined,
-        unit,
-        stock:       Number(stock),
-        minOrderQty: moq ? Number(moq) : 1,
-        images:      [...images, ...uploadedUrls],
-        // Location
-        district:  district || undefined,
-        taluka:    taluka   || undefined,
-        village:   village.trim() || undefined,
-        state:     'Maharashtra',
-        sellScope,
-        // Extra
-        tags:        tagList,
-        harvestDate: harvestDate.trim() || undefined,
-        // Product detail
-        brand:           brand.trim() || undefined,
-        manufacturer:    manufacturer.trim() || undefined,
-        countryOfOrigin: countryOfOrigin.trim() || undefined,
-        highlights:      highlightList.length ? highlightList : undefined,
-        specifications:  Object.keys(specsObj).length ? specsObj : undefined,
+        categoryId: form.categoryId,
+        subcategory: form.subcategory || undefined,
+        name: form.name.trim(),
+        description: form.desc.trim() || undefined,
+        price: Number(form.price),
+        mrp: form.mrp.trim() ? Number(form.mrp) : undefined,
+        unit: form.unit,
+        stock: Number(form.stock),
+        minOrderQty: form.moq.trim() ? Number(form.moq) : 1,
+        images: [...images, ...uploaded],
+        district: form.district || undefined,
+        taluka: form.taluka || undefined,
+        village: form.village.trim() || undefined,
+        state: 'Maharashtra',
+        sellScope: form.sellScope,
+        tags: tagList,
+        harvestDate: form.harvestDate.trim() || undefined,
+        brand: form.brand.trim() || undefined,
+        manufacturer: form.manufacturer.trim() || undefined,
+        countryOfOrigin: form.countryOfOrigin.trim() || undefined,
+        highlights: highlightList.length ? highlightList : undefined,
+        specifications: Object.keys(specsObj).length ? specsObj : undefined,
       };
 
-      if (isEdit) {
-        await api.put(`/agristore/seller/products/${editProduct.id}`, payload);
-      } else {
-        await api.post('/agristore/seller/products', payload);
-      }
+      if (isEdit) await api.put(`/agristore/seller/products/${editProduct.id}`, payload);
+      else await api.post('/agristore/seller/products', payload);
 
+      dirtyRef.current = false;
+      allowNext();
+      toast.success(
+        isEdit
+          ? t('products.updated', 'Listing updated')
+          : t('products.created', 'Listing published'),
+      );
       navigation.goBack();
     } catch (e) {
-      Alert.alert(t('error'), e.response?.data?.error?.message || t('products.saveError'));
+      setUploadProgress(null);
+      const message = safeErrorMessage(e, t('products.saveError'));
+      toast.error(message);
+      // A validation rejection from the server is about the fields, not the
+      // network — point the seller back at the form.
+      if (e?.response?.status === 400 || e?.response?.status === 422) {
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+      }
     } finally {
       setSaving(false);
     }
-  };
+  }, [
+    form, t, toast, isOffline, scrollToFirstError, localImgs, uploadOne, specPairs,
+    highlights, images, isEdit, editProduct, allowNext, navigation,
+  ]);
 
-  const allImages = [
-    ...images.map((u) => ({ uri: u, local: false })),
-    ...localImgs.map((img) => ({ uri: img.uri, local: true })),
-  ];
+  // ── Derived ────────────────────────────────────────────────────────────────
+  const categoryOptions = useMemo(
+    () => categories.map((c) => ({ value: c.id, label: c.name })),
+    [categories],
+  );
+
+  const subcategoryOptions = useMemo(() => {
+    const cat = categories.find((c) => c.id === form.categoryId);
+    return cat ? (SUBCATEGORIES_MAP[cat.name] || []) : [];
+  }, [categories, form.categoryId]);
+
+  const talukaOptions = useMemo(() => getTalukas(form.district), [form.district]);
+
+  const failedUploads = Object.values(uploadState).filter((v) => v === 'failed').length;
+
+  // Counted live so the meter moves as the seller types, not on submit.
+  const progress = requiredProgress(form);
 
   return (
-    <SafeAreaView style={s.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+    <Screen edges={['left', 'right']} background={C.bg}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+      >
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[
+            { padding: gutter, paddingBottom: SP.huge },
+            isExpanded && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' },
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {/* ── Progress ── */}
+          <Card style={s.progressCard}>
+            <View style={s.progressTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.progressTitle} numberOfLines={2}>
+                  {isEdit ? t('products.updateProduct', 'Update listing') : t('products.listProduct', 'List a product')}
+                </Text>
+                <Text style={s.progressSub} numberOfLines={2}>
+                  {progress.done === progress.total
+                    ? t('products.readyToPublish', 'All required details are filled in.')
+                    : t('products.requiredLeft', {
+                        n: progress.total - progress.done,
+                        defaultValue: '{{n}} required detail(s) still to fill in.',
+                      })}
+                </Text>
+              </View>
+              <Text style={[s.progressFig, progress.done === progress.total && { color: C.success }]}>
+                {progress.done}
+                <Text style={s.progressFigDim}> / {progress.total}</Text>
+              </Text>
+            </View>
+            <ProgressBar
+              value={progress.percent}
+              color={progress.done === progress.total ? C.success : C.brand}
+              label={t('products.requiredProgress', 'Required details completed')}
+              style={{ marginTop: SP.lg }}
+            />
+          </Card>
 
-          {/* ── Images ── */}
-          <SectionTitle icon="images-outline" title={t('products.photos')} />
-          <Field label={t('products.photosField')} hint={t('products.photosHint')}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.imgRow}>
-              {allImages.map((img, i) => (
-                <View key={i} style={s.imgWrap}>
-                  <Image source={{ uri: img.uri }} style={s.imgThumb} resizeMode="cover" />
-                  <TouchableOpacity style={s.imgRemove} onPress={() => removeImage(i, img.local)}>
-                    <Ionicons name="close-circle" size={22} color={COLORS.error} />
-                  </TouchableOpacity>
+          {submitted && Object.values(errors).some(Boolean) ? (
+            <InlineNotice variant="error" style={{ marginBottom: SP.lg }}>
+              {t('products.fixErrors', 'Please fix the highlighted fields.')}
+            </InlineNotice>
+          ) : null}
+
+          {/* ── Photos ── */}
+          <FormSection
+            icon="images-outline"
+            title={t('products.photos', 'Photos')}
+            hint={t('products.photosHint')}
+            step={1}
+            total={TOTAL_SECTIONS}
+          >
+            <Field label={t('products.photosField')}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={s.imgRow}
+                keyboardShouldPersistTaps="handled"
+              >
+                {allImages.map((img, i) => (
+                  <ImageTile
+                    key={img.uri}
+                    uri={img.uri}
+                    status={uploadState[img.uri]}
+                    isCover={i === 0}
+                    coverLabel={t('products.coverPhoto', 'Cover')}
+                    uploadingLabel={t('products.uploading', 'Uploading')}
+                    failedLabel={t('products.uploadFailedOne', 'Upload failed')}
+                    onRemove={() => removeImage(img.uri, img.local)}
+                    label={t('products.removePhoto', 'Remove photo')}
+                  />
+                ))}
+
+                {remainingSlots > 0 ? (
+                  <>
+                    <Pressable
+                      onPress={pickFromLibrary}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('products.addPhoto')}
+                      accessibilityHint={t('products.addPhotoHint', {
+                        n: remainingSlots,
+                        defaultValue: '{{n}} more can be added',
+                      })}
+                      style={({ pressed }) => [s.imgAdd, pressed && { opacity: 0.7 }]}
+                    >
+                      <Ionicons name="images-outline" size={24} color={C.brandInk} />
+                      <Text style={s.imgAddTxt}>{t('products.addPhoto')}</Text>
+                    </Pressable>
+
+                    {Platform.OS !== 'web' ? (
+                      <Pressable
+                        onPress={takePhoto}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('products.takePhoto', 'Take photo')}
+                        style={({ pressed }) => [s.imgAdd, pressed && { opacity: 0.7 }]}
+                      >
+                        <Ionicons name="camera-outline" size={24} color={C.brandInk} />
+                        <Text style={s.imgAddTxt}>{t('products.takePhoto', 'Camera')}</Text>
+                      </Pressable>
+                    ) : null}
+                  </>
+                ) : null}
+              </ScrollView>
+
+              <View style={s.imgFoot}>
+                <Badge
+                  label={t('products.photoCount', {
+                    n: allImages.length,
+                    max: MAX_IMAGES,
+                    defaultValue: '{{n}} of {{max}}',
+                  })}
+                  color={allImages.length > 0 ? C.brandInk : C.neutral}
+                  icon="images"
+                />
+              </View>
+
+              {failedUploads > 0 ? (
+                <InlineNotice variant="error" style={{ marginTop: SP.md }}>
+                  {t('products.uploadFailed', {
+                    n: failedUploads,
+                    defaultValue: '{{n}} photo(s) failed to upload. Save again to retry just those.',
+                  })}
+                </InlineNotice>
+              ) : null}
+            </Field>
+          </FormSection>
+
+          {/* ── Product details ── */}
+          <FormSection
+            icon="leaf-outline"
+            title={t('products.productDetails')}
+            hint={t('products.productNameHint')}
+            step={2}
+            total={TOTAL_SECTIONS}
+          >
+            <Field
+              label={t('products.category')}
+              required
+              error={errors.categoryId}
+              onLayoutY={registerY('categoryId')}
+            >
+              <SelectSheet
+                title={t('products.selectCategoryTitle')}
+                placeholder={t('products.selectCategory')}
+                items={categoryOptions}
+                value={form.categoryId}
+                onChange={setField('categoryId')}
+                loading={catsLoading}
+                error={catsError}
+                onRetry={fetchCategories}
+                accessibilityLabel={t('products.category')}
+              />
+            </Field>
+
+            {subcategoryOptions.length > 0 ? (
+              <Field label={t('products.subcategory')} hint={t('products.subcategoryHint')}>
+                <SelectSheet
+                  title={t('products.selectSubcategoryTitle')}
+                  placeholder={t('products.noneGeneral')}
+                  items={subcategoryOptions}
+                  value={form.subcategory}
+                  onChange={setField('subcategory')}
+                  clearLabel={t('products.noneGeneral')}
+                  accessibilityLabel={t('products.subcategory')}
+                />
+              </Field>
+            ) : null}
+
+            <Field
+              label={t('products.productName')}
+              required
+              hint={t('products.productNameHint')}
+              error={errors.name}
+              onLayoutY={registerY('name')}
+            >
+              <TextField
+                value={form.name}
+                onChangeText={setField('name')}
+                placeholder={t('products.productNamePlaceholder')}
+                error={errors.name}
+                maxLength={MAX_NAME}
+                label={t('products.productName')}
+              />
+              <CharCount value={form.name} max={MAX_NAME} />
+            </Field>
+
+            <Field label={t('products.description')} hint={t('products.descHint')}>
+              <TextField
+                value={form.desc}
+                onChangeText={setField('desc')}
+                placeholder={t('products.descPlaceholder')}
+                multiline
+                maxLength={MAX_DESC}
+                label={t('products.description')}
+              />
+              <CharCount value={form.desc} max={MAX_DESC} />
+            </Field>
+
+            <Field label={t('products.searchTags')} hint={t('products.searchTagsHint')}>
+              <TextField
+                value={form.tags}
+                onChangeText={setField('tags')}
+                placeholder={t('products.searchTagsPlaceholder')}
+                autoCapitalize="none"
+                label={t('products.searchTags')}
+              />
+            </Field>
+          </FormSection>
+
+          {/* ── Pricing & stock ── */}
+          <FormSection
+            icon="pricetag-outline"
+            title={t('products.pricingStock')}
+            hint={t('products.mrpHint')}
+            step={3}
+            total={TOTAL_SECTIONS}
+          >
+            <View style={s.pairRow}>
+              <Field
+                label={t('products.sellingPrice')}
+                required
+                error={errors.price}
+                onLayoutY={registerY('price')}
+                style={s.pairCell}
+              >
+                <TextField
+                  value={form.price}
+                  onChangeText={setField('price')}
+                  placeholder="0"
+                  keyboardType="decimal-pad"
+                  error={errors.price}
+                  prefix={<Text style={s.affixTxt}>₹</Text>}
+                  label={t('products.sellingPrice')}
+                />
+              </Field>
+
+              <Field
+                label={t('products.mrp')}
+                hint={errors.mrp ? undefined : t('products.mrpHint')}
+                error={errors.mrp}
+                onLayoutY={registerY('mrp')}
+                style={s.pairCell}
+              >
+                <TextField
+                  value={form.mrp}
+                  onChangeText={setField('mrp')}
+                  placeholder="0"
+                  keyboardType="decimal-pad"
+                  error={errors.mrp}
+                  prefix={<Text style={s.affixTxt}>₹</Text>}
+                  label={t('products.mrp')}
+                />
+              </Field>
+            </View>
+
+            <Field label={t('products.unit')} required hint={t('products.unitHint')}>
+              <ChipGroup accessibilityLabel={t('products.unit')}>
+                {UNITS.map((u) => (
+                  <Chip
+                    key={u}
+                    label={u}
+                    selected={form.unit === u}
+                    onPress={() => setField('unit')(u)}
+                  />
+                ))}
+              </ChipGroup>
+            </Field>
+
+            <View style={s.pairRow}>
+              <Field
+                label={t('products.stock')}
+                required
+                error={errors.stock}
+                onLayoutY={registerY('stock')}
+                style={s.pairCell}
+              >
+                <TextField
+                  value={form.stock}
+                  onChangeText={setField('stock')}
+                  placeholder={t('products.availableQtyPlaceholder')}
+                  keyboardType="number-pad"
+                  error={errors.stock}
+                  suffix={<Text style={s.affixTxt}>{form.unit}</Text>}
+                  label={t('products.stock')}
+                />
+              </Field>
+
+              <Field
+                label={t('products.minOrder')}
+                hint={errors.moq ? undefined : t('products.minOrderHint')}
+                error={errors.moq}
+                onLayoutY={registerY('moq')}
+                style={s.pairCell}
+              >
+                <TextField
+                  value={form.moq}
+                  onChangeText={setField('moq')}
+                  placeholder="1"
+                  keyboardType="number-pad"
+                  error={errors.moq}
+                  label={t('products.minOrder')}
+                />
+              </Field>
+            </View>
+
+            <Field label={t('products.harvestDate')} hint={t('products.harvestHint')}>
+              <TextField
+                value={form.harvestDate}
+                onChangeText={setField('harvestDate')}
+                placeholder={t('products.harvestPlaceholder')}
+                label={t('products.harvestDate')}
+              />
+            </Field>
+          </FormSection>
+
+          {/* ── Highlights & specifications ── */}
+          <FormSection
+            icon="list-outline"
+            title={t('products.highlightsSpecsTitle')}
+            hint={t('products.optionalSection', 'Optional — these help buyers compare, but you can publish without them.')}
+            step={4}
+            total={TOTAL_SECTIONS}
+          >
+            <Field label={t('rent.brandLabel')} hint={t('products.brandHint')}>
+              <TextField
+                value={form.brand}
+                onChangeText={setField('brand')}
+                placeholder={t('products.brandPlaceholder')}
+                label={t('rent.brandLabel')}
+              />
+            </Field>
+
+            <Field label={t('products.manufacturerLabel')} hint={t('products.manufacturerHint')}>
+              <TextField
+                value={form.manufacturer}
+                onChangeText={setField('manufacturer')}
+                placeholder={t('products.manufacturerPlaceholder')}
+                label={t('products.manufacturerLabel')}
+              />
+            </Field>
+
+            <Field label={t('products.countryOfOrigin')}>
+              <TextField
+                value={form.countryOfOrigin}
+                onChangeText={setField('countryOfOrigin')}
+                placeholder={t('products.countryPlaceholder')}
+                label={t('products.countryOfOrigin')}
+              />
+            </Field>
+
+            <Field label={t('product.highlightsTitle')} hint={t('products.highlightsHint')}>
+              {highlights.map((h, i) => (
+                <View key={`hl-${i}`} style={s.repeatRow}>
+                  <TextField
+                    style={{ flex: 1 }}
+                    value={h}
+                    onChangeText={(v) => updateHighlight(i, v)}
+                    placeholder={t('products.highlightPlaceholder', { num: i + 1 })}
+                    label={t('products.highlightPlaceholder', { num: i + 1 })}
+                  />
+                  {highlights.length > 1 ? (
+                    <IconButton
+                      icon="remove-circle-outline"
+                      size={22}
+                      color={C.danger}
+                      onPress={() => {
+                        dirtyRef.current = true;
+                        setHighlights((prev) => prev.filter((_, idx) => idx !== i));
+                      }}
+                      accessibilityLabel={t('products.removeHighlight', {
+                        num: i + 1,
+                        defaultValue: `Remove highlight ${i + 1}`,
+                      })}
+                    />
+                  ) : null}
                 </View>
               ))}
-              {allImages.length < 5 && (
-                <TouchableOpacity style={s.imgAdd} onPress={pickImages}>
-                  <Ionicons name="camera-outline" size={28} color={COLORS.sellerPrimary} />
-                  <Text style={{ fontSize: 11, color: COLORS.sellerPrimary, marginTop: 4 }}>{t('products.addPhoto')}</Text>
-                </TouchableOpacity>
-              )}
-            </ScrollView>
-          </Field>
+              <Button
+                label={t('products.addHighlight')}
+                icon="add-circle-outline"
+                variant="ghost"
+                size="sm"
+                onPress={() => { dirtyRef.current = true; setHighlights((prev) => [...prev, '']); }}
+                style={{ alignSelf: 'flex-start' }}
+              />
+            </Field>
 
-          {/* ── Product Details ── */}
-          <SectionTitle icon="leaf-outline" title={t('products.productDetails')} />
-
-          <Field label={t('products.category')} required>
-            <CategoryPicker
-              categories={categories}
-              catsLoading={catsLoading}
-              catsError={catsError}
-              onRetry={fetchCategories}
-              selected={categoryId}
-              onSelect={(id) => { setCategoryId(id); setCategoryTouched(true); }}
-            />
-          </Field>
-
-          {(() => {
-            const selectedCat = categories.find((c) => c.id === categoryId);
-            const subs = selectedCat ? (SUBCATEGORIES_MAP[selectedCat.name] || []) : [];
-            return subs.length > 0 ? (
-              <Field label={t('products.subcategory')} hint={t('products.subcategoryHint')}>
-                <SubcategoryPicker
-                  subcategories={subs}
-                  selected={subcategory}
-                  onSelect={setSubcategory}
-                />
-              </Field>
-            ) : null;
-          })()}
-
-          <Field label={t('products.productName')} required hint={t('products.productNameHint')}>
-            <TextF value={name} onChangeText={setName} placeholder={t('products.productNamePlaceholder')} />
-          </Field>
-
-          <Field label={t('products.description')} hint={t('products.descHint')}>
-            <TextF value={desc} onChangeText={setDesc} placeholder={t('products.descPlaceholder')} multiline />
-          </Field>
-
-          <Field label={t('products.searchTags')} hint={t('products.searchTagsHint')}>
-            <TextF value={tags} onChangeText={setTags} placeholder={t('products.searchTagsPlaceholder')} />
-          </Field>
-
-          {/* ── Pricing ── */}
-          <SectionTitle icon="pricetag-outline" title={t('products.pricingStock')} />
-
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1 }}>
-              <Field label={t('products.sellingPrice')} required>
-                <TextF value={price} onChangeText={setPrice} placeholder="0" keyboardType="decimal-pad" />
-              </Field>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Field label={t('products.mrp')} hint={t('products.mrpHint')}>
-                <TextF value={mrp} onChangeText={setMrp} placeholder="0" keyboardType="decimal-pad" />
-              </Field>
-            </View>
-          </View>
-
-          <Field label={t('products.unit')} required hint={t('products.unitHint')}>
-            <UnitPicker selected={unit} onSelect={setUnit} />
-          </Field>
-
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1 }}>
-              <Field label={t('products.stock')} required>
-                <TextF value={stock} onChangeText={setStock} placeholder={t('products.availableQtyPlaceholder')} keyboardType="number-pad" />
-              </Field>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Field label={t('products.minOrder')} hint={t('products.minOrderHint')}>
-                <TextF value={moq} onChangeText={setMoq} placeholder="1" keyboardType="number-pad" />
-              </Field>
-            </View>
-          </View>
-
-          <Field label={t('products.harvestDate')} hint={t('products.harvestHint')}>
-            <TextF
-              value={harvestDate}
-              onChangeText={setHarvestDate}
-              placeholder={t('products.harvestPlaceholder')}
-            />
-          </Field>
-
-          {/* ── Product Highlights & Specifications ── */}
-          <SectionTitle icon="list-outline" title={t('products.highlightsSpecsTitle')} />
-
-          <Field label={t('rent.brandLabel')} hint={t('products.brandHint')}>
-            <TextF value={brand} onChangeText={setBrand} placeholder={t('products.brandPlaceholder')} />
-          </Field>
-
-          <Field label={t('products.manufacturerLabel')} hint={t('products.manufacturerHint')}>
-            <TextF value={manufacturer} onChangeText={setManufacturer} placeholder={t('products.manufacturerPlaceholder')} />
-          </Field>
-
-          <Field label={t('products.countryOfOrigin')}>
-            <TextF value={countryOfOrigin} onChangeText={setCountryOfOrigin} placeholder={t('products.countryPlaceholder')} />
-          </Field>
-
-          <Field
-            label={t('product.highlightsTitle')}
-            hint={t('products.highlightsHint')}
-          >
-            {highlights.map((h, i) => (
-              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <TextInput
-                    style={[f.input, { marginBottom: 0 }]}
-                    value={h}
-                    onChangeText={(v) => {
-                      const next = [...highlights];
-                      next[i] = v;
-                      setHighlights(next);
-                    }}
-                    placeholder={t('products.highlightPlaceholder', { num: i + 1 })}
-                    placeholderTextColor={COLORS.textLight}
+            <Field label={t('product.specifications')} hint={t('products.specsHint')}>
+              {specPairs.map((pair, i) => (
+                <View key={`spec-${i}`} style={s.repeatRow}>
+                  <TextField
+                    style={{ flex: 1 }}
+                    value={pair.key}
+                    onChangeText={(v) => updateSpec(i, 'key', v)}
+                    placeholder={t('products.specLabelPlaceholder')}
+                    label={t('products.specLabelPlaceholder')}
                   />
+                  <TextField
+                    style={{ flex: 1.3 }}
+                    value={pair.value}
+                    onChangeText={(v) => updateSpec(i, 'value', v)}
+                    placeholder={t('products.specValuePlaceholder')}
+                    label={t('products.specValuePlaceholder')}
+                  />
+                  {specPairs.length > 1 ? (
+                    <IconButton
+                      icon="remove-circle-outline"
+                      size={22}
+                      color={C.danger}
+                      onPress={() => {
+                        dirtyRef.current = true;
+                        setSpecPairs((prev) => prev.filter((_, idx) => idx !== i));
+                      }}
+                      accessibilityLabel={t('products.removeSpec', {
+                        num: i + 1,
+                        defaultValue: `Remove specification ${i + 1}`,
+                      })}
+                    />
+                  ) : null}
                 </View>
-                {highlights.length > 1 && (
-                  <TouchableOpacity
-                    onPress={() => setHighlights(highlights.filter((_, idx) => idx !== i))}
-                    style={{ padding: 4 }}
-                  >
-                    <Ionicons name="remove-circle" size={22} color={COLORS.error} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
-            <TouchableOpacity
-              style={pd.addRowBtn}
-              onPress={() => setHighlights([...highlights, ''])}
-            >
-              <Ionicons name="add-circle-outline" size={18} color={COLORS.sellerPrimary} />
-              <Text style={pd.addRowTxt}>{t('products.addHighlight')}</Text>
-            </TouchableOpacity>
-          </Field>
+              ))}
+              <Button
+                label={t('products.addSpecification')}
+                icon="add-circle-outline"
+                variant="ghost"
+                size="sm"
+                onPress={() => {
+                  dirtyRef.current = true;
+                  setSpecPairs((prev) => [...prev, { key: '', value: '' }]);
+                }}
+                style={{ alignSelf: 'flex-start' }}
+              />
+            </Field>
+          </FormSection>
 
-          <Field
-            label={t('product.specifications')}
-            hint={t('products.specsHint')}
-          >
-            {specPairs.map((pair, i) => (
-              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <TextInput
-                  style={[f.input, { flex: 1, marginBottom: 0 }]}
-                  value={pair.key}
-                  onChangeText={(v) => {
-                    const next = [...specPairs];
-                    next[i] = { ...next[i], key: v };
-                    setSpecPairs(next);
-                  }}
-                  placeholder={t('products.specLabelPlaceholder')}
-                  placeholderTextColor={COLORS.textLight}
-                />
-                <TextInput
-                  style={[f.input, { flex: 1.4, marginBottom: 0 }]}
-                  value={pair.value}
-                  onChangeText={(v) => {
-                    const next = [...specPairs];
-                    next[i] = { ...next[i], value: v };
-                    setSpecPairs(next);
-                  }}
-                  placeholder={t('products.specValuePlaceholder')}
-                  placeholderTextColor={COLORS.textLight}
-                />
-                {specPairs.length > 1 && (
-                  <TouchableOpacity
-                    onPress={() => setSpecPairs(specPairs.filter((_, idx) => idx !== i))}
-                    style={{ padding: 4 }}
-                  >
-                    <Ionicons name="remove-circle" size={22} color={COLORS.error} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
-            <TouchableOpacity
-              style={pd.addRowBtn}
-              onPress={() => setSpecPairs([...specPairs, { key: '', value: '' }])}
-            >
-              <Ionicons name="add-circle-outline" size={18} color={COLORS.sellerPrimary} />
-              <Text style={pd.addRowTxt}>{t('products.addSpecification')}</Text>
-            </TouchableOpacity>
-          </Field>
-
-          {/* ── Location & Selling Scope ── */}
-          <SectionTitle icon="location-outline" title={t('products.whereSelling')} />
-
-          <Field
-            label={t('products.district')}
-            required
-            hint={t('products.districtHint')}
-          >
-            <LocationPicker
-              title={t('products.selectDistrictTitle')}
-              items={DISTRICT_LIST}
-              selected={district}
-              onSelect={(v) => { setDistrict(v); setDistrictTouched(true); }}
-              placeholder={t('products.selectDistrict')}
-            />
-          </Field>
-
-          <Field label={t('products.taluka')} hint={t('products.talukaHint')}>
-            <LocationPicker
-              title={t('products.selectTalukaTitle')}
-              items={getTalukas(district)}
-              selected={taluka}
-              onSelect={setTaluka}
-              placeholder={district ? t('products.talukaOptional') : t('products.selectDistrictFirst')}
-              disabled={!district}
-            />
-          </Field>
-
-          <Field label={t('products.villageTown')} hint={t('products.villageTownHint')}>
-            <TextF
-              value={village}
-              onChangeText={setVillage}
-              placeholder={t('products.villagePlaceholder')}
-            />
-          </Field>
-
-          <Field
-            label={t('products.sellingReach')}
-            required
+          {/* ── Location & reach ── */}
+          <FormSection
+            icon="location-outline"
+            title={t('products.whereSelling')}
             hint={t('products.sellingReachHint')}
+            step={5}
+            total={TOTAL_SECTIONS}
           >
-            <ScopePicker selected={sellScope} onSelect={setSellScope} />
-          </Field>
+            <Field
+              label={t('products.district')}
+              required
+              hint={errors.district ? undefined : t('products.districtHint')}
+              error={errors.district}
+              onLayoutY={registerY('district')}
+            >
+              <SelectSheet
+                title={t('products.selectDistrictTitle')}
+                placeholder={t('products.selectDistrict')}
+                items={DISTRICT_LIST}
+                value={form.district}
+                onChange={setField('district')}
+                accessibilityLabel={t('products.district')}
+              />
+            </Field>
 
+            <Field label={t('products.taluka')} hint={t('products.talukaHint')}>
+              <SelectSheet
+                title={t('products.selectTalukaTitle')}
+                placeholder={form.district
+                  ? t('products.talukaOptional')
+                  : t('products.selectDistrictFirst')}
+                items={talukaOptions}
+                value={form.taluka}
+                onChange={setField('taluka')}
+                disabled={!form.district}
+                clearLabel={t('products.noneGeneral')}
+                accessibilityLabel={t('products.taluka')}
+              />
+            </Field>
+
+            <Field label={t('products.villageTown')} hint={t('products.villageTownHint')}>
+              <TextField
+                value={form.village}
+                onChangeText={setField('village')}
+                placeholder={t('products.villagePlaceholder')}
+                label={t('products.villageTown')}
+              />
+            </Field>
+
+            <Field label={t('products.sellingReach')} required hint={t('products.sellingReachHint')}>
+              <View style={{ gap: SP.sm }}>
+                {SELLING_SCOPES.map((sc) => (
+                  <OptionRow
+                    key={sc.key}
+                    selected={form.sellScope === sc.key}
+                    onPress={() => setField('sellScope')(sc.key)}
+                    icon={sc.icon}
+                    title={t('scope.' + sc.tKey)}
+                    description={t('scope.' + sc.descKey)}
+                  />
+                ))}
+              </View>
+            </Field>
+          </FormSection>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ── Save Button ── */}
-      <View style={s.footer}>
-        <TouchableOpacity
-          style={[s.saveBtn, saving && { opacity: 0.7 }]}
-          onPress={handleSave}
+      <ActionBar>
+        {uploadProgress ? (
+          <View style={s.uploadBar} accessibilityLiveRegion="polite">
+            <Text style={s.uploadTxt}>
+              {t('products.uploadingProgress', {
+                done: uploadProgress.done,
+                total: uploadProgress.total,
+                defaultValue: 'Uploading photo {{done}} of {{total}}…',
+              })}
+            </Text>
+            <ProgressBar
+              value={uploadProgress.total ? (uploadProgress.done / uploadProgress.total) * 100 : 0}
+              height={6}
+              label={t('products.uploadingLabel', 'Uploading photos')}
+            />
+          </View>
+        ) : null}
+        <Button
+          label={isEdit ? t('products.updateProduct') : t('products.listProduct')}
+          icon={isEdit ? 'checkmark-circle-outline' : 'add-circle-outline'}
+          size="lg"
+          fullWidth
+          loading={saving}
           disabled={saving}
-          activeOpacity={0.85}
-        >
-          {saving ? (
-            <ActivityIndicator color={COLORS.white} />
-          ) : (
-            <>
-              <Ionicons name={isEdit ? 'checkmark-circle-outline' : 'add-circle-outline'} size={20} color={COLORS.white} />
-              <Text style={s.saveTxt}>{isEdit ? t('products.updateProduct') : t('products.listProduct')}</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+          onPress={handleSave}
+          accessibilityHint={
+            isOffline ? t('common.offlineAction', 'You are offline. Reconnect to save this.') : undefined
+          }
+        />
+      </ActionBar>
+    </Screen>
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.sellerBg },
+  // ── Progress card ──
+  progressCard: { marginBottom: SP.lg, ...E.raised },
+  progressTop: { flexDirection: 'row', alignItems: 'flex-start', gap: SP.lg },
+  progressTitle: { ...T.subhead, color: C.text },
+  progressSub: { ...T.caption, color: C.textMuted, marginTop: SP.xs },
+  progressFig: { ...T.figureMd, color: C.brandInk },
+  progressFigDim: { color: C.textFaint },
 
-  imgRow:  { flexDirection: 'row', gap: 10, paddingVertical: 4 },
+  // ── Photos ──
+  imgRow: { flexDirection: 'row', gap: SP.md, paddingVertical: SP.xs, paddingRight: SP.xs },
   imgWrap: { position: 'relative' },
-  imgThumb:  { width: 88, height: 88, borderRadius: RADIUS.md, backgroundColor: COLORS.grayBg },
-  imgRemove: { position: 'absolute', top: -6, right: -6 },
+  imgThumb: {
+    width: 104, height: 104,
+    borderRadius: R.lg,
+    backgroundColor: C.surfaceSunken,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  imgOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: R.lg,
+    backgroundColor: alpha(C.text, 0.55),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imgCover: {
+    position: 'absolute',
+    left: SP.sm, bottom: SP.sm,
+    paddingHorizontal: SP.sm,
+    paddingVertical: 3,
+    borderRadius: R.pill,
+    backgroundColor: alpha(C.text, 0.72),
+  },
+  imgCoverTxt: { ...T.micro, fontSize: 10, color: C.onBrand, textTransform: 'uppercase' },
+  imgRemove: { position: 'absolute', top: -SP.sm, right: -SP.sm },
+  imgRemoveBtn: { width: 30, height: 30, borderRadius: 15, ...E.card },
+
   imgAdd: {
-    width: 88, height: 88, borderRadius: RADIUS.md,
-    backgroundColor: COLORS.sellerPrimary + '12',
-    borderWidth: 1.5, borderColor: COLORS.sellerPrimary + '50', borderStyle: 'dashed',
-    justifyContent: 'center', alignItems: 'center',
+    width: 104, height: 104,
+    borderRadius: R.lg,
+    backgroundColor: C.brandPale,
+    borderWidth: 1.5, borderColor: alpha(C.brand, 0.4), borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center', gap: SP.xs,
   },
+  imgAddTxt: { ...T.micro, color: C.brandInk, textTransform: 'uppercase' },
+  imgFoot: { flexDirection: 'row', marginTop: SP.md },
 
-  footer: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: COLORS.white, padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 16,
-    borderTopWidth: 1, borderTopColor: COLORS.grayBg,
-    ...SHADOWS.medium,
-  },
-  saveBtn: {
-    backgroundColor: COLORS.sellerPrimary, borderRadius: RADIUS.lg,
-    paddingVertical: 15, flexDirection: 'row',
-    alignItems: 'center', justifyContent: 'center', gap: 10,
-  },
-  saveTxt: { fontSize: 16, fontWeight: '800', color: COLORS.white },
-});
+  // ── Field layout ──
+  pairRow: { flexDirection: 'row', gap: SP.md },
+  pairCell: { flex: 1 },
+  affixTxt: { ...T.bodyBold, color: C.textMuted },
 
-const f = StyleSheet.create({
-  fieldWrap: { marginBottom: 18 },
-  label: { fontSize: 13, fontWeight: '700', color: COLORS.gray700dark, marginBottom: 6 },
-  hint:  { fontSize: 11, color: COLORS.textLight, marginTop: 4, lineHeight: 15 },
-  input: {
-    backgroundColor: COLORS.white, borderRadius: RADIUS.md,
-    borderWidth: 1, borderColor: COLORS.sellerBorder,
-    paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 15, color: COLORS.textDark,
-    ...SHADOWS.small,
-  },
-  pickerBtn: {
-    backgroundColor: COLORS.white, borderRadius: RADIUS.md,
-    borderWidth: 1, borderColor: COLORS.sellerBorder,
-    paddingHorizontal: 14, paddingVertical: 12,
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    ...SHADOWS.small,
-  },
-  pickerTxt: { fontSize: 15, color: COLORS.textDark },
+  repeatRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SP.sm, marginBottom: SP.sm },
 
-  modalBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.45)' },
-  modalSheet: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
-    maxHeight: '80%',
-    ...SHADOWS.large,
-  },
-  listScroll: { maxHeight: 360 },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: COLORS.gray175, alignSelf: 'center', marginTop: 10, marginBottom: 4 },
-  modalTitle: { fontSize: 17, fontWeight: '800', color: COLORS.textDark, textAlign: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.grayBg },
-  dropItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15 },
-  dropItemActive: { backgroundColor: COLORS.sellerPrimary + '08' },
-  dropTxt: { fontSize: 15, color: COLORS.textDark },
-  modalCancel: { marginHorizontal: 16, marginTop: 8, backgroundColor: COLORS.grayBg, borderRadius: RADIUS.md, paddingVertical: 14, alignItems: 'center' },
-  modalCancelTxt: { fontSize: 15, fontWeight: '700', color: COLORS.textMedium },
-
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: RADIUS.sm, borderWidth: 1.5, borderColor: COLORS.sellerBorder, backgroundColor: COLORS.white },
-  chipActive: { borderColor: COLORS.sellerPrimary, backgroundColor: COLORS.sellerPrimary + '12' },
-  chipTxt: { fontSize: 13, color: COLORS.textMedium, fontWeight: '600' },
-  chipTxtActive: { color: COLORS.sellerPrimary },
-});
-
-// Selling scope item styles
-const sc_s = StyleSheet.create({
-  item: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: 12, borderRadius: RADIUS.md,
-    borderWidth: 1.5, borderColor: COLORS.sellerBorder,
-    backgroundColor: COLORS.white,
-    ...SHADOWS.small,
-  },
-  itemActive: { borderColor: COLORS.sellerPrimary, backgroundColor: COLORS.sellerPrimary + '06' },
-  iconWrap: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: COLORS.grayBg,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  iconWrapActive: { backgroundColor: COLORS.sellerPrimary + '15' },
-  label:      { fontSize: 14, fontWeight: '700', color: COLORS.textDark },
-  labelActive:{ color: COLORS.sellerPrimary },
-  desc:       { fontSize: 11, color: COLORS.textLight, marginTop: 2 },
-});
-
-// Product detail (highlights / specs) styles
-const pd = StyleSheet.create({
-  addRowBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingVertical: 8, paddingHorizontal: 4, marginTop: 2,
-  },
-  addRowTxt: { fontSize: 13, fontWeight: '700', color: COLORS.sellerPrimary },
-});
-
-// Section title styles
-const st = StyleSheet.create({
-  wrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 16 },
-  line: { flex: 1, height: 1, backgroundColor: COLORS.grayBg },
-  pill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 12, paddingVertical: 5,
-    backgroundColor: COLORS.sellerPrimary + '12',
-    borderRadius: RADIUS.full,
-  },
-  txt: { fontSize: 12, fontWeight: '800', color: COLORS.sellerPrimary },
+  // ── Action bar ──
+  uploadBar: { gap: SP.sm, marginBottom: SP.md },
+  uploadTxt: { ...T.caption, color: C.textMuted, textAlign: 'center' },
 });

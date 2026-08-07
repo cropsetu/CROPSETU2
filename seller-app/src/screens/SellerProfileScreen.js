@@ -1,20 +1,62 @@
-import React, { useState, useRef, useEffect } from 'react';
-import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, Alert, TextInput, ActivityIndicator,
-  Animated, Easing,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+/**
+ * SellerProfileScreen — account overview and settings.
+ *
+ * Same endpoint (`PUT /users/me` with the display name) and same navigation
+ * targets.
+ *
+ * THE COMPOSITION
+ * ---------------
+ * The old screen led with a full-bleed orange gradient, a pulsing halo around
+ * the avatar and a centred name — the visual language of a social profile,
+ * applied to what is actually a business account page. It now leads the way a
+ * letterhead does: identity on the left, ruled off from the content below,
+ * with the completion meter as the first thing under the rule because it is
+ * the only thing on this screen that has an action attached to it.
+ *
+ * Settings are grouped into ruled cards under tracked eyebrows rather than
+ * floating in a single long list, so "account", "business" and "legal" are
+ * separable at a glance — which matters because the business group is the one
+ * that gates getting paid.
+ *
+ * WHAT THE BEHAVIOUR STILL GUARANTEES
+ *   - The Terms and Privacy rows had `onPress={() => {}}`. They looked
+ *     tappable, had a chevron, and did nothing. They open the real documents
+ *     (and say so when there is no browser to open them in).
+ *   - The avatar's halo ran an unbounded `Animated.loop` for the lifetime of
+ *     the screen, foreground or not. The halo is gone entirely: it was
+ *     decoration around a static initial, and deleting it is cheaper than
+ *     making it correct.
+ *   - The completion figure double-counted: it read `user.bankAccountNumber`,
+ *     which is never present (bank fields live under `user.sellerProfile`), so
+ *     a fully-onboarded seller was permanently shown as incomplete.
+ *   - Name editing has a length limit, trim feedback, and reports failures
+ *     through a toast rather than an Alert that is invisible on web.
+ */
+import React, { useCallback, useMemo, useState } from 'react';
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
-import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
 import { BUSINESS_TYPES } from '@cropsetu/shared/constants/locations';
-import api from '@cropsetu/shared/services/api';
 
-// ── Profile completion calculator ─────────────────────────────────────────────
+import { C, E, HIT, R, SP, T, alpha, useResponsive } from '../theme';
+import { useNetwork } from '../hooks/useNetwork';
+import {
+  Screen, Button, IconButton, PressableRow, TextField, Rule,
+  Card, Avatar, Badge, ProgressBar, useConfirm, useToast,
+} from '../components/ui';
+
+const TERMS_URL = 'https://cropsetu.app/terms';
+const PRIVACY_URL = 'https://cropsetu.app/privacy';
+const MAX_NAME = 60;
+
+/**
+ * Completion, counted against the fields the KYC form actually writes.
+ * `sellerProfile` is the source of truth for bank details.
+ */
 function calcCompletion(user) {
+  const sp = user?.sellerProfile;
   const checks = [
     user?.name,
     user?.businessType,
@@ -22,381 +64,449 @@ function calcCompletion(user) {
     user?.taluka,
     user?.village,
     user?.gstNumber || user?.gstOptOut,
-    user?.bankAccountNumber,
-    user?.bankIfsc,
+    sp?.bankAccountNumber,
+    sp?.bankIfsc,
   ];
-  const filled = checks.filter(Boolean).length;
-  return Math.round((filled / checks.length) * 100);
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100);
 }
 
-function Row({ icon, label, value, onPress, badge }) {
+// ── Row ──────────────────────────────────────────────────────────────────────
+
+function Row({ icon, label, value, onPress, badge, hint, last }) {
   return (
-    <TouchableOpacity style={r.row} onPress={onPress} activeOpacity={onPress ? 0.7 : 1}>
+    <PressableRow
+      onPress={onPress}
+      accessibilityLabel={value ? `${label}: ${value}` : label}
+      accessibilityHint={hint}
+      style={[r.row, !last && r.rowRuled]}
+    >
       <View style={r.rowIcon}>
-        <Ionicons name={icon} size={20} color={COLORS.sellerPrimary} />
+        <Ionicons name={icon} size={18} color={C.brandInk} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={r.rowLabel}>{label}</Text>
-        {value ? <Text style={r.rowValue}>{value}</Text> : null}
+        <Text style={r.rowLabel} numberOfLines={1}>{label}</Text>
+        {value ? <Text style={r.rowValue} numberOfLines={2}>{value}</Text> : null}
       </View>
       {badge ? (
-        <View style={[r.badge, { backgroundColor: badge.color + '20', borderColor: badge.color + '40' }]}>
-          <Text style={[r.badgeTxt, { color: badge.color }]}>{badge.text}</Text>
-        </View>
+        <Badge label={badge.text} color={badge.color} icon={badge.icon} />
       ) : onPress ? (
-        <Ionicons name="chevron-forward" size={18} color={COLORS.gray175} />
+        <Ionicons name="chevron-forward" size={18} color={C.textFaint} />
       ) : null}
-    </TouchableOpacity>
+    </PressableRow>
   );
 }
 
-function SectionGap() {
-  return <View style={{ height: 10, backgroundColor: COLORS.grayBg }} />;
+function SectionCard({ title, children }) {
+  return (
+    <View style={r.section}>
+      <Text style={r.sectionTitle} accessibilityRole="header">{title}</Text>
+      <Card padded={false}>{children}</Card>
+    </View>
+  );
 }
+
+// ── Screen ───────────────────────────────────────────────────────────────────
 
 export default function SellerProfileScreen({ navigation }) {
   const { user, logout, updateUser } = useAuth();
   const { t } = useLanguage();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const { isOffline } = useNetwork();
+  const { gutter, isExpanded, contentMaxWidth } = useResponsive();
 
   const [editMode, setEditMode] = useState(false);
-  const [name,     setName]     = useState(user?.name || '');
-  const [saving,   setSaving]   = useState(false);
-
-  // Entrance animations
-  const avatarScale  = useRef(new Animated.Value(0.3)).current;
-  const avatarOpacity = useRef(new Animated.Value(0)).current;
-  const headerY      = useRef(new Animated.Value(-30)).current;
-  const bodyOpacity  = useRef(new Animated.Value(0)).current;
-  const ringPulse    = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(avatarScale,   { toValue: 1, tension: 60, friction: 7, useNativeDriver: true }),
-      Animated.timing(avatarOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.spring(headerY,       { toValue: 0, tension: 55, friction: 8, useNativeDriver: true }),
-      Animated.timing(bodyOpacity,   { toValue: 1, duration: 500, delay: 300, useNativeDriver: true }),
-    ]).start();
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(ringPulse, { toValue: 1.12, duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(ringPulse, { toValue: 1,    duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-
-  const initials = user?.name
-    ? user.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)
-    : 'S';
+  const [name, setName] = useState(user?.name || '');
+  const [nameError, setNameError] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   const completion = calcCompletion(user);
-  const completionColor = completion >= 80 ? COLORS.sellerDelivered : completion >= 50 ? COLORS.sellerPending : COLORS.error;
+  const completionColor = completion >= 80 ? C.success : completion >= 50 ? C.warning : C.danger;
 
-  const bizTypeObj = BUSINESS_TYPES.find((b) => b.key === user?.businessType);
-  const bizTypeLabel = bizTypeObj ? t('biz.' + bizTypeObj.tKey) : t('notSet');
+  const bizType = useMemo(
+    () => BUSINESS_TYPES.find((b) => b.key === user?.businessType),
+    [user?.businessType],
+  );
+  const bizTypeLabel = bizType ? t('biz.' + bizType.tKey) : t('notSet', 'Not set');
 
-  const locationStr = [user?.village, user?.taluka, user?.district]
-    .filter(Boolean)
-    .join(', ') || null;
+  const locationStr = [user?.village, user?.taluka, user?.district].filter(Boolean).join(', ') || null;
 
-  const handleSave = async () => {
-    if (!name.trim()) { Alert.alert(t('required'), t('sellerProfile.nameRequired')); return; }
+  const startEdit = useCallback(() => {
+    setName(user?.name || '');
+    setNameError(null);
+    setEditMode(true);
+  }, [user?.name]);
+
+  const cancelEdit = useCallback(() => {
+    setName(user?.name || '');
+    setNameError(null);
+    setEditMode(false);
+  }, [user?.name]);
+
+  const handleSaveName = useCallback(async () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setNameError(t('sellerProfile.nameRequired', 'Please enter your name.'));
+      return;
+    }
+    if (trimmed === (user?.name || '')) {
+      setEditMode(false);
+      return;
+    }
+    if (isOffline) {
+      toast.warning(t('common.offlineAction', 'You are offline. Reconnect to save this.'));
+      return;
+    }
+
     setSaving(true);
     try {
-      const { data } = await api.put('/users/me', { name: name.trim() });
+      const { data } = await api.put('/users/me', { name: trimmed });
       updateUser(data.data);
       setEditMode(false);
+      toast.success(t('sellerProfile.nameUpdated', 'Name updated'));
     } catch (e) {
-      Alert.alert(t('error'), t('sellerProfile.updateError'));
+      const message = safeErrorMessage(e, t('sellerProfile.updateError', 'Could not update your name.'));
+      setNameError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
-  };
+  }, [name, user?.name, isOffline, toast, t, updateUser]);
 
-  // Standalone app: this used to exit back to the buyer app's Profile tab. There
-  // is no buyer app to return to now, so it ends the session instead.
-  const handleLogout = () => {
-    Haptics.warning();
-    Alert.alert(t('logout'), t('logoutConfirm'), [
-      { text: t('cancel'), style: 'cancel' },
-      { text: t('logout'), style: 'destructive', onPress: () => logout() },
-    ]);
-  };
+  const handleLogout = useCallback(async () => {
+    const ok = await confirm({
+      title: t('logout', 'Log out'),
+      message: t('logoutConfirm', 'Are you sure you want to log out?'),
+      confirmLabel: t('logout', 'Log out'),
+      cancelLabel: t('cancel', 'Cancel'),
+      destructive: true,
+      icon: 'log-out-outline',
+    });
+    if (ok) logout();
+  }, [confirm, logout, t]);
+
+  // A URL that can't be opened (no browser, blocked scheme) should say so
+  // rather than doing nothing — the failure mode the old empty handlers had.
+  const openUrl = useCallback(async (url) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) throw new Error('unsupported');
+      await Linking.openURL(url);
+    } catch {
+      toast.error(t('common.linkFailed', 'Could not open the link on this device.'));
+    }
+  }, [toast, t]);
+
+  const showHelp = useCallback(() => {
+    confirm({
+      title: t('sellerProfile.helpCenter', 'Help centre'),
+      message: t('sellerProfile.helpMsg'),
+      confirmLabel: t('common.gotIt', 'Got it'),
+      cancelLabel: t('cancel', 'Cancel'),
+      icon: 'help-circle-outline',
+    });
+  }, [confirm, t]);
+
+  const constrain = isExpanded && { maxWidth: contentMaxWidth, width: '100%', alignSelf: 'center' };
 
   return (
-    <SafeAreaView style={s.safe}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-
-        {/* Header */}
-        <Animated.View style={{ transform: [{ translateY: headerY }] }}>
-        <LinearGradient colors={[COLORS.deepBrick, COLORS.burntSienna, COLORS.cta]} locations={[0, 0.5, 1]} style={s.header}>
-          <Animated.View style={[s.ringWrap, { transform: [{ scale: ringPulse }] }]}>
-            <Animated.View style={[s.avatar, { transform: [{ scale: avatarScale }], opacity: avatarOpacity }]}>
-              <Text style={s.avatarTxt}>{initials}</Text>
-            </Animated.View>
-          </Animated.View>
-
-          {editMode ? (
-            <View style={s.editWrap}>
-              <TextInput
-                style={s.nameInput}
-                value={name}
-                onChangeText={setName}
-                placeholder={t('sellerProfile.yourName')}
-                placeholderTextColor="rgba(255,255,255,0.5)"
-                autoFocus
-              />
-              <View style={s.editBtns}>
-                <TouchableOpacity style={s.cancelBtn} onPress={() => { setName(user?.name || ''); setEditMode(false); }}>
-                  <Text style={s.cancelTxt}>{t('cancel')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={s.saveBtn} onPress={handleSave} disabled={saving}>
-                  {saving ? <ActivityIndicator color={COLORS.sellerPrimary} size="small" /> : <Text style={s.saveTxt}>{t('save')}</Text>}
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : (
-            <>
-              <Text style={s.sellerName}>{user?.name || t('seller')}</Text>
-              <Text style={s.sellerPhone}>+91 {user?.phone}</Text>
-              {bizTypeObj && (
-                <View style={s.bizBadge}>
-                  <Ionicons name="storefront-outline" size={12} color="rgba(255,255,255,0.9)" />
-                  <Text style={s.bizBadgeTxt}>{bizTypeLabel}</Text>
+    <Screen edges={['top', 'left', 'right']} background={C.bgAlt}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: SP.huge }}
+      >
+        <View style={[{ paddingHorizontal: gutter }, constrain]}>
+          {/* ── Identity ── */}
+          <View style={sp.header}>
+            {editMode ? (
+              <View style={sp.editWrap}>
+                <TextField
+                  value={name}
+                  onChangeText={(v) => { setName(v); if (nameError) setNameError(null); }}
+                  placeholder={t('sellerProfile.yourName', 'Your name')}
+                  label={t('sellerProfile.displayName', 'Display name')}
+                  maxLength={MAX_NAME}
+                  autoCapitalize="words"
+                  error={nameError}
+                  returnKeyType="done"
+                  onSubmitEditing={handleSaveName}
+                />
+                {nameError ? (
+                  <Text style={sp.nameError} accessibilityLiveRegion="polite">{nameError}</Text>
+                ) : null}
+                <View style={sp.editBtns}>
+                  <Button
+                    label={t('cancel', 'Cancel')}
+                    variant="neutral"
+                    size="md"
+                    onPress={cancelEdit}
+                    disabled={saving}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    label={t('save', 'Save')}
+                    size="md"
+                    loading={saving}
+                    onPress={handleSaveName}
+                    style={{ flex: 1 }}
+                  />
                 </View>
-              )}
-              <TouchableOpacity style={s.editProfileBtn} onPress={() => setEditMode(true)}>
-                <Ionicons name="pencil-outline" size={14} color="rgba(255,255,255,0.9)" />
-                <Text style={s.editProfileTxt}>{t('sellerProfile.editName')}</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </LinearGradient>
-        </Animated.View>
-
-        {/* Body — fade in after header */}
-        <Animated.View style={{ opacity: bodyOpacity }}>
-
-        {/* Profile Completion Card */}
-        <TouchableOpacity
-          style={[s.completionCard, { borderColor: completionColor + '30' }]}
-          onPress={() => navigation.navigate('BusinessProfile')}
-          activeOpacity={0.85}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={s.completionTitle}>{t('sellerProfile.completion')}</Text>
-            <Text style={s.completionSub}>
-              {completion < 100
-                ? t('sellerProfile.completionSub')
-                : t('sellerProfile.completionDone')}
-            </Text>
-            <View style={s.progressBarBg}>
-              <View style={[s.progressBarFill, { width: `${completion}%`, backgroundColor: completionColor }]} />
-            </View>
+              </View>
+            ) : (
+              <View style={sp.identity}>
+                <Avatar name={user?.name} size={68} />
+                <View style={{ flex: 1 }}>
+                  <Text style={sp.name} numberOfLines={2} accessibilityRole="header">
+                    {user?.name?.trim() || t('seller', 'Seller')}
+                  </Text>
+                  {user?.phone ? <Text style={sp.phone}>+91 {user.phone}</Text> : null}
+                  {bizType ? (
+                    <Badge
+                      label={bizTypeLabel}
+                      icon="storefront-outline"
+                      style={{ marginTop: SP.sm }}
+                    />
+                  ) : null}
+                </View>
+                <IconButton
+                  icon="pencil"
+                  size={17}
+                  color={C.brandInk}
+                  background={C.surface}
+                  onPress={startEdit}
+                  accessibilityLabel={t('sellerProfile.editName', 'Edit name')}
+                  buttonStyle={sp.editIcon}
+                />
+              </View>
+            )}
           </View>
-          <View style={s.completionRight}>
-            <Text style={[s.completionPct, { color: completionColor }]}>{completion}%</Text>
-            <Ionicons name="chevron-forward" size={16} color={completionColor} />
-          </View>
-        </TouchableOpacity>
 
-        {/* Account */}
-        <View style={s.section}>
-          <Text style={s.sectionTitle}>{t('sellerProfile.account')}</Text>
-          <Row icon="call-outline"     label={t('sellerProfile.phoneNumber')}  value={`+91 ${user?.phone}`} />
-          <Row icon="person-outline"   label={t('sellerProfile.displayName')}  value={user?.name || t('notSet')} onPress={() => setEditMode(true)} />
-          <Row
-            icon="location-outline"
-            label={t('sellerProfile.location')}
-            value={locationStr || t('sellerProfile.notSetTap')}
+          <Rule />
+
+          {/* ── Completion ── */}
+          <PressableRow
             onPress={() => navigation.navigate('BusinessProfile')}
+            accessibilityLabel={`${t('sellerProfile.completion', 'Profile completion')}: ${completion}%`}
+            accessibilityHint={t('sellerProfile.completionHint', 'Opens your business profile to fill in what is missing')}
+            style={sp.completionWrap}
+          >
+            <Card style={sp.completionCard}>
+              <View style={sp.completionTop}>
+                <View style={{ flex: 1 }}>
+                  <Text style={sp.completionTitle}>{t('sellerProfile.completion', 'Profile completion')}</Text>
+                  <Text style={sp.completionSub} numberOfLines={2}>
+                    {completion < 100
+                      ? t('sellerProfile.completionSub')
+                      : t('sellerProfile.completionDone')}
+                  </Text>
+                </View>
+                <Text style={[sp.completionPct, { color: completionColor }]}>{completion}%</Text>
+                <Ionicons name="chevron-forward" size={18} color={C.textFaint} />
+              </View>
+              <ProgressBar
+                value={completion}
+                color={completionColor}
+                label={t('sellerProfile.completion', 'Profile completion')}
+                style={{ marginTop: SP.lg }}
+              />
+            </Card>
+          </PressableRow>
+
+          {/* ── Account ── */}
+          <SectionCard title={t('sellerProfile.account', 'Account')}>
+            <Row
+              icon="call-outline"
+              label={t('sellerProfile.phoneNumber', 'Phone number')}
+              value={user?.phone ? `+91 ${user.phone}` : t('notSet', 'Not set')}
+            />
+            <Row
+              icon="person-outline"
+              label={t('sellerProfile.displayName', 'Display name')}
+              value={user?.name || t('notSet', 'Not set')}
+              onPress={startEdit}
+            />
+            <Row
+              icon="location-outline"
+              label={t('sellerProfile.location', 'Location')}
+              value={locationStr || t('sellerProfile.notSetTap')}
+              onPress={() => navigation.navigate('BusinessProfile')}
+              last
+            />
+          </SectionCard>
+
+          {/* ── Business ── */}
+          <SectionCard title={t('sellerProfile.businessInfo', 'Business')}>
+            <Row
+              icon="storefront-outline"
+              label={t('sellerProfile.businessType', 'Business type')}
+              value={bizTypeLabel}
+              onPress={() => navigation.navigate('BusinessProfile')}
+            />
+            <Row
+              icon="document-text-outline"
+              label={t('sellerProfile.gstNumber', 'GST number')}
+              value={
+                user?.gstNumber ? user.gstNumber
+                  : user?.gstOptOut ? t('sellerProfile.notApplicable', 'Not applicable')
+                    : t('sellerProfile.notAdded', 'Not added')
+              }
+              onPress={() => navigation.navigate('BusinessProfile')}
+              badge={
+                user?.gstNumber
+                  ? { text: t('sellerProfile.verified', 'Verified'), color: C.success, icon: 'checkmark-circle' }
+                  : user?.gstOptOut
+                    ? { text: t('sellerProfile.exempt', 'Exempt'), color: C.warning, icon: 'remove-circle-outline' }
+                    : null
+              }
+            />
+            <Row
+              icon="card-outline"
+              label={t('sellerProfile.bankAccount', 'Bank account')}
+              value={
+                user?.sellerProfile?.bankAccountNumber
+                  ? [
+                      `••••${String(user.sellerProfile.bankAccountNumber).slice(-4)}`,
+                      user.sellerProfile.bankName,
+                    ].filter(Boolean).join(' · ')
+                  : t('sellerProfile.notAdded', 'Not added')
+              }
+              onPress={() => navigation.navigate('BusinessProfile')}
+              badge={
+                user?.sellerProfile?.bankAccountNumber
+                  ? { text: t('sellerProfile.added', 'Added'), color: C.success, icon: 'lock-closed' }
+                  : null
+              }
+            />
+            <Row
+              icon="shield-checkmark-outline"
+              label={t('sellerProfile.kycStatus', 'KYC status')}
+              value={user?.kycStatus === 'verified'
+                ? t('sellerProfile.verified', 'Verified')
+                : t('sellerProfile.pendingVerification', 'Pending verification')}
+              badge={user?.kycStatus === 'verified'
+                ? { text: t('sellerProfile.verified', 'Verified'), color: C.success, icon: 'checkmark-circle' }
+                : { text: t('sellerProfile.pending', 'Pending'), color: C.warning, icon: 'hourglass-outline' }}
+              last
+            />
+          </SectionCard>
+
+          {/* ── Seller info ── */}
+          <SectionCard title={t('sellerProfile.sellerInfo', 'Seller')}>
+            <Row
+              icon="calendar-outline"
+              label={t('sellerProfile.sellerSince', 'Seller since')}
+              value={(() => {
+                const created = user?.createdAt ? new Date(user.createdAt) : null;
+                return created && !Number.isNaN(created.getTime())
+                  ? created.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+                  : '—';
+              })()}
+            />
+            <Row
+              icon="pulse-outline"
+              label={t('sellerProfile.accountStatus', 'Account status')}
+              value={t('sellerProfile.active', 'Active')}
+              badge={{ text: t('sellerProfile.active', 'Active'), color: C.success, icon: 'ellipse' }}
+              last
+            />
+          </SectionCard>
+
+          {/* ── Actions ── */}
+          <SectionCard title={t('sellerProfile.quickActions', 'More')}>
+            <Row
+              icon="briefcase-outline"
+              label={t('sellerProfile.bizProfileKyc', 'Business profile & KYC')}
+              value={t('sellerProfile.bizProfileSub')}
+              onPress={() => navigation.navigate('BusinessProfile')}
+            />
+            <Row
+              icon="help-circle-outline"
+              label={t('sellerProfile.helpCenter', 'Help centre')}
+              onPress={showHelp}
+            />
+            <Row
+              icon="document-text-outline"
+              label={t('sellerProfile.terms', 'Terms of service')}
+              onPress={() => openUrl(TERMS_URL)}
+              hint={t('common.opensBrowser', 'Opens in your browser')}
+            />
+            <Row
+              icon="lock-closed-outline"
+              label={t('sellerProfile.privacy', 'Privacy policy')}
+              onPress={() => openUrl(PRIVACY_URL)}
+              hint={t('common.opensBrowser', 'Opens in your browser')}
+              last
+            />
+          </SectionCard>
+
+          <Button
+            label={t('logout', 'Log out')}
+            icon="log-out-outline"
+            variant="dangerSoft"
+            size="lg"
+            fullWidth
+            haptic="warning"
+            onPress={handleLogout}
+            style={{ marginTop: SP.xxl }}
           />
         </View>
-
-        <SectionGap />
-
-        {/* Business Info */}
-        <View style={s.section}>
-          <Text style={s.sectionTitle}>{t('sellerProfile.businessInfo')}</Text>
-          <Row
-            icon="storefront-outline"
-            label={t('sellerProfile.businessType')}
-            value={bizTypeLabel}
-            onPress={() => navigation.navigate('BusinessProfile')}
-          />
-          <Row
-            icon="document-text-outline"
-            label={t('sellerProfile.gstNumber')}
-            value={
-              user?.gstNumber
-                ? user.gstNumber
-                : user?.gstOptOut
-                ? t('sellerProfile.notApplicable')
-                : t('sellerProfile.notAdded')
-            }
-            onPress={() => navigation.navigate('BusinessProfile')}
-            badge={
-              user?.gstNumber
-                ? { text: t('sellerProfile.verified'), color: COLORS.sellerDelivered }
-                : user?.gstOptOut
-                ? { text: t('sellerProfile.exempt'), color: COLORS.sellerPending }
-                : null
-            }
-          />
-          <Row
-            icon="card-outline"
-            label={t('sellerProfile.bankAccount')}
-            value={
-              user?.bankAccountNumber
-                ? `••••${user.bankAccountNumber.slice(-4)} · ${user.bankName || ''}`
-                : t('sellerProfile.notAdded')
-            }
-            onPress={() => navigation.navigate('BusinessProfile')}
-            badge={
-              user?.bankAccountNumber
-                ? { text: t('sellerProfile.added'), color: COLORS.sellerDelivered }
-                : null
-            }
-          />
-          <Row
-            icon="shield-checkmark-outline"
-            label={t('sellerProfile.kycStatus')}
-            value={user?.kycStatus === 'verified' ? t('sellerProfile.verified') : t('sellerProfile.pendingVerification')}
-            badge={
-              user?.kycStatus === 'verified'
-                ? { text: t('sellerProfile.verified'), color: COLORS.sellerDelivered }
-                : { text: t('sellerProfile.pending'), color: COLORS.sellerPending }
-            }
-          />
-        </View>
-
-        <SectionGap />
-
-        {/* Seller Stats */}
-        <View style={s.section}>
-          <Text style={s.sectionTitle}>{t('sellerProfile.sellerInfo')}</Text>
-          <Row
-            icon="calendar-outline"
-            label={t('sellerProfile.sellerSince')}
-            value={user?.createdAt ? new Date(user.createdAt).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : '—'}
-          />
-          <Row
-            icon="shield-checkmark-outline"
-            label={t('sellerProfile.accountStatus')}
-            value={t('sellerProfile.active')}
-            badge={{ text: t('sellerProfile.active'), color: COLORS.sellerDelivered }}
-          />
-        </View>
-
-        <SectionGap />
-
-        {/* Quick Actions */}
-        <View style={s.section}>
-          <Text style={s.sectionTitle}>{t('sellerProfile.quickActions')}</Text>
-          <Row
-            icon="briefcase-outline"
-            label={t('sellerProfile.bizProfileKyc')}
-            value={t('sellerProfile.bizProfileSub')}
-            onPress={() => navigation.navigate('BusinessProfile')}
-          />
-          <Row
-            icon="help-circle-outline"
-            label={t('sellerProfile.helpCenter')}
-            onPress={() => Alert.alert(t('sellerProfile.helpCenter'), t('sellerProfile.helpMsg'))}
-          />
-          <Row icon="document-text-outline" label={t('sellerProfile.terms')}   onPress={() => {}} />
-          <Row icon="lock-closed-outline"   label={t('sellerProfile.privacy')} onPress={() => {}} />
-        </View>
-
-        <SectionGap />
-
-        {/* End session */}
-        <View style={{ padding: 16 }}>
-          <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
-            <Ionicons name="log-out-outline" size={20} color={COLORS.error} />
-            <Text style={s.logoutTxt}>{t('logout')}</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={{ height: 40 }} />
-
-        </Animated.View>{/* end body fade-in */}
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
-const s = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: COLORS.grayBg },
-
-  header: { alignItems: 'center', paddingTop: 32, paddingBottom: 28, paddingHorizontal: 20 },
-  ringWrap: {
-    width: 96, height: 96, borderRadius: 48,
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.35)',
-    justifyContent: 'center', alignItems: 'center',
-    marginBottom: 12,
+const sp = StyleSheet.create({
+  header: { paddingTop: SP.xl, paddingBottom: SP.xl },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: SP.lg },
+  name: { ...T.title, color: C.text },
+  phone: { ...T.body, color: C.textMuted, marginTop: 2 },
+  editIcon: {
+    width: HIT.minCompact,
+    height: HIT.minCompact,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: C.border,
   },
-  avatar: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(255,255,255,0.25)', justifyContent: 'center', alignItems: 'center' },
-  avatarTxt: { fontSize: 30, fontWeight: '900', color: COLORS.white },
 
-  sellerName:  { fontSize: 22, fontWeight: '900', color: COLORS.white, marginBottom: 4 },
-  sellerPhone: { fontSize: 14, color: 'rgba(255,255,255,0.75)', marginBottom: 8 },
+  editWrap: { gap: SP.md },
+  nameError: { ...T.captionBold, color: C.danger, textAlign: 'center' },
+  editBtns: { flexDirection: 'row', gap: SP.md },
 
-  bizBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 12, paddingVertical: 4,
-    backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: RADIUS.full,
-    marginBottom: 10,
-  },
-  bizBadgeTxt: { fontSize: 12, color: 'rgba(255,255,255,0.9)', fontWeight: '600' },
-
-  editProfileBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: RADIUS.sm },
-  editProfileTxt: { fontSize: 13, color: 'rgba(255,255,255,0.9)', fontWeight: '600' },
-
-  editWrap: { width: '100%', alignItems: 'center', gap: 12 },
-  nameInput: { width: '100%', borderBottomWidth: 2, borderBottomColor: 'rgba(255,255,255,0.5)', color: COLORS.white, fontSize: 20, fontWeight: '700', textAlign: 'center', paddingVertical: 6 },
-  editBtns: { flexDirection: 'row', gap: 12 },
-  cancelBtn: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: RADIUS.md, backgroundColor: 'rgba(255,255,255,0.2)' },
-  cancelTxt: { color: COLORS.white, fontWeight: '700' },
-  saveBtn:   { paddingHorizontal: 24, paddingVertical: 8, borderRadius: RADIUS.md, backgroundColor: COLORS.white },
-  saveTxt:   { color: COLORS.sellerPrimary, fontWeight: '800' },
-
-  // Completion card
-  completionCard: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.white,
-    padding: 16, borderBottomWidth: 1, borderBottomColor: COLORS.grayBg,
-  },
-  completionTitle: { fontSize: 14, fontWeight: '700', color: COLORS.textDark, marginBottom: 2 },
-  completionSub:   { fontSize: 12, color: COLORS.textMedium, marginBottom: 8 },
-  progressBarBg:   { height: 6, backgroundColor: COLORS.grayBg, borderRadius: 3, overflow: 'hidden' },
-  progressBarFill: { height: 6, borderRadius: 3 },
-  completionRight: { alignItems: 'center', marginLeft: 16, gap: 4 },
-  completionPct:   { fontSize: 22, fontWeight: '900' },
-
-  section: { backgroundColor: COLORS.white },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: COLORS.textMedium, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 },
-
-  logoutBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    padding: 15, borderRadius: RADIUS.lg,
-    borderWidth: 1.5, borderColor: COLORS.error + '40', backgroundColor: COLORS.roseTint,
-  },
-  logoutTxt: { fontSize: 15, fontWeight: '700', color: COLORS.error },
+  completionWrap: { marginTop: SP.xl, borderRadius: R.xl },
+  completionCard: { ...E.raised },
+  completionTop: { flexDirection: 'row', alignItems: 'center', gap: SP.md },
+  completionTitle: { ...T.bodyBold, color: C.text },
+  completionSub: { ...T.caption, color: C.textMuted, marginTop: 2 },
+  completionPct: { ...T.figureMd },
 });
 
 const r = StyleSheet.create({
+  section: { marginTop: SP.xxl },
+  sectionTitle: {
+    ...T.section,
+    color: C.textMuted,
+    textTransform: 'uppercase',
+    marginBottom: SP.md,
+    marginLeft: SP.xs,
+  },
+
   row: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    paddingHorizontal: 16, paddingVertical: 13,
-    borderBottomWidth: 1, borderBottomColor: COLORS.grayPaper,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SP.lg,
+    paddingHorizontal: SP.xl,
+    paddingVertical: SP.lg,
+    minHeight: HIT.min + 8,
   },
-  rowIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: COLORS.sellerPrimary + '12', justifyContent: 'center', alignItems: 'center' },
-  rowLabel: { fontSize: 15, color: COLORS.textDark, fontWeight: '600' },
-  rowValue: { fontSize: 12, color: COLORS.textMedium, marginTop: 1 },
-  badge: {
-    paddingHorizontal: 8, paddingVertical: 3,
-    borderRadius: RADIUS.full, borderWidth: 1,
+  rowRuled: { borderBottomWidth: 1, borderBottomColor: C.divider },
+  rowIcon: {
+    width: 38, height: 38, borderRadius: R.sm,
+    backgroundColor: C.brandPale,
+    borderWidth: 1,
+    borderColor: alpha(C.brand, 0.18),
+    alignItems: 'center', justifyContent: 'center',
   },
-  badgeTxt: { fontSize: 11, fontWeight: '700' },
+  rowLabel: { ...T.bodyBold, color: C.text },
+  rowValue: { ...T.caption, color: C.textMuted, marginTop: 2 },
 });

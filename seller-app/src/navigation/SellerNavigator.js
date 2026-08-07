@@ -9,19 +9,30 @@
  *   - already a seller  → SellerDashboard
  *   - not a seller yet  → BusinessProfile (KYC setup); saving it flips the
  *     backend role to SELLER, after which the dashboard becomes reachable.
+ *
+ * Header styling comes from the theme rather than being hand-set here. It is
+ * deliberately the SAME chrome the custom `AppHeader` renders — parchment
+ * ground, warm hairline, Fraunces title — so a screen using the stack header
+ * and a screen using its own are indistinguishable at the top of the page.
+ * That equivalence is the whole reason both are allowed to exist.
+ *
+ * Gesture/animation behaviour honours the OS "Reduce Motion" setting — the fade
+ * interpolator was previously unconditional.
  */
-import { useEffect } from 'react';
-import { AppState } from 'react-native';
+import { useEffect, useMemo } from 'react';
+import { AppState, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
+import { createStackNavigator, CardStyleInterpolators, TransitionPresets } from '@react-navigation/stack';
 
 import linking from './linking';
 import { navigationRef } from './navigationRef';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { COLORS, TYPE } from '@cropsetu/shared/constants/colors';
 import { SoundEffects } from '@cropsetu/shared/utils/sounds';
 import { isSellerAccount } from '@cropsetu/shared/utils/roles';
+
+import { C, SP, T } from '../theme';
+import { useReducedMotion } from '../hooks/useMotion';
 
 import SellerDashboard      from '../screens/DashboardScreen';
 import SellerMyProducts     from '../screens/MyProductsScreen';
@@ -34,17 +45,10 @@ import ReceivedReportDetail from '../screens/ReceivedReportDetailScreen';
 
 const Stack = createStackNavigator();
 
-const screenOptions = {
-  headerStyle: { backgroundColor: COLORS.cta, borderBottomWidth: 0 },
-  headerTintColor: COLORS.textWhite,
-  headerTitleStyle: { fontWeight: TYPE.weight.bold, fontSize: 17 },
-  headerBackTitleVisible: false,
-  cardStyleInterpolator: CardStyleInterpolators.forFadeFromCenter,
-};
-
 export default function SellerNavigator() {
   const { t } = useLanguage();
   const { user, markActivity } = useAuth();
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -52,6 +56,41 @@ export default function SellerNavigator() {
     });
     return () => sub.remove();
   }, []);
+
+  const screenOptions = useMemo(() => ({
+    headerStyle: {
+      backgroundColor: C.bg,
+      borderBottomWidth: 1,
+      borderBottomColor: C.border,
+      // The platform header shadow reads as a smudge over parchment; the
+      // hairline above does the separation instead.
+      elevation: 0,
+      shadowOpacity: 0,
+    },
+    headerTintColor: C.brandInk,
+    headerTitleStyle: { ...T.subhead, color: C.text },
+    headerTitleAlign: 'center',
+    headerBackTitleVisible: false,
+    // Larger back-button hit area than the platform default.
+    headerLeftContainerStyle: { paddingLeft: SP.sm },
+    headerRightContainerStyle: { paddingRight: SP.sm },
+    cardStyle: { backgroundColor: C.bg },
+    // Reduce Motion: cross-fade with no travel. Otherwise the platform's own
+    // push transition, which feels native and is interruptible.
+    ...(reducedMotion
+      ? {
+          cardStyleInterpolator: CardStyleInterpolators.forFadeFromCenter,
+          transitionSpec: {
+            open: { animation: 'timing', config: { duration: 160 } },
+            close: { animation: 'timing', config: { duration: 140 } },
+          },
+          gestureEnabled: false,
+        }
+      : {
+          ...TransitionPresets.SlideFromRightIOS,
+          gestureEnabled: Platform.OS !== 'web',
+        }),
+  }), [reducedMotion]);
 
   // Accounts that haven't completed KYC land on BusinessProfile instead of a
   // dashboard whose every request would 403. Read once, at mount: saving that
