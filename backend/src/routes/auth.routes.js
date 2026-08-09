@@ -302,7 +302,9 @@ router.post(
 
       if (result.status === 'reuse') {
         // Replayed a spent token → the lineage was just burned. Force re-login.
-        if (cookieMode) clearRefreshCookie(res);
+        // Clear BOTH halves of the pair. Leaving `rt` behind without its `csrf`
+        // partner is what wedges the browser into a permanent 403 on mutations.
+        if (cookieMode) { clearRefreshCookie(res); clearCsrfCookie(res); }
         await auditAuthEvent(result.userId, AUTH_ACTIONS.TOKEN_REUSE, req.ip, {
           outcome: 'reuse_detected', familyId: result.familyId,
         });
@@ -324,7 +326,9 @@ router.post(
         return sendUnauthorized(res, 'Refresh token reuse detected. Please sign in again.');
       }
       if (result.status !== 'ok') {
-        if (cookieMode) clearRefreshCookie(res);
+        // Clear BOTH halves of the pair. Leaving `rt` behind without its `csrf`
+        // partner is what wedges the browser into a permanent 403 on mutations.
+        if (cookieMode) { clearRefreshCookie(res); clearCsrfCookie(res); }
         return sendUnauthorized(res, 'Invalid or expired refresh token');
       }
 
@@ -335,7 +339,9 @@ router.post(
       if (!user || !user.isActive) {
         // Don't leave a freshly-minted token dangling for a disabled account.
         await revokeAllRefreshTokens(result.userId);
-        if (cookieMode) clearRefreshCookie(res);
+        // Clear BOTH halves of the pair. Leaving `rt` behind without its `csrf`
+        // partner is what wedges the browser into a permanent 403 on mutations.
+        if (cookieMode) { clearRefreshCookie(res); clearCsrfCookie(res); }
         return sendUnauthorized(res, 'Account not found');
       }
 
