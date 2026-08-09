@@ -1,12 +1,19 @@
 /**
  * RentHome — Machinery & Labour marketplace
- * • Graphical category filter chips (tractor, harvester, sprayer, …)
- * • Distance filter chips: 5 km, 10 km, 25 km, 50 km, Any
- * • User GPS fetched on mount — sends lat/lng/radius to API for proximity sort
- * • Distance badge ("3.2 km") on every card when GPS is available
- * • Machinery cards with ratings, price, availability badge
- * • Worker cards with booking calendar preview
- * • FAB to list your own machinery / register as worker
+ *
+ * Location model (see ./rentLocationPrefs.js):
+ *   • One location bar states the active source — GPS, a hand-picked district,
+ *     or "everywhere" — and opens onto a picker that can change it. Source,
+ *     radius, strictness and sort all persist across restarts.
+ *   • "Within 5 km" is enforced server-side with ?strict=true, so a listing that
+ *     never shared coordinates is either excluded or labelled "Location not
+ *     shared" — it never poses as a nearby result.
+ *   • "Any" keeps lat/lng and sends ?radius=all, so distance badges and distance
+ *     ordering survive; it only removes the ceiling.
+ *   • Search, category, sort and pagination are query params, so they filter the
+ *     whole catalogue rather than the twenty rows that happen to be loaded.
+ *   • The list is a single virtualized FlatList that pages; the header (search,
+ *     location bar, categories, sort) rides in ListHeaderComponent.
  */
 import {
   useState,
@@ -29,20 +36,18 @@ import {
   StatusBar,
   Image,
   ScrollView,
-  Dimensions,
+  ActivityIndicator,
+  Linking,
 } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  FadeIn,
-  FadeInDown,
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { Haptics } from "@cropsetu/shared/utils/haptics";
 import {
   SPRINGS,
-  AppPressable,
   AnimatedCard,
   isReducedMotion,
   enterAnimation,
@@ -56,16 +61,28 @@ import api from "@cropsetu/shared/services/api";
 import { useLanguage } from "@cropsetu/shared/context/LanguageContext";
 import { useAuth } from "@cropsetu/shared/context/AuthContext";
 import MockImagePlaceholder from "../../components/MockImagePlaceholder";
-import { COLORS, TYPE, SHADOWS } from "@cropsetu/shared/constants/colors";
+import { COLORS, TYPE, SPACE, RADIUS, SHADOWS } from "@cropsetu/shared/constants/colors";
 import { KHET } from "@cropsetu/shared/constants/khetTheme";
 import AnimatedScreen from "@cropsetu/shared/components/ui/AnimatedScreen";
 import TractorLoader from "../../components/ui/TractorLoader";
 import { MachineryIcon } from "../../components/MachineryIcons";
 import { LabourIcon } from "../../components/LabourIcon";
+import useRentListings, { probeTotal } from "../../hooks/useRentListings";
+import {
+  useRentLocationPrefs,
+  buildListParams,
+  effectiveSource,
+  SOURCE,
+  RADIUS_OPTIONS,
+} from "./rentLocationPrefs";
+import {
+  RentLocationBar,
+  RentLocationSheet,
+  RentRadiusRow,
+  RentSortRow,
+} from "./RentLocationBar";
 
-const { width: W } = Dimensions.get("window");
 const GREEN = COLORS.primary;
-const GREEN2 = COLORS.primaryMedium;
 const BG = COLORS.background;
 
 // ── Machinery categories ───────────────────────────────────────────────────────
@@ -142,15 +159,6 @@ const MACH_CATS = [
   },
 ];
 
-// ── Distance filter options ────────────────────────────────────────────────────
-const DIST_OPTIONS = [
-  { km: 5, label: "5 km" },
-  { km: 10, label: "10 km" },
-  { km: 25, label: "25 km" },
-  { km: 50, label: "50 km" },
-  { km: null, tKey: "distAny" },
-];
-
 // ── Category chip ──────────────────────────────────────────────────────────────
 function CatChip({ cat, active, onPress }) {
   const { t } = useLanguage();
@@ -158,6 +166,9 @@ function CatChip({ cat, active, onPress }) {
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: sc.value }],
   }));
+  const press = (to) => {
+    if (!isReducedMotion()) sc.value = withSpring(to, SPRINGS.snappy);
+  };
   return (
     <Animated.View style={animStyle}>
       <Pressable
@@ -169,12 +180,11 @@ function CatChip({ cat, active, onPress }) {
           Haptics.selection();
           onPress(cat.key);
         }}
-        onPressIn={() => {
-          sc.value = withSpring(0.9, SPRINGS.snappy);
-        }}
-        onPressOut={() => {
-          sc.value = withSpring(1, SPRINGS.snappy);
-        }}
+        onPressIn={() => press(0.9)}
+        onPressOut={() => press(1)}
+        accessibilityRole="radio"
+        accessibilityState={{ selected: active, checked: active }}
+        accessibilityLabel={t("rent." + cat.tKey)}
       >
         <View
           style={[
@@ -200,13 +210,18 @@ function CatChip({ cat, active, onPress }) {
   );
 }
 
-// ── Distance badge ─────────────────────────────────────────────────────────────
-function DistBadge({ km }) {
-  if (km == null) return null;
+// ── "Location not shared" pill ────────────────────────────────────────────────
+// Rendered only when distances ARE available for this query — i.e. every sibling
+// card carries a badge and this one cannot. A silent blank there reads as "very
+// close by"; this says what is actually true. Wraps freely: the Marathi string
+// is roughly twice the English one.
+function NoLocationPill({ t }) {
   return (
-    <View style={S.distBadge}>
-      <Ionicons name="navigate-circle" size={11} color={COLORS.blue} />
-      <Text style={S.distTxt}>{km} km</Text>
+    <View style={S.noLocPill}>
+      <Ionicons name="help-circle-outline" size={12} color={COLORS.cta} />
+      <Text style={S.noLocTxt}>
+        {t("rent.locNotShared", "Location not shared")}
+      </Text>
     </View>
   );
 }
@@ -265,6 +280,7 @@ const MachineryCard = memo(function MachineryCard({
   index = 0,
   isOwner = false,
   bookingStatus = null,
+  distanceMode = false,
 }) {
   const { t } = useLanguage();
   const catInfo =
@@ -297,6 +313,8 @@ const MachineryCard = memo(function MachineryCard({
         : item.available
           ? t("rent.listAvailable")
           : t("rent.listAdvanceBooking");
+
+  const unlocated = distanceMode && item.distanceKm == null;
 
   return (
     <AnimatedCard
@@ -421,6 +439,8 @@ const MachineryCard = memo(function MachineryCard({
           </Text>
         </View>
 
+        {unlocated && <NoLocationPill t={t} />}
+
         {isOwner ? (
           <View style={S.ownTag}>
             <Ionicons name="person-circle-outline" size={15} color={GREEN} />
@@ -450,6 +470,7 @@ const WorkerCard = memo(function WorkerCard({
   index = 0,
   isOwner = false,
   bookingStatus = null,
+  distanceMode = false,
 }) {
   const { t } = useLanguage();
   const initials = (item.leader || item.name || "W")
@@ -482,6 +503,8 @@ const WorkerCard = memo(function WorkerCard({
           ? GREEN
           : COLORS.cta;
 
+  const unlocated = distanceMode && item.distanceKm == null;
+
   return (
     <Animated.View entering={enterAnimation(index)} style={[S.wCard, scStyle]}>
       <Pressable
@@ -491,10 +514,10 @@ const WorkerCard = memo(function WorkerCard({
           onPress(item);
         }}
         onPressIn={() => {
-          sc.value = withSpring(0.97, SPRINGS.snappy);
+          if (!isReducedMotion()) sc.value = withSpring(0.97, SPRINGS.snappy);
         }}
         onPressOut={() => {
-          sc.value = withSpring(1, SPRINGS.snappy);
+          if (!isReducedMotion()) sc.value = withSpring(1, SPRINGS.snappy);
         }}
       >
         {/* Header — avatar + status, stacked like MachineryCard's photo block.
@@ -554,6 +577,8 @@ const WorkerCard = memo(function WorkerCard({
               {item.distanceKm != null ? ` · ${item.distanceKm} ${t("rent.kmAway")}` : ""}
             </Text>
           </View>
+
+          {unlocated && <NoLocationPill t={t} />}
 
           {/* Price and rating share one row; the CTA gets its own full-width
               row below, so they can no longer overlap. */}
@@ -621,43 +646,6 @@ const WorkerCard = memo(function WorkerCard({
   );
 });
 
-// ── Distance chip (Rent screen) ────────────────────────────────────────────────
-function RentDistChip({ opt, active, disabled, onPress }) {
-  const { t } = useLanguage();
-  const sc = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: sc.value }],
-  }));
-  return (
-    <Animated.View style={animStyle}>
-      <Pressable
-        style={[
-          S.distChip,
-          active && S.distChipActive,
-          disabled && S.distChipDisabled,
-        ]}
-        onPress={() => {
-          if (!disabled) {
-            Haptics.selection();
-            onPress(opt.km);
-          }
-        }}
-        onPressIn={() => {
-          if (!disabled) sc.value = withSpring(0.88, SPRINGS.snappy);
-        }}
-        onPressOut={() => {
-          sc.value = withSpring(1, SPRINGS.snappy);
-        }}
-        disabled={disabled}
-      >
-        <Text style={[S.distChipTxt, active && { color: COLORS.white }]}>
-          {opt.tKey ? t("rent." + opt.tKey) : opt.label}
-        </Text>
-      </Pressable>
-    </Animated.View>
-  );
-}
-
 // ── Main screen ────────────────────────────────────────────────────────────────
 export default function RentHome({ navigation }) {
   const { t } = useLanguage();
@@ -669,174 +657,531 @@ export default function RentHome({ navigation }) {
     headerAnimatedStyle,
     showTopBtn,
   } = useScrollHeader(55);
-  const scrollRef = useRef(null);
+  const listRef = useRef(null);
 
-  // ── Global GPS from LocationContext (fetched once at app start) ───────────
-  const { coords: gpsCoords, loading: gpsLoading } = useLocation();
-  const userLat = gpsCoords?.latitude ?? null;
-  const userLng = gpsCoords?.longitude ?? null;
-  const gpsReady = !gpsLoading;
+  // ── Location: global GPS + the persisted source/radius/sort preference ─────
+  const {
+    coords,
+    loading: gpsLoading,
+    permissionDenied,
+    error: gpsError,
+    refresh: refreshGps,
+    refreshing: gpsRefreshing,
+  } = useLocation();
+  const [prefs, setPrefs, prefsHydrated] = useRentLocationPrefs();
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const [tab, setTab] = useState("machinery");
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
-  const [machinery, setMachinery] = useState([]);
-  const [labour, setLabour] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
 
   const [pendingCount, setPendingCount] = useState(0);
   const [hasListings, setHasListings] = useState(false);
   // Map of listingId → my booking status (PENDING/CONFIRMED/ACTIVE) for badges on cards.
   const [bookingMap, setBookingMap] = useState({});
 
-  const [radiusKm, setRadiusKm] = useState(10); // default 10 km
-
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setFetchError(false);
-    try {
-      const params = {};
-      if (userLat != null && userLng != null && radiusKm != null) {
-        params.lat = userLat;
-        params.lng = userLng;
-        params.radius = radiusKm;
-      }
-
-      const [mRes, lRes] = await Promise.all([
-        api.get("/rent/machinery", { params }).catch(() => null),
-        api.get("/rent/labour", { params }).catch(() => null),
-      ]);
-      setMachinery(mRes?.data?.data ?? []);
-      setLabour(lRes?.data?.data ?? []);
-
-      // Check if user has any listings → show/hide the bell icon
-      if (isLoggedIn) {
-        Promise.all([
-          api.get("/rent/machinery/my").catch(() => null),
-          api.get("/rent/labour/my").catch(() => null),
-        ]).then(([mr, lr]) => {
-          const count =
-            (mr?.data?.data?.length || 0) + (lr?.data?.data?.length || 0);
-          setHasListings(count > 0);
-          if (count > 0) {
-            api
-              .get("/rent/bookings/received/pending-count")
-              .then((r) => setPendingCount(r.data?.data?.count ?? 0))
-              .catch(() => {});
-          }
-        });
-
-        // My bookings → status badge on the listing cards I've booked.
-        api
-          .get("/rent/bookings")
-          .then((r) => {
-            const map = {};
-            (r.data?.data ?? []).forEach((b) => {
-              if (!["PENDING", "CONFIRMED", "ACTIVE"].includes(b.status))
-                return;
-              const lid = b.machineryListing?.id || b.labourListing?.id;
-              if (!lid) return;
-              // Prefer a CONFIRMED/ACTIVE status over a PENDING one if several exist.
-              if (!map[lid] || map[lid] === "PENDING") map[lid] = b.status;
-            });
-            setBookingMap(map);
-          })
-          .catch(() => {});
-      } else {
-        setBookingMap({});
-      }
-    } catch {
-      // [FIX #23] Only use mock data in dev — show error state in production
-      if (__DEV__) {
-        const {
-          MACHINERY_LISTINGS,
-          LABOUR_LISTINGS,
-        } = require("../../constants/mockData");
-        setMachinery(MACHINERY_LISTINGS || []);
-        setLabour(LABOUR_LISTINGS || []);
-      } else {
-        setMachinery([]);
-        setLabour([]);
-      }
-      setFetchError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [userLat, userLng, radiusKm]);
-
-  // Re-fetch when GPS is ready or radius changes
+  // The input keeps `search` so typing echoes instantly (useDeferredValue keeps
+  // the echo off the render critical path); the REQUEST waits 350 ms so a
+  // ten-letter word is one round-trip, not ten.
+  const deferredSearch = useDeferredValue(search);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   useEffect(() => {
-    if (gpsReady) fetchAll();
-  }, [gpsReady, radiusKm]);
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(id);
+  }, [search]);
 
+  const source = effectiveSource(prefs, coords);
+  // Only a GPS query yields distances; a district or catalogue-wide query has no
+  // origin to measure from, and the UI must not imply otherwise.
+  const distanceMode = source === SOURCE.GPS;
+  const searchActive = debouncedSearch.length > 0;
+
+  // Hold the first request until BOTH the stored prefs and the GPS attempt have
+  // settled — otherwise we fire once against the defaults and again against the
+  // restored prefs, which is the double-fetch this screen used to have.
+  const ready = prefsHydrated && !gpsLoading;
+
+  const machineryParams = useMemo(
+    () => buildListParams(prefs, coords, { search: debouncedSearch, category, talukaEnabled: true }),
+    [prefs, coords, debouncedSearch, category],
+  );
+  const labourParams = useMemo(
+    () => buildListParams(prefs, coords, { search: debouncedSearch, talukaEnabled: true }),
+    [prefs, coords, debouncedSearch],
+  );
+
+  // Dev-only offline fallback, unchanged in spirit from the old outer catch: a
+  // developer with no API still sees a populated screen. Never in production.
+  const machineryFallback = useCallback(
+    () => require("../../constants/mockData").MACHINERY_LISTINGS || [],
+    [],
+  );
+  const labourFallback = useCallback(
+    () => require("../../constants/mockData").LABOUR_LISTINGS || [],
+    [],
+  );
+
+  const machinery = useRentListings({
+    path: "/rent/machinery",
+    params: machineryParams,
+    enabled: ready && tab === "machinery",
+    devFallback: machineryFallback,
+  });
+  const labour = useRentListings({
+    path: "/rent/labour",
+    params: labourParams,
+    enabled: ready && tab === "labour",
+    devFallback: labourFallback,
+  });
+
+  const active = tab === "machinery" ? machinery : labour;
+  const activeParams = tab === "machinery" ? machineryParams : labourParams;
+  const activePath = tab === "machinery" ? "/rent/machinery" : "/rent/labour";
+
+  // ── Side data: my listings (bell), pending count, my booking badges ────────
+  const loadSideData = useCallback(() => {
+    if (!isLoggedIn) {
+      setBookingMap({});
+      setHasListings(false);
+      setPendingCount(0);
+      return;
+    }
+    Promise.all([
+      api.get("/rent/machinery/my").catch(() => null),
+      api.get("/rent/labour/my").catch(() => null),
+    ]).then(([mr, lr]) => {
+      const count = (mr?.data?.data?.length || 0) + (lr?.data?.data?.length || 0);
+      setHasListings(count > 0);
+      if (count > 0) {
+        api
+          .get("/rent/bookings/received/pending-count")
+          .then((r) => setPendingCount(r.data?.data?.count ?? 0))
+          .catch(() => {});
+      }
+    });
+
+    api
+      .get("/rent/bookings")
+      .then((r) => {
+        const map = {};
+        (r.data?.data ?? []).forEach((b) => {
+          if (!["PENDING", "CONFIRMED", "ACTIVE"].includes(b.status)) return;
+          const lid = b.machineryListing?.id || b.labourListing?.id;
+          if (!lid) return;
+          // Prefer a CONFIRMED/ACTIVE status over a PENDING one if several exist.
+          if (!map[lid] || map[lid] === "PENDING") map[lid] = b.status;
+        });
+        setBookingMap(map);
+      })
+      .catch(() => {});
+  }, [isLoggedIn]);
+
+  // Refresh on focus — but only on a RETURN to the screen, and only via a ref.
+  //
+  // Both halves matter. Depending on `active.refresh` directly would re-run this
+  // effect every time the params change (its identity tracks them), firing a
+  // second request right behind the one the params effect just sent — which is
+  // exactly the double-fetch this screen used to have. Skipping the first focus
+  // leaves the initial load to the params effect alone.
+  const focusedBefore = useRef(false);
+  const refreshRef = useRef(null);
+  useEffect(() => { refreshRef.current = active.refresh; }, [active.refresh]);
   useFocusEffect(
     useCallback(() => {
-      if (gpsReady) fetchAll();
-    }, [fetchAll, gpsReady]),
+      loadSideData();
+      if (focusedBefore.current) refreshRef.current?.();
+      focusedBefore.current = true;
+    }, [loadSideData]),
   );
 
-  // ── Filters (client-side category/search) ─────────────────────────────────
-  // Typing used to be janky for four compounding reasons, all fixed here:
-  //
-  //  1. The filters ran on EVERY render, not just when the query changed — any
-  //     unrelated state update (scroll header, bookingMap, radius) re-filtered
-  //     both lists.
-  //  2. Each pass rebuilt a concatenated string per item and lowercased it, so
-  //     every keystroke allocated 2 strings × every listing.
-  //  3. `filter()` returned a fresh array identity every render, so FlatList's
-  //     `data` always looked new and re-rendered every row.
-  //  4. Filtering ran synchronously on the keystroke, so the character painted
-  //     only after the whole list had re-rendered.
+  // ── Recovery: how many listings exist one radius up ────────────────────────
+  const nextRadius = useMemo(() => {
+    if (source !== SOURCE.GPS || prefs.radiusKm == null) return undefined;
+    const i = RADIUS_OPTIONS.indexOf(prefs.radiusKm);
+    return i >= 0 && i < RADIUS_OPTIONS.length - 1 ? RADIUS_OPTIONS[i + 1] : undefined;
+  }, [source, prefs.radiusKm]);
 
-  // (2) Lowercase haystack built ONCE per fetch, not once per keystroke.
-  const machineryIndexed = useMemo(
-    () =>
-      machinery.map((m) => ({
-        ...m,
-        _s: `${m.name || ""} ${m.equipment || ""} ${m.brand || ""} ${m.location || ""}`.toLowerCase(),
-      })),
-    [machinery]
-  );
-  const labourIndexed = useMemo(
-    () =>
-      labour.map((l) => ({
-        ...l,
-        _s: `${l.name || ""} ${l.leader || ""} ${l.location || ""} ${(l.skills || []).join(" ")}`.toLowerCase(),
-      })),
-    [labour]
-  );
+  const [nextRadiusTotal, setNextRadiusTotal] = useState(null);
+  const isEmpty = ready && !active.loading && active.items.length === 0;
+  useEffect(() => {
+    setNextRadiusTotal(null);
+    if (!isEmpty || nextRadius === undefined) return;
+    let cancelled = false;
+    probeTotal(activePath, {
+      ...activeParams,
+      radius: nextRadius == null ? "all" : nextRadius,
+    }).then((n) => {
+      if (!cancelled) setNextRadiusTotal(n);
+    });
+    return () => { cancelled = true; };
+  }, [isEmpty, nextRadius, activePath, activeParams]);
 
-  // (4) The input keeps `search` so typing echoes instantly; the lists filter on
-  // the deferred value, which React renders at lower priority.
-  const deferredSearch = useDeferredValue(search);
-  const q = deferredSearch.trim().toLowerCase();
-
-  // Stable handler identities. These were inline arrows inside renderItem, so
-  // every card got a brand-new `onPress` on every render — which would have made
-  // the memo() on the cards a no-op.
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const openMachinery = useCallback(
     (i) => navigation.navigate("MachineryDetail", { id: i.id, machinery: i }),
-    [navigation]
+    [navigation],
   );
   const openLabour = useCallback(
     (i) => navigation.navigate("LabourDetail", { id: i.id, labour: i }),
-    [navigation]
+    [navigation],
+  );
+  const scrollTop = useCallback(
+    () => listRef.current?.scrollToOffset({ offset: 0, animated: !isReducedMotion() }),
+    [],
+  );
+  const switchTab = useCallback((key) => {
+    setTab(key);
+    setCategory("all");
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, []);
+
+  // ── Derived copy ──────────────────────────────────────────────────────────
+  const shown = active.items.length;
+  const total = active.total;
+  const unlocatedShown = distanceMode
+    ? active.items.filter((i) => i.distanceKm == null).length
+    : 0;
+
+  const scopeLine = useMemo(() => {
+    if (!shown) return null;
+    if (source === SOURCE.GPS) {
+      return prefs.radiusKm == null
+        ? t("rent.showingNearest", { shown, total })
+        : t("rent.showingWithin", { shown, total, km: prefs.radiusKm });
+    }
+    if (source === SOURCE.DISTRICT) {
+      return t("rent.showingInDistrict", { shown, total, district: prefs.district });
+    }
+    return t("rent.showingAll", { shown, total });
+  }, [shown, total, source, prefs.radiusKm, prefs.district, t]);
+
+  const gpsUnavailable = prefs.source === SOURCE.GPS && !coords && !gpsLoading;
+
+  // ── Header (rides in ListHeaderComponent so the list virtualizes) ──────────
+  const header = (
+    <View>
+      {/* Search */}
+      <View style={S.searchRow}>
+        <View style={S.searchBar}>
+          <Ionicons name="search-outline" size={16} color={COLORS.grayMedium} />
+          <TextInput
+            style={S.searchInput}
+            placeholder={
+              tab === "machinery" ? t("machinerySearch") : t("labourSearch")
+            }
+            placeholderTextColor={COLORS.textLight}
+            value={search}
+            onChangeText={setSearch}
+            returnKeyType="search"
+          />
+          {deferredSearch !== search && (
+            <ActivityIndicator size="small" color={COLORS.grayLightMid} />
+          )}
+          {search.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearch("")}
+              accessibilityRole="button"
+              accessibilityLabel={t("rent.clearSearch", "Clear search")}
+              hitSlop={10}
+            >
+              <Ionicons name="close-circle" size={17} color={COLORS.grayLightMid} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Location bar */}
+      <RentLocationBar
+        prefs={prefs}
+        coords={coords}
+        refreshing={gpsRefreshing}
+        onOpen={() => setSheetOpen(true)}
+      />
+
+      {/* GPS asked for but unavailable — one line of why, and two ways out.
+          The old UI disabled every chip and said nothing. */}
+      {gpsUnavailable && (
+        <View style={S.gpsNotice}>
+          <Ionicons name="alert-circle-outline" size={16} color={COLORS.cta} />
+          <View style={{ flex: 1 }}>
+            <Text style={S.gpsNoticeTxt}>
+              {permissionDenied
+                ? t("rent.gpsDeniedLine", "Location permission is off, so distances are unavailable.")
+                : gpsError
+                  ? t("rent.gpsErrorLine", "Could not get your position — no signal or GPS is off.")
+                  : t("rent.gpsNoFixLine", "No position yet, so distances are unavailable.")}
+            </Text>
+            <View style={S.gpsNoticeBtns}>
+              <TouchableOpacity
+                style={S.gpsNoticeBtn}
+                onPress={() => {
+                  setPrefs({ source: SOURCE.DISTRICT });
+                  setSheetOpen(true);
+                }}
+                accessibilityRole="button"
+              >
+                <Ionicons name="map-outline" size={14} color={GREEN} />
+                <Text style={S.gpsNoticeBtnTxt}>
+                  {t("rent.chooseDistrict", "Choose district")}
+                </Text>
+              </TouchableOpacity>
+              {permissionDenied ? (
+                <TouchableOpacity
+                  style={S.gpsNoticeBtn}
+                  onPress={() => Linking.openSettings?.()}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="settings-outline" size={14} color={GREEN} />
+                  <Text style={S.gpsNoticeBtnTxt}>
+                    {t("rent.openSettings", "Open Settings")}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={S.gpsNoticeBtn}
+                  onPress={refreshGps}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !!gpsRefreshing }}
+                  disabled={gpsRefreshing}
+                >
+                  <Ionicons name="refresh" size={14} color={GREEN} />
+                  <Text style={S.gpsNoticeBtnTxt}>
+                    {t("rent.gpsRetry", "Try again")}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Radius (GPS only) + sort */}
+      <RentRadiusRow
+        prefs={prefs}
+        coords={coords}
+        onChange={(km) => setPrefs({ radiusKm: km })}
+      />
+      <RentSortRow
+        prefs={prefs}
+        coords={coords}
+        onChange={(sort) => setPrefs({ sort })}
+      />
+
+      {/* Category filter (machinery only) — now a server-side `category` param */}
+      {tab === "machinery" && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={S.catRow}
+          accessibilityRole="radiogroup"
+        >
+          {MACH_CATS.map((cat) => (
+            <CatChip
+              key={cat.key}
+              cat={cat}
+              active={category === cat.key}
+              onPress={setCategory}
+            />
+          ))}
+        </ScrollView>
+      )}
+
+      {/* Section title + truthful count */}
+      <View style={S.sectionHeader}>
+        <Text style={S.sectionTitle}>
+          {tab === "labour"
+            ? t("rent.workersSection")
+            : category === "all"
+              ? t("rent.availMachinery")
+              : t("rent." + MACH_CATS.find((c) => c.key === category)?.tKey)}
+        </Text>
+        {!active.loading && (
+          <View style={S.countBadge}>
+            <Text style={S.countTxt}>
+              {total} {t("rent.found")}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* "Showing 20 of 63 within 25 km" — the total used to be thrown away, so
+          a seller's listing at position 21 was invisible with no hint of it. */}
+      {!active.loading && !!scopeLine && (
+        <Text style={S.scopeLine}>{scopeLine}</Text>
+      )}
+
+      {/* Loose mode: say once that unmeasurable listings are in the list. */}
+      {!active.loading && unlocatedShown > 0 && (
+        <View style={S.unlocatedNote}>
+          <Ionicons name="information-circle-outline" size={14} color={COLORS.blue} />
+          <Text style={S.unlocatedNoteTxt}>
+            {t("rent.unlocatedNotice", { count: unlocatedShown })}
+          </Text>
+        </View>
+      )}
+    </View>
   );
 
-  // (1)+(3) Recompute only when the data, query or category actually change, and
-  // return the SAME array identity otherwise.
-  const filteredMachinery = useMemo(
-    () =>
-      machineryIndexed.filter((m) => {
-        if (category !== "all" && m.category !== category) return false;
-        return !q || m._s.includes(q);
-      }),
-    [machineryIndexed, category, q]
+  // ── Empty state ───────────────────────────────────────────────────────────
+  const empty = active.loading ? (
+    <View style={S.loadWrap}>
+      <TractorLoader
+        message={
+          tab === "machinery"
+            ? t("rent.loadingMachinery")
+            : t("rent.loadingWorkers")
+        }
+        size="medium"
+        fullScreen={false}
+      />
+    </View>
+  ) : (
+    <View style={S.emptyWrap}>
+      <View style={S.emptyIconBg}>
+        {tab === "machinery" ? (
+          <MachineryIcon type="tractor" size={56} />
+        ) : (
+          <LabourIcon size={56} />
+        )}
+      </View>
+      <Text style={S.emptyTitle}>
+        {t("rent.emptyHereTitle", "Nothing here yet")}
+      </Text>
+      <Text style={S.emptyTxt}>
+        {tab === "machinery" ? t("rent.noMachinery") : t("rent.noWorkersFound")}
+      </Text>
+
+      {/* Widen the search before offering to list your own — that is the move
+          the user actually wants, and the old empty state never offered it. */}
+      {nextRadius !== undefined && (
+        <TouchableOpacity
+          style={S.widenBtn}
+          onPress={() => setPrefs({ radiusKm: nextRadius })}
+          accessibilityRole="button"
+        >
+          <Ionicons name="resize-outline" size={16} color={COLORS.white} />
+          <Text style={S.widenTxt}>
+            {nextRadius == null
+              ? t("rent.widenToAny", "Search any distance")
+              : t("rent.widenTo", { km: nextRadius })}
+            {nextRadiusTotal != null
+              ? ` · ${t("rent.widenFound", { count: nextRadiusTotal })}`
+              : ""}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {source === SOURCE.GPS && prefs.strictCoords && (
+        <TouchableOpacity
+          style={S.emptyLinkBtn}
+          onPress={() => setPrefs({ strictCoords: false })}
+          accessibilityRole="button"
+        >
+          <Text style={S.emptyLinkTxt}>
+            {t("rent.includeUnlocated", "Also show listings without a shared location")}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      <Text style={S.emptyHint}>
+        {tab === "machinery" ? t("rent.beFirstMachinery") : t("rent.beFirstWorker")}
+      </Text>
+      <TouchableOpacity
+        style={S.addFirstBtn}
+        onPress={() =>
+          navigation.navigate(tab === "machinery" ? "AddMachinery" : "AddWorker")
+        }
+        accessibilityRole="button"
+      >
+        <Ionicons name="add" size={16} color={GREEN} />
+        <Text style={S.addFirstTxt}>
+          {tab === "machinery"
+            ? t("rent.listYourMachinery")
+            : t("rent.registerAsWorker")}
+        </Text>
+      </TouchableOpacity>
+    </View>
   );
-  const filteredLabour = useMemo(
-    () => (q ? labourIndexed.filter((l) => l._s.includes(q)) : labourIndexed),
-    [labourIndexed, q]
+
+  // ── Footer: load more + the "list your own" banner ────────────────────────
+  const footer = (
+    <View>
+      {active.hasMore && (
+        <TouchableOpacity
+          style={S.loadMoreBtn}
+          onPress={active.loadMore}
+          disabled={active.loadingMore}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: active.loadingMore, busy: active.loadingMore }}
+        >
+          {active.loadingMore ? (
+            <ActivityIndicator size="small" color={GREEN} />
+          ) : (
+            <Ionicons name="chevron-down" size={16} color={GREEN} />
+          )}
+          <Text style={S.loadMoreTxt}>
+            {t("rent.loadMoreOf", { remaining: Math.max(0, total - shown) })}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {!active.loading && (
+        <TouchableOpacity
+          style={S.listBanner}
+          onPress={() =>
+            navigation.navigate(tab === "machinery" ? "AddMachinery" : "AddWorker")
+          }
+          activeOpacity={0.9}
+        >
+          <View style={S.listBannerLeft}>
+            {tab === "machinery" ? (
+              <MachineryIcon type="tractor" size={36} />
+            ) : (
+              <LabourIcon size={36} />
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={S.listBannerTitle}>
+                {tab === "machinery"
+                  ? t("rent.listYourMachinery")
+                  : t("rent.registerAsWorker")}
+              </Text>
+              <Text style={S.listBannerSub}>
+                {tab === "machinery"
+                  ? t("rent.bannerEarnMachinery")
+                  : t("rent.findWageWork")}
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={GREEN} />
+        </TouchableOpacity>
+      )}
+
+      <View style={{ height: SPACE[4] }} />
+    </View>
+  );
+
+  const renderItem = useCallback(
+    ({ item, index }) =>
+      tab === "machinery" ? (
+        <MachineryCard
+          item={item}
+          index={index}
+          isOwner={myId != null && (myId === item.owner?.id || myId === item.ownerId)}
+          bookingStatus={bookingMap[item.id]}
+          distanceMode={distanceMode}
+          onPress={openMachinery}
+        />
+      ) : (
+        <WorkerCard
+          item={item}
+          index={index}
+          isOwner={myId != null && (myId === item.provider?.id || myId === item.providerId)}
+          bookingStatus={bookingMap[item.id]}
+          distanceMode={distanceMode}
+          onPress={openLabour}
+        />
+      ),
+    [tab, myId, bookingMap, distanceMode, openMachinery, openLabour],
   );
 
   return (
@@ -844,18 +1189,11 @@ export default function RentHome({ navigation }) {
       <View style={[S.root, { paddingTop: insets.top }]}>
         <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
 
-        {/* [FIX #23] Error banner when API call fails */}
-        {fetchError && !loading && (
+        {active.error && !active.loading && (
           <TouchableOpacity
-            style={{
-              backgroundColor: COLORS.error,
-              paddingVertical: 8,
-              paddingHorizontal: 16,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-            onPress={fetchAll}
+            style={S.errorBanner}
+            onPress={active.refresh}
+            accessibilityRole="button"
           >
             <Ionicons
               name="cloud-offline-outline"
@@ -863,10 +1201,8 @@ export default function RentHome({ navigation }) {
               color={COLORS.white}
               style={{ marginRight: 6 }}
             />
-            <Text
-              style={{ color: COLORS.white, fontSize: 13, fontWeight: "600" }}
-            >
-              {t("rent.fetchError") || "Could not load listings. Tap to retry."}
+            <Text style={S.errorBannerTxt}>
+              {t("rent.fetchError", "Could not load listings. Tap to retry.")}
             </Text>
           </TouchableOpacity>
         )}
@@ -880,16 +1216,14 @@ export default function RentHome({ navigation }) {
             <View
               style={[
                 S.gpsDot,
-                {
-                  backgroundColor:
-                    userLat != null ? COLORS.sellerAccentLight : COLORS.cta,
-                },
+                { backgroundColor: coords != null ? COLORS.sellerAccentLight : COLORS.cta },
               ]}
             />
             {hasListings && (
               <TouchableOpacity
                 style={S.bellBtn}
                 onPress={() => navigation.navigate("RentBookings")}
+                accessibilityRole="button"
               >
                 <Ionicons
                   name="notifications-outline"
@@ -911,20 +1245,15 @@ export default function RentHome({ navigation }) {
         {/* ── Tabs (always visible) ── */}
         <View style={S.tabBar}>
           {[
-            {
-              key: "machinery",
-              tKey: "machineryTab",
-              icon: "construct-outline",
-            },
+            { key: "machinery", tKey: "machineryTab", icon: "construct-outline" },
             { key: "labour", tKey: "workersTab", icon: "people-outline" },
           ].map((tb) => (
             <TouchableOpacity
               key={tb.key}
               style={[S.tabItem, tab === tb.key && S.tabItemActive]}
-              onPress={() => {
-                setTab(tb.key);
-                setCategory("all");
-              }}
+              onPress={() => switchTab(tb.key)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: tab === tb.key }}
             >
               <Ionicons
                 name={tb.icon}
@@ -938,258 +1267,44 @@ export default function RentHome({ navigation }) {
           ))}
         </View>
 
-        <ScrollView
-          ref={scrollRef}
+        {/* One virtualized list. The old screen nested two scrollEnabled={false}
+            FlatLists inside a ScrollView, which rendered every row eagerly and
+            had nowhere to hang pagination. */}
+        <FlatList
+          ref={listRef}
+          key={tab}
+          data={active.items}
+          extraData={bookingMap}
+          keyExtractor={(item) => String(item.id)}
+          numColumns={2}
+          renderItem={renderItem}
+          ListHeaderComponent={header}
+          ListEmptyComponent={empty}
+          ListFooterComponent={footer}
+          contentContainerStyle={S.listContent}
+          columnWrapperStyle={S.gridRow}
           showsVerticalScrollIndicator={false}
-          style={S.scroll}
           keyboardShouldPersistTaps="handled"
           onScroll={hideOnScroll}
           scrollEventThrottle={16}
-        >
-          {/* ── Search ── */}
-          <View style={S.searchRow}>
-            <View style={S.searchBar}>
-              <Ionicons
-                name="search-outline"
-                size={16}
-                color={COLORS.grayMedium}
-              />
-              <TextInput
-                style={S.searchInput}
-                placeholder={
-                  tab === "machinery" ? t("machinerySearch") : t("labourSearch")
-                }
-                placeholderTextColor={COLORS.textLight}
-                value={search}
-                onChangeText={setSearch}
-              />
-              {search.length > 0 && (
-                <TouchableOpacity onPress={() => setSearch("")}>
-                  <Ionicons
-                    name="close-circle"
-                    size={17}
-                    color={COLORS.grayLightMid}
-                  />
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
+          onEndReached={active.loadMore}
+          onEndReachedThreshold={0.6}
+          removeClippedSubviews={false}
+        />
 
-          {/* ── Distance filter ── */}
-          <View style={S.distRow}>
-            <Ionicons
-              name="navigate-outline"
-              size={15}
-              color={userLat != null ? GREEN : COLORS.grayLightMid}
-            />
-            <Text
-              style={[
-                S.distLabel,
-                userLat == null && { color: COLORS.grayLightMid },
-              ]}
-            >
-              {userLat != null ? t("rent.distNearby") : t("rent.distGpsOff")}
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 7, paddingRight: 4 }}
-            >
-              {DIST_OPTIONS.map((opt) => (
-                <RentDistChip
-                  key={String(opt.km)}
-                  opt={opt}
-                  active={radiusKm === opt.km}
-                  disabled={userLat == null && opt.km != null}
-                  onPress={setRadiusKm}
-                />
-              ))}
-            </ScrollView>
-          </View>
+        <ScrollToTopButton visible={showTopBtn} onPress={scrollTop} />
 
-          {/* ── Category filter (machinery only) ── */}
-          {tab === "machinery" && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={S.catRow}
-            >
-              {MACH_CATS.map((cat) => (
-                <CatChip
-                  key={cat.key}
-                  cat={cat}
-                  active={category === cat.key}
-                  onPress={setCategory}
-                />
-              ))}
-            </ScrollView>
-          )}
-
-          {loading ? (
-            <View style={S.loadWrap}>
-              <TractorLoader
-                message={
-                  tab === "machinery"
-                    ? t("rent.loadingMachinery")
-                    : t("rent.loadingWorkers")
-                }
-                size="medium"
-                fullScreen={false}
-              />
-            </View>
-          ) : tab === "machinery" ? (
-            <>
-              <View style={S.sectionHeader}>
-                <Text style={S.sectionTitle}>
-                  {category === "all"
-                    ? t("rent.availMachinery")
-                    : t(
-                        "rent." +
-                          MACH_CATS.find((c) => c.key === category)?.tKey,
-                      )}
-                </Text>
-                <View style={S.countBadge}>
-                  <Text style={S.countTxt}>
-                    {filteredMachinery.length} {t("rent.found")}
-                  </Text>
-                </View>
-              </View>
-
-              {filteredMachinery.length === 0 ? (
-                <View style={S.emptyWrap}>
-                  <View style={S.emptyIconBg}>
-                    <MachineryIcon type="tractor" size={56} />
-                  </View>
-                  <Text style={S.emptyTitle}>{t("ai.comingSoon")}</Text>
-                  <Text style={S.emptyTxt}>{t("rent.noMachinery")}</Text>
-                  <Text style={S.emptyHint}>{t("rent.beFirstMachinery")}</Text>
-                  <TouchableOpacity
-                    style={S.addFirstBtn}
-                    onPress={() => navigation.navigate("AddMachinery")}
-                  >
-                    <Ionicons name="add" size={16} color={GREEN} />
-                    <Text style={S.addFirstTxt}>
-                      {t("rent.listYourMachinery")}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <FlatList
-                  data={filteredMachinery}
-                  keyExtractor={(item) => String(item.id)}
-                  numColumns={2}
-                  scrollEnabled={false}
-                  contentContainerStyle={S.grid}
-                  columnWrapperStyle={S.gridRow}
-                  renderItem={({ item, index }) => (
-                    <MachineryCard
-                      item={item}
-                      index={index}
-                      isOwner={
-                        myId != null &&
-                        (myId === item.owner?.id || myId === item.ownerId)
-                      }
-                      bookingStatus={bookingMap[item.id]}
-                      onPress={openMachinery}
-                    />
-                  )}
-                />
-              )}
-            </>
-          ) : (
-            <>
-              <View style={S.sectionHeader}>
-                <Text style={S.sectionTitle}>{t("rent.workersSection")}</Text>
-                <View style={S.countBadge}>
-                  <Text style={S.countTxt}>
-                    {filteredLabour.length} {t("rent.found")}
-                  </Text>
-                </View>
-              </View>
-
-              {filteredLabour.length === 0 ? (
-                <View style={S.emptyWrap}>
-                  <View style={S.emptyIconBg}>
-                    <LabourIcon size={56} />
-                  </View>
-                  <Text style={S.emptyTitle}>{t("ai.comingSoon")}</Text>
-                  <Text style={S.emptyTxt}>{t("rent.noWorkersFound")}</Text>
-                  <Text style={S.emptyHint}>{t("rent.beFirstWorker")}</Text>
-                  <TouchableOpacity
-                    style={S.addFirstBtn}
-                    onPress={() => navigation.navigate("AddWorker")}
-                  >
-                    <Ionicons name="add" size={16} color={GREEN} />
-                    <Text style={S.addFirstTxt}>
-                      {t("rent.registerAsWorker")}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <FlatList
-                  data={filteredLabour}
-                  keyExtractor={(item) => String(item.id)}
-                  numColumns={2}
-                  scrollEnabled={false}
-                  contentContainerStyle={S.grid}
-                  columnWrapperStyle={S.gridRow}
-                  renderItem={({ item, index }) => (
-                    <WorkerCard
-                      item={item}
-                      index={index}
-                      isOwner={
-                        myId != null &&
-                        (myId === item.provider?.id || myId === item.providerId)
-                      }
-                      bookingStatus={bookingMap[item.id]}
-                      onPress={openLabour}
-                    />
-                  )}
-                />
-              )}
-            </>
-          )}
-
-          {/* ── List Your Equipment / Worker banner ── */}
-          {!loading && (
-            <TouchableOpacity
-              style={S.listBanner}
-              onPress={() =>
-                navigation.navigate(
-                  tab === "machinery" ? "AddMachinery" : "AddWorker",
-                )
-              }
-              activeOpacity={0.9}
-            >
-              <View style={S.listBannerLeft}>
-                {tab === "machinery" ? (
-                  <MachineryIcon type="tractor" size={36} />
-                ) : (
-                  <LabourIcon size={36} />
-                )}
-                <View style={{ flex: 1 }}>
-                  <Text style={S.listBannerTitle}>
-                    {tab === "machinery"
-                      ? t("rent.listYourMachinery")
-                      : t("rent.registerAsWorker")}
-                  </Text>
-                  <Text style={S.listBannerSub}>
-                    {tab === "machinery"
-                      ? t("rent.bannerEarnMachinery")
-                      : t("rent.findWageWork")}
-                  </Text>
-                </View>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={GREEN} />
-            </TouchableOpacity>
-          )}
-
-          <View style={{ height: 30 }} />
-        </ScrollView>
-
-        <ScrollToTopButton
-          visible={showTopBtn}
-          onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
+        <RentLocationSheet
+          visible={sheetOpen}
+          onClose={() => setSheetOpen(false)}
+          prefs={prefs}
+          setPrefs={setPrefs}
+          coords={coords}
+          permissionDenied={permissionDenied}
+          locationError={gpsError}
+          refreshing={gpsRefreshing}
+          onRefreshGps={refreshGps}
+          searchActive={searchActive}
         />
       </View>
     </AnimatedScreen>
@@ -1198,7 +1313,16 @@ export default function RentHome({ navigation }) {
 
 const S = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
-  scroll: { flex: 1 },
+
+  errorBanner: {
+    backgroundColor: COLORS.error,
+    paddingVertical: SPACE[1],
+    paddingHorizontal: SPACE[2],
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  errorBannerTxt: { color: COLORS.white, fontSize: 13, fontWeight: "600", flexShrink: 1 },
 
   header: {
     flexDirection: "row",
@@ -1217,7 +1341,6 @@ const S = StyleSheet.create({
     color: COLORS.textDark,
     letterSpacing: -0.3,
   },
-  headerSub: { fontSize: 12, color: COLORS.textMedium, marginTop: 2 },
   gpsDot: { width: 8, height: 8, borderRadius: 4 },
   bellBtn: { padding: 4, position: "relative" },
   bellBadge: {
@@ -1247,6 +1370,7 @@ const S = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
+    minHeight: 44,
     paddingVertical: 12,
     borderBottomWidth: 2.5,
     borderBottomColor: "transparent",
@@ -1270,27 +1394,32 @@ const S = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 14, color: COLORS.textDark, padding: 0 },
 
-  // Distance filter row
-  distRow: {
+  // GPS unavailable notice
+  gpsNotice: {
+    flexDirection: "row",
+    gap: SPACE[1],
+    marginHorizontal: SPACE[2],
+    marginTop: SPACE[1],
+    padding: SPACE[1.5],
+    backgroundColor: COLORS.orangeWarm,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.cta + "35",
+  },
+  gpsNoticeTxt: { fontSize: 12, color: COLORS.textBody, lineHeight: 17 },
+  gpsNoticeBtns: { flexDirection: "row", flexWrap: "wrap", gap: SPACE[1], marginTop: SPACE[1] },
+  gpsNoticeBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 4,
-  },
-  distLabel: { fontSize: 12, fontWeight: "700", color: GREEN, flexShrink: 0 },
-  distChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    gap: 5,
+    minHeight: 44,
+    paddingHorizontal: SPACE[1.5],
     backgroundColor: COLORS.surface,
-    borderRadius: 20,
+    borderRadius: RADIUS.sm,
     borderWidth: 1.5,
-    borderColor: COLORS.border,
+    borderColor: GREEN,
   },
-  distChipActive: { backgroundColor: GREEN, borderColor: GREEN },
-  distChipDisabled: { opacity: 0.4 },
-  distChipTxt: { fontSize: 12, fontWeight: "700", color: COLORS.grayMid2 },
+  gpsNoticeBtnTxt: { fontSize: 12, fontWeight: "800", color: GREEN, flexShrink: 1 },
 
   // Category chips
   catRow: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
@@ -1325,7 +1454,8 @@ const S = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 16,
-    paddingBottom: 10,
+    paddingTop: SPACE[1.5],
+    paddingBottom: 6,
   },
   sectionTitle: {
     fontSize: 18,
@@ -1342,21 +1472,42 @@ const S = StyleSheet.create({
   },
   countTxt: { fontSize: 11, color: GREEN, fontWeight: "700" },
 
-  // Distance badge (shared)
-  distBadge: {
+  scopeLine: {
+    fontSize: 12,
+    color: COLORS.textMedium,
+    paddingHorizontal: 16,
+    paddingBottom: SPACE[1],
+    lineHeight: 17,
+  },
+  unlocatedNote: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginHorizontal: SPACE[2],
+    marginBottom: SPACE[1],
+    padding: SPACE[1],
+    backgroundColor: COLORS.blueBg,
+    borderRadius: RADIUS.sm,
+  },
+  unlocatedNoteTxt: { flex: 1, fontSize: 11, color: COLORS.blue, lineHeight: 16 },
+
+  // "Location not shared" pill on a card
+  noLocPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    backgroundColor: COLORS.blueBg,
-    borderRadius: 8,
+    gap: 4,
+    alignSelf: "flex-start",
+    marginBottom: 8,
     paddingHorizontal: 7,
     paddingVertical: 3,
+    backgroundColor: COLORS.orangeWarm,
+    borderRadius: RADIUS.sm,
   },
-  distTxt: { fontSize: 10, color: COLORS.blue, fontWeight: "700" },
+  noLocTxt: { fontSize: 10, fontWeight: "700", color: COLORS.cta, flexShrink: 1 },
 
-  // 2-column grid (shop-style) — column wrapper supplies the gutter, the grid
-  // container the outer padding; cards flex:1 so each fills its half evenly.
-  grid: { paddingHorizontal: 14, paddingBottom: 4 },
+  // 2-column grid — column wrapper supplies the gutter, the list container the
+  // outer padding; cards flex:1 so each fills its half evenly.
+  listContent: { paddingHorizontal: 14, paddingBottom: 4 },
   gridRow: { gap: 12, alignItems: "stretch", marginBottom: 16 },
 
   // Machinery card
@@ -1621,11 +1772,11 @@ const S = StyleSheet.create({
   callBtnTxt: { color: COLORS.white, fontSize: 12, fontWeight: "800" },
 
   loadWrap: { paddingVertical: 60, alignItems: "center", gap: 10 },
-  loadTxt: { fontSize: 13, color: COLORS.textLight },
   emptyWrap: {
     alignItems: "center",
-    paddingVertical: 48,
+    paddingVertical: 40,
     paddingHorizontal: 24,
+    gap: SPACE[1],
   },
   emptyIconBg: {
     width: 80,
@@ -1634,41 +1785,77 @@ const S = StyleSheet.create({
     backgroundColor: COLORS.primaryPale,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 8,
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: "900",
     color: COLORS.textDark,
-    marginBottom: 6,
+    textAlign: "center",
   },
   emptyTxt: {
     fontSize: 14,
     color: COLORS.textMedium,
     fontWeight: "500",
     textAlign: "center",
-    marginBottom: 4,
   },
   emptyHint: {
     fontSize: 12,
     color: COLORS.textLight,
     textAlign: "center",
-    marginBottom: 16,
+    marginTop: SPACE[1],
+  },
+  widenBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: SPACE[2],
+    backgroundColor: GREEN,
+    borderRadius: RADIUS.md,
+    marginTop: SPACE[1],
+  },
+  widenTxt: { color: COLORS.white, fontSize: 13, fontWeight: "800", flexShrink: 1, textAlign: "center" },
+  emptyLinkBtn: { minHeight: 44, justifyContent: "center", paddingHorizontal: SPACE[1] },
+  emptyLinkTxt: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.blue,
+    textAlign: "center",
+    textDecorationLine: "underline",
   },
   addFirstBtn: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
+    minHeight: 44,
     borderWidth: 1.5,
     borderColor: GREEN,
     borderRadius: 10,
     paddingHorizontal: 16,
-    paddingVertical: 9,
   },
-  addFirstTxt: { color: GREEN, fontSize: 13, fontWeight: "700" },
+  addFirstTxt: { color: GREEN, fontSize: 13, fontWeight: "700", flexShrink: 1 },
+
+  loadMoreBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 44,
+    marginHorizontal: SPACE[1],
+    marginBottom: SPACE[1.5],
+    paddingHorizontal: SPACE[2],
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1.5,
+    borderColor: GREEN + "40",
+  },
+  loadMoreTxt: { fontSize: 13, fontWeight: "800", color: GREEN, flexShrink: 1 },
 
   listBanner: {
-    marginHorizontal: 14,
+    marginHorizontal: 0,
     marginVertical: 8,
     backgroundColor: COLORS.white,
     borderRadius: 16,
