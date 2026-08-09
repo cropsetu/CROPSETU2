@@ -235,7 +235,9 @@ export default function OnboardingProfileScreen({ navigation }) {
   return (
     <LinearGradient colors={KHET.gradSurface} start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 1 }} style={[sty.container, webScreenContainer]}>
       <View style={[sty.blob, { backgroundColor: KHET.primaryGlow, top: -90, right: -90 }]} pointerEvents="none" />
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1, minHeight: 0 }}>
+      {/* Android already shrinks the window (adjustResize), so 'padding' would add
+          the keyboard height a second time and squeeze the form off-screen. */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, minHeight: 0 }}>
         <ScrollView
           ref={scrollRef}
           style={scrollStyle}
@@ -565,8 +567,10 @@ const sty = StyleSheet.create({
   },
   gpsTxt: { fontSize: fs(13), color: KHET.primary, fontFamily: KFONT.sansSemi },
 
-  // Soil grid
-  soilGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: s(8) },
+  // Soil grid — 7 cards in one row. 7 x 13% = 91%, and space-between spreads the
+  // remaining 9% across the six gutters. A fixed `gap` here would push the row
+  // past 100% of the card's content box and wrap the last soil onto its own line.
+  soilGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: vs(8) },
   soilCard: { width: '13%', alignItems: 'center' },
   soilSquare: {
     width: '100%', aspectRatio: 1, borderRadius: 12,
