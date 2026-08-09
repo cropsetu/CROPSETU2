@@ -35,6 +35,27 @@ const LANGS = ['हिन्दी', 'English', 'मराठी', 'தமிழ
 const OTP_LEN = 6;
 const RESEND_SECONDS = 30;
 
+// ── Web viewport lock ────────────────────────────────────────────────────────
+// App.js pins html/body/#root to `height:auto; overflow:visible` so the app uses
+// native document scroll. LoginScreen renders straight into #root (not inside a
+// Stack.Navigator), so nothing above us bounds the height: a `flex:1` root grows
+// to fit its content and the whole PAGE scrolls/overflows instead of the inner
+// ScrollView. Clamping each step to the viewport makes the ScrollView the only
+// scroll surface. No-op on native, where flex:1 already resolves to the screen.
+function useViewportLock() {
+  const { height } = useWindowDimensions();
+  return Platform.OS === 'web' ? { height, maxHeight: height, overflow: 'hidden' } : null;
+}
+
+// CSS flex children default to `min-height:auto` and refuse to shrink below
+// their content, which defeats overflow:auto on the ScrollView. No-op on native.
+const WEB_SHRINK = Platform.OS === 'web' ? { minHeight: 0 } : null;
+
+// `flexGrow:1` on the scroll content makes it exactly fill the parent on web —
+// no overflow, so react-native-web never enables scrolling. Native still needs
+// it so the footer text is pushed to the bottom on tall screens.
+const SCROLL_GROW = Platform.OS === 'web' ? { flexGrow: 0 } : null;
+
 export default function LoginScreen() {
   const { sendOtp, verifyOtp } = useAuth();
   const insets = useSafeAreaInsets();
@@ -241,20 +262,18 @@ function GradientButton({ label, sublabel, onPress, disabled, loading, style }) 
 }
 
 function Blobs() {
+  // Decorative only — never let them swallow taps meant for the form beneath.
   return (
-    <>
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <View style={[sty.blob, { backgroundColor: KHET.primaryGlow, top: -96, left: -96 }]} />
       <View style={[sty.blob, { backgroundColor: KHET.primary, top: 160, right: -80, opacity: 0.1 }]} />
-    </>
+    </View>
   );
 }
 
 // ── Welcome (pre-login) ──────────────────────────────────────────────────────
 function WelcomeView({ insets, onStart }) {
-  const { height } = useWindowDimensions();
-  // Web uses document-scroll globally (see App.js), so this full-bleed landing
-  // screen must clamp to the viewport — otherwise the page scrolls. Native: flex:1.
-  const lockViewport = Platform.OS === 'web' ? { height, overflow: 'hidden' } : null;
+  const lockViewport = useViewportLock();
   return (
     <View style={[sty.root, lockViewport]}>
       <StatusBar style="light" />
@@ -317,15 +336,19 @@ function WelcomeView({ insets, onStart }) {
 // ── Phone (mobile entry) ─────────────────────────────────────────────────────
 function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneDisplay, onBack, onChange, onFocus, onBlur, onSubmit }) {
   const scrollRef = useRef(null);
+  const lockViewport = useViewportLock();
   const scrollDown = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
   return (
-    <LinearGradient colors={KHET.gradSurface} start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 1 }} style={sty.root}>
+    <LinearGradient colors={KHET.gradSurface} start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 1 }} style={[sty.root, lockViewport]}>
       <StatusBar style="dark" />
       <Blobs />
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+      {/* Android already shrinks the window (adjustResize), so 'padding' would add
+          the keyboard height a second time and squeeze the body off-screen. */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[{ flex: 1 }, WEB_SHRINK]}>
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={[sty.surfaceBody, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 }]}
+          style={[{ flex: 1 }, WEB_SHRINK]}
+          contentContainerStyle={[sty.surfaceBody, SCROLL_GROW, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -424,6 +447,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
   // react-native-web blow one box up to fill the whole screen.) 48 = body padding,
   // 50 = five 10px gaps; capped at 58 so the boxes don't grow huge on web/tablet.
   const { width } = useWindowDimensions();
+  const lockViewport = useViewportLock();
   const otpBoxSize = Math.min(58, Math.floor((width - 48 - 50) / 6));
   // Once all six digits are in (auto-fill or manual), no more typing is needed —
   // hide the keyboard so the Verify button is revealed.
@@ -433,13 +457,16 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
   const ss = (resendIn % 60).toString().padStart(2, '0');
 
   return (
-    <LinearGradient colors={KHET.gradSurface} start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 1 }} style={sty.root}>
+    <LinearGradient colors={KHET.gradSurface} start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 1 }} style={[sty.root, lockViewport]}>
       <StatusBar style="dark" />
       <Blobs />
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+      {/* Android already shrinks the window (adjustResize), so 'padding' would add
+          the keyboard height a second time and squeeze the body off-screen. */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[{ flex: 1 }, WEB_SHRINK]}>
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={[sty.surfaceBody, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 }]}
+          style={[{ flex: 1 }, WEB_SHRINK]}
+          contentContainerStyle={[sty.surfaceBody, SCROLL_GROW, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -548,7 +575,9 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
 }
 
 const sty = StyleSheet.create({
-  root: { flex: 1, backgroundColor: KHET.background },
+  // overflow:hidden clips the decorative <Blobs/>, which sit at left:-96 / right:-80.
+  // Without it they bleed past the screen edge and widen the scrollable area.
+  root: { flex: 1, backgroundColor: KHET.background, overflow: 'hidden' },
 
   // ── Welcome ──
   topbar: {
@@ -614,7 +643,9 @@ const sty = StyleSheet.create({
     ...KSHADOW.elegant,
   },
   gradBtnDisabled: { shadowOpacity: 0, elevation: 0 },
-  gradBtnTxt: { color: KHET.primaryForeground, fontSize: 16, fontFamily: KFONT.sansSemi },
+  // flexShrink so the long bilingual labels ("Send OTP / OTP भेजें") wrap inside
+  // the button instead of pushing the arrow past the gradient's right edge.
+  gradBtnTxt: { flexShrink: 1, color: KHET.primaryForeground, fontSize: 16, fontFamily: KFONT.sansSemi },
   gradBtnSub: { color: 'rgba(244,251,237,0.8)', fontSize: 13, fontFamily: KFONT.sans },
   gradBtnArrow: {
     width: 36,
@@ -672,7 +703,7 @@ const sty = StyleSheet.create({
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 22, marginBottom: 28 },
   progFill: { flex: 1, height: 4, borderRadius: 2 },
   progEmpty: { flex: 1, height: 4, borderRadius: 2, backgroundColor: KHET.border },
-  progTxt: { color: KHET.mutedForeground, fontSize: 11, fontFamily: KFONT.sansMed },
+  progTxt: { flexShrink: 1, color: KHET.mutedForeground, fontSize: 11, fontFamily: KFONT.sansMed },
 
   iconSquare: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', ...KSHADOW.elegant },
   otpHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 26 },

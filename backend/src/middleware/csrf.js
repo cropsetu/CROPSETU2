@@ -25,6 +25,21 @@ import { readCookie, REFRESH_COOKIE, CSRF_COOKIE } from '../utils/cookies.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+// Pre-auth endpoints: they establish a session rather than acting on one, so the
+// refresh cookie riding along is irrelevant to them. Exempting them is what stops
+// a stale/orphaned `rt` cookie from bricking the browser — without this, a leftover
+// cookie with no matching `csrf` cookie 403s /auth/send-otp too, and the user can
+// never log back in to get fresh cookies. /auth/refresh stays protected: acting on
+// the ambient cookie credential is exactly what CSRF defends.
+const PRE_AUTH_PATHS = new Set(['/auth/send-otp', '/auth/verify-otp']);
+
+function isPreAuthPath(path) {
+  for (const suffix of PRE_AUTH_PATHS) {
+    if (path === suffix || path.endsWith(suffix)) return true;
+  }
+  return false;
+}
+
 export function generateCsrfToken() {
   return crypto.randomBytes(32).toString('hex');
 }
@@ -39,6 +54,7 @@ function timingSafeEqual(a, b) {
 
 export function csrfProtection(req, res, next) {
   if (SAFE_METHODS.has(req.method)) return next();
+  if (isPreAuthPath(req.path)) return next();
 
   // Only cookie-authenticated requests are CSRF-attackable.
   if (!readCookie(req, REFRESH_COOKIE)) return next();

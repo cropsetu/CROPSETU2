@@ -27,7 +27,14 @@
  *
  * Distance filtering (for all list endpoints):
  *   ?lat=18.9750&lng=73.8260&radius=10   → only listings within 10 km
+ *   ?radius=all                          → keep distance sort + distanceKm, no ceiling
+ *   ?strict=true                         → exclude listings that have no coordinates
+ *   ?sort=distance|price|rating          → explicit ordering
  *   Results include a `distanceKm` field when lat/lng provided.
+ *
+ * All four are optional and default to the historical behaviour: radius 50 km,
+ * coordinate-less listings included and sorted last, distance sort when lat/lng
+ * are present and rating sort when they are not.
  */
 import { Router } from 'express';
 import { body, query } from 'express-validator';
@@ -49,6 +56,46 @@ function validateCoords(lat, lng) {
   if (lat != null && (lat < -90 || lat > 90)) return false;
   if (lng != null && (lng < -180 || lng > 180)) return false;
   return true;
+}
+
+// ── Optional list-query knobs (shared by /machinery and /labour) ─────────────
+// Each parses to the historical default when absent or unparseable, so an
+// existing caller that sends none of them gets exactly the old behaviour.
+
+const SORT_MODES = ['distance', 'price', 'rating'];
+
+// 50 km when absent (the long-standing default); null means "no ceiling" and is
+// requested with ?radius=all. A non-numeric value falls back to the default
+// rather than reaching the query as NaN.
+function parseRadius(raw) {
+  if (raw == null || raw === '') return 50;
+  if (String(raw).toLowerCase() === 'all') return null;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) && n > 0 ? n : 50;
+}
+
+// Opt-in only. `requireCoords` is accepted as an alias so the flag reads well
+// from either side (the client asks for coordinates; the query asks for rigour).
+function parseStrict(q) {
+  return q.strict === 'true' || q.requireCoords === 'true';
+}
+
+// Explicit sort wins; otherwise distance when we can measure it, rating when we
+// cannot — which is what each branch already did implicitly.
+function parseSort(raw, isDistanceQuery) {
+  if (SORT_MODES.includes(raw)) {
+    // Distance ordering is meaningless without an origin.
+    if (raw === 'distance' && !isDistanceQuery) return 'rating';
+    return raw;
+  }
+  return isDistanceQuery ? 'distance' : 'rating';
+}
+
+// Non-geo ordering for the same three modes. 'distance' never reaches here —
+// parseSort has already downgraded it to 'rating'.
+function nonGeoOrderBy(sort) {
+  if (sort === 'price') return [{ pricePerDay: 'asc' }, { rating: 'desc' }];
+  return [{ rating: 'desc' }, { createdAt: 'desc' }];
 }
 
 // Availability window: when both ends are given, the end must not precede the start.
@@ -102,7 +149,8 @@ router.get('/machinery', optionalAuth, async (req, res) => {
   const search   = sanitizeSearch(req.query.search);
   const userLat  = req.query.lat    ? parseFloat(req.query.lat)    : null;
   const userLng  = req.query.lng    ? parseFloat(req.query.lng)    : null;
-  const radiusKm = req.query.radius ? parseFloat(req.query.radius) : 50; // default 50 km
+  const radiusKm = parseRadius(req.query.radius); // 50 km default, null = no ceiling
+  const strict   = parseStrict(req.query);
   const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
 
   const where = { status: 'ACTIVE' };
@@ -119,6 +167,7 @@ router.get('/machinery', optionalAuth, async (req, res) => {
   }
 
   const isDistanceQuery = userLat !== null && userLng !== null;
+  const sort = parseSort(req.query.sort, isDistanceQuery);
 
   const listingSelect = {
     id: true, name: true, category: true, brand: true, horsePower: true,
@@ -155,6 +204,7 @@ router.get('/machinery', optionalAuth, async (req, res) => {
       whereSql: Prisma.join(filters, ' AND '),
       lat: userLat, lng: userLng, radiusKm,
       offset: (page - 1) * limit, limit,
+      strict, sort,
     });
     total = geoTotal;
     const rows = ids.length
@@ -167,7 +217,7 @@ router.get('/machinery', optionalAuth, async (req, res) => {
     [items, total] = await Promise.all([
       prisma.machineryListing.findMany({
         where,
-        orderBy: [{ rating: 'desc' }, { createdAt: 'desc' }],
+        orderBy: nonGeoOrderBy(sort),
         skip: (page - 1) * limit,
         take: limit,
         select: listingSelect,
@@ -415,7 +465,8 @@ router.get('/labour', optionalAuth, async (req, res) => {
   const search   = sanitizeSearch(req.query.search);
   const userLat  = req.query.lat    ? parseFloat(req.query.lat)    : null;
   const userLng  = req.query.lng    ? parseFloat(req.query.lng)    : null;
-  const radiusKm = req.query.radius ? parseFloat(req.query.radius) : 50;
+  const radiusKm = parseRadius(req.query.radius); // 50 km default, null = no ceiling
+  const strict   = parseStrict(req.query);
   const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
 
   const where = { status: 'ACTIVE' };
@@ -432,6 +483,7 @@ router.get('/labour', optionalAuth, async (req, res) => {
   }
 
   const isDistanceQuery = userLat !== null && userLng !== null;
+  const sort = parseSort(req.query.sort, isDistanceQuery);
 
   const SELECT = {
     id: true, name: true, leader: true, groupName: true, skills: true,
@@ -466,6 +518,7 @@ router.get('/labour', optionalAuth, async (req, res) => {
       whereSql: Prisma.join(filters, ' AND '),
       lat: userLat, lng: userLng, radiusKm,
       offset: (page - 1) * limit, limit,
+      strict, sort,
     });
     total = geoTotal;
     const rows = ids.length
@@ -477,7 +530,7 @@ router.get('/labour', optionalAuth, async (req, res) => {
     [items, total] = await Promise.all([
       prisma.labourListing.findMany({
         where,
-        orderBy: [{ rating: 'desc' }, { createdAt: 'desc' }],
+        orderBy: nonGeoOrderBy(sort),
         skip: (page - 1) * limit,
         take: limit,
         select: SELECT,

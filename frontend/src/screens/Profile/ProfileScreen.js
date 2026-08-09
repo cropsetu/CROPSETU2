@@ -18,6 +18,7 @@ import { getAICredits } from '../../services/aiApi';
 import { fetchWeatherForCurrentLocation } from '../../services/weatherApi';
 import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
 import { safeOpenURL } from '../../utils/sanitize';
+import { openSellerApp } from '../../utils/sellerApp';
 import { getWeatherImage } from '../../utils/weatherBackground';
 import { API_BASE_URL } from '@cropsetu/shared/constants/config';
 import { EntrySlide, D } from '../../components/ui/ImmersiveKit';
@@ -406,6 +407,22 @@ export default function ProfileScreen({ navigation }) {
     }
   }, [updateUser, refreshUser]);
 
+  /**
+   * Hand off to the standalone seller app. `openSellerApp` already falls back to
+   * the store listing when it isn't installed, so the only case left to report
+   * is "nothing on this device could open either" — which would otherwise look
+   * like a button that does nothing.
+   */
+  const handleOpenSellerApp = useCallback(async () => {
+    const result = await openSellerApp();
+    if (result === 'failed') {
+      Alert.alert(
+        t('profile.sellerAppTitle', 'Open Seller App'),
+        t('profile.sellerAppFailed', 'Could not open the seller app on this device.'),
+      );
+    }
+  }, [t]);
+
   const handleLogout = () => setShowLogoutConfirm(true);
 
   const confirmLogout = () => {
@@ -707,33 +724,70 @@ export default function ProfileScreen({ navigation }) {
             <RowItem icon="chatbubble-ellipses-outline" iconColor={D.cyan} label={t('profile.browseFAQs')}          subtitle={t('profile.faqsSub')}           onPress={() => Linking.openURL('https://cropsetu.app/faqs')} isLast />
           </SectionCard>
 
-          {/* Krushi Seva Kendra portal — opens the dedicated onboarding website.
-              Farmers forward this to their local agri-input dealer (Kendra), who
-              registers there with a licence and then receives crop reports. */}
+          {/* Seller handoff. Two audiences, never both at once:
+                - an account the backend already flipped to SELLER gets a way
+                  back into the seller app, which is where its dashboard,
+                  orders and crop-report inbox now live since the split
+                - everyone else gets the Kendra recruitment banner, which opens
+                  the onboarding website. Farmers forward this to their local
+                  agri-input dealer, who registers there with a licence.
+              Showing the app launcher to a farmer who has no seller account
+              would send them to a Play listing for an app they can't use. */}
           <EntrySlide delay={510} fromY={16}>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => safeOpenURL(KENDRA_PORTAL_URL)}
-              accessibilityRole="button"
-              accessibilityLabel={t('profile.kendraPortalTitle', 'Are you a Krushi Seva Kendra?')}
-            >
-              <LinearGradient
-                colors={['#14532d', '#15803d', '#22c55e']}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                style={S.sellerBanner}
+            {isSeller ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={handleOpenSellerApp}
+                accessibilityRole="button"
+                accessibilityLabel={t('profile.sellerAppTitle', 'Open Seller App')}
+                accessibilityHint={t('profile.sellerAppHint', 'Leaves CropSetu and opens your seller dashboard')}
               >
-                <View style={S.sellerIconWrap}>
-                  <Ionicons name="leaf" size={22} color={COLORS.white} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={S.sellerTitle}>{t('profile.kendraPortalTitle', 'Are you a Krushi Seva Kendra?')}</Text>
-                  <Text style={S.sellerSub}>{t('profile.kendraPortalSub', 'Register your shop to receive farmers’ crop reports')}</Text>
-                </View>
-                <View style={S.bannerArrow}>
-                  <Ionicons name="open-outline" size={16} color={COLORS.white} />
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
+                {/* Harvest orange, matching the seller app's own identity — the
+                    button that opens the orange app is orange. */}
+                <LinearGradient
+                  colors={[COLORS.deepBrick, COLORS.burntSienna, COLORS.sellerPrimary]}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                  style={S.sellerBanner}
+                >
+                  <View style={S.sellerIconWrap}>
+                    <Ionicons name="storefront" size={22} color={COLORS.white} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.sellerTitle}>{t('profile.sellerAppTitle', 'Open Seller App')}</Text>
+                    <Text style={S.sellerSub}>
+                      {t('profile.sellerAppSub', 'Your dashboard, orders and crop reports')}
+                    </Text>
+                  </View>
+                  <View style={S.bannerArrow}>
+                    <Ionicons name="open-outline" size={16} color={COLORS.white} />
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => safeOpenURL(KENDRA_PORTAL_URL)}
+                accessibilityRole="button"
+                accessibilityLabel={t('profile.kendraPortalTitle', 'Are you a Krushi Seva Kendra?')}
+              >
+                <LinearGradient
+                  colors={['#14532d', '#15803d', '#22c55e']}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                  style={S.sellerBanner}
+                >
+                  <View style={S.sellerIconWrap}>
+                    <Ionicons name="leaf" size={22} color={COLORS.white} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.sellerTitle}>{t('profile.kendraPortalTitle', 'Are you a Krushi Seva Kendra?')}</Text>
+                    <Text style={S.sellerSub}>{t('profile.kendraPortalSub', 'Register your shop to receive farmers’ crop reports')}</Text>
+                  </View>
+                  <View style={S.bannerArrow}>
+                    <Ionicons name="open-outline" size={16} color={COLORS.white} />
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
           </EntrySlide>
 
           <EntrySlide delay={540} fromY={16}>

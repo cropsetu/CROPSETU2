@@ -6,16 +6,28 @@
  */
 
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-// LAN IP of the dev machine — used when running on a *physical* device over Wi-Fi.
-// Android *emulator* reaches the host via the magic address 10.0.2.2.
-// iOS simulator reaches the host via localhost.
-const DEV_LAN_IP = '192.168.1.2';
+// Host the device used to reach the Metro dev server, e.g. "192.168.1.14:8081"
+// on a physical phone over Wi-Fi, "10.0.2.2:8081" in the Android emulator,
+// "localhost:8081" on a simulator. Whatever it is, it is by definition routable
+// from the device back to this machine — so it's also the right host for the
+// backend on :3001. Deriving it means NO LAN IP is ever hardcoded and nothing
+// breaks on the next DHCP lease. Empty in a production build (no dev server).
+const METRO_HOST = (
+  Constants.expoConfig?.hostUri ||
+  Constants.expoGoConfig?.debuggerHost ||
+  Constants.manifest2?.extra?.expoGo?.debuggerHost ||
+  Constants.manifest?.debuggerHost ||
+  ''
+).split('/')[0].split(':')[0];
 
+// Web always talks to the backend over the browser's own origin host. Native
+// prefers the derived Metro host, falling back to the emulator loopback alias
+// (Android) / localhost (iOS sim) if Expo didn't expose one.
 const DEV_HOST =
-  Platform.OS === 'web'     ? 'localhost' :
-  Platform.OS === 'android' ? '10.0.2.2'  :   // Android emulator → host loopback
-                              'localhost';     // iOS simulator
+  Platform.OS === 'web' ? 'localhost' :
+  METRO_HOST || (Platform.OS === 'android' ? '10.0.2.2' : 'localhost');
 
 // Prod URL can be overridden per-build via EAS env (EXPO_PUBLIC_API_BASE_URL in eas.json).
 // Default falls back to the production Railway deployment.
@@ -26,9 +38,9 @@ const PROD_SOCKET = process.env.EXPO_PUBLIC_SOCKET_URL
 
 // Resolution order:
 //   1. EXPO_PUBLIC_API_BASE_URL — set in frontend/.env or eas.json. Wins
-//      everywhere (dev, Expo Go, native build, web). Use this to point at
-//      a LAN IP, a tunnel, or directly at the Railway prod URL.
-//   2. __DEV__ default — `http://<DEV_HOST>:3001` for the local Mac.
+//      everywhere (dev, Expo Go, native build, web). Leave it EMPTY for local
+//      dev; use it to point at a tunnel or the Railway prod URL.
+//   2. __DEV__ default — `http://<DEV_HOST>:3001` on the dev machine.
 //      Note: DEV_HOST=10.0.2.2 only works in the Android *emulator*. On a
 //      physical device or in Expo Go, set EXPO_PUBLIC_API_BASE_URL instead.
 //   3. PROD default — the Railway production URL hardcoded in PROD_API.
