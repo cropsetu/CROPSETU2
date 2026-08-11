@@ -113,6 +113,7 @@ model User {
   posts                    Post[]
   priceAlerts              PriceAlert[]
   sellerProducts           Product[]            @relation("SellerProducts")
+  sellerListings           SellerListing[]      @relation("SellerListings")
   pushTokens               PushToken[]
   refreshTokens            RefreshToken[]
   reviews                  Review[]
@@ -159,10 +160,24 @@ model SellerProfile {
   licenceExpiry       DateTime?
   licenceDocUrls      String[]  @default([])
   licenceVerifiedAt   DateTime?
+  // ── Fulfillment metrics (CATALOG-SPLIT) ─────────────────────────────────────
+  // DERIVED AGGREGATES, never computed per request. sellerMetrics.service.js
+  // refreshes them from order_items / reviews / return_requests on a schedule and
+  // stamps metricsUpdatedAt. The buy box reads them; while metricsUpdatedAt is
+  // NULL the seller has no history yet, so the buy box substitutes a neutral
+  // rating and zeroes the fulfillment weight rather than ranking on noise.
+  rating              Float     @default(0)
+  ratingCount         Int       @default(0)
+  cancellationRate    Float     @default(0)   // cancelled items / terminal items
+  onTimeDispatchRate  Float     @default(1)   // shipped within dispatchSlaDays
+  returnRate          Float     @default(0)   // returned items / delivered items
+  metricsUpdatedAt    DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([rating])
+  @@index([metricsUpdatedAt])
   @@map("seller_profiles")
 }
 
@@ -258,45 +273,80 @@ model Category {
   @@map("categories")
 }
 
+/// CATALOG identity — one row per real-world product, shared by every seller.
+///
+/// EXPAND PHASE (CATALOG-SPLIT step 1): the offer columns below (price, mrp,
+/// stock, unit, minOrderQty, sellScope, district/taluka/village/state,
+/// harvestDate, sellerId, isActive, isFeatured) are RETAINED and dual-written so
+/// the pre-split read paths keep working while the new tables fill up. They are
+/// dropped in the CONTRACT phase — see prisma/manual/catalog_split_3_contract.sql.
+/// `price` was NOT NULL and is now nullable: a catalog-only row (admin-created,
+/// or created by a seller through the new attach flow) has no price of its own.
+/// Do NOT add new reads of these columns; read seller_listings instead.
 model Product {
   id              String      @id @default(uuid())
   categoryId      String
-  sellerId        String?
+  sellerId        String?     /// DEPRECATED (offer) — moved to seller_listings.sellerId
   name            String
   nameHi          String?
   nameMr          String?
   description     String?
-  price           Decimal     @db.Decimal(12, 2)
-  mrp             Decimal?    @db.Decimal(12, 2)
-  unit            String      @default("kg")
-  stock           Int         @default(0)
+  price           Decimal?    @db.Decimal(12, 2) /// DEPRECATED (offer) — seller_listings.sellingPrice
+  mrp             Decimal?    @db.Decimal(12, 2) /// DEPRECATED (offer)
+  unit            String      @default("kg")     /// DEPRECATED — moved to product_variants.unit
+  stock           Int         @default(0)        /// DEPRECATED (offer) — seller_listings.stockQty
   images          String[]
   tags            String[]
   rating          Float       @default(0)
   ratingCount     Int         @default(0)
-  isActive        Boolean     @default(true)
-  isFeatured      Boolean     @default(false)
-  district        String?
-  state           String?
+  isActive        Boolean     @default(true)     /// DEPRECATED — superseded by `status`
+  isFeatured      Boolean     @default(false)    /// DEPRECATED (offer)
+  district        String?     /// DEPRECATED (offer)
+  state           String?     /// DEPRECATED (offer)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   brand           String?
   countryOfOrigin String?
-  harvestDate     String?
+  harvestDate     String?     /// DEPRECATED (offer)
   highlights      String[]
   manufacturer    String?
-  minOrderQty     Int         @default(1)
-  sellScope       String      @default("district")
+  minOrderQty     Int         @default(1)        /// DEPRECATED (offer)
+  sellScope       String      @default("district") /// DEPRECATED (offer)
   specifications  Json?
   subcategory     String?
-  taluka          String?
+  taluka          String?     /// DEPRECATED (offer)
   viewCount       Int         @default(0)
-  village         String?
+  village         String?     /// DEPRECATED (offer)
+
+  // ── Catalog identity (CATALOG-SPLIT) ────────────────────────────────────────
+  /// Manufacturer's model / pack code. Second dedup gate after GTIN
+  /// (`brand + modelNumber`). Most Indian agri-input SKUs have neither, which is
+  /// why the primary gate is `normalizedKey`.
+  modelNumber      String?
+  /// QC lifecycle. Replaces the three-way overload of `isActive` (seller pause /
+  /// seller soft-delete / admin toggle). Deliberately NOT ModerationStatus (that
+  /// vocabulary is shared with ContentFlag's fraud queue) and NOT ListingStatus
+  /// (that belongs to Animal/Machinery/Labour listings).
+  status           ProductStatus @default(PENDING_QC)
+  /// Who proposed this catalog entry. NULL for admin/seed-created rows.
+  createdBySellerId String?
+  /// Deterministic dedup key: normalizeProductKey(brand, manufacturer, name,
+  /// categoryId). Defaulted to '' so `db push` can add the column to a populated
+  /// table; the backfill computes real values. See services/catalogMatch.service.js.
+  normalizedKey    String       @default("")
+  /// Set when an admin merges this duplicate into a surviving catalog row.
+  /// Reads of a MERGED product redirect here.
+  mergedIntoId     String?
+  qcReviewedBy     String?
+  qcReviewedAt     DateTime?
+  qcRejectionReason String?
+
   cartItems       CartItem[]
   orderItems      OrderItem[]
   category        Category    @relation(fields: [categoryId], references: [id])
   seller          User?       @relation("SellerProducts", fields: [sellerId], references: [id])
   reviews         Review[]
+  variants        ProductVariant[]
 
   @@index([categoryId])
   @@index([sellerId])
@@ -307,25 +357,140 @@ model Product {
   @@index([createdAt])
   // Seller's product list: where sellerId + ORDER BY createdAt DESC.
   @@index([sellerId, createdAt(sort: Desc)])
+  // ── Post-split storefront plan ──────────────────────────────────────────────
+  // [isActive, isFeatured] / [isActive, rating] span columns that end up on two
+  // different tables after CONTRACT, so those composite plans are lost. The
+  // storefront becomes: filter+sort seller_listings (its own composite indexes),
+  // then hydrate products by id (PK). These replacements keep the catalog-side
+  // half of every remaining predicate index-served.
+  @@index([status, categoryId])
+  @@index([status, rating])
+  @@index([normalizedKey])
+  @@index([brand, modelNumber])
+  @@index([mergedIntoId])
   // Trigram GIN indexes accelerate the catalogue search (name/description
   // ILIKE '%term%'), which a btree cannot serve due to the leading wildcard.
+  // NOTE: gin_trgm_ops supports % and ILIKE but NOT the <-> KNN operator (that
+  // needs gist_trgm_ops), so catalogMatch materialises candidates with % first
+  // and only then orders them by similarity() — never ORDER BY <-> against these.
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_name_trgm")
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_description_trgm")
+  // The search WHERE is an OR over name / description / tags. The trigram
+  // migration's own warning applies: a single unindexed OR branch forces a full
+  // scan of the whole clause, which was silently cancelling out both GIN indexes
+  // above. `tags` is a String[], so it needs an array GIN to serve `has`.
+  @@index([tags], type: Gin, map: "products_tags_gin")
   @@map("products")
 }
 
+/// The sellable unit. For agri-inputs the variant axis is PACK SIZE — "Mahyco Bt
+/// Cotton Seed" is one catalog product with 450 g and 1 kg variants; three Krushi
+/// Seva Kendras then attach one seller_listing each per variant.
+model ProductVariant {
+  id         String   @id @default(uuid())
+  productId  String
+  /// Variant axis, e.g. { "packSize": "450g" }. Free-form so a sprayer can use
+  /// { "capacityL": 16 } without a schema change.
+  attributes Json     @default("{}")
+  unit       String   @default("kg")
+  /// Retail barcode. Nullable-unique: Postgres allows many NULLs, and most Indian
+  /// agri-input SKUs have no barcode at all — this is a dedup BACKSTOP, not the gate.
+  gtin       String?  @unique
+  sku        String?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  listings  SellerListing[]
+
+  @@unique([productId, sku])
+  @@index([productId])
+  @@map("product_variants")
+}
+
+/// One seller's OFFER against one variant. This is what has a price, stock and
+/// geography; the catalog row has none of that.
+model SellerListing {
+  id              String      @id @default(uuid())
+  sellerId        String
+  variantId       String
+  sellingPrice    Decimal     @db.Decimal(12, 2)
+  mrp             Decimal?    @db.Decimal(12, 2)
+  stockQty        Int         @default(0)
+  condition       String      @default("NEW")
+  dispatchSlaDays Int         @default(2)
+  sellerSku       String?
+  minOrderQty     Int         @default(1)
+  sellScope       String      @default("district")
+  district        String?
+  taluka          String?
+  village         String?
+  state           String?
+  harvestDate     String?
+  /// The seller's own photographs of their actual stock — deliberately separate
+  /// from Product.images (the shared catalog imagery).
+  images          String[]    @default([])
+  status          ListingState @default(ACTIVE)
+  isFeatured      Boolean     @default(false)
+  rating          Float       @default(0)
+  ratingCount     Int         @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  seller    User           @relation("SellerListings", fields: [sellerId], references: [id])
+  cartItems CartItem[]
+
+  /// One offer per seller per variant — a Kendra cannot list the same pack twice.
+  @@unique([sellerId, variantId])
+  // Buy-box candidate scan: all live offers for a variant, cheapest first.
+  @@index([variantId, status, sellingPrice])
+  // Seller's own offer list (mirrors the old [sellerId, createdAt] product index).
+  @@index([sellerId, createdAt(sort: Desc)])
+  @@index([sellerId, status])
+  // Geography eligibility gate.
+  @@index([district])
+  @@index([taluka])
+  @@index([status, isFeatured])
+  @@map("seller_listings")
+}
+
+/// EXPAND PHASE: `listingId` is the new key. `productId` stays NOT NULL and is
+/// dual-written (derived from the listing's variant) so the pre-split read paths
+/// keep working until CONTRACT drops the column.
+///
+/// `@@unique([userId, productId])` is GONE ALREADY, in EXPAND rather than CONTRACT.
+/// It is the constraint that made it physically impossible for one buyer to hold
+/// the same seed from two Kendras — the exact thing this project exists to allow —
+/// so keeping it through the dual-write window would have meant the multi-seller
+/// cart did not actually work until the very last step. (It doesn't: a second
+/// offer of the same product 500s on P2002. Caught by the test that adds two
+/// Kendras' offers of one seed to one cart.) Dropping a unique index destroys no
+/// rows and is safe for `db push`; the plain index that replaces it still serves
+/// the dual-read lookups.
 model CartItem {
   id        String   @id @default(uuid())
   userId    String
   productId String
+  /// Which seller's offer this line is for. Nullable only during EXPAND (rows
+  /// written before the backfill); the API refuses to create a NULL one.
+  listingId String?
+  /// Price snapshot at add-to-cart time. Checkout revalidates against the live
+  /// listing and surfaces any difference to the buyer rather than silently
+  /// re-pricing the line.
+  unitPriceSnapshot Decimal? @db.Decimal(12, 2)
   quantity  Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  listing   SellerListing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, productId])
+  @@unique([userId, listingId])
   @@index([userId])
+  @@index([userId, productId])
+  @@index([listingId])
   @@map("cart_items")
 }
 
@@ -360,6 +525,12 @@ model Order {
   paymentMethod   String      @default("cod")
   paymentStatus   String      @default("pending")
   notes           String?
+  /// Razorpay payment id, as a UNIQUE column. It used to live only inside the
+  /// free-text `notes` ("razorpay:<id>") with no constraint, so replaying the same
+  /// signed (orderId, paymentId, signature) triple after re-filling the cart
+  /// created a SECOND fully-paid order. The unique index makes the replay fail at
+  /// the DB instead of relying on the handler noticing.
+  paymentRef      String?     @unique
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   items           OrderItem[]
@@ -382,15 +553,34 @@ model OrderItem {
   unitPrice  Decimal @db.Decimal(12, 2)
   totalPrice Decimal @db.Decimal(12, 2)
   sellerId   String?
+  /// WHICH OFFER was purchased. Without this, purchased-offer history is
+  /// unreconstructable after the split (productId alone cannot say which of three
+  /// Kendras sold it), so it is added BEFORE the backfill, not after.
+  /// Scalar-only — no relation field — so deleting a listing never cascades into
+  /// order history.
+  listingId  String?
+  /// Snapshot of the variant sold, for the same reason.
+  variantId  String?
   // [FIX #4/#13] Per-item status for multi-seller orders. Each seller controls
   // only their own items' status. The overall Order.status is derived from all items.
   status     String  @default("PENDING")
+  // ── State-transition timestamps (CATALOG-SPLIT) ─────────────────────────────
+  // Nothing but createdAt/updatedAt existed before, which made dispatch SLA and
+  // cancellation rate literally uncomputable. sellerMetrics.service.js reads these.
+  confirmedAt DateTime?
+  shippedAt   DateTime?
+  deliveredAt DateTime?
+  cancelledAt DateTime?
+  createdAt   DateTime @default(now())
   order      Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product    Product @relation(fields: [productId], references: [id])
 
   @@index([orderId])
   @@index([sellerId])
   @@index([sellerId, orderId])
+  @@index([listingId])
+  // sellerMetrics scans one seller's terminal items in a rolling window.
+  @@index([sellerId, status, createdAt])
   @@map("order_items")
 }
 
@@ -404,6 +594,9 @@ model ReturnRequest {
   orderId      String
   orderItemId  String?
   userId       String
+  /// Which seller the return is against. There was no seller reference at all, so
+  /// SellerProfile.returnRate had nothing to aggregate over.
+  sellerId     String?
   reason       String
   status       ReturnStatus @default(REQUESTED)
   refundAmount Decimal?     @db.Decimal(12, 2)
@@ -414,6 +607,7 @@ model ReturnRequest {
   @@index([status])
   @@index([orderId])
   @@index([userId])
+  @@index([sellerId])
   @@index([createdAt])
   @@map("return_requests")
 }
@@ -422,16 +616,25 @@ model Review {
   id        String   @id @default(uuid())
   userId    String
   productId String?
+  /// WHO is being rated. Without it a review can never be attributed to a seller,
+  /// so seller rating (buy-box weight w2) has no source data at all.
+  sellerId  String?
+  /// WHAT was bought. Makes the review verifiable as a real purchase AND is the
+  /// new uniqueness axis: `@@unique([userId, productId])` used to mean a buyer who
+  /// bought the same seed from two Kendras could only rate one of them.
+  /// Scalar-only (no relation field) so review history survives order-item churn.
+  orderItemId String?
   rating    Int
   comment   String?
   createdAt DateTime @default(now())
   product   Product? @relation(fields: [productId], references: [id])
   user      User     @relation(fields: [userId], references: [id])
 
-  @@unique([userId, productId])
+  @@unique([userId, orderItemId])
   @@index([productId])
+  @@index([sellerId])
   // Buyer review history: WHERE userId = ?. A dedicated single-column index for
-  // the by-user lookup (narrower than the [userId, productId] unique).
+  // the by-user lookup (previously covered by the [userId, productId] unique).
   @@index([userId])
   @@map("reviews")
 }
@@ -1819,6 +2022,28 @@ enum BookingStatus {
   CANCELLED
 }
 
+/// QC lifecycle of a CATALOG entry (products). Separate from ListingStatus
+/// (Animal/Machinery/Labour) and from ModerationStatus (ContentFlag's fraud
+/// queue) on purpose — extending either would change an unrelated queue's
+/// vocabulary. MERGED means an admin folded this row into `mergedIntoId`.
+enum ProductStatus {
+  PENDING_QC
+  APPROVED
+  REJECTED
+  MERGED
+}
+
+/// Lifecycle of one seller's OFFER (seller_listings). OUT_OF_STOCK is derived
+/// from stockQty but stored so the buy-box candidate index can exclude it without
+/// a second predicate; BLOCKED is an admin/trust-and-safety action the seller
+/// cannot undo, which is why it is not just `INACTIVE`.
+enum ListingState {
+  ACTIVE
+  INACTIVE
+  OUT_OF_STOCK
+  BLOCKED
+}
+
 enum ListingStatus {
   ACTIVE
   SOLD
@@ -2215,6 +2440,11 @@ model Payout {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
+  /// Nothing stopped two payouts being raised for the same seller and the same
+  /// settlement window — i.e. paying a seller twice. The window is the natural
+  /// key, so the DB enforces it rather than the admin UI hoping nobody
+  /// double-clicks.
+  @@unique([sellerId, periodFrom, periodTo])
   @@index([sellerId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
   @@map("payouts")

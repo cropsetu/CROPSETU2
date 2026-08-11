@@ -21,6 +21,7 @@ import activityRoutes from './activity.routes.js';
 import kycRoutes from './kyc.routes.js';
 import { categoriesRouter, productsRouter, reviewsRouter } from './catalog.routes.js';
 import { productsCsvRouter, productsImportRouter, inventoryRouter } from './catalogIo.routes.js';
+import { productsQcRouter } from './catalogQc.routes.js';
 import ordersRoutes from './orders.routes.js';
 import returnsRoutes from './returns.routes.js';
 import { animalsRouter, machineryRouter, labourRouter, bookingsRouter } from './listings.routes.js';
@@ -65,6 +66,12 @@ router.use('/categories', requireScope(S.CMS_EDITOR), categoriesRouter);
 // and /products/import resolve here (and not to productsRouter's GET /:id).
 router.use('/products', requireScope(S.CMS_EDITOR), productsCsvRouter);
 router.use('/products', requireScope(S.CMS_EDITOR), productsImportRouter);
+// Catalog QC + duplicate merge. CONTENT_MODERATOR, not CMS_EDITOR: approving,
+// rejecting and merging seller-submitted catalog entries is the same kind of
+// judgement as the review queue and the fraud-flag queue, whereas CMS_EDITOR
+// covers editorial authoring (create / edit / CSV). Mounted before productsRouter
+// so /products/qc/* and /products/merge do not fall into its GET /:id.
+router.use('/products', requireScope(S.CONTENT_MODERATOR), productsQcRouter);
 router.use('/products', requireScope(S.CMS_EDITOR), productsRouter);
 router.use('/inventory', requireScope(S.CMS_EDITOR), inventoryRouter);
 router.use('/reviews', requireScope(S.CONTENT_MODERATOR), reviewsRouter);

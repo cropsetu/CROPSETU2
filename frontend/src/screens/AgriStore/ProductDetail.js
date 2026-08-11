@@ -13,6 +13,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useCart } from '../../context/CartContext';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
+import OfferListSheet from './OfferListSheet';
 import { fs } from '../../utils/responsive';
 
 const { width: W } = Dimensions.get('window');
@@ -146,15 +147,34 @@ function SimilarCard({ item, onPress }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function ProductDetail({ route, navigation }) {
-  const { product } = route.params;
   const { t }       = useLanguage();
   const insets      = useSafeAreaInsets();
+
+  // ── Route params carry the CATALOG product, never a listing ────────────────
+  // Navigation still passes the whole product object (AgriStoreHome does it from
+  // a card), so it is used as the first paint. But an id-based REFETCH is now
+  // mandatory, not optional: switching between sellers' offers has to re-resolve
+  // price and stock, and a screen with no fetch can only ever show whatever the
+  // list screen happened to have cached.
+  const routeProduct = route.params?.product || null;
+  const productId    = route.params?.productId || routeProduct?.id;
+  const buyerDistrict = route.params?.district || null;
+
+  const [detail,      setDetail]      = useState(routeProduct);
+  const [loading,     setLoading]     = useState(!routeProduct);
+  const [offer,       setOffer]       = useState(null);   // the chosen seller's offer
+  const [variants,    setVariants]    = useState([]);
+  const [variantId,   setVariantId]   = useState(null);
+  const [offersOpen,  setOffersOpen]  = useState(false);
+  const [addingId,    setAddingId]    = useState(null);
 
   const [quantity,    setQuantity]    = useState(1);
   const [wishlist,    setWishlist]    = useState(false);
   const [imgIdx,      setImgIdx]      = useState(0);
   const [adding,      setAdding]      = useState(false);
   const [similar,     setSimilar]     = useState([]);
+
+  const product = detail || routeProduct || {};
 
   // Default tab: 'spec' if specs exist, else 'mfr'
   const hasSpecs = !!(product.specifications && Object.keys(product.specifications).length > 0);
@@ -174,30 +194,94 @@ export default function ProductDetail({ route, navigation }) {
     if (catId) {
       api.get(`/agristore/products?categoryId=${catId}&limit=10`)
         .then(res => {
-          const list = (res.data?.data || res.data || []).filter(p => p.id !== product.id);
+          const list = (res.data?.data || res.data || []).filter(p => p.id !== productId);
           setSimilar(list.slice(0, 8));
         })
         .catch(() => {});
     }
   }, []);
 
-  // ── Derived values ─────────────────────────────────────────────────────────
-  const discount   = product.mrp > product.price
-    ? Math.round(((product.mrp - product.price) / product.mrp) * 100)
-    : 0;
-  const saving     = product.mrp > product.price ? product.mrp - product.price : 0;
-  const inStock    = (product.stock ?? (product.inStock ? 1 : 0)) > 0;
+  // ── Id-based refetch: catalog + winning offer ──────────────────────────────
+  // Also follows a MERGED product's redirect, so an old link or a
+  // CropReportShare recommendation still lands on the surviving page.
+  useEffect(() => {
+    if (!productId) return;
+    let alive = true;
+    setLoading(true);
+
+    const qs = buyerDistrict ? `?district=${encodeURIComponent(buyerDistrict)}` : '';
+    api.get(`/agristore/products/${productId}${qs}`)
+      .then((res) => {
+        if (!alive) return;
+        const data = res.data?.data;
+        if (data?.redirectTo) {
+          navigation.replace('ProductDetail', { productId: data.redirectTo, district: buyerDistrict });
+          return;
+        }
+        setDetail(data);
+        setVariants(data?.variants || []);
+        // The buy-box winner is the default offer AND the default Add to Cart.
+        setOffer(data?.buyBox || null);
+        setVariantId(data?.buyBox?.variantId || data?.variants?.[0]?.id || null);
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoading(false); });
+
+    return () => { alive = false; };
+  }, [productId, buyerDistrict, navigation]);
+
+  /** Re-resolve the winning offer when the buyer switches pack size. */
+  async function selectVariant(v) {
+    if (!v?.id || v.id === variantId) return;
+    setVariantId(v.id);
+    setQuantity(1);
+    try {
+      const qs = new URLSearchParams({ variantId: v.id });
+      if (buyerDistrict) qs.set('district', buyerDistrict);
+      const res = await api.get(`/agristore/products/${productId}/offers?${qs.toString()}`);
+      const group = res.data?.data?.variants?.[0];
+      setOffer(group?.offers?.[0] || null);
+    } catch { /* keep the current offer rather than blanking the page */ }
+  }
+
+  // ── Derived values — ALL read off the SELECTED OFFER, not the catalog row ──
+  // Price, MRP, discount, "You save", the HOT DEAL badge, the quantity cap and
+  // the quantity subtotal used to read `product.price` / `product.stock`, which
+  // post-split are catalog columns that mean nothing. `legacyOffer` is the
+  // dual-read fallback the API returns while a product has no listings yet.
+  const legacy   = product.legacyOffer || null;
+  const price    = Number(offer?.price ?? legacy?.price ?? product.price ?? 0);
+  const mrp      = Number(offer?.mrp ?? legacy?.mrp ?? product.mrp ?? 0);
+  const stock    = offer?.stock ?? legacy?.stock ?? product.stock ?? 0;
+  const minOrder = offer?.minOrderQty ?? legacy?.minOrderQty ?? product.minOrderQty ?? 1;
+  const unit     = variants.find(v => v.id === variantId)?.attributes?.packSize
+                || variants.find(v => v.id === variantId)?.unit
+                || legacy?.unit || product.unit;
+
+  const discount   = mrp > price ? Math.round(((mrp - price) / mrp) * 100) : 0;
+  const saving     = mrp > price ? mrp - price : 0;
+  const inStock    = stock > 0;
   const reviews    = product.ratingCount ?? product.reviews ?? 0;
   const brandLabel = product.brand || product.category?.name || 'CropSetu';
   const mfrLabel   = product.manufacturer || brandLabel;
 
+  const otherOffers = Math.max((product.offerCount ?? 0) - 1, 0);
+
   const { count: cartCount, refresh: refreshCart } = useCart();
 
   // ── Cart helpers ────────────────────────────────────────────────────────────
-  async function addToCart() {
+  // Keyed on listingId: there was previously nowhere to say WHICH Kendra's offer
+  // the buyer chose, so `productId` alone decided it. productId is still sent as
+  // the fallback for a product that has no listings yet, where the server
+  // resolves the buy-box winner itself.
+  async function addToCart(chosen = offer, qty = quantity) {
+    const listingId = chosen?.listingId || null;
     setAdding(true);
+    setAddingId(listingId);
     try {
-      await api.post('/agristore/cart', { productId: product.id, quantity });
+      await api.post('/agristore/cart', listingId
+        ? { listingId, quantity: qty }
+        : { productId, variantId: variantId || undefined, quantity: qty });
       refreshCart();
       return true;
     } catch (err) {
@@ -205,6 +289,7 @@ export default function ProductDetail({ route, navigation }) {
       return false;
     } finally {
       setAdding(false);
+      setAddingId(null);
     }
   }
 
@@ -216,6 +301,20 @@ export default function ProductDetail({ route, navigation }) {
   async function handleBuyNow() {
     const ok = await addToCart();
     if (ok) navigation.navigate('Cart');
+  }
+
+  /** Add straight from a row in the offers sheet — each row has its own button. */
+  async function handleAddOffer(chosen) {
+    const ok = await addToCart(chosen, 1);
+    if (ok) {
+      setOffer(chosen);
+      setOffersOpen(false);
+      Alert.alert(
+        t('product.addedToCart'),
+        t('offers.addedFrom', { seller: chosen.sellerName, defaultValue: `Added from ${chosen.sellerName}` }),
+        [{ text: t('ok') }],
+      );
+    }
   }
 
   function toggleWishlist() {
@@ -237,9 +336,9 @@ export default function ProductDetail({ route, navigation }) {
   const baseSpecRows = [
     { label: t('rent.brandLabel'),        value: brandLabel },
     { label: t('products.category'),     value: product.category?.name || '—' },
-    { label: t('products.unit'),         value: product.unit || '—' },
+    { label: t('products.unit'),         value: unit || '—' },
     { label: t('product.availability'), value: inStock ? t('product.inStockShort') : t('product.outOfStock') },
-    { label: t('product.minOrder'),   value: product.minOrderQty ? `${product.minOrderQty} ${product.unit}` : '1' },
+    { label: t('product.minOrder'),   value: minOrder > 1 ? `${minOrder} ${unit || ''}`.trim() : '1' },
     { label: t('rent.ratingLabel'),       value: product.rating ? `${product.rating} ★` : '—' },
   ];
 
@@ -262,10 +361,10 @@ export default function ProductDetail({ route, navigation }) {
     : [
         { label: t('rent.brandLabel'),    value: brandLabel },
         { label: t('products.category'), value: product.category?.name || '—' },
-        { label: t('products.unit'),     value: product.unit || '—' },
+        { label: t('products.unit'),     value: unit || '—' },
         { label: t('rent.ratingLabel'),   value: product.rating ? `${product.rating} / 5` : '—' },
         { label: t('product.reviewsLabel'),  value: reviews > 0 ? t('product.ratingsCount', { count: reviews.toLocaleString() }) : '—' },
-        { label: t('product.stockLabel'),    value: inStock ? `${typeof product.stock === 'number' ? t('product.unitsCount', { count: product.stock }) : t('available')}` : t('product.outOfStock') },
+        { label: t('product.stockLabel'),    value: inStock ? t('product.unitsCount', { count: stock }) : t('product.outOfStock') },
       ];
 
   const mfrRows = [
@@ -398,9 +497,9 @@ export default function ProductDetail({ route, navigation }) {
               </View>
             )}
             {(() => {
-              const s = product.stock ?? (product.inStock ? Infinity : 0);
-              if (s === 0)  return <View style={S.outStockTag}><Text style={S.outStockTxt}>{t('product.outOfStock')}</Text></View>;
-              if (s <= 5)   return <View style={S.lowStockTag}><Text style={S.lowStockTxt}>{t('product.onlyLeft', { count: s })}</Text></View>;
+              // Stock is the CHOSEN SELLER's stock, not a catalog-wide number.
+              if (stock === 0) return <View style={S.outStockTag}><Text style={S.outStockTxt}>{t('product.outOfStock')}</Text></View>;
+              if (stock <= 5)  return <View style={S.lowStockTag}><Text style={S.lowStockTxt}>{t('product.onlyLeft', { count: stock })}</Text></View>;
               return <View style={S.inStockTag}><Text style={S.inStockTxt}>{t('product.inStockDot')}</Text></View>;
             })()}
           </View>
@@ -419,14 +518,45 @@ export default function ProductDetail({ route, navigation }) {
             </View>
           )}
 
-          {/* Price */}
+          {/* ── Pack size ── The variant axis for agri-inputs. Switching packs
+              re-resolves the winning offer, because a Kendra can be cheapest on
+              450 g and not on 1 kg. */}
+          {variants.length > 1 ? (
+            <View style={S.variantBlock}>
+              <Text style={S.sectionTitle}>{t('product.packSize', 'Pack size')}</Text>
+              <View style={S.variantRow}>
+                {variants.map((v) => {
+                  const selected = v.id === variantId;
+                  const label = v.attributes?.packSize || v.unit;
+                  return (
+                    <TouchableOpacity
+                      key={v.id}
+                      onPress={() => selectVariant(v)}
+                      style={[S.variantChip, selected && S.variantChipOn]}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                    >
+                      <Text style={[S.variantChipTxt, selected && S.variantChipTxtOn]}>{label}</Text>
+                      {v.lowestPrice != null && (
+                        <Text style={[S.variantChipSub, selected && S.variantChipTxtOn]}>
+                          ₹{Number(v.lowestPrice).toLocaleString('en-IN')}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
+          {/* Price — the SELECTED OFFER's price */}
           <View style={S.priceRow}>
-            <Text style={S.price}>₹{product.price.toLocaleString()}</Text>
-            {product.mrp > product.price && (
+            <Text style={S.price}>₹{price.toLocaleString()}</Text>
+            {mrp > price && (
               <View style={S.priceMeta}>
                 <View style={S.discRow}>
                   <Text style={S.discPct}>↓{discount}%</Text>
-                  <Text style={S.mrpTxt}>₹{product.mrp.toLocaleString()}</Text>
+                  <Text style={S.mrpTxt}>₹{mrp.toLocaleString()}</Text>
                 </View>
                 <View style={S.savePill}>
                   <Text style={S.savePillTxt}>{t('product.youSave', { amount: saving.toLocaleString() })}</Text>
@@ -434,7 +564,7 @@ export default function ProductDetail({ route, navigation }) {
               </View>
             )}
           </View>
-          <Text style={S.inclTax}>{t('product.inclusiveTaxes', { unit: product.unit || t('product.unitFallback') })}</Text>
+          <Text style={S.inclTax}>{t('product.inclusiveTaxes', { unit: unit || t('product.unitFallback') })}</Text>
 
           {/* ── Quantity Selector (inside info card) ───────────────────── */}
           <View style={S.qtyBlock}>
@@ -443,27 +573,33 @@ export default function ProductDetail({ route, navigation }) {
               <Text style={S.qtyTotal}>
                 {t('product.totalLabel')}:{' '}
                 <Text style={{ color: COLORS.greenDeep, fontWeight: '800' }}>
-                  ₹{(product.price * quantity).toLocaleString()}
+                  ₹{(price * quantity).toLocaleString()}
                 </Text>
               </Text>
             </View>
             <View style={S.qtyRow}>
               <View style={S.qtyPill}>
                 <TouchableOpacity
-                  style={S.qPillBtn}
-                  onPress={() => setQuantity(q => Math.max(1, q - 1))}
+                  style={[S.qPillBtn, quantity <= minOrder && { opacity: 0.4 }]}
+                  onPress={() => setQuantity(q => Math.max(minOrder, q - 1))}
+                  disabled={quantity <= minOrder}
                 >
                   <Ionicons name="remove" size={18} color={COLORS.textDark} />
                 </TouchableOpacity>
                 <Text style={S.qtyNum}>{quantity}</Text>
                 <TouchableOpacity
-                  style={[S.qPillBtn, product.stock != null && quantity >= product.stock && { opacity: 0.4 }]}
-                  onPress={() => setQuantity(q => (product.stock != null ? Math.min(q + 1, product.stock) : q + 1))}
-                  disabled={product.stock != null && quantity >= product.stock}
+                  style={[S.qPillBtn, quantity >= stock && { opacity: 0.4 }]}
+                  onPress={() => setQuantity(q => Math.min(q + 1, stock || q + 1))}
+                  disabled={quantity >= stock}
                 >
                   <Ionicons name="add" size={18} color={COLORS.textDark} />
                 </TouchableOpacity>
               </View>
+              {minOrder > 1 ? (
+                <Text style={S.moqNote}>
+                  {t('product.minOrderNote', { count: minOrder, defaultValue: `This seller's minimum order is ${minOrder}` })}
+                </Text>
+              ) : null}
             </View>
           </View>
         </Animated.View>
@@ -475,7 +611,11 @@ export default function ProductDetail({ route, navigation }) {
           subtitle={t('product.deliveryAddressSub')}
         />
 
-        {/* ── Seller Card (basic — multi-seller listing coming later) ─────── */}
+        {/* ── Seller + other offers ────────────────────────────────────────
+            This whole surface is new. Before the split there was no seller in the
+            buyer app at all — this card rendered a hard-coded string
+            ("CropSetu Direct") because a product row WAS one seller's offer and
+            there was nothing to name or to choose between. */}
         <View style={S.sectionCard}>
           <View style={S.sellerRow}>
             <View style={S.sellerIconCircle}>
@@ -483,10 +623,64 @@ export default function ProductDetail({ route, navigation }) {
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={S.sellerBy}>{t('product.soldBy')}</Text>
-              <Text style={S.sellerName}>{t('product.farmEasyDirect')}</Text>
+              <Text style={S.sellerName} numberOfLines={1}>
+                {offer?.sellerName || t('product.farmEasyDirect')}
+              </Text>
+              {offer ? (
+                <View style={S.sellerMetaRow}>
+                  {offer.sellerRatingCount > 0 ? (
+                    <View style={S.sellerRatingChip}>
+                      <Ionicons name="star" size={10} color={COLORS.white} />
+                      <Text style={S.sellerRatingTxt}>{Number(offer.sellerRating).toFixed(1)}</Text>
+                    </View>
+                  ) : (
+                    <Text style={S.sellerMetaTxt}>{t('offers.newSeller', 'New seller')}</Text>
+                  )}
+                  {offer.district ? <Text style={S.sellerMetaTxt}>· {offer.district}</Text> : null}
+                  <Text style={S.sellerMetaTxt}>
+                    · {t('offers.dispatchDays', { count: offer.dispatchSlaDays, defaultValue: `dispatch in ${offer.dispatchSlaDays}d` })}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </View>
+
+          {otherOffers > 0 ? (
+            <TouchableOpacity
+              style={S.otherOffersRow}
+              onPress={() => setOffersOpen(true)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={t('offers.openA11y', 'See all sellers for this product')}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={S.otherOffersTitle}>
+                  {t('offers.alsoAvailable', {
+                    count: otherOffers,
+                    price: `₹${Number(product.lowestPrice ?? price).toLocaleString('en-IN')}`,
+                    defaultValue: `Also available from ${otherOffers} other seller(s) from ₹${product.lowestPrice ?? price}`,
+                  })}
+                </Text>
+                <Text style={S.otherOffersSub}>
+                  {t('offers.compareHint', 'Compare price, delivery time and rating')}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={COLORS.primary} />
+            </TouchableOpacity>
+          ) : null}
         </View>
+
+        <OfferListSheet
+          visible={offersOpen}
+          onClose={() => setOffersOpen(false)}
+          productId={productId}
+          variantId={variantId}
+          district={buyerDistrict}
+          selectedListingId={offer?.listingId}
+          onSelectOffer={(o) => { setOffer(o); setQuantity(Math.max(1, o.minOrderQty || 1)); setOffersOpen(false); }}
+          onAddToCart={handleAddOffer}
+          addingListingId={addingId}
+        />
 
         {/* ── Returns & policies — coming soon ─────────────────────────────── */}
         <ComingSoonCard
@@ -629,7 +823,7 @@ export default function ProductDetail({ route, navigation }) {
             : (
               <>
                 <Ionicons name="flash" size={18} color={COLORS.yellowDark} />
-                <Text style={S.buyNowTxt} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{t('product.buyAt', { price: product.price.toLocaleString() })}</Text>
+                <Text style={S.buyNowTxt} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{t('product.buyAt', { price: price.toLocaleString() })}</Text>
               </>
             )
           }
@@ -751,6 +945,30 @@ const S = StyleSheet.create({
   sellerIconCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.blueBg, justifyContent: 'center', alignItems: 'center' },
   sellerBy:         { fontSize: 11, color: COLORS.textMedium, fontWeight: '600' },
   sellerName:       { fontSize: 14, fontWeight: '700', color: COLORS.textDark, marginTop: 2 },
+  sellerMetaRow:    { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4, flexWrap: 'wrap' },
+  sellerMetaTxt:    { fontSize: 11, color: COLORS.textLight },
+  sellerRatingChip: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: COLORS.greenDeep, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 },
+  sellerRatingTxt:  { fontSize: 10, fontWeight: '800', color: COLORS.white },
+
+  otherOffersRow: {
+    flexDirection: 'row', alignItems: 'center', marginTop: 14, paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border,
+  },
+  otherOffersTitle: { fontSize: 13, fontWeight: '800', color: COLORS.primary },
+  otherOffersSub:   { fontSize: 11, color: COLORS.textLight, marginTop: 2 },
+
+  variantBlock:  { marginTop: 14 },
+  variantRow:    { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  variantChip: {
+    borderWidth: 1.4, borderColor: COLORS.border, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 7, alignItems: 'center', minWidth: 74,
+  },
+  variantChipOn:     { borderColor: COLORS.primary, backgroundColor: COLORS.primaryPale ?? 'rgba(23,107,67,0.07)' },
+  variantChipTxt:    { fontSize: 13, fontWeight: '800', color: COLORS.textDark },
+  variantChipSub:    { fontSize: 11, color: COLORS.textLight, marginTop: 1 },
+  variantChipTxtOn:  { color: COLORS.primary },
+
+  moqNote: { fontSize: 11, color: COLORS.textLight, marginLeft: 12, flexShrink: 1 },
 
   // Quantity (inside info card)
   qtyBlock:     { marginTop: 18, paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.border },

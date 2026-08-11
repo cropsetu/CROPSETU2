@@ -82,7 +82,16 @@ export const AUDIT_ACTIONS = {
   ORDER_STATUS_CHANGE: "ORDER_STATUS_CHANGE",
   ACCOUNT_ERASURE: "ACCOUNT_ERASURE",
   // Newly covered sensitive operations.
-  PRODUCT_DELETE: "PRODUCT_DELETE", // seller removes a product listing
+  PRODUCT_DELETE: "PRODUCT_DELETE", // seller removes a product listing / offer
+  // Catalog split — every catalog edit and every QC decision is logged, because a
+  // catalog row is now SHARED: one seller's mistake is visible to every other
+  // seller's buyers, and a merge silently redirects one product's traffic to
+  // another's.
+  PRODUCT_CREATE_PENDING_QC: "PRODUCT_CREATE_PENDING_QC", // seller proposed a new catalog entry
+  PRODUCT_QC_APPROVE: "PRODUCT_QC_APPROVE",
+  PRODUCT_QC_REJECT:  "PRODUCT_QC_REJECT",
+  PRODUCT_MERGE:      "PRODUCT_MERGE",      // duplicate folded into a surviving catalog row
+  CATALOG_EDIT:       "CATALOG_EDIT",       // shared catalog fields changed
   FEATURE_FLAG_CHANGE: "FEATURE_FLAG_CHANGE", // admin toggles a feature flag (config change)
   KYC_ACCESS: "KYC_ACCESS", // admin views another user's KYC documents (PII access)
   GROUP_MEMBER_REMOVE: "GROUP_MEMBER_REMOVE", // group admin removes a member

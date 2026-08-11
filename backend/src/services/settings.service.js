@@ -82,6 +82,32 @@ export const SETTINGS_MANIFEST = [
   { key: 'marketplace.commissionRatePct', type: 'NUMBER', category: 'Marketplace', label: 'Seller commission (%)', description: 'Platform commission deducted from seller sales when computing settlement balances.', default: 5 },
   { key: 'catalog.lowStockThreshold', type: 'NUMBER', category: 'Marketplace', label: 'Low-stock threshold', description: 'Products at or below this stock count appear in low-stock alerts.', default: 10 },
 
+  // ── Buy Box (CATALOG-SPLIT §4) ──────────────────────────────────────────────
+  // score = w1·norm(price) + w2·sellerRating + w3·norm(dispatchSla) + w4·fulfillment.
+  // Every term is normalised to [0,1] with 1 = better, and the four weights are
+  // renormalised at scoring time, so they express RATIOS — setting them to
+  // 6/1.5/1.5/1 gives exactly the same ranking as 0.6/0.15/0.15/0.1.
+  // Price-heavy by default: for agri-inputs the packs are identical, so price is
+  // what a farmer is actually choosing on.
+  { key: 'buybox.weight.price', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — price weight (w1)', description: 'How much the cheapest eligible offer is favoured. Highest weight by default.', default: 0.6 },
+  { key: 'buybox.weight.sellerRating', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — seller rating weight (w2)', description: 'Weight on the seller’s average rating. Automatically dropped to 0 for a variant when no competing seller has any metrics yet.', default: 0.15 },
+  { key: 'buybox.weight.dispatchSla', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — dispatch speed weight (w3)', description: 'Weight on the seller’s promised dispatch time (fewer days is better).', default: 0.15 },
+  { key: 'buybox.weight.fulfillment', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — fulfillment weight (w4)', description: 'Weight on on-time dispatch, cancellation and return rates. Dropped to 0 until seller metrics exist, so a fresh marketplace ranks on price rather than on noise.', default: 0.1 },
+  { key: 'buybox.neutralSellerRating', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — neutral rating for unrated sellers', description: 'Stand-in rating (out of 5) for a seller with no reviews yet, used only when OTHER sellers on the same variant do have metrics. 0 would rank an unrated Kendra below a badly-rated one.', default: 3.5 },
+  { key: 'buybox.maxDispatchSlaDays', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — dispatch SLA ceiling (days)', description: 'Dispatch promises above this are all treated as equally slow, so one outlier cannot flatten the normalised scale for everyone else.', default: 14 },
+
+  // ── Catalog dedup gate (CATALOG-SPLIT §3) ───────────────────────────────────
+  // Trigram similarity() on the product name, 0–1. Between suggest and block the
+  // seller is SHOWN the matches but still allowed to create: a false block on a
+  // genuinely new product leaves them with no way forward.
+  { key: 'catalog.dedupBlockSimilarity', type: 'NUMBER', category: 'Marketplace', label: 'Duplicate block threshold', description: 'Name similarity (0–1) at or above which a new catalog product is REJECTED as a duplicate and the seller is told to attach an offer instead. Raise it if legitimate products are being blocked.', default: 0.72 },
+  { key: 'catalog.dedupSuggestSimilarity', type: 'NUMBER', category: 'Marketplace', label: 'Duplicate suggest threshold', description: 'Name similarity (0–1) at or above which existing products are SUGGESTED to the seller. Values below 0.3 have no effect — pg_trgm’s % operator floors the candidate set there.', default: 0.45 },
+  { key: 'catalog.requireQcForNewProducts', type: 'BOOL', category: 'Marketplace', label: 'Require admin QC for new catalog products', description: 'New CATALOG entries land in PENDING_QC and stay invisible until approved. Attaching an offer to an already-approved product is never gated — there is nothing new to review.', default: true },
+
+  // ── Seller metrics job ──────────────────────────────────────────────────────
+  { key: 'sellerMetrics.windowDays', type: 'NUMBER', category: 'Marketplace', label: 'Seller metrics window (days)', description: 'Rolling window for cancellation / dispatch / return rates. Older history is ignored so a seller can recover from a bad month.', default: 180 },
+  { key: 'sellerMetrics.defaultDispatchSlaDays', type: 'NUMBER', category: 'Marketplace', label: 'Assumed dispatch SLA when unknown (days)', description: 'Used to judge on-time dispatch for an order item whose listing has since been deleted.', default: 2 },
+
   // ── Broadcast ───────────────────────────────────────────────────────────────
   { key: 'broadcast.maxRecipients', type: 'NUMBER', category: 'Broadcast', label: 'Max recipients / broadcast', description: 'Per-broadcast fan-out cap. Can be lowered from the 5000 safety ceiling, never raised above it.', default: 5000 },
 

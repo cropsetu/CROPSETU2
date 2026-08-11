@@ -22,28 +22,50 @@ describe('Unique constraints', () => {
     ).rejects.toThrow();
   });
 
-  test('duplicate cart item (same user + product) handled by upsert', async () => {
+  // CATALOG SPLIT: the cart's uniqueness axis moved from the PRODUCT to the
+  // OFFER. @@unique([userId, productId]) is deliberately gone — it made it
+  // physically impossible for one buyer to hold the same seed from two Kendras,
+  // which is the thing the split exists to allow. @@unique([userId, listingId])
+  // replaces it: one line per OFFER, still no accidental duplicates.
+  test('cart is unique per (user, listing), not per (user, product)', async () => {
     const user = await prisma.user.create({ data: buildUser() });
+    const sellerA = await prisma.user.create({ data: buildUser({ role: 'SELLER' }) });
+    const sellerB = await prisma.user.create({ data: buildUser({ role: 'SELLER' }) });
     const category = await prisma.category.create({
       data: { name: 'Test Cat', icon: 'leaf', color: '#000', sortOrder: 1, isActive: true },
     });
     const product = await prisma.product.create({
       data: {
-        name: 'Cart Test Product', price: 100, unit: 'kg', stock: 50,
-        sellerId: user.id, categoryId: category.id, isActive: true,
+        name: 'Cart Test Product', categoryId: category.id, status: 'APPROVED',
         images: [], tags: [], sellScope: 'district',
+        variants: { create: [{ unit: 'kg', attributes: { packSize: '1kg' }, isDefault: true }] },
       },
+      include: { variants: true },
+    });
+    const variantId = product.variants[0].id;
+
+    const offerA = await prisma.sellerListing.create({
+      data: { sellerId: sellerA.id, variantId, sellingPrice: 100, stockQty: 50 },
+    });
+    const offerB = await prisma.sellerListing.create({
+      data: { sellerId: sellerB.id, variantId, sellingPrice: 120, stockQty: 50 },
     });
 
-    // First cart item
     await prisma.cartItem.create({
-      data: { userId: user.id, productId: product.id, quantity: 1 },
+      data: { userId: user.id, productId: product.id, listingId: offerA.id, quantity: 1 },
     });
 
-    // Duplicate should fail (unique constraint on userId_productId)
+    // The SAME product from a DIFFERENT seller is a separate line — this is what
+    // the old constraint prevented.
+    const second = await prisma.cartItem.create({
+      data: { userId: user.id, productId: product.id, listingId: offerB.id, quantity: 2 },
+    });
+    expect(second.id).toBeTruthy();
+
+    // The same OFFER twice is still rejected.
     await expect(
       prisma.cartItem.create({
-        data: { userId: user.id, productId: product.id, quantity: 2 },
+        data: { userId: user.id, productId: product.id, listingId: offerA.id, quantity: 3 },
       })
     ).rejects.toThrow();
   });
