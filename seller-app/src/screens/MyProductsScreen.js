@@ -233,8 +233,36 @@ export default function MyProductsScreen({ navigation }) {
 
   const { items, setItems } = list;
 
+  // Editing goes straight to the OFFER, not to the shared catalog row. The list
+  // is served by /agristore/seller/products, which is now a shim over
+  // seller_listings and carries listingId + variantId on every item.
   const handleEdit = useCallback((item) => {
-    navigation.navigate('AddProduct', { product: item });
+    navigation.navigate('AddProduct', {
+      intent: 'attach',
+      listingId: item.listingId,
+      listing: {
+        id: item.listingId,
+        sellingPrice: item.price,
+        mrp: item.mrp,
+        stockQty: item.stock,
+        minOrderQty: item.minOrderQty,
+        dispatchSlaDays: item.dispatchSlaDays,
+        sellScope: item.sellScope,
+        district: item.district,
+        taluka: item.taluka,
+        village: item.village,
+        state: item.state,
+        harvestDate: item.harvestDate,
+      },
+      catalogProduct: {
+        id: item.id, name: item.name, brand: item.brand,
+        manufacturer: item.manufacturer, images: item.images,
+        categoryId: item.categoryId, status: item.status,
+      },
+      variant: { id: item.variantId, unit: item.unit, packSize: item.unit },
+      // Kept so the legacy shim path still works for a row with no listingId.
+      product: item,
+    });
   }, [navigation]);
 
   // Optimistic toggle: flip locally, then reconcile. On failure the row snaps
@@ -249,8 +277,14 @@ export default function MyProductsScreen({ navigation }) {
     setItems((prev) => prev.map((p2) => (p2.id === item.id ? { ...p2, isActive: next } : p2)));
 
     try {
-      const { data } = await api.put(`/agristore/seller/products/${item.id}`, { isActive: next });
-      const confirmed = data?.data?.isActive;
+      // Pause/resume MY OFFER. This used to PUT isActive onto the PRODUCT row,
+      // which post-split is shared — hiding your own stock would have hidden the
+      // product for every other Kendra selling it too.
+      const { data } = item.listingId
+        ? await api.patch(`/agristore/listings/${item.listingId}`, { status: next ? 'ACTIVE' : 'INACTIVE' })
+        : await api.put(`/agristore/seller/products/${item.id}`, { isActive: next });
+      const payload = data?.data;
+      const confirmed = payload?.status ? payload.status === 'ACTIVE' : payload?.isActive;
       if (typeof confirmed === 'boolean' && confirmed !== next) {
         setItems((prev) => prev.map((p2) => (p2.id === item.id ? { ...p2, isActive: confirmed } : p2)));
       }
@@ -280,7 +314,11 @@ export default function MyProductsScreen({ navigation }) {
     setItems((prev) => prev.filter((p2) => p2.id !== item.id));
 
     try {
-      await api.delete(`/agristore/seller/products/${item.id}`);
+      // Removes MY OFFER only. The old DELETE soft-deleted the product AND ran
+      // cartItem.deleteMany({ where: { productId } }) — wiping the product out of
+      // every buyer's cart, including buyers who had chosen a different Kendra.
+      if (item.listingId) await api.delete(`/agristore/listings/${item.listingId}`);
+      else await api.delete(`/agristore/seller/products/${item.id}`);
       toast.success(t('myProducts.deleted', { name: item.name, defaultValue: `${item.name} deleted` }));
     } catch (e) {
       setItems((prev) => {
@@ -319,7 +357,7 @@ export default function MyProductsScreen({ navigation }) {
   const listRef = useRef(null);
 
   const openAddProduct = useCallback(() => {
-    navigation.navigate('AddProduct', { product: null });
+    navigation.navigate('CatalogSearch');
   }, [navigation]);
 
   // First load with nothing to show yet.

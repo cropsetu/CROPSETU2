@@ -79,16 +79,28 @@ const TOTAL_SECTIONS = 5;
  * meter counts ONLY these — a meter that also counted `manufacturer` and
  * `harvestDate` would sit at 40% on a perfectly publishable listing and read
  * as "you are not done".
+ *
+ * IT BRANCHES ON MODE. In `attach` the category and the name come from the
+ * catalog row the seller picked, so counting them in a 5-of-5 meter would leave
+ * a complete offer permanently showing 3/5 — the meter would be reporting on
+ * fields the seller cannot even see, let alone fill.
  */
-function requiredProgress(form) {
-  const done = [
-    !!form.categoryId,
-    form.name.trim().length >= 3,
-    Number(form.price) > 0,
-    form.stock.trim() !== '' && Number(form.stock) >= 0,
-    !!form.district,
-  ].filter(Boolean).length;
-  return { done, total: 5, percent: Math.round((done / 5) * 100) };
+function requiredProgress(form, mode) {
+  const checks = mode === 'attach'
+    ? [
+        Number(form.price) > 0,
+        form.stock.trim() !== '' && Number(form.stock) >= 0,
+        !!form.district,
+      ]
+    : [
+        !!form.categoryId,
+        form.name.trim().length >= 3,
+        Number(form.price) > 0,
+        form.stock.trim() !== '' && Number(form.stock) >= 0,
+        !!form.district,
+      ];
+  const done = checks.filter(Boolean).length;
+  return { done, total: checks.length, percent: Math.round((done / checks.length) * 100) };
 }
 
 // ── Validation ───────────────────────────────────────────────────────────────
@@ -99,17 +111,22 @@ function requiredProgress(form) {
  * same pass — the old sequential Alerts stopped at the first failure, so a
  * seller with three problems had to submit three times to find them all.
  */
-function validate(form, t) {
+function validate(form, t, mode = 'create') {
   const errors = {};
 
-  if (!form.categoryId) {
-    errors.categoryId = t('products.selectCategoryMsg');
-  }
+  // In `attach` the catalog row supplies the category and the name. Hard-requiring
+  // them here would make an otherwise-valid offer unsubmittable, since neither
+  // field is rendered in that mode.
+  if (mode !== 'attach') {
+    if (!form.categoryId) {
+      errors.categoryId = t('products.selectCategoryMsg');
+    }
 
-  const name = form.name.trim();
-  if (!name) errors.name = t('products.productNameRequired');
-  else if (name.length < 3) {
-    errors.name = t('products.nameTooShort', 'Use at least 3 characters so buyers can find it.');
+    const name = form.name.trim();
+    if (!name) errors.name = t('products.productNameRequired');
+    else if (name.length < 3) {
+      errors.name = t('products.nameTooShort', 'Use at least 3 characters so buyers can find it.');
+    }
   }
 
   const price = Number(form.price);
@@ -220,29 +237,63 @@ export default function AddProductScreen({ route, navigation }) {
   const { isOffline } = useNetwork();
   const { gutter, isExpanded, contentMaxWidth } = useResponsive();
 
+  // ── THREE MODES, not two ───────────────────────────────────────────────────
+  // The screen used to know only `create` and `edit`, derived from a single
+  // `route.params.product`. There was no state for "a catalog product that
+  // exists and is NOT mine", which is the normal case in a multi-seller
+  // marketplace and the one that must not create a second `products` row.
+  //
+  //   create → the seller searched, found nothing, is proposing a NEW catalog
+  //            entry. Sends TWO payloads: catalog first, then the offer.
+  //   attach → the seller picked an existing catalog product + pack size. Sends
+  //            ONE payload: the offer. No `products` row is created.
+  //   edit   → the seller is changing THEIR OWN offer. Sends a PARTIAL PATCH of
+  //            offer fields only.
+  const catalogProduct = route.params?.catalogProduct || null;
+  const catalogVariant = route.params?.variant || null;
+  const existingListing = route.params?.listing || null;
   const editProduct = route.params?.product || null;
-  const isEdit = !!editProduct;
+  const prefill = route.params?.prefill || null;
+
+  const mode = route.params?.intent === 'attach'
+    ? (existingListing ? 'edit' : 'attach')
+    : (editProduct ? 'edit' : 'create');
+  const isEdit = mode === 'edit';
+  const isAttach = mode === 'attach';
+  // In edit mode the offer values come from the listing when we have one, and
+  // from the flattened legacy product shape otherwise (MyProducts still sends
+  // that for older rows).
+  const offerSource = existingListing || editProduct;
+  const listingId = existingListing?.id || editProduct?.listingId || null;
+  const variantId = catalogVariant?.id || editProduct?.variantId || null;
 
   // ── Form state ─────────────────────────────────────────────────────────────
   const [form, setForm] = useState(() => ({
-    categoryId: editProduct?.categoryId || '',
+    categoryId: catalogProduct?.categoryId || editProduct?.categoryId || prefill?.categoryId || '',
     subcategory: editProduct?.subcategory || '',
-    name: editProduct?.name || '',
+    name: catalogProduct?.name || editProduct?.name || prefill?.name || '',
     desc: editProduct?.description || '',
-    price: editProduct?.price?.toString() || '',
-    mrp: editProduct?.mrp?.toString() || '',
-    unit: editProduct?.unit || 'kg',
-    stock: editProduct?.stock?.toString() || '',
-    moq: editProduct?.minOrderQty?.toString() || '1',
+    price: (offerSource?.sellingPrice ?? offerSource?.price)?.toString() || '',
+    mrp: offerSource?.mrp?.toString() || '',
+    unit: catalogVariant?.unit || editProduct?.unit || 'kg',
+    stock: (offerSource?.stockQty ?? offerSource?.stock)?.toString() || '',
+    moq: offerSource?.minOrderQty?.toString() || '1',
     tags: editProduct?.tags?.join(', ') || '',
-    harvestDate: editProduct?.harvestDate || '',
-    brand: editProduct?.brand || '',
-    manufacturer: editProduct?.manufacturer || '',
+    harvestDate: offerSource?.harvestDate || '',
+    brand: catalogProduct?.brand || editProduct?.brand || '',
+    manufacturer: catalogProduct?.manufacturer || editProduct?.manufacturer || '',
     countryOfOrigin: editProduct?.countryOfOrigin || 'India',
-    district: editProduct?.district || user?.district || '',
-    taluka: editProduct?.taluka || user?.taluka || '',
-    village: editProduct?.village || user?.village || '',
-    sellScope: editProduct?.sellScope || 'district',
+    district: offerSource?.district || user?.district || '',
+    taluka: offerSource?.taluka || user?.taluka || '',
+    village: offerSource?.village || user?.village || '',
+    // Geography is an OFFER property. It used to be hard-coded onto the PRODUCT
+    // payload as `state: 'Maharashtra'`, which is wrong twice over: it is not a
+    // catalog field, and it is not always Maharashtra.
+    state: offerSource?.state || user?.state || 'Maharashtra',
+    sellScope: offerSource?.sellScope || 'district',
+    dispatchSla: (offerSource?.dispatchSlaDays ?? 2).toString(),
+    sellerSku: offerSource?.sellerSku || '',
+    gtin: prefill?.gtin || '',
   }));
 
   const [highlights, setHighlights] = useState(() => (
@@ -317,8 +368,8 @@ export default function AddProductScreen({ route, navigation }) {
   // while someone types their first character is hostile.
   useEffect(() => {
     if (!submitted) return;
-    setErrors(validate(form, t));
-  }, [form, submitted, t]);
+    setErrors(validate(form, t, mode));
+  }, [form, submitted, t, mode]);
 
   const isDirty = dirtyRef.current || localImgs.length > 0
     || images.length !== (editProduct?.images?.length || 0);
@@ -487,7 +538,7 @@ export default function AddProductScreen({ route, navigation }) {
 
   const handleSave = useCallback(async () => {
     setSubmitted(true);
-    const errs = validate(form, t);
+    const errs = validate(form, t, mode);
     setErrors(errs);
 
     if (Object.keys(errs).some((k) => errs[k])) {
@@ -528,44 +579,130 @@ export default function AddProductScreen({ route, navigation }) {
         ? form.tags.split(',').map((tag) => tag.trim()).filter(Boolean)
         : undefined;
 
-      const payload = {
+      const allImages = [...images, ...uploaded];
+
+      // ── ONE FLAT PAYLOAD BECOMES TWO ─────────────────────────────────────
+      // The old payload mixed catalog keys (name, description, brand,
+      // specifications, images) with offer keys (price, stock, district) and
+      // POSTed them to a single endpoint that wrote them all onto one row.
+      // Post-split those belong to different tables with different owners: the
+      // catalog row is SHARED by every seller of the product, the offer is this
+      // Kendra's alone.
+      const catalogPayload = {
         categoryId: form.categoryId,
         subcategory: form.subcategory || undefined,
         name: form.name.trim(),
         description: form.desc.trim() || undefined,
-        price: Number(form.price),
-        mrp: form.mrp.trim() ? Number(form.mrp) : undefined,
-        unit: form.unit,
-        stock: Number(form.stock),
-        minOrderQty: form.moq.trim() ? Number(form.moq) : 1,
-        images: [...images, ...uploaded],
-        district: form.district || undefined,
-        taluka: form.taluka || undefined,
-        village: form.village.trim() || undefined,
-        state: 'Maharashtra',
-        sellScope: form.sellScope,
         tags: tagList,
-        harvestDate: form.harvestDate.trim() || undefined,
+        images: allImages,
         brand: form.brand.trim() || undefined,
         manufacturer: form.manufacturer.trim() || undefined,
         countryOfOrigin: form.countryOfOrigin.trim() || undefined,
         highlights: highlightList.length ? highlightList : undefined,
         specifications: Object.keys(specsObj).length ? specsObj : undefined,
+        variants: [{
+          unit: form.unit,
+          attributes: form.unit ? { packSize: form.unit } : {},
+          gtin: form.gtin.trim() || undefined,
+          sku: form.sellerSku.trim() || undefined,
+        }],
       };
 
-      if (isEdit) await api.put(`/agristore/seller/products/${editProduct.id}`, payload);
-      else await api.post('/agristore/seller/products', payload);
+      const offerPayload = {
+        sellingPrice: Number(form.price),
+        mrp: form.mrp.trim() ? Number(form.mrp) : undefined,
+        stockQty: Number(form.stock),
+        minOrderQty: form.moq.trim() ? Number(form.moq) : 1,
+        dispatchSlaDays: form.dispatchSla.trim() ? Number(form.dispatchSla) : 2,
+        sellerSku: form.sellerSku.trim() || undefined,
+        sellScope: form.sellScope,
+        district: form.district || undefined,
+        taluka: form.taluka || undefined,
+        village: form.village.trim() || undefined,
+        // Geography belongs to the OFFER, and it is whatever the seller set —
+        // never a hard-coded 'Maharashtra' stamped onto the product.
+        state: form.state || undefined,
+        harvestDate: form.harvestDate.trim() || undefined,
+        // The seller's own photos of THEIR stock. Deliberately separate from the
+        // shared catalog imagery in attach mode: uploading a photo must not
+        // silently rewrite what every other Kendra's buyers see.
+        images: isAttach ? allImages : [],
+      };
+
+      if (isEdit) {
+        // Partial patch of OFFER fields only. The old edit sent the full payload
+        // via PUT and the backend wrote any key present — so on a shared catalog
+        // row, one Kendra changing their price would have overwritten the name,
+        // description, specs and images FOR EVERY OTHER SELLER.
+        if (listingId) {
+          await api.patch(`/agristore/listings/${listingId}`, offerPayload);
+        } else {
+          // Legacy row with no listing id yet — the shim resolves it by product.
+          await api.put(`/agristore/seller/products/${editProduct.id}`, {
+            price: offerPayload.sellingPrice,
+            mrp: offerPayload.mrp,
+            stock: offerPayload.stockQty,
+            minOrderQty: offerPayload.minOrderQty,
+            sellScope: offerPayload.sellScope,
+            district: offerPayload.district,
+            taluka: offerPayload.taluka,
+            village: offerPayload.village,
+            state: offerPayload.state,
+            harvestDate: offerPayload.harvestDate,
+          });
+        }
+      } else if (isAttach) {
+        // NO products row is created. This is the whole point of the mode.
+        await api.post('/agristore/listings', { ...offerPayload, variantId });
+      } else {
+        // New catalog entry: catalog first (server-side duplicate gate runs here
+        // and can 409), then the offer against the variant it just created.
+        const { data } = await api.post('/agristore/catalog/products', catalogPayload);
+        const created = data?.data;
+        const newVariantId = created?.variants?.[0]?.id;
+        if (!newVariantId) throw new Error(t('products.variantMissing', 'The product was created but its pack size was not. Open it from My Products and set your price.'));
+        await api.post('/agristore/listings', { ...offerPayload, variantId: newVariantId, images: allImages });
+      }
 
       dirtyRef.current = false;
       allowNext();
       toast.success(
         isEdit
           ? t('products.updated', 'Listing updated')
-          : t('products.created', 'Listing published'),
+          : isAttach
+            ? t('products.offerAdded', 'Your offer is live')
+            : t('products.createdPendingQc', 'Sent for review — buyers will see it once CropSetu approves it'),
       );
       navigation.goBack();
     } catch (e) {
       setUploadProgress(null);
+
+      // 409 from the duplicate gate is not a failure — it is the flow working.
+      // The server hands back the catalog product the seller should attach to,
+      // so offer that instead of just showing an error.
+      if (e?.response?.status === 409 && e?.response?.data?.error?.details?.productId) {
+        const details = e.response.data.error.details;
+        const candidate = details.candidates?.[0];
+        const ok = await confirm({
+          title: t('products.dupTitle', 'This product is already listed'),
+          message: t('products.dupMsg', {
+            name: candidate?.name || t('products.dupFallbackName', 'this product'),
+            defaultValue: `“${candidate?.name}” is already in the catalogue. Add your price and stock to it instead of creating a duplicate.`,
+          }),
+          confirmLabel: t('products.dupUseExisting', 'Use the existing product'),
+          cancelLabel: t('cancel', 'Cancel'),
+          icon: 'git-merge-outline',
+        });
+        if (ok && candidate) {
+          navigation.replace('AddProduct', {
+            intent: 'attach',
+            catalogProduct: candidate,
+            variant: candidate.variants?.[0] || null,
+          });
+        }
+        return;
+      }
+
       const message = safeErrorMessage(e, t('products.saveError'));
       toast.error(message);
       // A validation rejection from the server is about the fields, not the
@@ -577,8 +714,9 @@ export default function AddProductScreen({ route, navigation }) {
       setSaving(false);
     }
   }, [
-    form, t, toast, isOffline, scrollToFirstError, localImgs, uploadOne, specPairs,
-    highlights, images, isEdit, editProduct, allowNext, navigation,
+    form, t, toast, confirm, isOffline, scrollToFirstError, localImgs, uploadOne, specPairs,
+    highlights, images, isEdit, isAttach, mode, editProduct, listingId, variantId,
+    allowNext, navigation,
   ]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -597,7 +735,15 @@ export default function AddProductScreen({ route, navigation }) {
   const failedUploads = Object.values(uploadState).filter((v) => v === 'failed').length;
 
   // Counted live so the meter moves as the seller types, not on submit.
-  const progress = requiredProgress(form);
+  const progress = requiredProgress(form, mode);
+
+  // Section numbering branches with the mode: in `attach` the two catalog
+  // sections are not rendered at all, so leaving them in the count would number
+  // the form 01, 03, 05 and claim five steps where there are three.
+  const sectionSteps = isAttach
+    ? { photos: 1, details: null, pricing: 2, specs: null, geo: 3 }
+    : { photos: 1, details: 2, pricing: 3, specs: 4, geo: 5 };
+  const totalSections = isAttach ? 3 : TOTAL_SECTIONS;
 
   return (
     <Screen edges={['left', 'right']} background={C.bg}>
@@ -621,7 +767,11 @@ export default function AddProductScreen({ route, navigation }) {
             <View style={s.progressTop}>
               <View style={{ flex: 1 }}>
                 <Text style={s.progressTitle} numberOfLines={2}>
-                  {isEdit ? t('products.updateProduct', 'Update listing') : t('products.listProduct', 'List a product')}
+                  {isEdit
+                    ? t('products.updateOffer', 'Update your offer')
+                    : isAttach
+                      ? t('products.sellThisProduct', 'Sell this product')
+                      : t('products.listProduct', 'List a product')}
                 </Text>
                 <Text style={s.progressSub} numberOfLines={2}>
                   {progress.done === progress.total
@@ -645,6 +795,64 @@ export default function AddProductScreen({ route, navigation }) {
             />
           </Card>
 
+          {/* ── Attach banner ──────────────────────────────────────────────
+              In attach mode the seller is adding an OFFER to a product someone
+              else may already sell. Naming it here — with the pack size and what
+              the competition costs — is the difference between "fill in a form"
+              and "you are about to compete with two other Kendras on this exact
+              pack". */}
+          {isAttach && catalogProduct ? (
+            <Card style={s.attachCard}>
+              <View style={s.attachRow}>
+                {catalogProduct.images?.[0] ? (
+                  <Image
+                    source={{ uri: catalogProduct.images[0] }}
+                    style={s.attachImg}
+                    resizeMode="cover"
+                    accessibilityIgnoresInvertColors
+                  />
+                ) : (
+                  <View style={[s.attachImg, s.attachImgEmpty]}>
+                    <Ionicons name="leaf-outline" size={20} color={C.textMuted} />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={s.attachName} numberOfLines={2}>{catalogProduct.name}</Text>
+                  {catalogVariant?.packSize || catalogVariant?.unit ? (
+                    <Text style={s.attachPack} numberOfLines={1}>
+                      {catalogVariant.packSize || catalogVariant.unit}
+                      {catalogProduct.brand ? ` · ${catalogProduct.brand}` : ''}
+                    </Text>
+                  ) : null}
+                  {catalogVariant?.offerCount > 0 ? (
+                    <Text style={s.attachCompete} numberOfLines={1}>
+                      {t('products.competingWith', {
+                        count: catalogVariant.offerCount,
+                        price: `₹${Number(catalogVariant.lowestPrice).toLocaleString('en-IN')}`,
+                        defaultValue: `${catalogVariant.offerCount} other seller(s) · lowest ₹${catalogVariant.lowestPrice}`,
+                      })}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              <InlineNotice variant="info" icon="information-circle" style={{ marginTop: SP.md }}>
+                {t(
+                  'products.attachExplain',
+                  'The name, description and photos of this product are shared with every seller — you cannot change them here. Set your price, stock and delivery details below.',
+                )}
+              </InlineNotice>
+            </Card>
+          ) : null}
+
+          {mode === 'create' ? (
+            <InlineNotice variant="info" icon="shield-checkmark" style={{ marginBottom: SP.lg }}>
+              {t(
+                'products.qcNotice',
+                'New products are reviewed by CropSetu before buyers can see them. Your price and stock are saved now and go live on approval.',
+              )}
+            </InlineNotice>
+          ) : null}
+
           {submitted && Object.values(errors).some(Boolean) ? (
             <InlineNotice variant="error" style={{ marginBottom: SP.lg }}>
               {t('products.fixErrors', 'Please fix the highlighted fields.')}
@@ -654,10 +862,12 @@ export default function AddProductScreen({ route, navigation }) {
           {/* ── Photos ── */}
           <FormSection
             icon="images-outline"
-            title={t('products.photos', 'Photos')}
-            hint={t('products.photosHint')}
-            step={1}
-            total={TOTAL_SECTIONS}
+            title={isAttach ? t('products.yourPhotos', 'Your photos') : t('products.photos', 'Photos')}
+            hint={isAttach
+              ? t('products.yourPhotosHint', 'Optional. Photos of YOUR stock — they appear on your offer, not on the shared product page.')
+              : t('products.photosHint')}
+            step={sectionSteps.photos}
+            total={totalSections}
           >
             <Field label={t('products.photosField')}>
               <ScrollView
@@ -735,12 +945,16 @@ export default function AddProductScreen({ route, navigation }) {
           </FormSection>
 
           {/* ── Product details ── */}
+          {/* CATALOG SECTION — hidden in attach mode. These fields belong to the
+              shared `products` row; letting one seller edit them would rewrite
+              what every other seller's buyers see. */}
+          {isAttach ? null : (
           <FormSection
             icon="leaf-outline"
             title={t('products.productDetails')}
             hint={t('products.productNameHint')}
-            step={2}
-            total={TOTAL_SECTIONS}
+            step={sectionSteps.details}
+            total={totalSections}
           >
             <Field
               label={t('products.category')}
@@ -815,14 +1029,15 @@ export default function AddProductScreen({ route, navigation }) {
               />
             </Field>
           </FormSection>
+          )}
 
-          {/* ── Pricing & stock ── */}
+          {/* ── Pricing & stock ── OFFER fields. Always shown. */}
           <FormSection
             icon="pricetag-outline"
             title={t('products.pricingStock')}
             hint={t('products.mrpHint')}
-            step={3}
-            total={TOTAL_SECTIONS}
+            step={sectionSteps.pricing}
+            total={totalSections}
           >
             <View style={s.pairRow}>
               <Field
@@ -862,18 +1077,30 @@ export default function AddProductScreen({ route, navigation }) {
               </Field>
             </View>
 
-            <Field label={t('products.unit')} required hint={t('products.unitHint')}>
-              <ChipGroup accessibilityLabel={t('products.unit')}>
-                {UNITS.map((u) => (
-                  <Chip
-                    key={u}
-                    label={u}
-                    selected={form.unit === u}
-                    onPress={() => setField('unit')(u)}
-                  />
-                ))}
-              </ChipGroup>
-            </Field>
+            {/* The unit is a property of the VARIANT (the pack), not of the
+                offer — three Kendras selling the same 450 g pack must all be
+                selling the same 450 g. In attach mode it is shown, not chosen. */}
+            {isAttach ? (
+              <Field label={t('products.pack', 'Pack size')} hint={t('products.packFixed', 'Set by the product — every seller of this pack sells the same size.')}>
+                <View style={s.readOnlyRow}>
+                  <Ionicons name="cube-outline" size={16} color={C.textMuted} />
+                  <Text style={s.readOnlyTxt}>{catalogVariant?.packSize || form.unit}</Text>
+                </View>
+              </Field>
+            ) : (
+              <Field label={t('products.unit')} required hint={t('products.unitHint')}>
+                <ChipGroup accessibilityLabel={t('products.unit')}>
+                  {UNITS.map((u) => (
+                    <Chip
+                      key={u}
+                      label={u}
+                      selected={form.unit === u}
+                      onPress={() => setField('unit')(u)}
+                    />
+                  ))}
+                </ChipGroup>
+              </Field>
+            )}
 
             <View style={s.pairRow}>
               <Field
@@ -912,6 +1139,40 @@ export default function AddProductScreen({ route, navigation }) {
               </Field>
             </View>
 
+            <View style={s.pairRow}>
+              {/* Dispatch promise. New field: it feeds buy-box weight w3 and is
+                  what on-time-dispatch is measured against, so it is the one
+                  lever besides price a seller can pull to win the buy box. */}
+              <Field
+                label={t('products.dispatchSla', 'Dispatch within')}
+                hint={t('products.dispatchSlaHint', 'Days to hand the order over. Faster offers rank higher.')}
+                style={s.pairCell}
+              >
+                <TextField
+                  value={form.dispatchSla}
+                  onChangeText={setField('dispatchSla')}
+                  placeholder="2"
+                  keyboardType="number-pad"
+                  suffix={<Text style={s.affixTxt}>{t('products.days', 'days')}</Text>}
+                  label={t('products.dispatchSla', 'Dispatch within')}
+                />
+              </Field>
+
+              <Field
+                label={t('products.sellerSku', 'Your stock code')}
+                hint={t('products.sellerSkuHint', 'Optional — your own reference. Buyers never see it.')}
+                style={s.pairCell}
+              >
+                <TextField
+                  value={form.sellerSku}
+                  onChangeText={setField('sellerSku')}
+                  placeholder="KSK-1042"
+                  autoCapitalize="characters"
+                  label={t('products.sellerSku', 'Your stock code')}
+                />
+              </Field>
+            </View>
+
             <Field label={t('products.harvestDate')} hint={t('products.harvestHint')}>
               <TextField
                 value={form.harvestDate}
@@ -922,13 +1183,14 @@ export default function AddProductScreen({ route, navigation }) {
             </Field>
           </FormSection>
 
-          {/* ── Highlights & specifications ── */}
+          {/* ── Highlights & specifications ── CATALOG SECTION, hidden in attach. */}
+          {isAttach ? null : (
           <FormSection
             icon="list-outline"
             title={t('products.highlightsSpecsTitle')}
             hint={t('products.optionalSection', 'Optional — these help buyers compare, but you can publish without them.')}
-            step={4}
-            total={TOTAL_SECTIONS}
+            step={sectionSteps.specs}
+            total={totalSections}
           >
             <Field label={t('rent.brandLabel')} hint={t('products.brandHint')}>
               <TextField
@@ -1041,14 +1303,16 @@ export default function AddProductScreen({ route, navigation }) {
               />
             </Field>
           </FormSection>
+          )}
 
-          {/* ── Location & reach ── */}
+          {/* ── Location & reach ── OFFER fields: sellScope + district/taluka are
+              what gate buy-box eligibility, so they live on the listing. */}
           <FormSection
             icon="location-outline"
             title={t('products.whereSelling')}
             hint={t('products.sellingReachHint')}
-            step={5}
-            total={TOTAL_SECTIONS}
+            step={sectionSteps.geo}
+            total={totalSections}
           >
             <Field
               label={t('products.district')}
@@ -1146,6 +1410,22 @@ export default function AddProductScreen({ route, navigation }) {
 const s = StyleSheet.create({
   // ── Progress card ──
   progressCard: { marginBottom: SP.lg, ...E.raised },
+
+  // ── Attach mode ──
+  attachCard: { marginBottom: SP.lg },
+  attachRow: { flexDirection: 'row', gap: SP.md, alignItems: 'flex-start' },
+  attachImg: { width: 52, height: 52, borderRadius: R.sm, backgroundColor: C.surfaceAlt },
+  attachImgEmpty: { alignItems: 'center', justifyContent: 'center' },
+  attachName: { ...T.bodyBold, color: C.text },
+  attachPack: { ...T.caption, color: C.textMuted, marginTop: 1 },
+  attachCompete: { ...T.caption, color: C.brand, marginTop: 3 },
+  readOnlyRow: {
+    flexDirection: 'row', alignItems: 'center', gap: SP.sm,
+    backgroundColor: C.surfaceAlt, borderRadius: R.md,
+    paddingHorizontal: SP.md, paddingVertical: SP.sm + 2,
+  },
+  readOnlyTxt: { ...T.bodyBold, color: C.text },
+
   progressTop: { flexDirection: 'row', alignItems: 'flex-start', gap: SP.lg },
   progressTitle: { ...T.subhead, color: C.text },
   progressSub: { ...T.caption, color: C.textMuted, marginTop: SP.xs },

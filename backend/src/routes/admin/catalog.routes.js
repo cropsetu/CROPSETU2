@@ -17,6 +17,17 @@ import { stripHtml } from '../../utils/encrypt.js';
 import { keysetList } from '../../utils/adminList.js';
 import { adminAudit, listParams } from './_helpers.js';
 import { ADMIN_ACTIONS } from '../../services/audit.service.js';
+import { bumpListingVersion } from '../../utils/listingCache.js';
+import { invalidateBuyBox } from '../../services/buyBox.service.js';
+import { findCatalogDuplicate, normalizeProductKey } from '../../services/catalogMatch.service.js';
+
+// Admin product mutations never invalidated the storefront cache —
+// bumpListingVersion('agristore:products') was only ever called from
+// agristore.routes.js. Without this, an admin edit stays invisible for up to the
+// 60 s TTL and reads as "the save did nothing".
+async function invalidateStorefront() {
+  await Promise.all([bumpListingVersion('agristore:products'), invalidateBuyBox()]);
+}
 
 // Multilingual Category name columns (schema-exact).
 const CAT_LANGS = ['nameHi', 'nameMr', 'nameTa', 'nameKn', 'nameMl', 'nameTe', 'nameBn', 'nameGu', 'namePa'];
@@ -100,6 +111,7 @@ export const productFilterValidators = [
   query('sellerId').optional().isUUID(),
   query('isActive').optional().isBoolean(),
   query('isFeatured').optional().isBoolean(),
+  query('status').optional().isIn(['PENDING_QC', 'APPROVED', 'REJECTED', 'MERGED']),
   query('search').optional().isString().isLength({ max: 100 }),
 ];
 
@@ -108,11 +120,28 @@ export const productFilterValidators = [
 export function buildProductWhere(q) {
   const where = {};
   if (q.categoryId) where.categoryId = q.categoryId;
-  if (q.sellerId) where.sellerId = q.sellerId;
+  // "products by this seller" is now "products this seller has an OFFER on" —
+  // sellerId is not a product column any more. The legacy branch keeps
+  // pre-backfill rows findable.
+  if (q.sellerId) {
+    where.OR = [
+      { variants: { some: { listings: { some: { sellerId: q.sellerId } } } } },
+      { sellerId: q.sellerId, variants: { none: {} } }, // DUAL-READ
+    ];
+  }
+  if (q.status) where.status = q.status;
   if (q.isActive !== undefined) where.isActive = q.isActive === 'true';
   if (q.isFeatured !== undefined) where.isFeatured = q.isFeatured === 'true';
   const search = sanitizeSearch(q.search);
-  if (search) where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { description: { contains: search, mode: 'insensitive' } }];
+  if (search) {
+    const searchOr = [
+      { name: { contains: search, mode: 'insensitive' } },
+      { description: { contains: search, mode: 'insensitive' } },
+    ];
+    // Don't clobber the sellerId OR — AND them together.
+    if (where.OR) { where.AND = [{ OR: where.OR }, { OR: searchOr }]; delete where.OR; }
+    else where.OR = searchOr;
+  }
   return where;
 }
 
@@ -184,10 +213,36 @@ productsRouter.post(
       const cleanStr = (v) => (typeof v === 'string' ? stripHtml(v) : v);
       const cleanArr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()).map(cleanStr) : []);
 
+      // The admin create path had NO duplicate check at all — it did not even call
+      // the fraud heuristic the seller path used. An admin adding a product a
+      // Kendra already listed produced exactly the split catalogue this project
+      // exists to remove, so it runs the same cross-seller gate.
+      // `force: true` lets an admin override deliberately (they can see the
+      // candidates and merge afterwards); a seller has no such escape hatch.
+      if (!b.force) {
+        const dup = await findCatalogDuplicate({
+          categoryId: b.categoryId, brand: b.brand, manufacturer: b.manufacturer,
+          name: b.name, modelNumber: b.modelNumber,
+        });
+        if (dup.duplicate) {
+          return sendServerError(
+            res,
+            Object.assign(new Error('A matching product is already in the catalogue. Add a seller offer to it, or re-submit with force=true to create it anyway.'), { expose: true }),
+            'Duplicate product',
+            409,
+          );
+        }
+      }
+
       const data = {
         sellerId: null, // admin-created products belong to no seller
         categoryId: b.categoryId,
         name: cleanStr(b.name),
+        // Admin-authored entries are trusted; they do not queue for QC.
+        status: 'APPROVED',
+        normalizedKey: normalizeProductKey({
+          categoryId: b.categoryId, brand: b.brand, manufacturer: b.manufacturer, name: b.name,
+        }),
         price: Number(b.price),
         stock: b.stock !== undefined ? b.stock : 0,
         unit: b.unit ? cleanStr(b.unit) : 'kg',
@@ -205,10 +260,26 @@ productsRouter.post(
       }
       if (b.mrp !== undefined && b.mrp !== null && b.mrp !== '') data.mrp = Number(b.mrp);
 
-      const created = await prisma.product.create({
-        data,
-        include: { category: { select: { id: true, name: true } }, seller: { select: { id: true, name: true } } },
+      const created = await prisma.$transaction(async (tx) => {
+        const p = await tx.product.create({
+          data,
+          include: { category: { select: { id: true, name: true } }, seller: { select: { id: true, name: true } } },
+        });
+        // Every catalog row needs at least one sellable unit, or no seller can
+        // ever attach an offer to it. Admin rows carry price/stock columns that
+        // are meaningless (nobody sells them) — the variant is what makes the row
+        // usable once a Kendra does.
+        await tx.productVariant.create({
+          data: {
+            productId: p.id,
+            unit: data.unit || 'kg',
+            attributes: {},
+            isDefault: true,
+          },
+        });
+        return p;
       });
+      await invalidateStorefront();
       await adminAudit(req, ADMIN_ACTIONS.PRODUCT_CREATE, 'Product', created.id, { after: { name: created.name, price: created.price, categoryId: created.categoryId } });
       return sendCreated(res, created);
     } catch (err) {
@@ -252,6 +323,7 @@ productsRouter.patch(
       if (!Object.keys(data).length) return sendServerError(res, Object.assign(new Error('No updatable fields provided'), { expose: true }), 'Nothing to update', 400);
 
       const updated = await prisma.product.update({ where: { id: req.params.id }, data, select: { id: true, isActive: true, isFeatured: true, stock: true, price: true } });
+      await invalidateStorefront();
       await adminAudit(req, ADMIN_ACTIONS.PRODUCT_UPDATE, 'Product', updated.id, { before, after: updated, metadata: { reason: req.body.reason ?? null } });
       return sendSuccess(res, updated);
     } catch (err) {
@@ -266,8 +338,16 @@ productsRouter.delete('/:id', [param('id').isUUID(), body('reason').optional().i
   try {
     const before = await prisma.product.findUnique({ where: { id: req.params.id }, select: { id: true, name: true, isActive: true } });
     if (!before) return sendNotFound(res, 'Product');
-    await prisma.product.update({ where: { id: req.params.id }, data: { isActive: false } });
-    await adminAudit(req, ADMIN_ACTIONS.PRODUCT_DELETE, 'Product', before.id, { before: { isActive: before.isActive }, after: { isActive: false }, metadata: { reason: req.body.reason ?? null, mode: 'soft-deactivate' } });
+    // Removing a CATALOG row now takes every seller's offer on it offline too —
+    // the row is shared, so the decision is about the product, not about one
+    // Kendra. Offers are set INACTIVE (recoverable) rather than deleted.
+    await prisma.$transaction([
+      prisma.product.update({ where: { id: req.params.id }, data: { isActive: false, status: 'REJECTED' } }),
+      prisma.sellerListing.updateMany({ where: { variant: { productId: req.params.id } }, data: { status: 'INACTIVE' } }),
+      prisma.cartItem.deleteMany({ where: { listing: { variant: { productId: req.params.id } } } }),
+    ]);
+    await invalidateStorefront();
+    await adminAudit(req, ADMIN_ACTIONS.PRODUCT_DELETE, 'Product', before.id, { before: { isActive: before.isActive }, after: { isActive: false, status: 'REJECTED' }, metadata: { reason: req.body.reason ?? null, mode: 'soft-deactivate' } });
     return sendSuccess(res, { id: before.id, isActive: false });
   } catch (err) {
     return sendServerError(res, err, 'Failed to remove product');

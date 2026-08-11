@@ -176,6 +176,13 @@ export async function eraseUserAccount(userId) {
     await tx.consentRecord.deleteMany({ where: { userId } });
 
     // ── Anonymize shared / transactional records (retained) ──────────────────
+    // A departing seller's OFFERS come down; the shared CATALOG rows stay. Post
+    // catalog-split, `products` is identity that other Kendras also sell against,
+    // so deactivating it would take their live offers offline too. The offer is
+    // the only thing that belongs to this user.
+    await tx.sellerListing.updateMany({ where: { sellerId: userId }, data: { status: 'INACTIVE', stockQty: 0 } });
+    await tx.cartItem.deleteMany({ where: { listing: { sellerId: userId } } });
+    // DUAL-READ: pre-backfill rows still carry their offer on the product row.
     await tx.product.updateMany({ where: { sellerId: userId }, data: { isActive: false } });
     await tx.animalListing.updateMany({ where: { sellerId: userId }, data: { status: 'INACTIVE' } });
     await tx.machineryListing.updateMany({

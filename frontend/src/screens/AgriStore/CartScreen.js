@@ -122,9 +122,19 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
   const prevQty = useRef(item.quantity);
   const removing = useRef(false);
 
-  const product  = item.product;
-  const subtotal = product.price * item.quantity;
-  const imageUrl = product.images?.[0];
+  // Price, stock and the seller name come from the OFFER this line was added
+  // from — the catalog row has none of them post-split. `item.product` remains
+  // the fallback for a cart row written before the backfill.
+  const listing  = item.listing || null;
+  const product  = listing?.variant?.product || item.product || {};
+  const rowKey   = item.listingId || item.id;
+  const price    = Number(listing?.sellingPrice ?? item.unitPrice ?? item.product?.price ?? 0);
+  const stock    = listing?.stockQty ?? item.product?.stock ?? null;
+  const minQty   = listing?.minOrderQty ?? 1;
+  const sellerNm = listing?.seller?.name || null;
+  const packSize = listing?.variant?.attributes?.packSize || listing?.variant?.unit || item.product?.unit;
+  const subtotal = price * item.quantity;
+  const imageUrl = listing?.images?.[0] || product.images?.[0];
 
   useEffect(() => {
     Animated.parallel([
@@ -153,7 +163,7 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
   // the Alert.alert confirm — it doesn't render reliably on web and adds friction
   // on native. The slide-out animation provides enough feedback.
   function confirmRemove() {
-    slideRemove(() => onRemove(product.id));
+    slideRemove(() => onRemove(rowKey));
   }
 
   return (
@@ -174,10 +184,26 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
             <View style={{ flex: 1 }}>
               <Text style={S.itemCat}>{product.category?.name}</Text>
               <Text style={S.itemName} numberOfLines={2}>{product.name}</Text>
+              {/* WHICH Kendra this line is from. With two offers of the same seed
+                  in the cart, the seller name is the only thing telling the two
+                  lines apart. */}
+              {sellerNm ? (
+                <Text style={S.itemSeller} numberOfLines={1}>
+                  <Ionicons name="storefront-outline" size={11} color={COLORS.textLight} /> {sellerNm}
+                </Text>
+              ) : null}
               <Text style={S.itemPrice}>
-                ₹{product.price.toLocaleString()}
-                <Text style={S.itemUnit}> / {product.unit}</Text>
+                ₹{price.toLocaleString()}
+                <Text style={S.itemUnit}> / {packSize}</Text>
               </Text>
+              {item.priceChanged ? (
+                <Text style={S.itemPriceChanged}>
+                  {t('cart.priceChanged', {
+                    from: `₹${Number(item.previousPrice).toLocaleString('en-IN')}`,
+                    defaultValue: `Price changed from ₹${item.previousPrice}`,
+                  })}
+                </Text>
+              ) : null}
             </View>
 
             {/* Trash */}
@@ -192,7 +218,14 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
           <View style={S.itemCardFooter}>
             {/* Pill qty selector — capped at product.stock */}
             <View style={S.qtyPill}>
-              <PressScale onPress={() => onQtyChange(product.id, item.quantity - 1)} down={0.8}>
+              {/* Below the seller's minimum order there is no valid quantity, so
+                  stepping down past it removes the line instead of sending a
+                  quantity the server will reject. minOrderQty is enforced now —
+                  it used to be stored on every listing and read by nothing. */}
+              <PressScale
+                onPress={() => onQtyChange(rowKey, item.quantity - 1 < minQty ? 0 : item.quantity - 1)}
+                down={0.8}
+              >
                 <View style={S.qPillBtn}>
                   <Ionicons name="remove" size={15} color={COLORS.charcoal} />
                 </View>
@@ -201,10 +234,10 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
                 {item.quantity}
               </Animated.Text>
               {(() => {
-                const atMax = product.stock != null && item.quantity >= product.stock;
+                const atMax = stock != null && item.quantity >= stock;
                 return (
                   <PressScale
-                    onPress={() => { if (!atMax) onQtyChange(product.id, item.quantity + 1); }}
+                    onPress={() => { if (!atMax) onQtyChange(rowKey, item.quantity + 1); }}
                     down={atMax ? 1 : 0.8}
                   >
                     <View style={[S.qPillBtn, atMax && { opacity: 0.4 }]}>
@@ -282,21 +315,33 @@ export default function CartScreen({ navigation }) {
 
   const handleRefresh = useCallback(() => { setRefreshing(true); fetchCart(); }, [fetchCart]);
 
-  async function handleQtyChange(productId, newQty) {
-    if (newQty < 1) { handleRemove(productId); return; }
-    const item = items.find(i => i.product.id === productId);
+  // ── Lines are keyed on the CART ROW, not on the product ───────────────────
+  // `items.find(i => i.product.id === productId)` mirrored the backend's old
+  // assumption that a buyer could hold each product only once. With two Kendras'
+  // offers of the same seed in the cart, `find` returns the first match and
+  // `filter` drops BOTH — so changing the quantity on one line silently mutated
+  // the other, and removing one removed both.
+  const rowKey = (i) => i.listingId || i.id;
+  const unitPrice = (i) => Number(i.listing?.sellingPrice ?? i.product?.price ?? 0);
+
+  async function handleQtyChange(key, newQty) {
+    if (newQty < 1) { handleRemove(key); return; }
+    const item = items.find(i => rowKey(i) === key);
     if (!item) return;
-    setItems(prev => prev.map(i => i.product.id === productId ? { ...i, quantity: newQty } : i));
-    setTotal(prev => prev - item.product.price * item.quantity + item.product.price * newQty);
-    try { await api.put(`/agristore/cart/${productId}`, { quantity: newQty }); }
+    const price = unitPrice(item);
+    setItems(prev => prev.map(i => (rowKey(i) === key ? { ...i, quantity: newQty } : i)));
+    setTotal(prev => prev - price * item.quantity + price * newQty);
+    // The cart API is re-keyed to the listing; it still resolves a product id for
+    // older clients, so this path works either way.
+    try { await api.put(`/agristore/cart/${key}`, { quantity: newQty }); }
     catch { fetchCart(); }
   }
 
-  async function handleRemove(productId) {
-    const removed = items.find(i => i.product.id === productId);
-    setItems(prev => prev.filter(i => i.product.id !== productId));
-    if (removed) setTotal(prev => prev - removed.product.price * removed.quantity);
-    try { await api.delete(`/agristore/cart/${productId}`); refreshCart(); }
+  async function handleRemove(key) {
+    const removed = items.find(i => rowKey(i) === key);
+    setItems(prev => prev.filter(i => rowKey(i) !== key));
+    if (removed) setTotal(prev => prev - unitPrice(removed) * removed.quantity);
+    try { await api.delete(`/agristore/cart/${key}`); refreshCart(); }
     catch { fetchCart(); refreshCart(); }
   }
 
@@ -353,7 +398,7 @@ export default function CartScreen({ navigation }) {
         maxToRenderPerBatch={10}
         removeClippedSubviews
         data={items}
-        keyExtractor={i => i.id}
+        keyExtractor={i => i.listingId || i.id}
         contentContainerStyle={S.listContent}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         showsVerticalScrollIndicator={false}
@@ -449,6 +494,8 @@ const S = StyleSheet.create({
   itemCat:    { fontSize: 10, color: COLORS.primary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
   itemName:   { fontSize: 14, fontWeight: '700', color: COLORS.textDark, marginTop: 2, lineHeight: 19 },
   itemPrice:  { fontSize: 14, fontWeight: '800', color: COLORS.primary, marginTop: 4 },
+  itemSeller:        { fontSize: 11, color: COLORS.textLight, marginTop: 2 },
+  itemPriceChanged:  { fontSize: 10.5, color: COLORS.cta, marginTop: 2, fontWeight: '700' },
   itemUnit:   { fontSize: 12, fontWeight: '400', color: COLORS.textMedium },
   trashBtn:   { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.errorLight, justifyContent: 'center', alignItems: 'center' },
 

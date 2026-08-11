@@ -415,11 +415,33 @@ router.post(
     // to this seller. Prevents sellers from advertising another shop's stock.
     let safeProductIds = [];
     if (Array.isArray(recommendedProductIds) && recommendedProductIds.length) {
+      // CATALOG SPLIT: `products` no longer says who sells what — ownership is an
+      // OFFER now. recommendedProductIds is a String[] with no FK, so a stale
+      // check here fails silently (empty array, no error), which is why it is
+      // rewritten to ask "does this seller have a live offer on this product".
       const owned = await prisma.product.findMany({
-        where: { id: { in: recommendedProductIds }, sellerId: req.user.id, isActive: true },
+        where: {
+          id: { in: recommendedProductIds },
+          status: 'APPROVED',
+          variants: { some: { listings: { some: { sellerId: req.user.id, status: 'ACTIVE' } } } },
+        },
         select: { id: true },
       });
       safeProductIds = owned.map((p) => p.id);
+
+      // DUAL-READ: pre-backfill rows still carry sellerId/isActive on the product.
+      if (safeProductIds.length < recommendedProductIds.length) {
+        const legacy = await prisma.product.findMany({
+          where: {
+            id: { in: recommendedProductIds.filter((id) => !safeProductIds.includes(id)) },
+            sellerId: req.user.id,
+            isActive: true,
+            variants: { none: {} },
+          },
+          select: { id: true },
+        });
+        safeProductIds = [...safeProductIds, ...legacy.map((p) => p.id)];
+      }
     }
 
     const isAvailable = available === true || available === 'true';

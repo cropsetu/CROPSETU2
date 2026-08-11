@@ -161,10 +161,13 @@ describe('Cart operations', () => {
   });
 
   test('404 — add non-existent product to cart', async () => {
+    // CATALOG SPLIT: the cart body is validated as a UUID now (it may carry a
+    // listingId as well as a productId), so a MALFORMED id is a 400. Use a
+    // well-formed id that matches nothing to assert the 404 this test is about.
     const res = await request(app)
       .post('/api/v1/agristore/cart')
       .set(farmer.headers)
-      .send({ productId: 'fake-product-id', quantity: 1 });
+      .send({ productId: '00000000-0000-4000-8000-000000000000', quantity: 1 });
 
     expect(res.status).toBe(404);
   });
@@ -469,12 +472,18 @@ describe('Seller order status update', () => {
         .set(seller.headers)
         .send({ status: 'DELIVERED' });
 
-      // BUG: This succeeds — Seller A changed status of Seller B's items too.
-      // FIX: Track status per OrderItem, or only update the order if ALL sellers agree.
+      // FIXED. Status is per OrderItem, and the rollup is derived from the items
+      // that are still live. Seller A marking DELIVERED moves only A's item; the
+      // order cannot read DELIVERED while Seller B has not shipped.
       if (res.status === 200) {
         const order = await prisma.order.findUnique({ where: { id: orderId } });
-        // Document the bug: order.status is DELIVERED even though sellerB hasn't shipped
-        expect(order.status).toBe('DELIVERED');
+        expect(order.status).not.toBe('DELIVERED');
+
+        const items = await prisma.orderItem.findMany({ where: { orderId } });
+        const aItem = items.find((i) => i.sellerId === seller.user.id);
+        const bItem = items.find((i) => i.sellerId === sellerB.user.id);
+        expect(aItem.status).toBe('DELIVERED');
+        expect(bItem.status).toBe('PENDING');
       }
     }
   });
@@ -489,13 +498,41 @@ describe('POST /api/v1/agristore/products/:id/review', () => {
     productId = p.id;
   });
 
-  test('201 — create review', async () => {
+  test('403 — a review needs a delivered purchase', async () => {
+    // CATALOG SPLIT: any authenticated user could previously review any product.
+    // A review is now anchored to a delivered order item, which is also what
+    // makes it attributable to a SELLER — without that, the buy box's seller
+    // rating has no honest source.
     const res = await request(app)
       .post(`/api/v1/agristore/products/${productId}/review`)
       .set(farmer.headers)
       .send({ rating: 4, comment: 'Good quality seeds' });
 
+    expect(res.status).toBe(403);
+  });
+
+  test('201 — create review after a delivered purchase', async () => {
+    const order = await prisma.order.create({
+      data: {
+        userId: farmer.user.id, totalAmount: 199.99, deliveryAddress: {}, status: 'DELIVERED',
+        items: {
+          create: [{
+            productId, sellerId: seller.user.id, quantity: 1,
+            unitPrice: 199.99, totalPrice: 199.99,
+            status: 'DELIVERED', deliveredAt: new Date(),
+          }],
+        },
+      },
+      include: { items: true },
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/agristore/products/${productId}/review`)
+      .set(farmer.headers)
+      .send({ rating: 4, comment: 'Good quality seeds', orderItemId: order.items[0].id });
+
     expect(res.status).toBe(201);
+    expect(res.body.data.sellerId).toBe(seller.user.id);
   });
 
   test('400 — rating out of range', async () => {

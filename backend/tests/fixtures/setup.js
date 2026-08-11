@@ -73,7 +73,15 @@ export async function createTestCategory(overrides = {}) {
 }
 
 /**
- * Create a product in the DB.
+ * Create a PRE-SPLIT fused product — catalog identity and one seller's offer on
+ * a single row, with no variants. This is what every row looked like before the
+ * catalog split, so it is exactly the shape the DUAL-READ paths must keep
+ * serving until the backfill runs. New tests should use
+ * createTestCatalogProduct + createTestListing instead.
+ *
+ * `status: 'APPROVED'` is explicit: the schema default is PENDING_QC (new
+ * seller-proposed entries queue for review), but a legacy fused row is by
+ * definition already live — the expand migration backfills exactly this value.
  */
 export async function createTestProduct(sellerId, categoryId, overrides = {}) {
   return prisma.product.create({
@@ -85,9 +93,53 @@ export async function createTestProduct(sellerId, categoryId, overrides = {}) {
       sellerId,
       categoryId,
       isActive: true,
+      status: 'APPROVED',
       images: [],
       tags: [],
       sellScope: 'district',
+      ...overrides,
+    },
+  });
+}
+
+// ── Catalog split fixtures ───────────────────────────────────────────────────
+/**
+ * A CATALOG product — identity only. No price, no stock, no seller: those live
+ * on the offer. Defaults to APPROVED so it is publicly visible; pass
+ * { status: 'PENDING_QC' } to test the QC gate.
+ */
+export async function createTestCatalogProduct(categoryId, overrides = {}) {
+  const { normalizeProductKey } = await import('../../src/services/catalogMatch.service.js');
+  const name = overrides.name || `Test Catalog Product ${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+  const { variants, ...rest } = overrides;
+  return prisma.product.create({
+    data: {
+      name,
+      categoryId,
+      status: 'APPROVED',
+      images: [], tags: [], highlights: [],
+      normalizedKey: normalizeProductKey({
+        categoryId, brand: overrides.brand, manufacturer: overrides.manufacturer, name,
+      }),
+      ...rest,
+      variants: { create: variants || [{ unit: 'packet', attributes: { packSize: '1kg' }, isDefault: true }] },
+    },
+    include: { variants: true },
+  });
+}
+
+/** One seller's OFFER against a variant. */
+export async function createTestListing(sellerId, variantId, overrides = {}) {
+  return prisma.sellerListing.create({
+    data: {
+      sellerId,
+      variantId,
+      sellingPrice: 100,
+      stockQty: 10,
+      status: 'ACTIVE',
+      sellScope: 'district',
+      district: 'Pune',
+      state: 'Maharashtra',
       ...overrides,
     },
   });
@@ -173,6 +225,11 @@ export async function cleanupTestData() {
     prisma.animalListing.deleteMany(),
     prisma.labourListing.deleteMany(),
     prisma.machineryListing.deleteMany(),
+    // CATALOG SPLIT: offers → variants → catalog. seller_listings FKs the variant
+    // (cascade) and the user (RESTRICT), so it must clear before users, and
+    // variants before products.
+    prisma.sellerListing.deleteMany(),
+    prisma.productVariant.deleteMany(),
     prisma.product.deleteMany(),
     prisma.category.deleteMany(),
     prisma.otpSession.deleteMany(),

@@ -380,7 +380,7 @@ export default function DashboardScreen({ navigation }) {
             <QuickAction
               icon="addProduct" label={t('dash.addProduct', 'Add product')} width={qaWidth} index={0}
               animated={iconsAnimated}
-              onPress={() => navigation.navigate('AddProduct', { product: null })}
+              onPress={() => navigation.navigate('CatalogSearch')}
             />
             <QuickAction
               icon="products" label={t('dash.myProducts', 'My products')} width={qaWidth} index={1}

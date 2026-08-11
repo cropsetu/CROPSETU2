@@ -37,6 +37,7 @@ import { useReducedMotion } from '../hooks/useMotion';
 import SellerDashboard      from '../screens/DashboardScreen';
 import SellerMyProducts     from '../screens/MyProductsScreen';
 import SellerAddProduct     from '../screens/AddProductScreen';
+import SellerCatalogSearch  from '../screens/CatalogSearchScreen';
 import SellerOrders         from '../screens/OrdersScreen';
 import SellerProfile        from '../screens/SellerProfileScreen';
 import SellerBusiness       from '../screens/BusinessProfileScreen';
@@ -103,6 +104,10 @@ export default function SellerNavigator() {
       <Stack.Navigator initialRouteName={initialRouteName} screenOptions={screenOptions}>
         <Stack.Screen name="SellerDashboard"      component={SellerDashboard}      options={{ headerShown: false }} />
         <Stack.Screen name="SellerMyProducts"     component={SellerMyProducts}     options={{ title: t('dash.myProducts') }} />
+        {/* Search-first: every "add a product" entry point lands HERE, not on the
+            form. Going straight to the form is what produced a separate catalog
+            row per seller. */}
+        <Stack.Screen name="CatalogSearch"        component={SellerCatalogSearch}  options={{ headerShown: false }} />
         <Stack.Screen name="AddProduct"           component={SellerAddProduct}     options={{ title: t('nav.listProduct') }} />
         <Stack.Screen name="SellerOrders"         component={SellerOrders}         options={{ title: t('dash.orders') }} />
         <Stack.Screen name="SellerProfile"        component={SellerProfile}        options={{ headerShown: false }} />
