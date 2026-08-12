@@ -178,6 +178,12 @@ Button.Icon = function ButtonIcon({
 }) {
   const T = TONES[tone] || TONES.ghost;
   const solid = tone === 'primary' || tone === 'destructive' || tone === 'gold';
+  // hitSlop derived from `size`, never a constant: whatever size the caller
+  // passes, the effective target clears the 44dp platform minimum (iOS HIG 44pt,
+  // Android 48dp). A fixed slop silently drops under as soon as someone asks for
+  // a smaller glyph — which is how icon buttons end up untappable. Floor of 6 so
+  // an already-large button still gets a little forgiveness.
+  const slop = Math.max(6, Math.ceil((48 - size) / 2));
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -185,7 +191,7 @@ Button.Icon = function ButtonIcon({
       activeOpacity={0.7}
       accessibilityRole="button"
       accessibilityLabel={label}
-      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+      hitSlop={{ top: slop, bottom: slop, left: slop, right: slop }}
       {...rest}
       style={[
         styles.content,
