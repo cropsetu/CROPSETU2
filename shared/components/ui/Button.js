@@ -31,9 +31,9 @@ import Text from './Text';
 import { alpha } from './palette';
 
 const SIZES = {
-  sm: { height: 36, px: KSPACE.s12, gap: KSPACE.s6, role: 'buttonSm', icon: KICON.base, radius: KRADIUS.r10 },
-  md: { height: 44, px: KSPACE.s16, gap: KSPACE.s8, role: 'button',   icon: KICON.md,   radius: KRADIUS.r12 },
-  lg: { height: 52, px: KSPACE.s20, gap: KSPACE.s8, role: 'button',   icon: KICON.lg,   radius: KRADIUS.r14 },
+  sm: { minH: 36, px: KSPACE.s12, gap: KSPACE.s6, role: 'buttonSm', icon: KICON.base, radius: KRADIUS.r10 },
+  md: { minH: 44, px: KSPACE.s16, gap: KSPACE.s8, role: 'button',   icon: KICON.md,   radius: KRADIUS.r12 },
+  lg: { minH: 52, px: KSPACE.s20, gap: KSPACE.s8, role: 'button',   icon: KICON.lg,   radius: KRADIUS.r14 },
 };
 
 // Every tone is a fill + an ink that is legible ON that fill.
@@ -102,8 +102,16 @@ export default function Button({
     ? (elevation && KELEV[elevation] ? KELEV[elevation] : null)
     : (T.elev ? KELEV[T.elev] : null);
 
+  // minHeight, NOT height. The app respects the OS text-size setting with no
+  // cap, so a fixed height clips the label the moment a user turns text up —
+  // and these are 36/44/52, i.e. exactly one line of the default label. minHeight
+  // preserves the tap target at default scale and lets the button grow instead
+  // of truncating. An explicit `height` prop still wins, for zero-delta
+  // migrations of a screen that genuinely needs the old fixed box.
   const frame = {
-    height: isLink && height == null ? undefined : (height != null ? height : S.height),
+    ...(height != null
+      ? { height }
+      : (isLink ? null : { minHeight: S.minH, paddingVertical: KSPACE.s6 })),
     paddingHorizontal: isLink ? 0 : (paddingHorizontal != null ? paddingHorizontal : S.px),
     borderRadius: isLink ? 0 : r,
     backgroundColor: T.bg,
