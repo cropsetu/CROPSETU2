@@ -18,26 +18,26 @@ import {
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { tc } from '../../data/contentI18n';
 import { getCropGuide } from '../../data/cropGuide';
+import { STAGE_RAMP, STAGE_RAMP_INK, SECTION_TINTS } from '@cropsetu/shared/constants/dataPalette';
 
-// Forest-green → gold progression for the growth-stage timeline.
-const STAGE_COLORS = ['#0E5C2B', '#176B3A', '#1F8A45', '#2E9B53', '#4BAE66', '#74C58A', '#C9A227', KHET.gold];
-
-// Per-section accent tints (kept green/gold-leaning to match the Login look).
-const TINT = {
-  about: KHET.primary, varieties: KHET.gold, soil: KHET.primaryGlow, seed: '#1F8A45',
-  fert: '#0A8F6E', water: '#2E90C9', pests: KHET.destructive, dis: '#B8431F',
-  harvest: KHET.gold, market: '#C8922A', dd: KHET.primary,
-};
+// The stage ramp and section tints are DATA, not theme — see the header of
+// shared/constants/dataPalette.js for why they live outside KHET.
+const STAGE_COLORS = STAGE_RAMP;
+const TINT = SECTION_TINTS;
 
 function StageCard({ stage, index, total, isActive, t, language }) {
-  const color = STAGE_COLORS[index % STAGE_COLORS.length];
+  const step = index % STAGE_COLORS.length;
+  const color = STAGE_COLORS[step];
+  // Ink is per-step, not always white: six of the eight ramp colours fail WCAG
+  // AA behind white text (the gold end sits at 2.03:1). See dataPalette.js.
+  const onColor = STAGE_RAMP_INK[step];
   const progressPct = ((index + 1) / total) * 100;
 
   return (
     <View style={styles.stageWrapper}>
       <View style={styles.timelineCol}>
         <View style={[styles.timelineDot, { backgroundColor: color }, isActive && styles.timelineDotActive]}>
-          <Text style={styles.timelineDotNum}>{index + 1}</Text>
+          <Text style={[styles.timelineDotNum, { color: onColor }]}>{index + 1}</Text>
         </View>
         {index < total - 1 && <View style={styles.timelineLine} />}
       </View>
@@ -49,7 +49,7 @@ function StageCard({ stage, index, total, isActive, t, language }) {
             {language !== 'en' && <Text style={styles.stageNameHi}>{tc(stage.name, language)}</Text>}
           </View>
           <View style={[styles.stageDayBadge, { backgroundColor: color }]}>
-            <Text style={styles.stageDayText}>{t('cropDetail.dayLabel')} {stage.day}</Text>
+            <Text style={[styles.stageDayText, { color: onColor }]}>{t('cropDetail.dayLabel')} {stage.day}</Text>
           </View>
         </View>
 
@@ -113,9 +113,9 @@ export default function CropDetail({ route }) {
           <SummaryCard icon="calendar" tint={KHET.primary} value={crop.sowingMonth} label={t('cropDetail.bestSowingTime')} />
           <SummaryCard icon="time" tint={KHET.gold} value={crop.duration} label={t('cropDetail.totalDuration')} />
           <SummaryCard icon="cut" tint={KHET.primaryGlow} value={crop.harvestMonth} label={t('cropDetail.harvestTime')} />
-          <SummaryCard icon="water" tint="#2E90C9" value={crop.waterNeeded ? crop.waterNeeded.split('(')[0] : t('cropDetail.varies')} label={t('cropDetail.waterNeeded')} />
+          <SummaryCard icon="water" tint={TINT.water} value={crop.waterNeeded ? crop.waterNeeded.split('(')[0] : t('cropDetail.varies')} label={t('cropDetail.waterNeeded')} />
           <SummaryCard icon="thermometer" tint={KHET.destructive} value={crop.idealTemp} label={t('cropDetail.idealTemperature')} />
-          <SummaryCard icon="layers" tint="#A6792E" value={crop.soilType} label={t('cropDetail.bestSoil')} />
+          <SummaryCard icon="layers" tint={TINT.soilBrown} value={crop.soilType} label={t('cropDetail.bestSoil')} />
         </View>
 
         {/* ── Crop documentation (encyclopedia) ────────────────────────────── */}
@@ -386,7 +386,7 @@ const styles = StyleSheet.create({
   timelineCol: { width: 32, alignItems: 'center' },
   timelineDot: { ...circle(32), justifyContent: 'center', alignItems: 'center' },
   timelineDotActive: { ...circle(36), borderWidth: 3, borderColor: KHET.gold },
-  timelineDotNum: { ...noLead(KTYPE.labelBold), color: KHET.white },
+  timelineDotNum: { ...noLead(KTYPE.labelBold) },  // colour supplied per stage step
   timelineLine: { flex: 1, width: 2, backgroundColor: KHET.border, marginVertical: KSPACE.s4, minHeight: 20 },
 
   stageCard: { flex: 1, backgroundColor: KHET.card, borderRadius: KRADIUS.r16, padding: KSPACE.s14, borderWidth: 1, borderColor: KHET.border, ...KELEV.e3 },
@@ -394,7 +394,7 @@ const styles = StyleSheet.create({
   stageName: { ...noLead(KTYPE.subhead), color: KHET.foreground },
   stageNameHi: { fontSize: 12, fontFamily: KFONT.sans, color: KHET.mutedForeground, marginTop: KSPACE.s3 },
   stageDayBadge: { borderRadius: 9, paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s4 },
-  stageDayText: { fontSize: 12, fontFamily: KFONT.sansSemi, color: KHET.white },
+  stageDayText: { fontSize: 12, fontFamily: KFONT.sansSemi },  // colour supplied per stage step
   stageDurationRow: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, marginBottom: KSPACE.s10 },
   stageDuration: { fontSize: 12, fontFamily: KFONT.sans, color: KHET.mutedForeground },
   stageTip: { flexDirection: 'row', gap: KSPACE.s8, backgroundColor: KHET.secondary, borderRadius: KRADIUS.r12, padding: KSPACE.s10, marginBottom: KSPACE.s10 },
