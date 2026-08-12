@@ -17,7 +17,6 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { SoundEffects } from '@cropsetu/shared/utils/sounds';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 
-const W      = Dimensions.get('window').width;
 
 // ── Celebratory colourful success badge (gradient green disc + white tick + gold sparkles) ──
 function SuccessCheck({ size = 88 }) {

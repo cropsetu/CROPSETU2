@@ -53,6 +53,8 @@ export default function Header({
   title,
   subtitle,
   titleRole = 'title',
+  titleLines = 2,
+  subtitleLines = 2,
   subtitleRole = 'bodySm',
   onBack,
   backIcon = 'arrow-back',
@@ -127,7 +129,7 @@ export default function Header({
         <Text
           role={titleRole}
           color={ink}
-          numberOfLines={1}
+          numberOfLines={titleLines}
           align={align === 'center' ? 'center' : undefined}
           style={titleStyle}
         >
@@ -138,7 +140,7 @@ export default function Header({
         <Text
           role={subtitleRole}
           color={inkDim}
-          numberOfLines={1}
+          numberOfLines={subtitleLines}
           align={align === 'center' ? 'center' : undefined}
           style={styles.sub}
         >

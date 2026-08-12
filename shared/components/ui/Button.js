@@ -60,6 +60,8 @@ const TONES = {
  *   full        stretch to the container width
  *   radius      override the size's radius (number or KRADIUS key)
  *   pill        shorthand for radius={KRADIUS.pill}
+ *   titleLines  max label lines (default 2 — the button GROWS rather than
+ *               truncating when the OS text size is turned up; pass 1 to pin it)
  *   height/paddingHorizontal   exact overrides, for zero-delta migrations
  * />
  */
@@ -77,6 +79,7 @@ export default function Button({
   radius,
   pill = false,
   height,
+  titleLines = 2,
   paddingHorizontal,
   elevation,
   lead = false,
@@ -147,7 +150,7 @@ export default function Button({
             role={textRole || S.role}
             lead={lead}
             color={T.ink}
-            numberOfLines={1}
+            numberOfLines={titleLines}
             style={textStyle}
           >
             {label}

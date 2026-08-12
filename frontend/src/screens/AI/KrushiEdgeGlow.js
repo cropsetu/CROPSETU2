@@ -14,7 +14,6 @@ import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated, Dimensions, Easing } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const { width: W, height: H } = Dimensions.get('window');
 const EDGE = 130;   // how far the bloom reaches inward from each edge
 
 // Two-stop gradient per state (outer → transparent inward).
