@@ -12,7 +12,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KHET, KFONT, KSHADOW } from '@cropsetu/shared/constants/khetTheme';
+import {
+  KHET, KFONT, KSPACE, KGUTTER, KRADIUS, KELEV, KTYPE, noLead, circle, withAlpha,
+} from '@cropsetu/shared/constants/khetTheme';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { tc } from '../../data/contentI18n';
 import { getCropGuide } from '../../data/cropGuide';
@@ -93,7 +95,7 @@ export default function CropDetail({ route }) {
           colors={KHET.gradPrimary}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[styles.hero, { paddingTop: insets.top + 18 }]}
+          style={[styles.hero, { paddingTop: insets.top + KSPACE.s18 }]}
         >
           <View style={styles.heroEmojiWrap}>
             <Text style={styles.cropIcon}>{crop.icon}</Text>
@@ -101,7 +103,7 @@ export default function CropDetail({ route }) {
           <Text style={styles.cropName}>{crop.name}</Text>
           {language !== 'en' && <Text style={styles.cropNameHi}>{tc(crop.name, language)}</Text>}
           <View style={styles.seasonPill}>
-            <Ionicons name="calendar" size={13} color="#fff" />
+            <Ionicons name="calendar" size={13} color={KHET.white} />
             <Text style={styles.seasonText}>{crop.season}</Text>
           </View>
         </LinearGradient>
@@ -121,7 +123,7 @@ export default function CropDetail({ route }) {
           <View style={styles.guideWrap}>
             <InfoSection icon="information-circle" tint={TINT.about} title={t('cropGuide.about', 'About this crop')}>
               <Text style={styles.gBody}>{guide.about}</Text>
-              {!!guide.uses && <Text style={[styles.gMeta, { marginTop: 8 }]}><Text style={styles.gMetaK}>{t('cropGuide.uses', 'Uses')}: </Text>{guide.uses}</Text>}
+              {!!guide.uses && <Text style={[styles.gMeta, { marginTop: KSPACE.s8 }]}><Text style={styles.gMetaK}>{t('cropGuide.uses', 'Uses')}: </Text>{guide.uses}</Text>}
             </InfoSection>
 
             {guide.varieties?.length > 0 && (
@@ -158,7 +160,7 @@ export default function CropDetail({ route }) {
 
             <InfoSection icon="water" tint={TINT.water} title={t('cropGuide.water', 'Water & weeding')}>
               <Text style={styles.gBody}>{guide.irrigation}</Text>
-              {!!guide.weed && <Text style={[styles.gMeta, { marginTop: 8 }]}><Text style={styles.gMetaK}>{t('cropGuide.weed', 'Weeds')}: </Text>{guide.weed}</Text>}
+              {!!guide.weed && <Text style={[styles.gMeta, { marginTop: KSPACE.s8 }]}><Text style={styles.gMetaK}>{t('cropGuide.weed', 'Weeds')}: </Text>{guide.weed}</Text>}
             </InfoSection>
 
             {guide.pests?.length > 0 && (
@@ -175,8 +177,8 @@ export default function CropDetail({ route }) {
 
             <InfoSection icon="cut" tint={TINT.harvest} title={t('cropGuide.harvestYield', 'Harvest & yield')}>
               <Text style={styles.gBody}>{guide.harvest}</Text>
-              {!!guide.yield && <Text style={[styles.gMeta, { marginTop: 8 }]}><Text style={styles.gMetaK}>{t('cropGuide.yield', 'Yield')}: </Text>{guide.yield}</Text>}
-              {!!guide.postHarvest && <Text style={[styles.gMeta, { marginTop: 8 }]}><Text style={styles.gMetaK}>{t('cropGuide.postHarvest', 'Post-harvest')}: </Text>{guide.postHarvest}</Text>}
+              {!!guide.yield && <Text style={[styles.gMeta, { marginTop: KSPACE.s8 }]}><Text style={styles.gMetaK}>{t('cropGuide.yield', 'Yield')}: </Text>{guide.yield}</Text>}
+              {!!guide.postHarvest && <Text style={[styles.gMeta, { marginTop: KSPACE.s8 }]}><Text style={styles.gMetaK}>{t('cropGuide.postHarvest', 'Post-harvest')}: </Text>{guide.postHarvest}</Text>}
             </InfoSection>
 
             {!!guide.marketTips && (
@@ -294,7 +296,7 @@ function Row({ k, v }) {
 
 function PdRow({ item, last, t }) {
   return (
-    <View style={[styles.pdRow, last && { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
+    <View style={[styles.pdRow, last && { borderBottomWidth: 0, marginBottom: KSPACE.s0, paddingBottom: KSPACE.s0 }]}>
       <Text style={styles.pdName}>{item.name}</Text>
       {!!item.symptom && <Text style={styles.pdLine}><Text style={styles.gMetaK}>{t('cropGuide.symptom', 'Symptom')}: </Text>{item.symptom}</Text>}
       {!!item.control && <Text style={styles.pdLine}><Text style={styles.gMetaK}>{t('cropGuide.control', 'Control')}: </Text>{item.control}</Text>}
@@ -307,97 +309,97 @@ const styles = StyleSheet.create({
 
   // Hero
   hero: {
-    alignItems: 'center', gap: 6, paddingHorizontal: 24, paddingBottom: 28,
-    borderBottomLeftRadius: 28, borderBottomRightRadius: 28, ...KSHADOW.elegant,
+    alignItems: 'center', gap: KSPACE.s6, paddingHorizontal: KSPACE.s24, paddingBottom: 28,
+    borderBottomLeftRadius: 28, borderBottomRightRadius: 28, ...KELEV.e4,
   },
   heroEmojiWrap: {
-    width: 84, height: 84, borderRadius: 42, marginBottom: 8,
-    backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.26)',
+    ...circle(84), marginBottom: KSPACE.s8,
+    backgroundColor: withAlpha(KHET.white, 0.16), borderWidth: 1, borderColor: withAlpha(KHET.white, 0.26),
     alignItems: 'center', justifyContent: 'center',
   },
   cropIcon: { fontSize: 46 },
-  cropName: { fontSize: 30, fontFamily: KFONT.displayBold, color: '#fff', letterSpacing: -0.4, textAlign: 'center' },
-  cropNameHi: { fontSize: 15, fontFamily: KFONT.sansMed, color: 'rgba(244,251,237,0.85)', marginTop: 2 },
+  cropName: { fontSize: 30, fontFamily: KFONT.displayBold, color: KHET.white, letterSpacing: -0.4, textAlign: 'center' },
+  cropNameHi: { fontSize: 15, fontFamily: KFONT.sansMed, color: withAlpha(KHET.primaryForeground, 0.85), marginTop: KSPACE.s2 },
   seasonPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8,
-    backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.24)',
-    borderRadius: 999, paddingHorizontal: 13, paddingVertical: 6,
+    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, marginTop: KSPACE.s8,
+    backgroundColor: withAlpha(KHET.white, 0.16), borderWidth: 1, borderColor: withAlpha(KHET.white, 0.24),
+    borderRadius: KRADIUS.pill, paddingHorizontal: 13, paddingVertical: KSPACE.s6,
   },
-  seasonText: { fontSize: 13, fontFamily: KFONT.sansSemi, color: '#fff' },
+  seasonText: { ...noLead(KTYPE.label), color: KHET.white },
 
   // Summary
-  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 16 },
+  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s10, padding: KSPACE.s16 },
   summaryCard: {
-    backgroundColor: KHET.card, borderRadius: 16, padding: 12, alignItems: 'center', gap: 5,
-    borderWidth: 1, borderColor: KHET.border, ...KSHADOW.soft, flexBasis: '30%', flexGrow: 1, minWidth: '29%',
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r16, padding: KSPACE.s12, alignItems: 'center', gap: 5,
+    borderWidth: 1, borderColor: KHET.border, ...KELEV.e3, flexBasis: '30%', flexGrow: 1, minWidth: '29%',
   },
-  summaryIcon: { width: 36, height: 36, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-  summaryValue: { fontSize: 13, fontFamily: KFONT.sansBold, color: KHET.foreground, textAlign: 'center' },
+  summaryIcon: { width: 36, height: 36, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: KSPACE.s2 },
+  summaryValue: { ...noLead(KTYPE.labelBold), color: KHET.foreground, textAlign: 'center' },
   summaryLabel: { fontSize: 10.5, fontFamily: KFONT.sans, color: KHET.mutedForeground, textAlign: 'center' },
 
   // Crop documentation
-  guideWrap: { paddingHorizontal: 16, paddingTop: 4 },
-  gSection: { backgroundColor: KHET.card, borderRadius: 18, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: KHET.border, ...KSHADOW.soft },
-  gSecHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 11 },
+  guideWrap: { paddingHorizontal: KGUTTER.base, paddingTop: KSPACE.s4 },
+  gSection: { backgroundColor: KHET.card, borderRadius: 18, padding: KSPACE.s16, marginBottom: KSPACE.s12, borderWidth: 1, borderColor: KHET.border, ...KELEV.e3 },
+  gSecHead: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s10, marginBottom: 11 },
   gSecIcon: { width: 34, height: 34, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   gSecTitle: { fontSize: 17, fontFamily: KFONT.displaySemi, color: KHET.foreground, letterSpacing: -0.2, flex: 1 },
-  gBody: { fontSize: 14, fontFamily: KFONT.sans, color: KHET.mutedForeground, lineHeight: 21 },
+  gBody: { ...noLead(KTYPE.body), color: KHET.mutedForeground, lineHeight: 21 },
   gMeta: { fontSize: 13.5, fontFamily: KFONT.sans, color: KHET.mutedForeground, lineHeight: 20 },
   gMetaK: { fontFamily: KFONT.sansBold, color: KHET.foreground },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  gChip: { backgroundColor: KHET.secondary, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, borderWidth: 1, borderColor: 'rgba(0,95,33,0.16)' },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s8 },
+  gChip: { backgroundColor: KHET.secondary, borderRadius: KRADIUS.pill, paddingHorizontal: 13, paddingVertical: 7, borderWidth: 1, borderColor: withAlpha(KHET.primary, 0.16) },
   gChipTxt: { fontSize: 12.5, fontFamily: KFONT.sansSemi, color: KHET.primary },
-  gKv: { flexDirection: 'row', marginBottom: 8, gap: 10 },
+  gKv: { flexDirection: 'row', marginBottom: KSPACE.s8, gap: KSPACE.s10 },
   gKvK: { fontSize: 12.5, fontFamily: KFONT.sansBold, color: KHET.foreground, width: 96 },
-  gKvV: { fontSize: 13, fontFamily: KFONT.sans, color: KHET.mutedForeground, flex: 1, lineHeight: 19 },
+  gKvV: { ...noLead(KTYPE.bodySm), color: KHET.mutedForeground, flex: 1, lineHeight: 19 },
   pdRow: { marginBottom: 11, paddingBottom: 11, borderBottomWidth: 1, borderBottomColor: KHET.border },
-  pdName: { fontSize: 14, fontFamily: KFONT.sansBold, color: KHET.foreground, marginBottom: 3 },
-  pdLine: { fontSize: 12.5, fontFamily: KFONT.sans, color: KHET.mutedForeground, lineHeight: 18, marginTop: 1 },
-  ddRow: { flexDirection: 'row', gap: 9, marginBottom: 8, alignItems: 'flex-start' },
-  ddDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: KHET.primary, marginTop: 7 },
+  pdName: { ...noLead(KTYPE.bodyBold), color: KHET.foreground, marginBottom: KSPACE.s3 },
+  pdLine: { fontSize: 12.5, fontFamily: KFONT.sans, color: KHET.mutedForeground, lineHeight: 18, marginTop: KSPACE.s1 },
+  ddRow: { flexDirection: 'row', gap: 9, marginBottom: KSPACE.s8, alignItems: 'flex-start' },
+  ddDot: { ...circle(6), backgroundColor: KHET.primary, marginTop: 7 },
 
   // Timeline
-  timelineSection: { paddingHorizontal: 16, paddingTop: 6 },
+  timelineSection: { paddingHorizontal: KGUTTER.base, paddingTop: KSPACE.s6 },
   sectionTitle: { fontSize: 22, fontFamily: KFONT.displayBold, color: KHET.foreground, letterSpacing: -0.4 },
-  sectionSub: { fontSize: 13, fontFamily: KFONT.sans, color: KHET.mutedForeground, marginTop: 4, marginBottom: 16 },
+  sectionSub: { ...noLead(KTYPE.bodySm), color: KHET.mutedForeground, marginTop: KSPACE.s4, marginBottom: KSPACE.s16 },
 
-  stageSelector: { marginBottom: 16 },
-  stageSelectorScroll: { gap: 8 },
-  stageSelectorChip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 999, backgroundColor: KHET.card, borderWidth: 1.5, borderColor: KHET.border },
+  stageSelector: { marginBottom: KSPACE.s16 },
+  stageSelectorScroll: { gap: KSPACE.s8 },
+  stageSelectorChip: { paddingVertical: KSPACE.s8, paddingHorizontal: KSPACE.s14, borderRadius: KRADIUS.pill, backgroundColor: KHET.card, borderWidth: 1.5, borderColor: KHET.border },
   stageSelectorChipActive: { backgroundColor: KHET.primary, borderColor: KHET.primary },
-  stageSelectorText: { fontSize: 13, fontFamily: KFONT.sansSemi, color: KHET.mutedForeground },
-  stageSelectorTextActive: { color: '#fff' },
+  stageSelectorText: { ...noLead(KTYPE.label), color: KHET.mutedForeground },
+  stageSelectorTextActive: { color: KHET.white },
 
-  activeStageDetail: { borderRadius: 18, padding: 16, marginBottom: 22, backgroundColor: KHET.muted, borderWidth: 1, borderColor: KHET.border, ...KSHADOW.soft },
-  activeStageHeader: { marginBottom: 12 },
+  activeStageDetail: { borderRadius: 18, padding: KSPACE.s16, marginBottom: 22, backgroundColor: KHET.muted, borderWidth: 1, borderColor: KHET.border, ...KELEV.e3 },
+  activeStageHeader: { marginBottom: KSPACE.s12 },
   activeStageName: { fontSize: 18, fontFamily: KFONT.displaySemi, color: KHET.foreground },
-  activeStageHi: { fontSize: 14, fontFamily: KFONT.sansMed, color: KHET.mutedForeground, marginTop: 3 },
-  activeStageStats: { flexDirection: 'row', gap: 20, marginBottom: 14 },
-  activeStatItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  activeStatLabel: { fontSize: 13, fontFamily: KFONT.sans, color: KHET.mutedForeground },
-  activeStatValue: { fontSize: 16, fontFamily: KFONT.sansExtra, color: KHET.primary },
-  tipBox: { flexDirection: 'row', gap: 10, backgroundColor: KHET.white, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: KHET.border },
+  activeStageHi: { fontSize: 14, fontFamily: KFONT.sansMed, color: KHET.mutedForeground, marginTop: KSPACE.s3 },
+  activeStageStats: { flexDirection: 'row', gap: KSPACE.s20, marginBottom: KSPACE.s14 },
+  activeStatItem: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8 },
+  activeStatLabel: { ...noLead(KTYPE.bodySm), color: KHET.mutedForeground },
+  activeStatValue: { ...noLead(KTYPE.subheadingExtra), color: KHET.primary },
+  tipBox: { flexDirection: 'row', gap: KSPACE.s10, backgroundColor: KHET.white, borderRadius: KRADIUS.r14, padding: KSPACE.s12, borderWidth: 1, borderColor: KHET.border },
   tipBoxText: { flex: 1, fontSize: 13.5, fontFamily: KFONT.sans, color: KHET.foreground, lineHeight: 20 },
 
-  timeline: { paddingBottom: 10 },
-  stageWrapper: { flexDirection: 'row', gap: 14, marginBottom: 16 },
+  timeline: { paddingBottom: KSPACE.s10 },
+  stageWrapper: { flexDirection: 'row', gap: KSPACE.s14, marginBottom: KSPACE.s16 },
   timelineCol: { width: 32, alignItems: 'center' },
-  timelineDot: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
-  timelineDotActive: { width: 36, height: 36, borderRadius: 18, borderWidth: 3, borderColor: KHET.gold },
-  timelineDotNum: { fontSize: 13, fontFamily: KFONT.sansBold, color: '#fff' },
-  timelineLine: { flex: 1, width: 2, backgroundColor: KHET.border, marginVertical: 4, minHeight: 20 },
+  timelineDot: { ...circle(32), justifyContent: 'center', alignItems: 'center' },
+  timelineDotActive: { ...circle(36), borderWidth: 3, borderColor: KHET.gold },
+  timelineDotNum: { ...noLead(KTYPE.labelBold), color: KHET.white },
+  timelineLine: { flex: 1, width: 2, backgroundColor: KHET.border, marginVertical: KSPACE.s4, minHeight: 20 },
 
-  stageCard: { flex: 1, backgroundColor: KHET.card, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: KHET.border, ...KSHADOW.soft },
-  stageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
-  stageName: { fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.foreground },
-  stageNameHi: { fontSize: 12, fontFamily: KFONT.sans, color: KHET.mutedForeground, marginTop: 3 },
-  stageDayBadge: { borderRadius: 9, paddingHorizontal: 10, paddingVertical: 4 },
-  stageDayText: { fontSize: 12, fontFamily: KFONT.sansSemi, color: '#fff' },
-  stageDurationRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  stageCard: { flex: 1, backgroundColor: KHET.card, borderRadius: KRADIUS.r16, padding: KSPACE.s14, borderWidth: 1, borderColor: KHET.border, ...KELEV.e3 },
+  stageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: KSPACE.s8 },
+  stageName: { ...noLead(KTYPE.subhead), color: KHET.foreground },
+  stageNameHi: { fontSize: 12, fontFamily: KFONT.sans, color: KHET.mutedForeground, marginTop: KSPACE.s3 },
+  stageDayBadge: { borderRadius: 9, paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s4 },
+  stageDayText: { fontSize: 12, fontFamily: KFONT.sansSemi, color: KHET.white },
+  stageDurationRow: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, marginBottom: KSPACE.s10 },
   stageDuration: { fontSize: 12, fontFamily: KFONT.sans, color: KHET.mutedForeground },
-  stageTip: { flexDirection: 'row', gap: 8, backgroundColor: KHET.secondary, borderRadius: 12, padding: 10, marginBottom: 10 },
-  stageTipText: { flex: 1, fontSize: 13, fontFamily: KFONT.sans, color: KHET.secondaryForeground, lineHeight: 18 },
-  stageProgressBar: { height: 5, backgroundColor: KHET.muted, borderRadius: 3, overflow: 'hidden', marginBottom: 4 },
+  stageTip: { flexDirection: 'row', gap: KSPACE.s8, backgroundColor: KHET.secondary, borderRadius: KRADIUS.r12, padding: KSPACE.s10, marginBottom: KSPACE.s10 },
+  stageTipText: { flex: 1, ...KTYPE.bodySm, color: KHET.secondaryForeground },
+  stageProgressBar: { height: 5, backgroundColor: KHET.muted, borderRadius: 3, overflow: 'hidden', marginBottom: KSPACE.s4 },
   stageProgressFill: { height: '100%', borderRadius: 3 },
   stageProgressLabel: { fontSize: 11, fontFamily: KFONT.sans, color: KHET.mutedForeground },
 });

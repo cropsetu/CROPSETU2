@@ -136,10 +136,17 @@ export const KSHADOW = {
 // ── PREFERRED SUBSET FOR NEW CODE ────────────────────────────────────────────
 // The full ladders exist to make the migration diff empty. When writing NEW
 // screens, reach only for:
-//   KSPACE   s4 · s8 · s12 · s16 · s24 · s32 · s48
+//   KSPACE   s4 · s8 · s10 · s12 · s16 · s24 · s32 · s48
 //   KRADIUS  r12 (controls) · r14 (surfaces) · r20 (large) · pill
 //   KTYPE    meta · caption · bodySm · body · subhead · button · title · titleLg
+//   KICON    sm · base · md · lg
+//   KBORDER  hairline · selected
 // Everything else is a migration target, not a design choice.
+//
+// (s10 was missing from this list in the first draft — an error, since the
+// KSPACE comment two blocks down correctly calls it a co-dominant row gap. It is
+// the second most used step in the app; excluding it would have forced 429
+// declarations off the preferred path for no reason.)
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ── Spacing ──────────────────────────────────────────────────────────────────
@@ -199,9 +206,17 @@ export const KRADIUS = {
   r12:  12,   // controls — things you touch  ← preferred
   r14:  14,   // surfaces — things you read  ← preferred
   r16:  16,   // large content surfaces, chat bubbles
+  r18:  18,   // the LARGE card tier — see the three-tier note below
   r20:  20,   // large action buttons, hero cards, sheets  ← preferred
+  r28:  28,   // the hero sweep: the bottom corners of a gradient page header
   pill: 999,  // pills AND circles — RN clamps to half the shorter side
 };
+// Why r18 and r28 exist, when a tidier ladder would stop at r20:
+// The CropDetail pilot found the app runs a THREE-tier card ladder — 14 nested,
+// 16 standard, 18 large — and that the gradient hero's 28px bottom sweep is the
+// single most visible shape on a page. Both were 8px and 2px from the nearest
+// step respectively, and rounding them was the largest visual delta the whole
+// migration would have caused. They are chrome geometry, not content rhythm.
 
 // ── Elevation ────────────────────────────────────────────────────────────────
 // Four downward tiers plus an upward variant for bottom sheets. e1–e4 each carry
@@ -248,9 +263,14 @@ export const KELEV = {
 // two together are actively destructive: naming a custom fontFamily AND a
 // fontWeight >= 700 makes Android look for a font file that was never
 // registered, fail, and fall back to system Roboto — throwing the brand face
-// away entirely. 52 style blocks in the app do exactly this today. Weight is
+// away entirely. 57 style blocks across 8 files do exactly this today. Weight is
 // carried by the family name here (sansBold, sansExtra); never add fontWeight
 // alongside one of these roles.
+//
+// IMPORTANT — the inverse is NOT a bug: 632 blocks set fontWeight with NO
+// fontFamily, which is legitimate system-font styling and renders correctly on
+// both platforms. Only the PAIRING is harmful, so never strip fontWeight
+// wholesale; strip it only where a custom family is also named.
 //
 // Leading is the one genuinely risky part of adopting this: 1,219 of 1,375
 // fontSize blocks currently inherit RN's platform- and font-dependent default,
@@ -304,6 +324,41 @@ export const KTYPE = {
   figureMd:    { fontSize: 32, lineHeight: 36, fontFamily: KFONT.displayBold, letterSpacing: -0.8 },
   figureLg:    { fontSize: 44, lineHeight: 48, fontFamily: KFONT.displayBold, letterSpacing: -1.2 },
   figureXl:    { fontSize: 56, lineHeight: 60, fontFamily: KFONT.displayBold, letterSpacing: -1.6 },
+};
+
+// ── Icon sizes ───────────────────────────────────────────────────────────────
+// The largest untokenised numeric family in the app: 700+ `size={n}` props on
+// Ionicons and friends. Measured modes are 16 (129 uses), 18 (85), 22 (78),
+// 14 (78), 20 (62), 13 (60), 12 (44), 15 (43), 11 (40), 48 (23), 24 (22).
+//
+// This ladder is deliberately TIGHTER than KSPACE's, and the reason is
+// perceptual rather than statistical: moving a container 1px shifts everything
+// after it, but moving a GLYPH 1px is invisible. So the odd sizes fold into
+// their neighbour (11/13 → 12/14, 15/17 → 16/18) at no visible cost, where the
+// same collapse in spacing would have been unacceptable.
+//
+// Preferred for new work: sm · base · md · lg.
+export const KICON = {
+  xs:   12,   // dense badge and chip glyphs
+  sm:   14,   // inline with caption / bodySm
+  base: 16,   // THE default — inline with body, list-row leading icon  ← preferred
+  md:   18,   // header actions, list-row chevron  ← preferred
+  lg:   20,   // primary action icons  ← preferred
+  xl:   22,   // tab bar, prominent affordances
+  xxl:  24,   // hero actions, large tiles
+  hero: 48,   // empty-state and onboarding illustrations
+};
+
+// ── Border widths ────────────────────────────────────────────────────────────
+// 509 borderWidth declarations with no scale. The values are not noise — they
+// are a 4-step EMPHASIS ladder: resting hairline (1, 269 uses), chip//selected
+// affordance (1.5, 99), active selection (2, 27), focus ring (3, 4). The
+// stragglers (1.2 ×20, 0.5 ×3, 2.5 ×2) fold into their neighbour invisibly.
+export const KBORDER = {
+  hairline: 1,     // every resting card, chip and tile edge
+  chip:     1.5,   // chips and tiles that read as tappable
+  selected: 2,     // the currently-chosen option
+  ring:     3,     // focus / emphasis ring
 };
 
 // ── Inter bridge (TEMPORARY) ─────────────────────────────────────────────────
@@ -361,16 +416,43 @@ export const circle = (size) => ({ width: size, height: size, borderRadius: size
  * A KHET hex at partial opacity — for scrims, overlays and pressed states.
  *     withAlpha(KHET.foreground, 0.55)
  *
- * HEX ONLY (#rgb, #rrggbb, #rrggbbaa). Anything else throws rather than
- * returning a colour: parseInt() on a non-hex string yields NaN, which would
- * silently render opaque BLACK — and the gradHero tokens 250 lines above are
- * rgba() strings, so this is a mistake worth making loud.
+ * Accepts hex (#rgb, #rrggbb, #rrggbbaa) OR an existing rgb()/rgba() string, so
+ * it works on the gradHero tokens defined above as well as on flat colours.
+ *
+ * The alpha may be a 0-1 float, a 0-255 integer, or a 2-digit hex string —
+ * because the codebase's existing idiom is suffix concatenation (`tint + '18'`,
+ * `tint + '3A'`), which only works on 6-digit hex and silently produces garbage
+ * on anything else. Accepting '18' directly gives those 4 call sites a safe
+ * translation instead of a rewrite.
+ *
+ * Anything genuinely unparseable throws rather than returning a colour: a silent
+ * fallback here renders opaque BLACK, which is a mistake worth making loud.
  */
-export const withAlpha = (hex, a) => {
-  const m = typeof hex === 'string' && /^#?([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex.trim());
-  if (!m) throw new TypeError(`withAlpha expects a hex colour, got ${JSON.stringify(hex)}`);
+export const withAlpha = (color, a) => {
+  // Normalise alpha: '3A' -> 0.227, 128 -> 0.502, 0.5 -> 0.5
+  let alpha;
+  if (typeof a === 'string') {
+    const t = a.trim().replace(/^#/, '');
+    if (!/^[0-9a-f]{2}$/i.test(t)) throw new TypeError(`withAlpha: bad hex alpha ${JSON.stringify(a)}`);
+    alpha = parseInt(t, 16) / 255;
+  } else if (typeof a === 'number' && Number.isFinite(a)) {
+    alpha = a > 1 ? a / 255 : a;
+  } else {
+    throw new TypeError(`withAlpha: bad alpha ${JSON.stringify(a)}`);
+  }
+  alpha = Math.round(Math.min(1, Math.max(0, alpha)) * 1000) / 1000;
+
+  if (typeof color !== 'string') throw new TypeError(`withAlpha: bad colour ${JSON.stringify(color)}`);
+  const c = color.trim();
+
+  // Existing rgb()/rgba() — swap the alpha, keep the channels.
+  const rgb = /^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)/i.exec(c);
+  if (rgb) return `rgba(${+rgb[1]}, ${+rgb[2]}, ${+rgb[3]}, ${alpha})`;
+
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(c);
+  if (!m) throw new TypeError(`withAlpha expects a hex or rgb() colour, got ${JSON.stringify(color)}`);
   const h = m[1];
-  const f = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const f = h.length === 3 ? h.split('').map((x) => x + x).join('') : h;
   const n = parseInt(f.slice(0, 6), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 };
