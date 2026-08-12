@@ -34,6 +34,39 @@ export const KHET = {
   // --gradient-hero: 180deg, transparent -> dark -> very dark (overlay on hero img)
   gradHero:      ['rgba(0,36,3,0)', 'rgba(0,36,3,0.55)', 'rgba(0,24,3,0.96)'],
   gradHeroLocs:  [0, 0.45, 1],
+
+  // ── Status roles ───────────────────────────────────────────────────────────
+  // ADDED after the original auth-only palette: KHET had `destructive` and
+  // nothing else, so screens invented their own greens, ambers and reds. Every
+  // ink below is >= 4.5:1 (WCAG AA for normal text) on ALL THREE of its
+  // surfaces — card #ffffff, background #f9fdf6, and its own tint — so a badge,
+  // an inline message and a plain label can all use the same token safely.
+  //
+  //   *Ink*  = text and icons.   *Bg* = the tinted surface behind them.
+  //
+  // Note `successInk` is close in hue to `primary`: in a forest-green app green
+  // alone cannot carry "this succeeded". Always pair it with an icon or a word.
+  successInk:     '#0a7d0a',  // 5.32 on card · 5.17 on bg · 4.67 on successBg
+  successBg:      '#e6f4e6',
+  warningInk:     '#8a6100',  // 5.54 · 5.38 · 4.90
+  warningBg:      '#fbf0d8',
+  infoInk:        '#0d6aa8',  // 5.76 · 5.60 · 4.97
+  infoBg:         '#e3f0f9',
+  // `destructive` (#df2225) stays exactly as it was — it is the SURFACE/border
+  // red and 573 references depend on it. As TEXT on destructiveBg it only makes
+  // 4.07:1, so text uses destructiveInk instead.
+  destructiveInk: '#b3231f',  // 6.61 · 6.42 · 5.63
+  destructiveBg:  '#fde8e8',
+  // Ink for text sitting ON the gold badge. White on gold is 2.03:1 — a real
+  // AA failure that shipped; this warm near-black makes 8.11:1.
+  goldForeground: '#2b1d00',
+  // Gold used AS TEXT. `gold` itself is a SURFACE/icon colour: on a white card it
+  // is also 2.03:1, so any gold label, price or heading needs this darker step
+  // (5.54:1) instead. Same hue family, legible.
+  goldInk:        '#8a6100',
+  // Links: deliberately blue, because in a screen this green nothing else reads
+  // as "tap this text".
+  link:           '#0d6aa8',
 };
 
 // ── Fonts (loaded in App.js via @expo-google-fonts) ──────────────────────────

@@ -751,13 +751,13 @@ const S = StyleSheet.create({
   bsImgWrap:   { height: 110, backgroundColor: KHET.secondary, position: 'relative' },
   bsImg:       { width: '100%', height: '100%' },
   bsDiscLeft:  { position: 'absolute', top: 8, left: 8, backgroundColor: KHET.gold, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
-  bsDiscTxt:   { color: COLORS.white, fontSize: 9, fontFamily: KFONT.sansBold },
+  bsDiscTxt:   { color: KHET.goldForeground, fontSize: 9, fontFamily: KFONT.sansBold },
   bsBody:      { padding: 10, gap: 4 },
   bsName:      { fontSize: 12, fontFamily: KFONT.sansSemi, color: KHET.foreground, lineHeight: 16, minHeight: 32 },
   bsRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   bsRatingTxt: { fontSize: 10, color: KHET.mutedForeground, fontFamily: KFONT.sans },
   bsFooter:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-  bsPrice:     { fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.gold },
+  bsPrice:     { fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.goldInk },
   bsAddBtn:    { width: 28, height: 28, borderRadius: 14, backgroundColor: KHET.primary, justifyContent: 'center', alignItems: 'center' },
 
   // ── Product grid ──
@@ -768,7 +768,7 @@ const S = StyleSheet.create({
   gridImgGrad:       { position: 'absolute', bottom: 0, left: 0, right: 0, height: 50 },
   wishBtn:           { position: 'absolute', top: 8, left: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.9)', justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.black, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
   gridDiscRight:     { position: 'absolute', top: 8, right: 8, backgroundColor: KHET.gold, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
-  gridDiscTxt:       { color: COLORS.white, fontSize: 9, fontFamily: KFONT.sansBold },
+  gridDiscTxt:       { color: KHET.goldForeground, fontSize: 9, fontFamily: KFONT.sansBold },
   gridRatingBadge:   { position: 'absolute', bottom: 6, right: 8, flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   gridRatingBadgeTxt:{ color: COLORS.white, fontSize: 9, fontFamily: KFONT.sansSemi },
   // Stock urgency badge — bottom-left of the image, sits opposite the rating chip.
@@ -779,7 +779,7 @@ const S = StyleSheet.create({
   gridBody:          { padding: 10, gap: 4 },
   gridName:          { fontSize: 13.5, fontFamily: KFONT.sansSemi, color: KHET.foreground, lineHeight: 18, minHeight: 36 },
   gridPriceRow:      { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
-  gridPrice:     { fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.gold },
+  gridPrice:     { fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.goldInk },
   gridMrp:       { fontSize: 10, color: KHET.mutedForeground, textDecorationLine: 'line-through', fontFamily: KFONT.sans },
   addToCartBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: KHET.primary, borderRadius: 12, paddingVertical: 10, marginTop: 4, ...KSHADOW.soft },
   addToCartTxt:  { color: KHET.primaryForeground, fontSize: 12, fontFamily: KFONT.sansSemi },
