@@ -163,8 +163,16 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   gridCell: {
-    flexBasis: '31.5%',
+    // 30%, not 31.5%: with gap:10 the row needs 3*basis + 2*10 to fit a
+    // (screen - 2*CS.base) container. At 31.5% that is 333.7dp against a 332dp
+    // container at 360 — and 362.1 against 362 at the 390 design base, missing
+    // by 0.1dp. This "3-column grid" has therefore never rendered as three
+    // columns on any device. flexGrow then expands the cells to fill the row,
+    // so they still meet the right edge.
+    flexBasis: '30%',
     flexGrow: 1,
-    minWidth: 104,
+    // 104 was itself the binding constraint: 3*104 + 20 = 332, exactly the
+    // container, so sub-pixel rounding alone forced the wrap.
+    minWidth: 96,
   },
 });

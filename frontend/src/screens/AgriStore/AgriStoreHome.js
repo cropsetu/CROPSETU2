@@ -723,14 +723,14 @@ const S = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 15, color: KHET.foreground, padding: 0, fontFamily: KFONT.sansMed },
 
   // ── Category pills ──
-  pillsWrap:     { backgroundColor: KHET.muted, height: 66 },
+  pillsWrap:     { backgroundColor: KHET.muted, minHeight: 66 },
   pillsRow:      { paddingHorizontal: 12, paddingVertical: 10, gap: 8, alignItems: 'center' },
   pill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingLeft: 6, paddingRight: 12, paddingVertical: 6,
     borderRadius: 50, backgroundColor: KHET.secondary,
     borderWidth: 1.5, borderColor: KHET.border,
-    height: 40,
+    minHeight: 40,
   },
   pillActive:    { backgroundColor: KHET.primary, borderColor: KHET.primary },
   pillIcon:      { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
