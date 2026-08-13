@@ -17,6 +17,24 @@ import { resetRateLimitStore } from '../../src/middleware/rateLimit.js';
 import { resetOtpLockoutStore } from '../../src/services/otpLockout.service.js';
 import { signAccessToken } from '../../src/utils/jwt.js';
 
+// ── Guard: never run against a non-test database ─────────────────────────────
+// cleanupTestData() below deletes EVERY row in ~20 tables, users included. If
+// DATABASE_URL points at a dev or production database that wipe destroys real
+// accounts — the developer is thrown back to signup + onboarding on the next app
+// launch. fixtures/jest.env.js redirects the URL to `<db>_test`; this is the
+// backstop for anything that bypasses it (a stray runner, a hand-set env var).
+// Checked at import time so a mis-pointed suite fails before it writes anything.
+{
+  const dbName = /^[^?]*\/([^/?]*)/.exec(process.env.DATABASE_URL || '')?.[1];
+  if (!dbName || !dbName.endsWith('_test')) {
+    throw new Error(
+      `[tests] Refusing to run against database "${dbName || '(unset)'}" — the suite ` +
+      `deletes every user, order and listing when it finishes. Point DATABASE_URL ` +
+      `at a database whose name ends in "_test".`,
+    );
+  }
+}
+
 // ── App import ───────────────────────────────────────────────────────────────
 let _app;
 export async function getApp() {
@@ -73,7 +91,15 @@ export async function createTestCategory(overrides = {}) {
 }
 
 /**
- * Create a product in the DB.
+ * Create a PRE-SPLIT fused product — catalog identity and one seller's offer on
+ * a single row, with no variants. This is what every row looked like before the
+ * catalog split, so it is exactly the shape the DUAL-READ paths must keep
+ * serving until the backfill runs. New tests should use
+ * createTestCatalogProduct + createTestListing instead.
+ *
+ * `status: 'APPROVED'` is explicit: the schema default is PENDING_QC (new
+ * seller-proposed entries queue for review), but a legacy fused row is by
+ * definition already live — the expand migration backfills exactly this value.
  */
 export async function createTestProduct(sellerId, categoryId, overrides = {}) {
   return prisma.product.create({
@@ -85,9 +111,53 @@ export async function createTestProduct(sellerId, categoryId, overrides = {}) {
       sellerId,
       categoryId,
       isActive: true,
+      status: 'APPROVED',
       images: [],
       tags: [],
       sellScope: 'district',
+      ...overrides,
+    },
+  });
+}
+
+// ── Catalog split fixtures ───────────────────────────────────────────────────
+/**
+ * A CATALOG product — identity only. No price, no stock, no seller: those live
+ * on the offer. Defaults to APPROVED so it is publicly visible; pass
+ * { status: 'PENDING_QC' } to test the QC gate.
+ */
+export async function createTestCatalogProduct(categoryId, overrides = {}) {
+  const { normalizeProductKey } = await import('../../src/services/catalogMatch.service.js');
+  const name = overrides.name || `Test Catalog Product ${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+  const { variants, ...rest } = overrides;
+  return prisma.product.create({
+    data: {
+      name,
+      categoryId,
+      status: 'APPROVED',
+      images: [], tags: [], highlights: [],
+      normalizedKey: normalizeProductKey({
+        categoryId, brand: overrides.brand, manufacturer: overrides.manufacturer, name,
+      }),
+      ...rest,
+      variants: { create: variants || [{ unit: 'packet', attributes: { packSize: '1kg' }, isDefault: true }] },
+    },
+    include: { variants: true },
+  });
+}
+
+/** One seller's OFFER against a variant. */
+export async function createTestListing(sellerId, variantId, overrides = {}) {
+  return prisma.sellerListing.create({
+    data: {
+      sellerId,
+      variantId,
+      sellingPrice: 100,
+      stockQty: 10,
+      status: 'ACTIVE',
+      sellScope: 'district',
+      district: 'Pune',
+      state: 'Maharashtra',
       ...overrides,
     },
   });
@@ -173,6 +243,11 @@ export async function cleanupTestData() {
     prisma.animalListing.deleteMany(),
     prisma.labourListing.deleteMany(),
     prisma.machineryListing.deleteMany(),
+    // CATALOG SPLIT: offers → variants → catalog. seller_listings FKs the variant
+    // (cascade) and the user (RESTRICT), so it must clear before users, and
+    // variants before products.
+    prisma.sellerListing.deleteMany(),
+    prisma.productVariant.deleteMany(),
     prisma.product.deleteMany(),
     prisma.category.deleteMany(),
     prisma.otpSession.deleteMany(),

@@ -108,6 +108,9 @@ export default function FarmAddEditScreen({ navigation, route }) {
       if (isEdit) await editFarm(existing.id, form);
       else        await addFarm(form);
       Haptics.success?.();
+      // MyFarmHome/FarmDetail sit behind this screen and are focus-gated, so
+      // tell them their data changed rather than relying on a blind refetch.
+      invalidateFocusData('farm');
       navigation.goBack();
     } catch (e) {
       Haptics.error?.();

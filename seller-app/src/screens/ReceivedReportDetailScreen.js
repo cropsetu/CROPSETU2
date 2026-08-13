@@ -530,7 +530,7 @@ export default function ReceivedReportDetailScreen({ route, navigation }) {
                 title={t('share.noProductsTitle', 'No products yet')}
                 body={t('share.noProductsYet', 'You haven\'t added any products yet. Tap "Add Product" on your dashboard first.')}
                 actionLabel={t('dash.addProduct', 'Add product')}
-                onAction={() => navigation.navigate('AddProduct', { product: null })}
+                onAction={() => navigation.navigate('CatalogSearch')}
               />
             ) : (
               <>

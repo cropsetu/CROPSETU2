@@ -4,7 +4,7 @@
  * Left slide drawer (flat category list) + animated language bottom sheet
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import useFocusRefresh from '../../hooks/useFocusRefresh';
 import { useCart } from '../../context/CartContext';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable,
@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useScrollHeader from '../../hooks/useScrollHeader';
 import api from '@cropsetu/shared/services/api';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { COLORS, TYPE, RADIUS, SHADOWS } from '@cropsetu/shared/constants/colors';
 import { KHET, KFONT, KSHADOW } from '@cropsetu/shared/constants/khetTheme';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
@@ -358,11 +359,18 @@ function ProductCard({ item, onPress, t, index }) {
         <View style={S.gridBody}>
           <Text style={S.gridName} numberOfLines={2}>{item.name}</Text>
           <View style={S.gridPriceRow}>
+            {/* The cheapest ELIGIBLE offer — cheapest among the sellers who can
+                actually deliver to this buyer, not a catalog price. */}
             <Text style={S.gridPrice}>₹{item.price?.toLocaleString()}</Text>
             {item.mrp > item.price && (
               <Text style={S.gridMrp}>₹{item.mrp?.toLocaleString()}</Text>
             )}
           </View>
+          {item.sellerCount > 1 && (
+            <Text style={S.gridSellers} numberOfLines={1}>
+              {t('store.fromSellers', { count: item.sellerCount, defaultValue: `from ${item.sellerCount} sellers` })}
+            </Text>
+          )}
           {/* Full-width "View Details" button */}
           <TouchableOpacity style={S.addToCartBtn} onPress={() => onPress(item)} activeOpacity={0.85}>
             <Ionicons name="cart-outline" size={14} color={COLORS.white} />
@@ -385,6 +393,13 @@ export default function AgriStoreHome({ navigation }) {
   const headerMaxH = insets.top + 60; // safe area + logo bar
   const { onScroll: hideOnScroll, headerAnimatedStyle, showTopBtn } = useScrollHeader(headerMaxH);
   const scrollRef = useRef(null);
+
+  // Geography GATES which offers exist, so the storefront asks for the buyer's
+  // district and the API filters at the LISTING level. Before the split this was
+  // a filter on the fused product row; a Kendra that cannot deliver here is now
+  // excluded from the price on the card, not just from the buy box.
+  const { user } = useAuth();
+  const district = user?.district || null;
 
   const [drawerOpen,         setDrawerOpen]         = useState(false);
   const [langPickerOpen,     setLangPickerOpen]     = useState(false);
@@ -441,7 +456,7 @@ export default function AgriStoreHome({ navigation }) {
     const delay = searchQuery.length > 0 ? 400 : 0;
     searchTimer.current = setTimeout(fetchProducts, delay);
     return () => clearTimeout(searchTimer.current);
-  }, [selectedCategory, selectedSubcategory, searchQuery]);
+  }, [selectedCategory, selectedSubcategory, searchQuery, district]);
 
   async function fetchProducts() {
     setLoading(true);
@@ -450,6 +465,7 @@ export default function AgriStoreHome({ navigation }) {
       if (selectedCategory !== ALL_ID) params.category    = selectedCategory;
       if (selectedSubcategory)         params.subcategory = selectedSubcategory;
       if (searchQuery.trim())          params.search      = searchQuery.trim();
+      if (district)                    params.district    = district;
       const { data } = await api.get('/agristore/products', { params });
       const items = data.data;
       // No mock fallback — empty list lets the "coming soon" empty state show.
@@ -466,13 +482,23 @@ export default function AgriStoreHome({ navigation }) {
     setSelectedSubcategory(sub || null);
   };
 
-  // Re-sync the global cart count whenever this screen regains focus —
-  // covers the case where it changed in a screen that doesn't go through CartContext.
-  useFocusEffect(useCallback(() => { refreshCart(); }, [refreshCart]));
+  // Re-sync the global cart count on focus — covers a change made in a screen
+  // that doesn't go through CartContext. Gated: CartContext already loads the
+  // count on mount, and cart mutations update it through the context, so the
+  // only job left here is catching drift. Once a minute is plenty.
+  useFocusRefresh(refreshCart, { key: 'cart', staleMs: 60_000, runOnFirstFocus: false });
 
+  // Route params carry the CATALOG product id — never a listing id. The detail
+  // screen refetches by id and resolves the winning offer itself; passing the
+  // object alone would leave it unable to re-price when the buyer switches
+  // sellers. `district` travels too, because geography gates which offers exist.
   const handleProductPress = useCallback((item) => {
-    navigation.navigate('ProductDetail', { product: item });
-  }, [navigation]);
+    navigation.navigate('ProductDetail', {
+      productId: item.id,
+      product: item,
+      district: district || null,
+    });
+  }, [navigation, district]);
 
   const bestSellers = products.slice(0, 8);
 
@@ -779,6 +805,9 @@ const S = StyleSheet.create({
   gridBody:          { padding: 10, gap: 4 },
   gridName:          { fontSize: 13.5, fontFamily: KFONT.sansSemi, color: KHET.foreground, lineHeight: 18, minHeight: 36 },
   gridPriceRow:      { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  gridSellers:       { fontSize: 10.5, color: COLORS.textLight, marginTop: 1 },
+  // goldInk, not gold: KHET.gold as TEXT is 2.03:1 on a white card, a WCAG AA
+  // failure. Kept from this branch while taking gridSellers from main.
   gridPrice:     { fontSize: 15, fontFamily: KFONT.sansBold, color: KHET.goldInk },
   gridMrp:       { fontSize: 10, color: KHET.mutedForeground, textDecorationLine: 'line-through', fontFamily: KFONT.sans },
   addToCartBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: KHET.primary, borderRadius: 12, paddingVertical: 10, marginTop: 4, ...KSHADOW.soft },

@@ -427,7 +427,16 @@ async function seedProducts() {
       tags: p.tags ?? [], highlights: p.highlights ?? [],
       brand: p.brand ?? null, subcategory: p.subcategory ?? null,
       isActive: true, isFeatured: !!p.isFeatured,
-      district: PUNE.district, state: PUNE.state, sellScope: 'state',
+      // The storefront hard-filters `status: 'APPROVED'` (agristore.routes.js).
+      // Without this the rows default to PENDING_QC and the shop renders empty —
+      // seeded, present in the DB, and invisible to every buyer.
+      status: 'APPROVED',
+      // Statewide demo stock, so `district: null`. These products have no
+      // variants yet, so the storefront judges them on the legacy dual-read
+      // branch, and THAT branch ignores sellScope — it keeps a row only when the
+      // product's district equals the buyer's or is null. Pinning them to Pune
+      // hid them from every buyer outside Pune.
+      district: null, state: PUNE.state, sellScope: 'state',
       minOrderQty: 1,
       rating: +(4 + (i % 10) / 10).toFixed(1),
       ratingCount: 3 + i,

@@ -1,5 +1,5 @@
 /**
- * Rent location preferences — the source, the radius and the sort, persisted.
+ * Rent location preferences — the source and the radius, persisted.
  *
  * The radius used to reset to 10 km on every app start; a farmer who works at
  * 25 km had to re-pick it every single launch. AsyncStorage (not the SecureStore
@@ -18,8 +18,6 @@ export const SOURCE = { GPS: 'gps', DISTRICT: 'district', ALL: 'all' };
 /** `null` km = "Any" — no ceiling, but still distance-sorted and badged. */
 export const RADIUS_OPTIONS = [5, 10, 25, 50, null];
 
-export const SORT_MODES = ['distance', 'price', 'rating'];
-
 export const DEFAULT_PREFS = {
   source: SOURCE.GPS,
   radiusKm: 10,
@@ -29,7 +27,6 @@ export const DEFAULT_PREFS = {
   // 5 km. Turning it off surfaces coordinate-less listings, which the UI then
   // labels "Location not shared" rather than letting them fake a distance.
   strictCoords: true,
-  sort: 'distance',
 };
 
 function sanitize(raw) {
@@ -44,7 +41,6 @@ function sanitize(raw) {
     district: typeof raw.district === 'string' && raw.district ? raw.district : null,
     taluka:   typeof raw.taluka   === 'string' && raw.taluka   ? raw.taluka   : null,
     strictCoords: raw.strictCoords !== false,
-    sort: SORT_MODES.includes(raw.sort) ? raw.sort : DEFAULT_PREFS.sort,
   };
 }
 
@@ -119,11 +115,11 @@ export function buildListParams(prefs, coords, { search, category, talukaEnabled
     params.district = prefs.district;
   }
 
-  // Distance ordering needs an origin; without one the API falls back to rating
-  // anyway, so don't ask for something we cannot get.
-  params.sort = source === SOURCE.GPS ? prefs.sort
-    : prefs.sort === 'distance' ? 'rating'
-    : prefs.sort;
+  // Ordering is not user-facing (the sort chips were removed): nearest when we
+  // have an origin to measure from, rating otherwise. Distance ordering needs an
+  // origin; without one the API falls back to rating anyway, so don't ask for
+  // something we cannot get.
+  params.sort = source === SOURCE.GPS ? 'distance' : 'rating';
 
   // The taluka narrows within a district using the same free-text match the
   // search box uses, so the two cannot both be in flight — the user's own query

@@ -24,6 +24,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import { MachineryIcon } from '../../components/MachineryIcons';
+import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 
 // Machinery icon registry keys — fall back to 'tractor' so the hero is never blank.
 const MACH_ICON_KEYS = ['tractor','harvester','sprayer','rotavator','thresher','transplanter','truck','tempo'];
@@ -347,6 +348,9 @@ export default function MachineryDetail({ route, navigation }) {
       setBookedRanges(r.data.data || []);
       setMyBooking({ status: 'PENDING', startDate: bStart, endDate: bEnd });
       setBookingDone({ start: bStart, end: bEnd, days, amount: bAmount });
+      // RentHome badges this listing from its bookingMap — make its next focus
+      // reload instead of showing the card as un-booked.
+      invalidateFocusData('rent');
     } catch (err) {
       const msg = err.response?.data?.error?.message || t('rent.bookingFailed');
       Alert.alert(t('rent.bookingFailed'), msg);

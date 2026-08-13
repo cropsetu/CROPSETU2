@@ -15,6 +15,7 @@ import { warmAllCaches } from './services/cacheWarmer.service.js';
 import { checkCacheAlerts } from './utils/cacheMetrics.js';
 import { runRetentionSweep } from './services/retention.service.js';
 import { refreshActiveSellerStats } from './services/sellerStats.service.js';
+import { refreshAllSellerMetrics } from './services/sellerMetrics.service.js';
 import { withLeaderLock } from './utils/leaderLock.js';
 import { startWorkers, stopWorkers } from './queue/worker.js';
 import { closeQueues } from './queue/jobQueue.js';
@@ -268,6 +269,21 @@ async function start() {
         const result = await refreshActiveSellerStats();
         if (result.refreshed) logger.info({ ...result }, '[SellerStats] rollup refresh complete');
       } catch (err) { logger.warn('[SellerStats] rollup refresh failed: %s', err.message); }
+    }));
+
+    // ── Seller fulfillment metrics refresh (CATALOG-SPLIT §2) ───────────────
+    // Hourly. These are the DERIVED aggregates behind buy-box weights w2/w4 —
+    // seller rating, cancellation rate, on-time dispatch, return rate. They are
+    // never computed per request: the buy box runs on every product-page load.
+    // Hourly (not every 5 min like the dashboard rollup) because the inputs are
+    // order outcomes and reviews, which move on the scale of days; the job also
+    // bumps the buy-box cache namespace, so running it hot would churn it.
+    // Leader-locked: it fans out across every active seller.
+    cron.schedule('7 * * * *', () => withLeaderLock('seller-metrics-refresh', async () => {
+      try {
+        const result = await refreshAllSellerMetrics();
+        if (result.refreshed) logger.info({ ...result }, '[SellerMetrics] refresh complete');
+      } catch (err) { logger.warn('[SellerMetrics] refresh failed: %s', err.message); }
     }));
 
     // ── Data-retention sweep (DPDP minimisation) ────────────────────────────

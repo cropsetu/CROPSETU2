@@ -5,7 +5,7 @@ import {
   Image, ImageBackground, ActivityIndicator, Platform, Animated, ScrollView,
   KeyboardAvoidingView,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import useFocusRefresh from '../../hooks/useFocusRefresh';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -270,9 +270,11 @@ export default function ProfileScreen({ navigation }) {
   // admin top-up reflects the moment the farmer opens/returns to the profile.
   const [aiBalance, setAiBalance] = useState(null);
 
-  // Refresh profile (and the activity counts) every time this screen is focused,
-  // so newly added/removed rental & animal listings reflect immediately.
-  useFocusEffect(useCallback(() => {
+  // Refresh the profile and the activity counts on focus — four requests, so it
+  // is gated rather than fired on every visit to the Account tab. Screens that
+  // add or remove a rental/animal listing call invalidateFocusData('profile'),
+  // which makes the next focus reload immediately regardless of the clock.
+  useFocusRefresh(useCallback(() => {
     refreshUser?.();
     let cancelled = false;
     (async () => {
@@ -295,7 +297,7 @@ export default function ProfileScreen({ navigation }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [refreshUser]));
+  }, [refreshUser]), { key: 'profile' });
 
   const [notifications,   setNotifications]  = useState(true);
   const [showLangModal,   setShowLangModal]  = useState(false);

@@ -41,3 +41,72 @@ export async function applyStockDeltas(tx, deltas) {
     WHERE p.id = v.id
   `;
 }
+
+/**
+ * Post-CATALOG-SPLIT stock mutation: deltas apply to seller_listings.stockQty,
+ * keyed by LISTING id.
+ *
+ * Stock is a property of one seller's offer, not of the catalog entry. The
+ * product-targeted statement above would decrement a row shared by every Kendra
+ * — one buyer's purchase would silently drain all three sellers' stock. This
+ * function replaces it on every checkout / restock path; applyStockDeltas is
+ * retained only for the dual-write window and is dropped at CONTRACT.
+ *
+ * Same contract as applyStockDeltas: signed deltas, duplicates summed, MUST run
+ * inside the Serializable transaction that validated stock.
+ *
+ * Also returns which listings CROSSED the zero boundary, because that is the only
+ * stock event the buy box has to invalidate on (see buyBox.service.js).
+ *
+ * UNLIKE applyStockDeltas, this DOES carry a `stockQty + delta >= 0` guard in the
+ * SQL. The old statement had none — correctness rested entirely on the caller's
+ * in-transaction validation plus Serializable isolation, so any path that forgot
+ * to validate first would drive stock negative silently. Here a row that would go
+ * negative simply does not match, the RETURNING count comes up short, and we
+ * throw a client-safe 400. It is defence in depth, not a replacement for
+ * validating before the write.
+ *
+ * The guard is NOT `GREATEST(stockQty + delta, 0)`: clamping would turn an
+ * over-sell into a *successful* order for the wrong quantity.
+ *
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @param {Array<{ listingId: string, delta: number }>} deltas
+ * @returns {Promise<{ rows: number, crossedZero: string[] }>}
+ * @throws {Error} statusCode 400 / expose when a delta would drive stock negative
+ */
+export async function applyListingStockDeltas(tx, deltas) {
+  if (!deltas || !deltas.length) return { rows: 0, crossedZero: [] };
+
+  const byId = new Map();
+  for (const { listingId, delta } of deltas) {
+    byId.set(listingId, (byId.get(listingId) || 0) + delta);
+  }
+
+  const values = [...byId.entries()].map(
+    ([listingId, delta]) => Prisma.sql`(${listingId}::text, ${delta}::int)`,
+  );
+
+  // RETURNING lets us detect zero crossings in the same round-trip rather than
+  // re-reading every touched listing afterwards.
+  const updated = await tx.$queryRaw`
+    UPDATE seller_listings AS l
+    SET "stockQty" = l."stockQty" + v.delta
+    FROM (VALUES ${Prisma.join(values)}) AS v(id, delta)
+    WHERE l.id = v.id
+      AND l."stockQty" + v.delta >= 0
+    RETURNING l.id, l."stockQty" AS "stockAfter", (l."stockQty" - v.delta) AS "stockBefore"
+  `;
+
+  if (updated.length !== byId.size) {
+    throw Object.assign(
+      new Error('An item in your cart just sold out. Please review your cart and try again.'),
+      { statusCode: 400, expose: true },
+    );
+  }
+
+  const crossedZero = updated
+    .filter((r) => (Number(r.stockBefore) > 0) !== (Number(r.stockAfter) > 0))
+    .map((r) => r.id);
+
+  return { rows: updated.length, crossedZero };
+}

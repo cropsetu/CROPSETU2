@@ -25,7 +25,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import LocationPicker from '@cropsetu/shared/components/LocationPicker';
 import { DISTRICT_LIST, getTalukas } from '@cropsetu/shared/constants/locations';
 import { COLORS, TYPE, SPACE, RADIUS, SHADOWS } from '@cropsetu/shared/constants/colors';
-import { SOURCE, RADIUS_OPTIONS, SORT_MODES } from './rentLocationPrefs';
+import { SOURCE, RADIUS_OPTIONS } from './rentLocationPrefs';
 
 // Every tappable target below clears 44px; chips reach it with padding + this.
 const TAP = 44;
@@ -118,34 +118,6 @@ export function RentRadiusRow({ prefs, coords, onChange }) {
             active={prefs.radiusKm === km}
             onPress={() => onChange(km)}
           />
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
-
-// ── Sort control ─────────────────────────────────────────────────────────────
-
-export function RentSortRow({ prefs, coords, onChange }) {
-  const { t } = useLanguage();
-  const canSortByDistance = prefs.source === SOURCE.GPS && !!coords;
-  const labels = {
-    distance: t('rent.sortNearest', 'Nearest'),
-    price:    t('rent.sortPrice',   'Price'),
-    rating:   t('rent.sortRating',  'Rating'),
-  };
-  // "Nearest" with nothing to measure from would be a button that silently does
-  // something else, so it is dropped rather than shown inert.
-  const modes = canSortByDistance ? SORT_MODES : SORT_MODES.filter((m) => m !== 'distance');
-  const active = modes.includes(prefs.sort) ? prefs.sort : 'rating';
-
-  return (
-    <View style={S.row} accessibilityRole="radiogroup">
-      <Ionicons name="swap-vertical-outline" size={15} color={COLORS.grayMid} />
-      <Text style={S.rowLabel}>{t('rent.sortBy', 'Sort')}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.rowScroll}>
-        {modes.map((m) => (
-          <Chip key={m} label={labels[m]} active={active === m} onPress={() => onChange(m)} />
         ))}
       </ScrollView>
     </View>

@@ -19,6 +19,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useLocation } from '../../context/LocationContext';
 import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
 import RentAvailabilityPicker from '../../components/ui/RentAvailabilityPicker';
+import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 
 
 const SKILL_KEYS = [
@@ -224,6 +225,8 @@ export default function AddWorkerScreen({ navigation, route }) {
         setSuccess({ name: name.trim(), mode: 'update' });
       } else {
         await api.post('/rent/labour', payload);
+        invalidateFocusData('profile'); // rental count on the Account tab
+        invalidateFocusData('rent');    // RentHome's "my listings" side data
         setSuccess({ name: name.trim(), mode: 'create' });
       }
     } catch (err) {

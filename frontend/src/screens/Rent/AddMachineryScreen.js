@@ -20,6 +20,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useLocation } from '../../context/LocationContext';
 import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
 import RentAvailabilityPicker from '../../components/ui/RentAvailabilityPicker';
+import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 
 
 const CATEGORIES = [
@@ -270,6 +271,8 @@ export default function AddMachineryScreen({ navigation, route }) {
         setSuccess({ mode: 'update', name: name.trim(), category });
       } else {
         await api.post('/rent/machinery', payload);
+        invalidateFocusData('profile'); // rental count on the Account tab
+        invalidateFocusData('rent');    // RentHome's "my listings" side data
         setSuccess({ mode: 'create', name: name.trim(), category });
       }
     } catch (err) {
