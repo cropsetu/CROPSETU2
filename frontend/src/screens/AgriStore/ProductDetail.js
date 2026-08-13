@@ -16,7 +16,6 @@ import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 import OfferListSheet from './OfferListSheet';
 import { fs } from '../../utils/responsive';
 
-const { width: W } = Dimensions.get('window');
 
 // ── Spring press wrapper ──────────────────────────────────────────────────────
 function PressScale({ children, style, onPress, scaleTo = 0.96 }) {

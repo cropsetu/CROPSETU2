@@ -10,7 +10,6 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COLORS } from '@cropsetu/shared/constants/colors';
 import ActivityIcon from '../../components/ActivityIcons';
 
-const { width: W } = Dimensions.get('window');
 
 const PRIORITY = {
   urgent: { color: COLORS.red, bg: COLORS.darkMaroon, tKey: 'urgent' },

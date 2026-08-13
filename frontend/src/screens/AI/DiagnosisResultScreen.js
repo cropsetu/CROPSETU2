@@ -18,7 +18,7 @@
  */
 import { useRef, useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  View, StyleSheet, ScrollView, TouchableOpacity,
   Dimensions, Animated, StatusBar, Alert, Image, Modal,
 } from 'react-native';
 import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
@@ -33,16 +33,43 @@ import * as FileSystem from 'expo-file-system/legacy';
 import logger from '../../utils/logger';
 import { SoundEffects } from '@cropsetu/shared/utils/sounds';
 import { COLORS } from '@cropsetu/shared/constants/colors';
+import {
+  KHET, KFONT, KSPACE, KGUTTER, KRADIUS, KELEV, KTYPE, KICON, KBORDER, noLead, circle, withAlpha,
+} from '@cropsetu/shared/constants/khetTheme';
+// Kit <Text> is a zero-imposition drop-in for RN's Text (a bare <Text> emits no
+// style at all) and permanently blocks the Android fontFamily+fontWeight
+// fallback, which is the exact bug this screen is one edit away from shipping.
+import Text from '@cropsetu/shared/components/ui/Text';
 import api from '@cropsetu/shared/services/api';
 import KrushiKendraShareSheet from '../../components/KrushiKendraShareSheet';
 
 const { width: W } = Dimensions.get('window');
 
+// NOT MIGRATED, deliberately — see the gap note in the report.
+//  1. `color` is compared BY IDENTITY further down (`sev.color === COLORS.red`),
+//     so swapping these constants silently changes which badge tint renders.
+//     That is a behaviour change, not a restyle.
+//  2. This is a FOUR-step ordered severity ramp and KHET runs THREE status tiers
+//     by design. A ramp's correctness is a property of the whole sequence, so it
+//     belongs in dataPalette.js (RISK_RAMP), not as four new semantic tokens.
+// `bg` and `tKey` are dead — nothing reads them.
+// `tier` drives BOTH the ink and the tint. The previous version compared
+// sev.color by identity to pick a tint, which broke twice: `moderate` kept raw
+// amber #F39C12 on the new KHET warning tint at 1.94:1 (worse than before the
+// migration), and `critical` (coralRed) matched neither branch so it fell
+// through to a GREEN success tint. A key cannot drift from its own colour.
 const SEV_CONFIG = {
-  low:      { color: COLORS.primary, tKey: 'sevLow',      icon: 'checkmark-circle', bg: COLORS.successLight },
-  moderate: { color: COLORS.amberDark, tKey: 'sevModerate', icon: 'warning',          bg: COLORS.darkAmber },
-  high:     { color: COLORS.red, tKey: 'sevHigh',     icon: 'alert-circle',     bg: COLORS.darkMaroon },
-  critical: { color: COLORS.coralRed, tKey: 'sevCritical', icon: 'skull-outline',    bg: COLORS.deepRed },
+  low:      { tier: 'success',     tKey: 'sevLow',      icon: 'checkmark-circle' },
+  moderate: { tier: 'warning',     tKey: 'sevModerate', icon: 'warning'          },
+  high:     { tier: 'destructive', tKey: 'sevHigh',     icon: 'alert-circle'     },
+  critical: { tier: 'destructive', tKey: 'sevCritical', icon: 'skull-outline'    },
+};
+
+// Ink + tint per tier, both AA-verified against each other in khetTheme.js.
+const SEV_TIER = {
+  success:     { ink: KHET.successInk,     bg: KHET.successBg     },
+  warning:     { ink: KHET.warningInk,     bg: KHET.warningBg     },
+  destructive: { ink: KHET.destructiveInk, bg: KHET.destructiveBg },
 };
 
 const URGENCY_CONFIG = {
@@ -56,15 +83,19 @@ function ConfidenceRing({ value, color, size = 80, confidenceLabel }) {
   useEffect(() => {
     Animated.timing(anim, { toValue: value / 100, duration: 900, delay: 300, useNativeDriver: false }).start();
   }, []);
+  // minWidth/minHeight, not width/height: this box wraps two <Text> nodes and the
+  // app respects the OS text size uncapped, so a hard 80x80 clips the percentage
+  // as soon as a user scales up. The ring is absolutely positioned, so it keeps
+  // its exact geometry while the box grows.
   return (
-    <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+    <View style={{ minWidth: size, minHeight: size, justifyContent: 'center', alignItems: 'center' }}>
       <View style={{
-        width: size, height: size, borderRadius: size / 2,
-        borderWidth: size * 0.1, borderColor: `${color}25`, position: 'absolute',
+        ...circle(size),
+        borderWidth: size * 0.1, borderColor: withAlpha(color, '25'), position: 'absolute',
       }} />
       <View style={{ justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ fontSize: size * 0.28, fontWeight: '900', color }}>{value}%</Text>
-        <Text style={{ fontSize: size * 0.13, color: COLORS.textLight, fontWeight: '600' }}>{confidenceLabel}</Text>
+        <Text style={{ ...noLead(KTYPE.figureMd), fontSize: size * 0.28, color }}>{value}%</Text>
+        <Text style={{ ...noLead(KTYPE.micro), fontSize: size * 0.13, color: KHET.mutedForeground }}>{confidenceLabel}</Text>
       </View>
     </View>
   );
@@ -79,10 +110,10 @@ function SectionHeader({ color, title }) {
   );
 }
 
-function InfoRow({ icon, iconColor = COLORS.grayMedium, label, value }) {
+function InfoRow({ icon, iconColor = KHET.mutedForeground, label, value }) {
   return (
     <View style={D.infoRow}>
-      <Ionicons name={icon} size={13} color={iconColor} />
+      <Ionicons name={icon} size={KICON.sm} color={iconColor} />
       <Text style={D.infoLabel}>{label}:</Text>
       <Text style={D.infoValue}>{value}</Text>
     </View>
@@ -1173,14 +1204,14 @@ ${(() => {
       <StatusBar barStyle="light-content" />
 
       {/* ── Green Header Bar ── */}
-      <View style={[D.headerBar, { paddingTop: insets.top + 8 }]}>
+      <View style={[D.headerBar, { paddingTop: insets.top + KSPACE.s8 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={D.backBtn}>
-          <Ionicons name="chevron-back" size={22} color={COLORS.white} />
+          <Ionicons name="chevron-back" size={KICON.xl} color={KHET.white} />
         </TouchableOpacity>
         <View style={D.headerBarTitleWrap}>
           {/* Brand eyebrow — "Krushi Drishti" (localized; native script appended per-locale in i18n) */}
           <View style={D.brandEyebrowRow}>
-            <Ionicons name="scan-outline" size={11} color="rgba(255,255,255,0.85)" />
+            <Ionicons name="scan-outline" size={KICON.xs} color={withAlpha(KHET.white, 0.85)} />
             <Text style={D.brandEyebrowText} numberOfLines={1}>
               {t('aiBrand.drishti', 'Krushi Drishti')}
             </Text>
@@ -1193,10 +1224,11 @@ ${(() => {
             initialMessage: `I have ${disease} in my ${crop} at ${farmCtx.cropAge || '?'} days. Severity: ${severity}. What should I do?`
           })}
         >
-          <Ionicons name="chatbubble-ellipses-outline" size={18} color={COLORS.white} />
+          <Ionicons name="chatbubble-ellipses-outline" size={KICON.md} color={KHET.white} />
         </TouchableOpacity>
       </View>
 
+      {/* paddingBottom 80 left raw — KSPACE has no 80 step (s64 / tailTab 100). */}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
         <Animated.View style={{
           opacity: contentAnim,
@@ -1218,25 +1250,25 @@ ${(() => {
                   </Text>
                 ) : null}
               </View>
-              <ConfidenceRing value={confidence} color={confidence >= 70 ? COLORS.primary : confidence >= 50 ? COLORS.amberDark : COLORS.red} size={80} confidenceLabel={confTier} />
+              <ConfidenceRing value={confidence} color={confidence >= 70 ? KHET.successInk : confidence >= 50 ? KHET.warningInk : KHET.destructiveInk} size={80} confidenceLabel={confTier} />
             </View>
 
             {/* Three badge chips in a row */}
             <View style={D.badgeRow}>
-              <View style={[D.badge, { backgroundColor: confidence >= 85 ? '#E8F5E9' : confidence >= 70 ? '#FFF8E1' : '#FFEBEE' }]}>
-                <Ionicons name="checkmark-circle" size={13} color={confidence >= 85 ? COLORS.primary : confidence >= 70 ? COLORS.amberDark : COLORS.red} />
-                <Text style={[D.badgeText, { color: confidence >= 85 ? COLORS.primary : confidence >= 70 ? COLORS.amberDark : COLORS.red }]}>
+              <View style={[D.badge, { backgroundColor: confidence >= 85 ? KHET.successBg : confidence >= 70 ? KHET.warningBg : KHET.destructiveBg }]}>
+                <Ionicons name="checkmark-circle" size={KICON.sm} color={confidence >= 85 ? KHET.successInk : confidence >= 70 ? KHET.warningInk : KHET.destructiveInk} />
+                <Text style={[D.badgeText, { color: confidence >= 85 ? KHET.successInk : confidence >= 70 ? KHET.warningInk : KHET.destructiveInk }]}>
                   {t('diagnosis.confidenceBadge', { tier: confTier, defaultValue: '{{tier}} CONFIDENCE' })}
                 </Text>
               </View>
-              <View style={[D.badge, { backgroundColor: sev.color === COLORS.red ? '#FFEBEE' : sev.color === COLORS.amberDark ? '#FFF8E1' : '#E8F5E9' }]}>
-                <Ionicons name={sev.icon} size={13} color={sev.color} />
-                <Text style={[D.badgeText, { color: sev.color }]}>{t('diagnosis.severityBadge', { severity: (severity || 'moderate').toUpperCase(), defaultValue: '{{severity}} SEVERITY' })}</Text>
+              <View style={[D.badge, { backgroundColor: (SEV_TIER[sev.tier] || SEV_TIER.warning).bg }]}>
+                <Ionicons name={sev.icon} size={KICON.sm} color={(SEV_TIER[sev.tier] || SEV_TIER.warning).ink} />
+                <Text style={[D.badgeText, { color: (SEV_TIER[sev.tier] || SEV_TIER.warning).ink }]}>{t('diagnosis.severityBadge', { severity: (severity || 'moderate').toUpperCase(), defaultValue: '{{severity}} SEVERITY' })}</Text>
               </View>
             </View>
             {!isHealthy && (
               <View style={D.urgencyStrip}>
-                <Ionicons name="time-outline" size={14} color={COLORS.red} />
+                <Ionicons name="time-outline" size={KICON.sm} color={KHET.destructiveInk} />
                 <Text style={D.urgencyStripText}>{urgLabel}</Text>
               </View>
             )}
@@ -1280,7 +1312,7 @@ ${(() => {
                     is visible on the report. */}
                 <View style={D.imageBox}>
                   <View style={D.imageBoxHeader}>
-                    <Ionicons name="camera-outline" size={14} color={COLORS.textMedium} />
+                    <Ionicons name="camera-outline" size={KICON.sm} color={KHET.mutedForeground} />
                     <Text style={D.imageBoxLabel}>
                       {scannedImageUris.length === 1
                         ? t('diagnosis.submittedPhoto', 'Submitted Photo')
@@ -1308,8 +1340,8 @@ ${(() => {
                 {/* AI Detection summary */}
                 <View style={D.detectionBox}>
                   <View style={D.imageBoxHeader}>
-                    <Ionicons name="scan-outline" size={14} color={COLORS.primary} />
-                    <Text style={[D.imageBoxLabel, { color: COLORS.primary }]}>{t('diagnosis.aiDetection', 'AI Detection')}</Text>
+                    <Ionicons name="scan-outline" size={KICON.sm} color={KHET.primary} />
+                    <Text style={[D.imageBoxLabel, { color: KHET.primary }]}>{t('diagnosis.aiDetection', 'AI Detection')}</Text>
                   </View>
                   <View style={D.detectionContent}>
                     <View style={D.detectionBadge}>
@@ -1325,13 +1357,13 @@ ${(() => {
                     ) : null}
                     <View style={D.detectionMeta}>
                       <View style={D.detectionMetaItem}>
-                        <Ionicons name="speedometer-outline" size={12} color={sev.color} />
-                        <Text style={[D.detectionMetaText, { color: sev.color }]}>{(severity || 'moderate').toUpperCase()}</Text>
+                        <Ionicons name="speedometer-outline" size={KICON.xs} color={(SEV_TIER[sev.tier] || SEV_TIER.warning).ink} />
+                        <Text style={[D.detectionMetaText, { color: (SEV_TIER[sev.tier] || SEV_TIER.warning).ink }]}>{(severity || 'moderate').toUpperCase()}</Text>
                       </View>
                       {spreadRisk ? (
                         <View style={D.detectionMetaItem}>
-                          <Ionicons name="git-branch-outline" size={12} color={COLORS.amberDark} />
-                          <Text style={[D.detectionMetaText, { color: COLORS.amberDark }]}>{t('diagnosis.spreadBadge', { risk: spreadRisk.toUpperCase(), defaultValue: '{{risk}} SPREAD' })}</Text>
+                          <Ionicons name="git-branch-outline" size={KICON.xs} color={KHET.warningInk} />
+                          <Text style={[D.detectionMetaText, { color: KHET.warningInk }]}>{t('diagnosis.spreadBadge', { risk: spreadRisk.toUpperCase(), defaultValue: '{{risk}} SPREAD' })}</Text>
                         </View>
                       ) : null}
                     </View>
@@ -1347,7 +1379,7 @@ ${(() => {
           {!isHealthy && (nextStepsFull.length > 0 || immediateAction) && (
             <View style={D.section}>
               <View style={D.sectionHeaderAccent}>
-                <Ionicons name="flash" size={16} color={COLORS.amberDark} />
+                <Ionicons name="flash" size={KICON.base} color={KHET.warningInk} />
                 <Text style={D.sectionHeaderAccentText}>{t('diagnosis.weeklyActions', 'What to Do This Week')}</Text>
               </View>
               <View style={D.checklistCard}>
@@ -1359,7 +1391,7 @@ ${(() => {
                 )}
                 {nextStepsFull.map((step, i) => (
                   <View key={i} style={D.checkItem}>
-                    <View style={[D.checkNum, i === 0 && { backgroundColor: COLORS.red }]}>
+                    <View style={[D.checkNum, i === 0 && { backgroundColor: KHET.destructive }]}>
                       <Text style={D.checkNumText}>{i + 1}</Text>
                     </View>
                     <Text style={D.checkText}>{typeof step === 'string' ? step : step.action || ''}</Text>
@@ -1375,7 +1407,7 @@ ${(() => {
           {chemicals.length > 0 && !isHealthy && (
             <View style={D.section}>
               <View style={D.sectionHeaderAccent}>
-                <Ionicons name="calendar-outline" size={16} color={COLORS.primary} />
+                <Ionicons name="calendar-outline" size={KICON.base} color={KHET.primary} />
                 <Text style={D.sectionHeaderAccentText}>{t('diagnosis.spraySchedule', 'Spray Schedule')}</Text>
               </View>
               <View style={D.sprayCard}>
@@ -1392,9 +1424,9 @@ ${(() => {
                   const brandStr = brands.slice(0, 2).map(b => b.name).filter(Boolean).join(', ');
                   const frac = chem.frac_irac_group || '';
                   return (
-                    <View key={i} style={[D.sprayRow, i % 2 === 0 && { backgroundColor: '#FAFCF8' }]}>
+                    <View key={i} style={[D.sprayRow, i % 2 === 0 && { backgroundColor: KHET.background }]}>
                       <View style={[{ flex: 0.5, alignItems: 'center' }]}>
-                        <View style={[D.sprayNum, i === 0 && { backgroundColor: COLORS.primary }]}>
+                        <View style={[D.sprayNum, i === 0 && { backgroundColor: KHET.primary }]}>
                           <Text style={D.sprayNumText}>{i + 1}</Text>
                         </View>
                       </View>
@@ -1414,7 +1446,7 @@ ${(() => {
                 {/* Rotation note */}
                 {rotationPlan ? (
                   <View style={D.rotationNote}>
-                    <Ionicons name="repeat-outline" size={13} color={COLORS.primary} />
+                    <Ionicons name="repeat-outline" size={KICON.sm} color={KHET.primary} />
                     <Text style={D.rotationNoteText}>{rotationPlan}</Text>
                   </View>
                 ) : null}
@@ -1427,6 +1459,7 @@ ${(() => {
               ═══════════════════════════════════════════════════════════════════ */}
           {causes.length > 0 && (
             <View style={D.section}>
+              {/* purple stays raw — CATEGORICAL section tint, no KHET hue exists. */}
               <SectionHeader color={COLORS.purple} title={t('diagnosis.rootCauses')} />
               <View style={D.causesCard}>
                 {causes.map((cause, i) => (
@@ -1444,12 +1477,12 @@ ${(() => {
               ═══════════════════════════════════════════════════════════════════ */}
           {(organicTx || organicList.length > 0) && !isHealthy && (
             <View style={D.section}>
-              <SectionHeader color={COLORS.freshGreen} title={t('diagnosis.organicAlt')} />
+              <SectionHeader color={KHET.successInk} title={t('diagnosis.organicAlt')} />
               <View style={D.organicCard}>
                 {organicTx ? (
                   <>
                     <View style={D.organicHeader}>
-                      <Ionicons name="leaf" size={16} color={COLORS.freshGreen} />
+                      <Ionicons name="leaf" size={KICON.base} color={KHET.successInk} />
                       <Text style={D.organicTitle}>{organicTx.method}</Text>
                     </View>
                     {organicTx.dose && <Text style={D.organicDetail}>{t('diagnosis.dose', { dose: organicTx.dose })}</Text>}
@@ -1457,7 +1490,7 @@ ${(() => {
                   </>
                 ) : organicList.map((org, i) => (
                   <View key={i} style={D.organicItem}>
-                    <Ionicons name="leaf" size={14} color={COLORS.freshGreen} />
+                    <Ionicons name="leaf" size={KICON.sm} color={KHET.successInk} />
                     <View style={{ flex: 1 }}>
                       <Text style={D.organicItemName}>{org.product || ''}</Text>
                       {org.dosage && <Text style={D.organicDetail}>{org.dosage}{org.dosage_per_acre ? ` · ${org.dosage_per_acre}` : ''}</Text>}
@@ -1473,18 +1506,18 @@ ${(() => {
               ═══════════════════════════════════════════════════════════════════ */}
           {(safetyDo.length > 0 || safetyDont.length > 0) && (
             <View style={D.section}>
-              <SectionHeader color={COLORS.primary} title={t('diagnosis.safetyChecklist', 'Safety Checklist')} />
+              <SectionHeader color={KHET.primary} title={t('diagnosis.safetyChecklist', 'Safety Checklist')} />
               <View style={D.safetyCard}>
                 {safetyDo.map((item, i) => (
                   <View key={`do-${i}`} style={D.safetyRow}>
-                    <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} />
+                    <Ionicons name="checkmark-circle" size={KICON.base} color={KHET.successInk} />
                     <Text style={D.safetyText}>{item}</Text>
                   </View>
                 ))}
                 {safetyDont.map((item, i) => (
                   <View key={`dont-${i}`} style={D.safetyRow}>
-                    <Ionicons name="close-circle" size={16} color={COLORS.red} />
-                    <Text style={[D.safetyText, { color: COLORS.red }]}>{item}</Text>
+                    <Ionicons name="close-circle" size={KICON.base} color={KHET.destructiveInk} />
+                    <Text style={[D.safetyText, { color: KHET.destructiveInk }]}>{item}</Text>
                   </View>
                 ))}
               </View>
@@ -1496,12 +1529,16 @@ ${(() => {
               ═══════════════════════════════════════════════════════════════════ */}
           {(weatherNote || soilNote || prevCropNote || notes || weatherRiskLevel) && (
             <View style={D.section}>
-              <SectionHeader color={COLORS.amberDark} title={t('diagnosis.aiInsights')} />
+              <SectionHeader color={KHET.warningInk} title={t('diagnosis.aiInsights')} />
               {/* Weather risk badge */}
               {weatherRiskLevel ? (
                 <View style={D.weatherRiskBadge}>
-                  <Ionicons name="rainy-outline" size={16} color={COLORS.blue} />
+                  <Ionicons name="rainy-outline" size={KICON.base} color={KHET.infoInk} />
                   <Text style={D.weatherRiskLabel}>{t('diagnosis.weatherDiseaseRisk', 'Weather Disease Risk:')}</Text>
+                  {/* NOT MIGRATED — the same FOUR-step risk ramp as SEV_CONFIG, in a
+                      second, different colour set. KHET has three status tiers, so
+                      tokenising this would collapse HIGH and MODERATE and cement the
+                      drift. Both ramps belong in dataPalette.js as one RISK_RAMP. */}
                   <View style={[D.riskChip, {
                     backgroundColor: weatherRiskLevel === 'CRITICAL' ? '#FFEBEE' : weatherRiskLevel === 'HIGH' ? '#FFF3E0' : weatherRiskLevel === 'MODERATE' ? '#FFF8E1' : '#E8F5E9'
                   }]}>
@@ -1512,17 +1549,19 @@ ${(() => {
                 </View>
               ) : null}
               <View style={D.insightCard}>
+                {/* soil/prevCrop tints stay raw: they are CATEGORICAL (weather ·
+                    soil · rotation · notes) and KHET has no orange or purple hue. */}
                 {weatherNote ? (
-                  <View style={D.insightRow}><Ionicons name="rainy-outline" size={14} color={COLORS.blue} /><Text style={D.insightText}>{weatherNote}</Text></View>
+                  <View style={D.insightRow}><Ionicons name="rainy-outline" size={KICON.sm} color={KHET.infoInk} /><Text style={D.insightText}>{weatherNote}</Text></View>
                 ) : null}
                 {soilNote ? (
-                  <View style={D.insightRow}><Ionicons name="layers-outline" size={14} color={COLORS.tangerine} /><Text style={D.insightText}>{soilNote}</Text></View>
+                  <View style={D.insightRow}><Ionicons name="layers-outline" size={KICON.sm} color={COLORS.tangerine} /><Text style={D.insightText}>{soilNote}</Text></View>
                 ) : null}
                 {prevCropNote ? (
-                  <View style={D.insightRow}><Ionicons name="repeat-outline" size={14} color={COLORS.purple} /><Text style={D.insightText}>{prevCropNote}</Text></View>
+                  <View style={D.insightRow}><Ionicons name="repeat-outline" size={KICON.sm} color={COLORS.purple} /><Text style={D.insightText}>{prevCropNote}</Text></View>
                 ) : null}
                 {notes ? (
-                  <View style={D.insightRow}><Ionicons name="eye-outline" size={14} color={COLORS.grayMedium} /><Text style={D.insightText}>{notes}</Text></View>
+                  <View style={D.insightRow}><Ionicons name="eye-outline" size={KICON.sm} color={KHET.mutedForeground} /><Text style={D.insightText}>{notes}</Text></View>
                 ) : null}
               </View>
             </View>
@@ -1533,7 +1572,7 @@ ${(() => {
               ═══════════════════════════════════════════════════════════════════ */}
           {followUp.length > 0 && (
             <View style={D.section}>
-              <SectionHeader color={COLORS.blue} title={t('diagnosis.followUp')} />
+              <SectionHeader color={KHET.infoInk} title={t('diagnosis.followUp')} />
               <View style={D.followUpCard}>
                 {followUp.map((fu, i) => (
                   <View key={i} style={D.followUpRow}>
@@ -1549,9 +1588,9 @@ ${(() => {
 
           {prevention ? (
             <View style={D.section}>
-              <SectionHeader color={COLORS.primary} title={t('diagnosis.prevention')} />
+              <SectionHeader color={KHET.primary} title={t('diagnosis.prevention')} />
               <View style={D.preventCard}>
-                <Ionicons name="shield-checkmark-outline" size={16} color={COLORS.primary} />
+                <Ionicons name="shield-checkmark-outline" size={KICON.base} color={KHET.primary} />
                 <Text style={D.preventText}>{prevention}</Text>
               </View>
             </View>
@@ -1562,19 +1601,19 @@ ${(() => {
               ═══════════════════════════════════════════════════════════════════ */}
           {rawProducts.length > 0 && (
             <View style={D.section}>
-              <SectionHeader color={COLORS.amberDark} title={t('diagnosis.products')} />
+              <SectionHeader color={KHET.warningInk} title={t('diagnosis.products')} />
               {productsAreObjects ? (
                 <View style={D.productsCard}>
                   {rawProducts.map((p, i) => (
                     <TouchableOpacity key={i} style={D.productRow} onPress={() => navigation.navigate('AgriStore')} activeOpacity={0.8}>
                       <View style={D.productIconWrap}>
-                        <Ionicons name="flask-outline" size={16} color={COLORS.amberDark} />
+                        <Ionicons name="flask-outline" size={KICON.base} color={KHET.warningInk} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={D.productName}>{p.name}</Text>
                         <Text style={D.productMeta}>{p.type}{p.dose ? ` · ${p.dose}` : ''}</Text>
                       </View>
-                      <Ionicons name="chevron-forward" size={14} color={COLORS.grayMid2} />
+                      <Ionicons name="chevron-forward" size={KICON.sm} color={KHET.mutedForeground} />
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -1582,7 +1621,7 @@ ${(() => {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={D.productsRow}>
                   {rawProducts.map((p, i) => (
                     <TouchableOpacity key={i} style={D.productChip} onPress={() => navigation.navigate('AgriStore')} activeOpacity={0.8}>
-                      <Ionicons name="flask-outline" size={13} color={COLORS.amberDark} />
+                      <Ionicons name="flask-outline" size={KICON.sm} color={KHET.warningInk} />
                       <Text style={D.productChipText}>{typeof p === 'object' ? p.name : p}</Text>
                     </TouchableOpacity>
                   ))}
@@ -1594,7 +1633,7 @@ ${(() => {
           {/* ── Consult expert banner ── */}
           {(consultExpert || confTier === 'LOW' || confTier === 'VERY_LOW') && (
             <View style={D.consultBanner}>
-              <Ionicons name="people-outline" size={18} color={COLORS.purple} />
+              <Ionicons name="people-outline" size={KICON.md} color={COLORS.purple} />
               <View style={{ flex: 1 }}>
                 <Text style={D.consultTitle}>{t('diagnosis.consultExpert')}</Text>
                 <Text style={D.consultText}>
@@ -1615,12 +1654,12 @@ ${(() => {
               })}
               activeOpacity={0.85}
             >
-              <Ionicons name="chatbubble-outline" size={15} color={COLORS.primary} />
-              <Text style={D.actionOutlineText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{t('diagnosis.askFarmMind')}</Text>
+              <Ionicons name="chatbubble-outline" size={KICON.base} color={KHET.primary} />
+              <Text style={D.actionOutlineText}>{t('diagnosis.askFarmMind')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={D.actionFill} onPress={() => navigation.navigate('AgriStore')} activeOpacity={0.85}>
-              <Ionicons name="cart-outline" size={15} color={COLORS.white} />
-              <Text style={D.actionFillText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{t('diagnosis.buyProducts')}</Text>
+              <Ionicons name="cart-outline" size={KICON.base} color={KHET.white} />
+              <Text style={D.actionFillText}>{t('diagnosis.buyProducts')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -1631,7 +1670,7 @@ ${(() => {
             activeOpacity={0.85}
             disabled={downloading}
           >
-            <Ionicons name={downloading ? 'hourglass-outline' : 'download-outline'} size={16} color={COLORS.white} />
+            <Ionicons name={downloading ? 'hourglass-outline' : 'download-outline'} size={KICON.base} color={KHET.white} />
             <Text style={D.downloadBtnText}>
               {downloading ? t('diagnosis.generatingPdf', 'Generating PDF…') : t('diagnosis.downloadFullReport', 'Download Full Report')}
             </Text>
@@ -1644,7 +1683,7 @@ ${(() => {
               onPress={() => { Haptics.light(); setShareSheetVisible(true); }}
               activeOpacity={0.85}
             >
-              <Ionicons name="leaf-outline" size={16} color={COLORS.white} />
+              <Ionicons name="leaf-outline" size={KICON.base} color={KHET.white} />
               <Text style={D.kkShareBtnText}>{t('share.cta', 'Send to Krushi Kendra')}</Text>
             </TouchableOpacity>
           ) : null}
@@ -1653,7 +1692,7 @@ ${(() => {
           {shares.length > 0 ? (
             <View style={D.shareList}>
               <Text style={D.shareListTitle}>
-                <Ionicons name="leaf" size={13} color={COLORS.primary} />{' '}
+                <Ionicons name="leaf" size={KICON.sm} color={KHET.primary} />{' '}
                 {t('share.recommendationsTitle', 'Krushi Kendra Recommendations')}
               </Text>
               {shares.map((s) => (
@@ -1664,11 +1703,11 @@ ${(() => {
                     </Text>
                     <View style={[
                       D.shareStatusPill,
-                      s.status === 'REPLIED' && { backgroundColor: COLORS.successLight },
+                      s.status === 'REPLIED' && { backgroundColor: KHET.successBg },
                     ]}>
                       <Text style={[
                         D.shareStatusTxt,
-                        s.status === 'REPLIED' && { color: COLORS.primary },
+                        s.status === 'REPLIED' && { color: KHET.successInk },
                       ]}>
                         {s.status === 'REPLIED'
                           ? t('share.statusReplied', 'Replied')
@@ -1685,7 +1724,7 @@ ${(() => {
                     <View style={D.shareReplyBox}>
                       {s.available ? (
                         <View style={D.availableBanner}>
-                          <Ionicons name="checkmark-circle" size={16} color={COLORS.white} />
+                          <Ionicons name="checkmark-circle" size={KICON.base} color={KHET.white} />
                           <Text style={D.availableBannerText}>
                             {t('share.collectFrom', { name: s.seller?.name || `+91 ${s.seller?.phone}`, defaultValue: 'AVAILABLE — please collect from {{name}}' })}
                           </Text>
@@ -1700,7 +1739,7 @@ ${(() => {
 
                       {/* Recommended products from this seller's shop */}
                       {Array.isArray(s.recommendedProducts) && s.recommendedProducts.length > 0 ? (
-                        <View style={{ marginTop: 10 }}>
+                        <View style={{ marginTop: KSPACE.s10 }}>
                           <Text style={D.recommendedHeading}>
                             {t('share.recommendedProductsHeading', 'Suggested from this shop')}
                           </Text>
@@ -1710,7 +1749,7 @@ ${(() => {
                                 <Image source={{ uri: p.images[0] }} style={D.productImage} />
                               ) : (
                                 <View style={[D.productImage, D.productImageEmpty]}>
-                                  <Ionicons name="leaf" size={20} color={COLORS.gray175} />
+                                  <Ionicons name="leaf" size={KICON.lg} color={KHET.border} />
                                 </View>
                               )}
                               <View style={{ flex: 1 }}>
@@ -1733,7 +1772,7 @@ ${(() => {
                                     disabled={p.stock <= 0}
                                     activeOpacity={0.85}
                                   >
-                                    <Ionicons name="cart-outline" size={13} color={COLORS.white} />
+                                    <Ionicons name="cart-outline" size={KICON.sm} color={KHET.white} />
                                     <Text style={D.productBtnTextWhite}>{t('share.addToCart', 'Add to cart')}</Text>
                                   </TouchableOpacity>
                                   <TouchableOpacity
@@ -1741,7 +1780,7 @@ ${(() => {
                                     onPress={() => setVisitShop(s.seller)}
                                     activeOpacity={0.85}
                                   >
-                                    <Ionicons name="storefront-outline" size={13} color={COLORS.primary} />
+                                    <Ionicons name="storefront-outline" size={KICON.sm} color={KHET.primary} />
                                     <Text style={D.productBtnTextOutline}>{t('share.visitShop', 'Visit shop')}</Text>
                                   </TouchableOpacity>
                                 </View>
@@ -1759,7 +1798,7 @@ ${(() => {
 
           {/* ── Disclaimer ── */}
           <View style={D.disclaimer}>
-            <Ionicons name="information-circle-outline" size={13} color={COLORS.grayMid2} />
+            <Ionicons name="information-circle-outline" size={KICON.sm} color={KHET.mutedForeground} />
             <Text style={D.disclaimerText}>{t('diagnosis.disclaimer')}</Text>
           </View>
 
@@ -1789,7 +1828,7 @@ ${(() => {
                 onPress={() => safeOpenURL(`tel:+91${sanitizePhone(visitShop.phone)}`)}
                 activeOpacity={0.85}
               >
-                <Ionicons name="call" size={16} color={COLORS.white} />
+                <Ionicons name="call" size={KICON.base} color={KHET.white} />
                 <Text style={D.visitCallTxt}>{t('share.callShop', { phone: visitShop.phone, defaultValue: 'Call +91 {{phone}}' })}</Text>
               </TouchableOpacity>
             ) : null}
@@ -1804,358 +1843,422 @@ ${(() => {
 }
 
 // ─── Styles ────────────────────────────────────────────────────────────────────
+//
+// Migrated onto the KHET design system: KSPACE / KGUTTER (spacing), KRADIUS
+// (corners), KTYPE (type roles), KELEV (elevation), KICON (glyphs), KBORDER
+// (border widths), KHET (colour).
+//
+// Anything still holding a number is marked RAW and has no step to go to. The
+// recurring ones, so they are not re-litigated per line:
+//   RAW 5 · 7 · 26 · 28 · 80        — KSPACE has s4/s6, s6/s8, s24/s32, s24/s32,
+//                                     s64/tailTab. None of these land on a step.
+//   RAW radius 2 · 3 · 6 · 8 · 24   — KRADIUS jumps r4 → r10 → … → r20 → r28.
+//   RAW width/height 24 · 28 · 36 ·
+//       44 · 46 · 52 · 56 · 60 · 150 — CONTROL AND MEDIA SIZES, not spacing. The
+//                                     kit has no size scale (ListRow itself
+//                                     hardcodes TILE=36 for exactly this reason).
+//   RAW fontSize 8 · 10 · 11        — see the type gap in the report: KTYPE has
+//                                     NO regular (400) face below 13px, so these
+//                                     blocks keep the OS face rather than being
+//                                     silently turned bold.
+//
+// Every KTYPE role is SPREAD, and spread through noLead() wherever the original
+// declared no lineHeight — so type adopts size, family and tracking without
+// changing a single DECLARED lineHeight.
+//
+// It does NOT mean nothing moves. Adopting a family changes the font's implicit
+// line box: Plus Jakarta's hhea ratio is 1.260 and Fraunces Bold 1.233, against
+// Roboto's 1.172 — so any block that never declared a lineHeight gains roughly
+// 7.5% leading on Android and ~5% on iOS. That is the intended cost of putting
+// the brand face on a screen that had none; it is not zero, and the claim that
+// it is should not be repeated.
 
 const D = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.background },
+  root: { flex: 1, backgroundColor: KHET.background },
 
   // ── Header bar (green) ──
   headerBar: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingBottom: 14,
-    backgroundColor: COLORS.primary,
+    paddingHorizontal: KGUTTER.base, paddingBottom: KSPACE.s14,
+    backgroundColor: KHET.primary,
   },
-  backBtn: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  headerBarTitleWrap: { flex: 1, marginLeft: 6 },
-  brandEyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 1 },
-  brandEyebrowText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.6, color: 'rgba(255,255,255,0.85)' },
-  headerBarTitle: { fontSize: 17, fontWeight: '800', color: COLORS.white },
-  chatHeaderBtn: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)' },
+  backBtn: { width: 36, height: 36, borderRadius: KRADIUS.r10, justifyContent: 'center', alignItems: 'center' },
+  headerBarTitleWrap: { flex: 1, marginLeft: KSPACE.s6 },
+  brandEyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4, marginBottom: KSPACE.s1 },
+  brandEyebrowText: { ...noLead(KTYPE.micro), color: withAlpha(KHET.white, 0.85) },
+  headerBarTitle: { ...noLead(KTYPE.heading), color: KHET.white },
+  chatHeaderBtn: { width: 36, height: 36, borderRadius: KRADIUS.r10, justifyContent: 'center', alignItems: 'center', backgroundColor: withAlpha(KHET.white, 0.15) },
 
   // ── Hero card ──
   heroCard: {
-    marginHorizontal: 16, marginTop: 16, marginBottom: 4,
-    backgroundColor: COLORS.white, borderRadius: 16, padding: 20, gap: 14,
-    borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.black, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+    marginHorizontal: KGUTTER.base, marginTop: KSPACE.s16, marginBottom: KSPACE.s4,
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r16, padding: KSPACE.s20, gap: KSPACE.s14,
+    borderWidth: KBORDER.hairline, borderColor: KHET.border,
+    // was: shadowOpacity/Radius/elevation with NO shadowOffset — rendered on iOS,
+    // vanished on Android. e2 carries both halves and keeps elevation: 3.
+    ...KELEV.e2,
   },
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  diseaseLabel: { fontSize: 10, fontWeight: '800', color: COLORS.primary, letterSpacing: 1.5, marginBottom: 4 },
-  diseaseName: { fontSize: 26, fontWeight: '900', color: COLORS.textDark, lineHeight: 32, marginBottom: 4 },
-  scientificName: { fontSize: 13, color: COLORS.textLight, fontStyle: 'italic', marginBottom: 2 },
+  diseaseLabel: { ...noLead(KTYPE.eyebrow), color: KHET.primary, marginBottom: KSPACE.s4 },
+  diseaseName: { ...KTYPE.displayLg, color: KHET.foreground, marginBottom: KSPACE.s4 },
+  // No italic face is loaded for Plus Jakarta, and Android does not synthesise
+  // one — naming the family here would make it fall back to system Roboto and
+  // lose the brand face entirely. Stays raw until KFONT gains sansItalic.
+  scientificName: { fontSize: 13, color: KHET.mutedForeground, fontStyle: 'italic', marginBottom: KSPACE.s2 },
 
   // Badge row
-  badgeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  badge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
-  badgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  badgeRow: { flexDirection: 'row', gap: KSPACE.s8, flexWrap: 'wrap' },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: KSPACE.s10, paddingVertical: 5, borderRadius: KRADIUS.r20 },
+  badgeText: { ...noLead(KTYPE.micro) },
 
   // Urgency strip
   urgencyStrip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#FFF0F0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
-    borderWidth: 1, borderColor: 'rgba(231,76,60,0.15)',
+    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6,
+    backgroundColor: KHET.destructiveBg, borderRadius: 8, paddingHorizontal: KSPACE.s12, paddingVertical: KSPACE.s8,
+    borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.destructive, 0.15),
   },
-  urgencyStripText: { fontSize: 12, fontWeight: '800', color: COLORS.red, letterSpacing: 0.5 },
+  urgencyStripText: { ...noLead(KTYPE.captionBold), color: KHET.destructiveInk },
 
   // Crop meta row (grid)
   cropMetaRow: {
-    flexDirection: 'row', gap: 0,
-    borderTopWidth: 1, borderTopColor: COLORS.divider, paddingTop: 12,
+    flexDirection: 'row', gap: KSPACE.s0,
+    borderTopWidth: KBORDER.hairline, borderTopColor: KHET.border, paddingTop: KSPACE.s12,
   },
   cropMetaItem: {
     flex: 1, alignItems: 'center',
-    borderRightWidth: 1, borderRightColor: COLORS.divider,
+    borderRightWidth: KBORDER.hairline, borderRightColor: KHET.border,
   },
-  cropMetaValue: { fontSize: 14, fontWeight: '700', color: COLORS.textDark },
-  cropMetaLabel: { fontSize: 9, fontWeight: '700', color: COLORS.textLight, letterSpacing: 0.8, marginTop: 2 },
+  cropMetaValue: { ...noLead(KTYPE.bodyBold), color: KHET.foreground },
+  cropMetaLabel: { ...noLead(KTYPE.badge), color: KHET.mutedForeground, marginTop: KSPACE.s2 },
 
   // ── Scanned image compare ──
   imageCompareCard: {
-    flexDirection: 'row', gap: 10,
-    backgroundColor: COLORS.white, borderRadius: 14, padding: 12,
-    borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+    flexDirection: 'row', gap: KSPACE.s10,
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r14, padding: KSPACE.s12,
+    borderWidth: KBORDER.hairline, borderColor: KHET.border,
+    ...KELEV.e1,
   },
-  imageBox: { flex: 1, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.divider },
+  imageBox: { flex: 1, borderRadius: KRADIUS.r10, overflow: 'hidden', borderWidth: KBORDER.hairline, borderColor: KHET.border },
   imageBoxHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 10, paddingVertical: 6,
-    backgroundColor: '#F8F9FA', borderBottomWidth: 1, borderBottomColor: COLORS.divider,
+    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6,
+    paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s6,
+    backgroundColor: KHET.muted, borderBottomWidth: KBORDER.hairline, borderBottomColor: KHET.border,
   },
-  imageBoxLabel: { fontSize: 10, fontWeight: '700', color: COLORS.textMedium, letterSpacing: 0.5 },
-  scannedImage: { width: '100%', height: 150, backgroundColor: COLORS.divider },
+  imageBoxLabel: { ...noLead(KTYPE.micro), color: KHET.mutedForeground },
+  scannedImage: { width: '100%', height: 150, backgroundColor: KHET.muted },
   // Strip of additional photos shown below the hero image when the scan had
   // more than one submission. Compact, horizontally-scrollable, so 4 extra
   // photos don't blow out the compare card height.
   scannedThumbStrip: {
-    flexDirection: 'row', gap: 6,
-    paddingHorizontal: 6, paddingVertical: 6,
-    backgroundColor: '#F8F9FA',
+    flexDirection: 'row', gap: KSPACE.s6,
+    paddingHorizontal: KSPACE.s6, paddingVertical: KSPACE.s6,
+    backgroundColor: KHET.muted,
   },
-  scannedThumb: { width: 52, height: 52, borderRadius: 6, backgroundColor: COLORS.divider },
+  scannedThumb: { width: 52, height: 52, borderRadius: 6, backgroundColor: KHET.muted },
   detectionBox: {
-    flex: 1, borderRadius: 10, overflow: 'hidden',
-    borderWidth: 1, borderColor: COLORS.primaryPale, backgroundColor: '#FAFCF8',
+    flex: 1, borderRadius: KRADIUS.r10, overflow: 'hidden',
+    borderWidth: KBORDER.hairline, borderColor: KHET.secondary, backgroundColor: KHET.background,
   },
-  detectionContent: { padding: 10, alignItems: 'center', justifyContent: 'center', flex: 1 },
+  detectionContent: { padding: KSPACE.s10, alignItems: 'center', justifyContent: 'center', flex: 1 },
+  // RESPONSIVE: was width/height/borderRadius 56/56/28 — a hard circle around two
+  // lines of text, which clips the moment the OS text size goes up. minHeight +
+  // KRADIUS.pill renders pixel-identically at 100% (RN clamps pill to half the
+  // shorter side) and grows into a stadium instead of truncating.
   detectionBadge: {
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: COLORS.primaryPale, justifyContent: 'center', alignItems: 'center', marginBottom: 8,
+    minWidth: 56, paddingHorizontal: KSPACE.s6, minHeight: 56, borderRadius: KRADIUS.pill,
+    backgroundColor: KHET.secondary, justifyContent: 'center', alignItems: 'center', marginBottom: KSPACE.s8,
   },
-  detectionConfNum: { fontSize: 18, fontWeight: '900', color: COLORS.primary },
-  detectionConfLabel: { fontSize: 8, fontWeight: '700', color: COLORS.textLight, letterSpacing: 0.5 },
-  detectionDisease: { fontSize: 14, fontWeight: '800', color: COLORS.textDark, textAlign: 'center', marginBottom: 2 },
-  detectionScientific: { fontSize: 10, color: COLORS.textLight, fontStyle: 'italic', textAlign: 'center', marginBottom: 6 },
+  detectionConfNum: { ...noLead(KTYPE.statInline), color: KHET.primary },
+  detectionConfLabel: { fontSize: 8, fontWeight: '700', color: KHET.mutedForeground, letterSpacing: 0.5 },
+  detectionDisease: { ...noLead(KTYPE.bodyBold), color: KHET.foreground, textAlign: 'center', marginBottom: KSPACE.s2 },
+  detectionScientific: { fontSize: 10, color: KHET.mutedForeground, fontStyle: 'italic', textAlign: 'center', marginBottom: KSPACE.s6 },
   detectionTypeChip: {
-    backgroundColor: COLORS.primaryPale, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, marginBottom: 8,
+    backgroundColor: KHET.secondary, paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s3, borderRadius: KRADIUS.r10, marginBottom: KSPACE.s8,
   },
-  detectionTypeText: { fontSize: 9, fontWeight: '700', color: COLORS.primary, letterSpacing: 0.3 },
-  detectionMeta: { gap: 4 },
-  detectionMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  detectionMetaText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.3 },
+  detectionTypeText: { ...noLead(KTYPE.badge), color: KHET.primary },
+  detectionMeta: { gap: KSPACE.s4 },
+  detectionMetaItem: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4 },
+  detectionMetaText: { ...noLead(KTYPE.badge) },
 
   // ── Section headers ──
-  section: { marginTop: 16, marginHorizontal: 16 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  sectionDot: { width: 6, height: 6, borderRadius: 3 },
-  sectionTitle: { fontSize: 11, fontWeight: '900', color: COLORS.textLight, letterSpacing: 1.2, textTransform: 'uppercase' },
+  section: { marginTop: KSPACE.s16, marginHorizontal: KGUTTER.base },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8, marginBottom: KSPACE.s10 },
+  sectionDot: { ...circle(6) },
+  sectionTitle: { ...noLead(KTYPE.eyebrow), color: KHET.mutedForeground, textTransform: 'uppercase' },
 
   sectionHeaderAccent: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: COLORS.white, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 10, marginBottom: 10,
-    borderWidth: 1, borderColor: COLORS.border,
+    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8,
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r10,
+    paddingHorizontal: KSPACE.s14, paddingVertical: KSPACE.s10, marginBottom: KSPACE.s10,
+    borderWidth: KBORDER.hairline, borderColor: KHET.border,
   },
-  sectionHeaderAccentText: { fontSize: 15, fontWeight: '800', color: COLORS.textDark },
+  sectionHeaderAccentText: { ...noLead(KTYPE.subheadExtra), color: KHET.foreground },
 
   // ── Weekly action checklist ──
   checklistCard: {
-    backgroundColor: COLORS.white, borderRadius: 14, overflow: 'hidden',
-    borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r14, overflow: 'hidden',
+    borderWidth: KBORDER.hairline, borderColor: KHET.border,
+    ...KELEV.e1,
   },
   checkItem: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: COLORS.divider,
+    flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s12,
+    paddingHorizontal: KSPACE.s16, paddingVertical: KSPACE.s14,
+    borderBottomWidth: KBORDER.hairline, borderBottomColor: KHET.border,
   },
+  // RESPONSIVE: height → minHeight (holds a digit that scales with the OS setting).
+  // KRADIUS.pill is the size-independent form of the old `borderRadius: 28/2`.
   checkNum: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center',
-    flexShrink: 0, marginTop: 1,
+    width: 28, minHeight: 28, borderRadius: KRADIUS.pill,
+    backgroundColor: KHET.primary, justifyContent: 'center', alignItems: 'center',
+    flexShrink: 0, marginTop: KSPACE.s1,
   },
-  checkNumText: { fontSize: 13, fontWeight: '800', color: COLORS.white },
-  checkText: { fontSize: 14, color: COLORS.textDark, lineHeight: 21, flex: 1, fontWeight: '500' },
+  checkNumText: { ...noLead(KTYPE.labelExtra), color: KHET.white },
+  // Had an explicit lineHeight, so it is restated rather than taken from the role —
+  // adopting body's 20 would reflow every checklist item.
+  // bodyMed, not body: the original was fontWeight 500 and KTYPE has no 14/500
+  // role — the exact size x family hole the kit's <Text weight="med"> fills. Using
+  // `body` here silently dropped the checklist from Medium to Regular, on the
+  // screen's primary call to action. Naming the Medium face keeps the emphasis.
+  checkText: { fontSize: 14, fontFamily: KFONT.sansMed, lineHeight: 21, color: KHET.foreground, flex: 1 },
 
   // ── Spray schedule table ──
   sprayCard: {
-    backgroundColor: COLORS.white, borderRadius: 14, overflow: 'hidden',
-    borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r14, overflow: 'hidden',
+    borderWidth: KBORDER.hairline, borderColor: KHET.border,
+    ...KELEV.e1,
   },
   sprayHeaderRow: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.primary, paddingHorizontal: 12, paddingVertical: 10,
+    backgroundColor: KHET.primary, paddingHorizontal: KSPACE.s12, paddingVertical: KSPACE.s10,
   },
-  sprayHeaderCell: { fontSize: 10, fontWeight: '800', color: COLORS.white, letterSpacing: 0.5 },
+  sprayHeaderCell: { ...noLead(KTYPE.micro), color: KHET.white },
   sprayRow: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 12, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: COLORS.divider,
+    paddingHorizontal: KSPACE.s12, paddingVertical: KSPACE.s12,
+    borderBottomWidth: KBORDER.hairline, borderBottomColor: KHET.border,
   },
+  // RESPONSIVE: height → minHeight, same reason as checkNum.
   sprayNum: {
-    width: 24, height: 24, borderRadius: 12,
-    backgroundColor: COLORS.textMedium, justifyContent: 'center', alignItems: 'center',
+    width: 24, minHeight: 24, borderRadius: KRADIUS.pill,
+    backgroundColor: KHET.mutedForeground, justifyContent: 'center', alignItems: 'center',
   },
-  sprayNumText: { fontSize: 11, fontWeight: '800', color: COLORS.white },
-  sprayProduct: { fontSize: 13, fontWeight: '700', color: COLORS.textDark },
-  sprayBrand: { fontSize: 11, color: COLORS.textLight, fontStyle: 'italic', marginTop: 1 },
+  sprayNumText: { ...noLead(KTYPE.meta), color: KHET.white },
+  sprayProduct: { ...noLead(KTYPE.labelBold), color: KHET.foreground },
+  sprayBrand: { fontSize: 11, color: KHET.mutedForeground, fontStyle: 'italic', marginTop: KSPACE.s1 },
   sprayFrac: {
-    fontSize: 9, fontWeight: '700', color: COLORS.primary, letterSpacing: 0.5,
-    backgroundColor: COLORS.primaryPale, paddingHorizontal: 6, paddingVertical: 2,
-    borderRadius: 4, alignSelf: 'flex-start', marginTop: 3,
+    ...noLead(KTYPE.badge), color: KHET.primary,
+    backgroundColor: KHET.secondary, paddingHorizontal: KSPACE.s6, paddingVertical: KSPACE.s2,
+    borderRadius: KRADIUS.r4, alignSelf: 'flex-start', marginTop: KSPACE.s3,
   },
-  sprayDose: { fontSize: 12, color: COLORS.textMedium, fontWeight: '600' },
-  sprayWhen: { fontSize: 12, fontWeight: '700', color: COLORS.textDark },
-  sprayPhi: { fontSize: 10, color: COLORS.amberDark, marginTop: 2 },
+  sprayDose: { ...noLead(KTYPE.captionBold), color: KHET.mutedForeground },
+  sprayWhen: { ...noLead(KTYPE.captionBold), color: KHET.foreground },
+  sprayPhi: { fontSize: 10, color: KHET.warningInk, marginTop: KSPACE.s2 },
   rotationNote: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-    paddingHorizontal: 14, paddingVertical: 12,
-    backgroundColor: '#F5FCF9',
+    flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s8,
+    paddingHorizontal: KSPACE.s14, paddingVertical: KSPACE.s12,
+    backgroundColor: KHET.secondary,
   },
-  rotationNoteText: { fontSize: 12, color: COLORS.primary, fontWeight: '600', flex: 1, lineHeight: 17 },
+  // captionBold's authored leading IS 17 — the role is spread whole, delta 0.
+  rotationNoteText: { ...KTYPE.captionBold, color: KHET.primary, flex: 1 },
 
   // ── Causes ──
   causesCard: {
-    backgroundColor: COLORS.white, borderRadius: 14, padding: 14, gap: 8,
-    borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r14, padding: KSPACE.s14, gap: KSPACE.s8,
+    borderWidth: KBORDER.hairline, borderColor: KHET.border,
+    ...KELEV.e1,
   },
-  causeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  causeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s10 },
+  // NOT circle(): 5×5 with radius 3 is not w===h===2r, so circle(5) would round it
+  // to 2.5 and change the shape. Left exactly as authored.
   causeBullet: { width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.purple, marginTop: 7, flexShrink: 0 },
-  causeText: { fontSize: 13, color: COLORS.textMedium, lineHeight: 19, flex: 1 },
+  causeText: { ...noLead(KTYPE.bodySm), lineHeight: 19, color: KHET.mutedForeground, flex: 1 },
 
   // ── Organic ──
   organicCard: {
-    backgroundColor: 'rgba(39,174,96,0.06)', borderRadius: 14, padding: 14, gap: 10,
-    borderWidth: 1, borderColor: 'rgba(39,174,96,0.2)',
+    backgroundColor: withAlpha(KHET.successInk, 0.06), borderRadius: KRADIUS.r14, padding: KSPACE.s14, gap: KSPACE.s10,
+    borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.successInk, 0.2),
   },
-  organicHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  organicTitle: { fontSize: 14, fontWeight: '700', color: COLORS.freshGreen, flex: 1 },
-  organicDetail: { fontSize: 12, color: COLORS.textMedium, lineHeight: 17, paddingLeft: 26 },
-  organicItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4 },
-  organicItemName: { fontSize: 13, fontWeight: '700', color: COLORS.freshGreen },
+  organicHeader: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8, marginBottom: KSPACE.s4 },
+  organicTitle: { ...noLead(KTYPE.bodyBold), color: KHET.successInk, flex: 1 },
+  // caption's authored leading IS 17 — role spread whole, delta 0.
+  organicDetail: { ...KTYPE.caption, color: KHET.mutedForeground, paddingLeft: 26 },
+  organicItem: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s8, paddingVertical: KSPACE.s4 },
+  organicItemName: { ...noLead(KTYPE.labelBold), color: KHET.successInk },
 
   // ── Safety checklist ──
   safetyCard: {
-    backgroundColor: COLORS.white, borderRadius: 14, padding: 14, gap: 8,
-    borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r14, padding: KSPACE.s14, gap: KSPACE.s8,
+    borderWidth: KBORDER.hairline, borderColor: KHET.border,
   },
-  safetyRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  safetyText: { fontSize: 13, color: COLORS.textMedium, lineHeight: 19, flex: 1 },
+  safetyRow: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s8 },
+  safetyText: { ...noLead(KTYPE.bodySm), lineHeight: 19, color: KHET.mutedForeground, flex: 1 },
 
   // ── Weather risk ──
-  weatherRiskBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8,
+  weatherRiskBadge: { flexWrap: 'wrap',
+    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8, marginBottom: KSPACE.s8,
   },
-  weatherRiskLabel: { fontSize: 13, color: COLORS.textMedium, fontWeight: '600' },
-  riskChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  riskChipText: { fontSize: 11, fontWeight: '800' },
+  weatherRiskLabel: { flexShrink: 1, ...noLead(KTYPE.label), color: KHET.mutedForeground },
+  riskChip: { paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s4, borderRadius: KRADIUS.r20 },
+  riskChipText: { ...noLead(KTYPE.meta) },
 
   // ── Insights ──
+  // Surface is `card`, NOT warningBg. This card holds four CATEGORICAL rows —
+  // weather, soil, previous crop, observations — none of which is a warning.
+  // The migration had put them on the amber warning tint, which tells the farmer
+  // something is wrong with their soil when nothing is. Amber stays confined to
+  // the section dot and header, which are genuinely advisory.
   insightCard: {
-    backgroundColor: COLORS.ivoryWarm, borderRadius: 14, padding: 14, gap: 10,
-    borderWidth: 1, borderColor: 'rgba(243,156,18,0.2)',
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r14, padding: KSPACE.s14, gap: KSPACE.s10,
+    borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.gold, 0.2),
   },
-  insightRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  insightText: { fontSize: 12, color: COLORS.textMedium, lineHeight: 17, flex: 1 },
+  insightRow: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s8 },
+  insightText: { ...KTYPE.caption, color: KHET.mutedForeground, flex: 1 },
 
   // ── Follow-up ──
   followUpCard: {
-    backgroundColor: COLORS.white, borderRadius: 14, overflow: 'hidden',
-    borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r14, overflow: 'hidden',
+    borderWidth: KBORDER.hairline, borderColor: KHET.border,
+    ...KELEV.e1,
   },
   followUpRow: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-    padding: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)',
+    flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s12,
+    padding: KSPACE.s12, borderBottomWidth: KBORDER.hairline, borderBottomColor: KHET.border,
   },
-  followUpDay: { width: 46, height: 32, borderRadius: 8, backgroundColor: 'rgba(52,152,219,0.1)', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  followUpDayText: { fontSize: 11, color: COLORS.blue, fontWeight: '800' },
-  followUpAction: { fontSize: 12, color: COLORS.textMedium, lineHeight: 18, flex: 1, paddingTop: 7 },
+  // RESPONSIVE: height 32 → minHeight 32. The 46px width is a real 360dp risk —
+  // see the responsive note in the report; not changed here (it is a layout call).
+  followUpDay: { width: 46, minHeight: 32, borderRadius: 8, backgroundColor: KHET.infoBg, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+  followUpDayText: { ...noLead(KTYPE.meta), color: KHET.infoInk },
+  followUpAction: { ...noLead(KTYPE.caption), lineHeight: 18, color: KHET.mutedForeground, flex: 1, paddingTop: 7 },
 
   // ── Prevention ──
   preventCard: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-    backgroundColor: 'rgba(46,204,113,0.06)', borderRadius: 14, padding: 16,
-    borderWidth: 1, borderColor: 'rgba(46,204,113,0.15)',
+    flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s12,
+    backgroundColor: withAlpha(KHET.primary, 0.06), borderRadius: KRADIUS.r14, padding: KSPACE.s16,
+    borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.primary, 0.15),
   },
-  preventText: { flex: 1, fontSize: 13, color: COLORS.textMedium, lineHeight: 19 },
+  preventText: { flex: 1, ...noLead(KTYPE.bodySm), lineHeight: 19, color: KHET.mutedForeground },
 
   // ── Products ──
   productsCard: {
-    backgroundColor: COLORS.white, borderRadius: 14, overflow: 'hidden',
-    borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+    backgroundColor: KHET.card, borderRadius: KRADIUS.r14, overflow: 'hidden',
+    borderWidth: KBORDER.hairline, borderColor: KHET.border,
+    ...KELEV.e1,
   },
   productRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)',
+    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s12,
+    padding: KSPACE.s14, borderBottomWidth: KBORDER.hairline, borderBottomColor: KHET.border,
   },
   productIconWrap: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: 'rgba(243,156,18,0.1)', justifyContent: 'center', alignItems: 'center',
+    width: 36, height: 36, borderRadius: KRADIUS.r10,
+    backgroundColor: withAlpha(KHET.gold, 0.1), justifyContent: 'center', alignItems: 'center',
   },
-  productName: { fontSize: 13, fontWeight: '700', color: COLORS.textDark },
-  productMeta: { fontSize: 11, color: COLORS.textLight, marginTop: 2 },
-  productsRow: { gap: 8, paddingVertical: 2 },
+  productName: { ...noLead(KTYPE.labelBold), color: KHET.foreground },
+  productMeta: { fontSize: 11, color: KHET.mutedForeground, marginTop: KSPACE.s2 },
+  productsRow: { gap: KSPACE.s8, paddingVertical: KSPACE.s2 },
   productChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(243,156,18,0.08)', borderRadius: 20,
-    paddingHorizontal: 14, paddingVertical: 10,
-    borderWidth: 1, borderColor: 'rgba(243,156,18,0.25)',
+    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6,
+    backgroundColor: withAlpha(KHET.gold, 0.08), borderRadius: KRADIUS.r20,
+    paddingHorizontal: KSPACE.s14, paddingVertical: KSPACE.s10,
+    borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.gold, 0.25),
   },
-  productChipText: { fontSize: 13, color: COLORS.amberDark, fontWeight: '600' },
+  productChipText: { ...noLead(KTYPE.label), color: KHET.warningInk },
 
   // ── Consult banner ──
+  // The purple wash stays raw — KHET has no purple, and this is a CATEGORICAL
+  // accent (it also tints the "root causes" section dot), not a status.
   consultBanner: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-    marginHorizontal: 16, marginTop: 16,
-    backgroundColor: 'rgba(155,89,182,0.06)', borderRadius: 14, padding: 14,
-    borderWidth: 1, borderColor: 'rgba(155,89,182,0.15)',
+    flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s12,
+    marginHorizontal: KGUTTER.base, marginTop: KSPACE.s16,
+    backgroundColor: 'rgba(155,89,182,0.06)', borderRadius: KRADIUS.r14, padding: KSPACE.s14,
+    borderWidth: KBORDER.hairline, borderColor: 'rgba(155,89,182,0.15)',
   },
-  consultTitle: { fontSize: 13, fontWeight: '800', color: COLORS.purple, marginBottom: 4 },
-  consultText: { fontSize: 11, color: COLORS.textMedium, lineHeight: 17 },
+  consultTitle: { ...noLead(KTYPE.labelExtra), color: COLORS.purple, marginBottom: KSPACE.s4 },
+  consultText: { fontSize: 11, lineHeight: 17, color: KHET.mutedForeground },
 
   // ── Action buttons ──
-  actions: { flexDirection: 'row', gap: 10, marginHorizontal: 16, marginTop: 20 },
+  actions: { flexDirection: 'row', gap: KSPACE.s10, marginHorizontal: KGUTTER.base, marginTop: KSPACE.s20 },
   actionOutline: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
-    borderRadius: 14, paddingVertical: 14,
-    borderWidth: 1.5, borderColor: 'rgba(46,204,113,0.4)',
+    borderRadius: KRADIUS.r14, paddingVertical: KSPACE.s14,
+    borderWidth: KBORDER.chip, borderColor: withAlpha(KHET.primary, 0.4),
   },
-  actionOutlineText: { flexShrink: 1, textAlign: 'center', fontSize: 13, fontWeight: '700', color: COLORS.primary },
+  actionOutlineText: { flexShrink: 1, textAlign: 'center', ...noLead(KTYPE.labelBold), color: KHET.primary },
   actionFill: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
-    borderRadius: 14, paddingVertical: 14, backgroundColor: COLORS.primary,
+    borderRadius: KRADIUS.r14, paddingVertical: KSPACE.s14, backgroundColor: KHET.primary,
   },
-  actionFillText: { flexShrink: 1, textAlign: 'center', fontSize: 13, fontWeight: '800', color: COLORS.white },
+  actionFillText: { flexShrink: 1, textAlign: 'center', ...noLead(KTYPE.labelExtra), color: KHET.white },
 
   // ── Download ──
   downloadBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    marginHorizontal: 16, marginTop: 10,
-    backgroundColor: COLORS.textDark, borderRadius: 14, paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: KSPACE.s8,
+    marginHorizontal: KGUTTER.base, marginTop: KSPACE.s10,
+    backgroundColor: KHET.foreground, borderRadius: KRADIUS.r14, paddingVertical: KSPACE.s14,
   },
   downloadBtnDisabled: { opacity: 0.6 },
-  downloadBtnText: { fontSize: 13, fontWeight: '800', color: COLORS.white },
+  downloadBtnText: { ...noLead(KTYPE.labelExtra), color: KHET.white },
 
   // ── Krushi Kendra share ──
   kkShareBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    marginHorizontal: 16, marginTop: 10,
-    backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: KSPACE.s8,
+    marginHorizontal: KGUTTER.base, marginTop: KSPACE.s10,
+    backgroundColor: KHET.primary, borderRadius: KRADIUS.r14, paddingVertical: KSPACE.s14,
   },
-  kkShareBtnText: { fontSize: 13, fontWeight: '800', color: COLORS.white },
+  kkShareBtnText: { ...noLead(KTYPE.labelExtra), color: KHET.white },
 
-  shareList: { marginHorizontal: 16, marginTop: 16 },
-  shareListTitle: { fontSize: 13, fontWeight: '800', color: COLORS.textDark, marginBottom: 8 },
+  shareList: { marginHorizontal: KGUTTER.base, marginTop: KSPACE.s16 },
+  shareListTitle: { ...noLead(KTYPE.labelExtra), color: KHET.foreground, marginBottom: KSPACE.s8 },
   shareCard: {
-    padding: 12, borderRadius: 12, marginBottom: 8,
-    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+    padding: KSPACE.s12, borderRadius: KRADIUS.r12, marginBottom: KSPACE.s8,
+    backgroundColor: KHET.card, borderWidth: KBORDER.hairline, borderColor: KHET.border,
   },
-  shareCardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  shareSellerName: { flex: 1, fontSize: 13, fontWeight: '700', color: COLORS.textDark, marginRight: 8 },
-  shareSellerMeta: { fontSize: 11, color: COLORS.textLight, marginTop: 2 },
-  shareStatusPill: { backgroundColor: COLORS.amberLight || COLORS.darkAmber + '20', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
-  shareStatusTxt:  { fontSize: 10, fontWeight: '700', color: COLORS.amberDark, textTransform: 'uppercase' },
-  shareReplyBox:   { marginTop: 8, padding: 8, borderRadius: 8, backgroundColor: COLORS.background },
-  shareReplyText:  { fontSize: 12, color: COLORS.textDark, lineHeight: 18 },
-  shareReplySku:   { fontSize: 11, color: COLORS.primary, fontWeight: '700', marginTop: 6 },
-  availableBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, borderRadius: 6, backgroundColor: COLORS.primary, marginBottom: 8 },
-  availableBannerText: { flex: 1, fontSize: 11, fontWeight: '800', color: COLORS.white, letterSpacing: 0.3 },
+  shareCardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: KSPACE.s4 },
+  shareSellerName: { flex: 1, ...noLead(KTYPE.labelBold), color: KHET.foreground, marginRight: KSPACE.s8 },
+  shareSellerMeta: { fontSize: 11, color: KHET.mutedForeground, marginTop: KSPACE.s2 },
+  // was `COLORS.amberLight || COLORS.darkAmber + '20'` — a `||` whose right side
+  // was unreachable (amberLight is truthy). The warning surface says it directly.
+  shareStatusPill: { backgroundColor: KHET.warningBg, borderRadius: 6, paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s2 },
+  shareStatusTxt:  { ...noLead(KTYPE.micro), color: KHET.warningInk, textTransform: 'uppercase' },
+  shareReplyBox:   { marginTop: KSPACE.s8, padding: KSPACE.s8, borderRadius: 8, backgroundColor: KHET.background },
+  shareReplyText:  { ...noLead(KTYPE.caption), lineHeight: 18, color: KHET.foreground },
+  shareReplySku:   { ...noLead(KTYPE.meta), color: KHET.primary, marginTop: KSPACE.s6 },
+  availableBanner: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, padding: KSPACE.s8, borderRadius: 6, backgroundColor: KHET.primary, marginBottom: KSPACE.s8 },
+  availableBannerText: { flex: 1, ...noLead(KTYPE.meta), color: KHET.white },
 
-  recommendedHeading: { fontSize: 11, fontWeight: '800', color: COLORS.textMedium, textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 6 },
-  productCard:        { flexDirection: 'row', gap: 10, padding: 10, borderRadius: 10, marginBottom: 8, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border },
-  productImage:       { width: 60, height: 60, borderRadius: 8, backgroundColor: COLORS.surface },
+  recommendedHeading: { ...noLead(KTYPE.eyebrow), color: KHET.mutedForeground, textTransform: 'uppercase', marginBottom: KSPACE.s6 },
+  productCard:        { flexDirection: 'row', gap: KSPACE.s10, padding: KSPACE.s10, borderRadius: KRADIUS.r10, marginBottom: KSPACE.s8, backgroundColor: KHET.card, borderWidth: KBORDER.hairline, borderColor: KHET.border },
+  productImage:       { width: 60, height: 60, borderRadius: 8, backgroundColor: KHET.muted },
   productImageEmpty:  { justifyContent: 'center', alignItems: 'center' },
-  productName:        { fontSize: 13, fontWeight: '700', color: COLORS.textDark },
-  productPrice:       { fontSize: 14, fontWeight: '800', color: COLORS.primary, marginTop: 4 },
-  productUnit:        { fontSize: 11, fontWeight: '600', color: COLORS.textMedium },
-  productMrp:         { fontSize: 11, color: COLORS.textLight, textDecorationLine: 'line-through' },
-  inStock:            { fontSize: 11, color: COLORS.primary, marginTop: 2 },
-  outStock:           { fontSize: 11, color: COLORS.error,   marginTop: 2 },
-  productActions:     { flexDirection: 'row', gap: 8, marginTop: 8 },
-  productBtn:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8 },
-  productBtnPrimary:  { backgroundColor: COLORS.primary },
-  productBtnOutline:  { borderWidth: 1, borderColor: COLORS.primary, backgroundColor: COLORS.white },
-  productBtnTextWhite:{ color: COLORS.white,   fontSize: 11, fontWeight: '800' },
-  productBtnTextOutline:{ color: COLORS.primary, fontSize: 11, fontWeight: '800' },
+  // NOTE: `productName` is declared twice in this sheet (also above, in Products).
+  // Both are identical, last wins. Left as authored — deduping is a code edit.
+  productName:        { ...noLead(KTYPE.labelBold), color: KHET.foreground },
+  productPrice:       { ...noLead(KTYPE.bodyBold), color: KHET.primary, marginTop: KSPACE.s4 },
+  productUnit:        { ...noLead(KTYPE.meta), color: KHET.mutedForeground },
+  productMrp:         { fontSize: 11, color: KHET.mutedForeground, textDecorationLine: 'line-through' },
+  inStock:            { fontSize: 11, color: KHET.successInk, marginTop: KSPACE.s2 },
+  outStock:           { fontSize: 11, color: KHET.destructiveInk, marginTop: KSPACE.s2 },
+  productActions:     { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s8, marginTop: KSPACE.s8 },
+  productBtn:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexShrink: 1, gap: KSPACE.s4, paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s8, borderRadius: 8 },
+  productBtnPrimary:  { backgroundColor: KHET.primary },
+  productBtnOutline:  { borderWidth: KBORDER.hairline, borderColor: KHET.primary, backgroundColor: KHET.card },
+  productBtnTextWhite:{ color: KHET.white, ...noLead(KTYPE.meta) },
+  productBtnTextOutline:{ color: KHET.primary, ...noLead(KTYPE.meta) },
 
-  visitBackdrop:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  visitSheet:     { backgroundColor: COLORS.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingBottom: 28, paddingTop: 8 },
-  visitHandleWrap:{ alignItems: 'center', paddingVertical: 8 },
-  visitHandle:    { width: 44, height: 4, borderRadius: 2, backgroundColor: COLORS.gray175 },
-  visitTitle:     { fontSize: 18, fontWeight: '800', color: COLORS.textDark, marginTop: 6 },
-  visitMeta:      { fontSize: 13, color: COLORS.textMedium, marginTop: 4 },
-  visitCallBtn:   { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 18, paddingVertical: 14, borderRadius: 12, backgroundColor: COLORS.primary },
-  visitCallTxt:   { color: COLORS.white, fontSize: 14, fontWeight: '800' },
-  visitCloseBtn:  { marginTop: 10, paddingVertical: 12, alignItems: 'center' },
-  visitCloseTxt:  { color: COLORS.textMedium, fontSize: 13, fontWeight: '700' },
+  visitBackdrop:  { flex: 1, backgroundColor: withAlpha(KHET.foreground, 0.45), justifyContent: 'flex-end' },
+  visitSheet:     { backgroundColor: KHET.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: KSPACE.s18, paddingBottom: 28, paddingTop: KSPACE.s8 },
+  visitHandleWrap:{ alignItems: 'center', paddingVertical: KSPACE.s8 },
+  visitHandle:    { width: 44, height: 4, borderRadius: 2, backgroundColor: KHET.border },
+  visitTitle:     { ...noLead(KTYPE.title), color: KHET.foreground, marginTop: KSPACE.s6 },
+  visitMeta:      { ...noLead(KTYPE.bodySm), color: KHET.mutedForeground, marginTop: KSPACE.s4 },
+  visitCallBtn:   { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: KSPACE.s8, marginTop: KSPACE.s18, paddingVertical: KSPACE.s14, borderRadius: KRADIUS.r12, backgroundColor: KHET.primary },
+  visitCallTxt:   { color: KHET.white, ...noLead(KTYPE.bodyBold) },
+  visitCloseBtn:  { marginTop: KSPACE.s10, paddingVertical: KSPACE.s12, alignItems: 'center' },
+  visitCloseTxt:  { color: KHET.mutedForeground, ...noLead(KTYPE.labelBold) },
 
   // ── Disclaimer ──
   disclaimer: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-    marginHorizontal: 16, marginTop: 14,
+    flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s8,
+    marginHorizontal: KGUTTER.base, marginTop: KSPACE.s14,
   },
-  disclaimerText: { flex: 1, fontSize: 11, color: COLORS.textLight, lineHeight: 16 },
+  disclaimerText: { flex: 1, fontSize: 11, lineHeight: 16, color: KHET.mutedForeground },
 });

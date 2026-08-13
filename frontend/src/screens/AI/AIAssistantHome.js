@@ -523,8 +523,13 @@ const S = StyleSheet.create({
   // Quick label
   tileLabel: { fontSize: 10.5, color: COLORS.textDark, fontWeight: TYPE.weight.bold, textAlign: 'center', lineHeight: 13 },
   // Card text
-  tileTitle: { fontSize: 13.5, fontWeight: TYPE.weight.black, color: COLORS.textDark, marginBottom: 5, lineHeight: 18 },
-  tileDesc:  { fontSize: 11.5, color: COLORS.textMedium, lineHeight: 16 },
+  tileTitle: { fontSize: 13.5, fontWeight: TYPE.weight.black, color: COLORS.textDark, marginBottom: 5, lineHeight: 18, paddingRight: 20 },
+  // paddingRight reserves the chevron's lane. tileArrow is absolutely
+  // positioned at bottom/right 12 with a 14px glyph, so without this the last
+  // line of every description renders UNDERNEATH it — visible on all four AI
+  // tool cards ('…treatment guidance ›', '…scheme questions ›').
+  // 12 (right) + 14 (glyph) + 8 (breathing room) = 34.
+  tileDesc:  { fontSize: 11.5, color: COLORS.textMedium, lineHeight: 16, paddingRight: 34 },
   tileArrow: { position: 'absolute', bottom: 12, right: 12 },
 
   // History row — separate per-service entry points

@@ -63,8 +63,20 @@ import api from "@cropsetu/shared/services/api";
 import { useLanguage } from "@cropsetu/shared/context/LanguageContext";
 import { useAuth } from "@cropsetu/shared/context/AuthContext";
 import MockImagePlaceholder from "../../components/MockImagePlaceholder";
-import { COLORS, TYPE, SPACE, RADIUS, SHADOWS } from "@cropsetu/shared/constants/colors";
-import { KHET } from "@cropsetu/shared/constants/khetTheme";
+import { COLORS, SHADOWS } from "@cropsetu/shared/constants/colors";
+import {
+  KHET,
+  KFONT,
+  KSPACE,
+  KGUTTER,
+  KRADIUS,
+  KTYPE,
+  KICON,
+  KBORDER,
+  noLead,
+  circle,
+  withAlpha,
+} from "@cropsetu/shared/constants/khetTheme";
 import AnimatedScreen from "@cropsetu/shared/components/ui/AnimatedScreen";
 import TractorLoader from "../../components/ui/TractorLoader";
 import { MachineryIcon } from "../../components/MachineryIcons";
@@ -190,7 +202,7 @@ function CatChip({ cat, active, onPress }) {
         <View
           style={[
             S.catIconWrap,
-            { backgroundColor: active ? "rgba(255,255,255,0.2)" : cat.bg },
+            { backgroundColor: active ? withAlpha(COLORS.white, 0.2) : cat.bg },
           ]}
         >
           {cat.key !== "all" && cat.key !== "other" ? (
@@ -198,7 +210,7 @@ function CatChip({ cat, active, onPress }) {
           ) : (
             <Ionicons
               name={cat.icon}
-              size={18}
+              size={KICON.md}
               color={active ? COLORS.white : cat.color}
             />
           )}
@@ -219,7 +231,7 @@ function CatChip({ cat, active, onPress }) {
 function NoLocationPill({ t }) {
   return (
     <View style={S.noLocPill}>
-      <Ionicons name="help-circle-outline" size={12} color={COLORS.cta} />
+      <Ionicons name="help-circle-outline" size={KICON.xs} color={COLORS.cta} />
       <Text style={S.noLocTxt}>
         {t("rent.locNotShared", "Location not shared")}
       </Text>
@@ -263,7 +275,7 @@ function BookedTag({ status, t }) {
     <View
       style={[
         S.bookedTag,
-        { backgroundColor: bi.bg, borderColor: bi.color + "40" },
+        { backgroundColor: bi.bg, borderColor: withAlpha(bi.color, "40") },
       ]}
     >
       <Ionicons name={bi.icon} size={13} color={bi.color} />
@@ -352,7 +364,7 @@ const MachineryCard = memo(function MachineryCard({
         )}
         {/* Gradient overlay */}
         <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.5)"]}
+          colors={["transparent", withAlpha(COLORS.black, 0.5)]}
           style={S.mPhotoGradient}
           pointerEvents="none"
         />
@@ -364,13 +376,13 @@ const MachineryCard = memo(function MachineryCard({
           ]}
         >
           <View style={[S.availDot, { backgroundColor: statusColor }]} />
-          <Text style={[S.availTxt, { color: statusColor }]}>
+          <Text style={[S.availTxt, { color: statusColor }]} numberOfLines={1}>
             {statusLabel}
           </Text>
         </View>
         {/* Category label */}
         <View style={[S.catTag, { backgroundColor: catInfo.color }]}>
-          <Text style={S.catTagTxt}>{t("rent." + catInfo.tKey)}</Text>
+          <Text style={S.catTagTxt} numberOfLines={1}>{t("rent." + catInfo.tKey)}</Text>
         </View>
         {/* Distance */}
         {item.distanceKm != null && (
@@ -453,7 +465,7 @@ const MachineryCard = memo(function MachineryCard({
           <BookedTag status={bookingStatus} t={t} />
         ) : (
           <TouchableOpacity style={S.bookBtn} onPress={() => onPress(item)}>
-            <Ionicons name="calendar" size={14} color={COLORS.white} />
+            <Ionicons name="calendar" size={KICON.sm} color={COLORS.white} />
             <Text style={S.bookBtnTxt}>{t("bookNow")}</Text>
           </TouchableOpacity>
         )}
@@ -572,7 +584,7 @@ const WorkerCard = memo(function WorkerCard({
           )}
 
           <View style={S.wMetaRow}>
-            <Ionicons name="location-outline" size={12} color={COLORS.grayMedium} />
+            <Ionicons name="location-outline" size={KICON.xs} color={COLORS.grayMedium} />
             <Text style={S.wMetaTxt} numberOfLines={1}>
               {item.location || item.district || "—"}
               {item.distanceKm != null ? ` · ${item.distanceKm} ${t("rent.kmAway")}` : ""}
@@ -870,7 +882,7 @@ export default function RentHome({ navigation }) {
       {/* Search */}
       <View style={S.searchRow}>
         <View style={S.searchBar}>
-          <Ionicons name="search-outline" size={16} color={COLORS.grayMedium} />
+          <Ionicons name="search-outline" size={KICON.base} color={COLORS.grayMedium} />
           <TextInput
             style={S.searchInput}
             placeholder={
@@ -909,7 +921,7 @@ export default function RentHome({ navigation }) {
           The old UI disabled every chip and said nothing. */}
       {gpsUnavailable && (
         <View style={S.gpsNotice}>
-          <Ionicons name="alert-circle-outline" size={16} color={COLORS.cta} />
+          <Ionicons name="alert-circle-outline" size={KICON.base} color={COLORS.cta} />
           <View style={{ flex: 1 }}>
             <Text style={S.gpsNoticeTxt}>
               {permissionDenied
@@ -927,7 +939,7 @@ export default function RentHome({ navigation }) {
                 }}
                 accessibilityRole="button"
               >
-                <Ionicons name="map-outline" size={14} color={GREEN} />
+                <Ionicons name="map-outline" size={KICON.sm} color={GREEN} />
                 <Text style={S.gpsNoticeBtnTxt}>
                   {t("rent.chooseDistrict", "Choose district")}
                 </Text>
@@ -938,7 +950,7 @@ export default function RentHome({ navigation }) {
                   onPress={() => Linking.openSettings?.()}
                   accessibilityRole="button"
                 >
-                  <Ionicons name="settings-outline" size={14} color={GREEN} />
+                  <Ionicons name="settings-outline" size={KICON.sm} color={GREEN} />
                   <Text style={S.gpsNoticeBtnTxt}>
                     {t("rent.openSettings", "Open Settings")}
                   </Text>
@@ -951,7 +963,7 @@ export default function RentHome({ navigation }) {
                   accessibilityState={{ disabled: !!gpsRefreshing }}
                   disabled={gpsRefreshing}
                 >
-                  <Ionicons name="refresh" size={14} color={GREEN} />
+                  <Ionicons name="refresh" size={KICON.sm} color={GREEN} />
                   <Text style={S.gpsNoticeBtnTxt}>
                     {t("rent.gpsRetry", "Try again")}
                   </Text>
@@ -1015,7 +1027,7 @@ export default function RentHome({ navigation }) {
       {/* Loose mode: say once that unmeasurable listings are in the list. */}
       {!active.loading && unlocatedShown > 0 && (
         <View style={S.unlocatedNote}>
-          <Ionicons name="information-circle-outline" size={14} color={COLORS.blue} />
+          <Ionicons name="information-circle-outline" size={KICON.sm} color={COLORS.blue} />
           <Text style={S.unlocatedNoteTxt}>
             {t("rent.unlocatedNotice", { count: unlocatedShown })}
           </Text>
@@ -1061,7 +1073,7 @@ export default function RentHome({ navigation }) {
           onPress={() => setPrefs({ radiusKm: nextRadius })}
           accessibilityRole="button"
         >
-          <Ionicons name="resize-outline" size={16} color={COLORS.white} />
+          <Ionicons name="resize-outline" size={KICON.base} color={COLORS.white} />
           <Text style={S.widenTxt}>
             {nextRadius == null
               ? t("rent.widenToAny", "Search any distance")
@@ -1095,7 +1107,7 @@ export default function RentHome({ navigation }) {
         }
         accessibilityRole="button"
       >
-        <Ionicons name="add" size={16} color={GREEN} />
+        <Ionicons name="add" size={KICON.base} color={GREEN} />
         <Text style={S.addFirstTxt}>
           {tab === "machinery"
             ? t("rent.listYourMachinery")
@@ -1119,7 +1131,7 @@ export default function RentHome({ navigation }) {
           {active.loadingMore ? (
             <ActivityIndicator size="small" color={GREEN} />
           ) : (
-            <Ionicons name="chevron-down" size={16} color={GREEN} />
+            <Ionicons name="chevron-down" size={KICON.base} color={GREEN} />
           )}
           <Text style={S.loadMoreTxt}>
             {t("rent.loadMoreOf", { remaining: Math.max(0, total - shown) })}
@@ -1154,11 +1166,11 @@ export default function RentHome({ navigation }) {
               </Text>
             </View>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={GREEN} />
+          <Ionicons name="chevron-forward" size={KICON.lg} color={GREEN} />
         </TouchableOpacity>
       )}
 
-      <View style={{ height: SPACE[4] }} />
+      <View style={{ height: KSPACE.s32 }} />
     </View>
   );
 
@@ -1199,9 +1211,9 @@ export default function RentHome({ navigation }) {
           >
             <Ionicons
               name="cloud-offline-outline"
-              size={16}
+              size={KICON.base}
               color={COLORS.white}
-              style={{ marginRight: 6 }}
+              style={{ marginRight: KSPACE.s6 }}
             />
             <Text style={S.errorBannerTxt}>
               {t("rent.fetchError", "Could not load listings. Tap to retry.")}
@@ -1229,7 +1241,7 @@ export default function RentHome({ navigation }) {
               >
                 <Ionicons
                   name="notifications-outline"
-                  size={22}
+                  size={KICON.xl}
                   color={COLORS.charcoal}
                 />
                 {pendingCount > 0 && (
@@ -1259,7 +1271,7 @@ export default function RentHome({ navigation }) {
             >
               <Ionicons
                 name={tb.icon}
-                size={16}
+                size={KICON.base}
                 color={tab === tb.key ? GREEN : COLORS.grayMedium}
               />
               <Text style={[S.tabTxt, tab === tb.key && S.tabTxtActive]}>
@@ -1318,33 +1330,28 @@ const S = StyleSheet.create({
 
   errorBanner: {
     backgroundColor: COLORS.error,
-    paddingVertical: SPACE[1],
-    paddingHorizontal: SPACE[2],
+    paddingVertical: KSPACE.s8,
+    paddingHorizontal: KSPACE.s16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },
-  errorBannerTxt: { color: COLORS.white, fontSize: 13, fontWeight: "600", flexShrink: 1 },
+  errorBannerTxt: { ...noLead(KTYPE.label), color: COLORS.white, flexShrink: 1 },
 
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingHorizontal: KSPACE.s18,
+    paddingVertical: KSPACE.s14,
     backgroundColor: COLORS.surface,
-    borderBottomWidth: 1,
+    borderBottomWidth: KBORDER.hairline,
     borderBottomColor: COLORS.border,
     gap: 9,
     ...SHADOWS.small,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: TYPE.weight.black,
-    color: COLORS.textDark,
-    letterSpacing: -0.3,
-  },
-  gpsDot: { width: 8, height: 8, borderRadius: 4 },
-  bellBtn: { padding: 4, position: "relative" },
+  headerTitle: { ...noLead(KTYPE.titleLg), color: COLORS.textDark },
+  gpsDot: { ...circle(8) },
+  bellBtn: { padding: KSPACE.s4, position: "relative" },
   bellBadge: {
     position: "absolute",
     top: 0,
@@ -1352,18 +1359,20 @@ const S = StyleSheet.create({
     backgroundColor: COLORS.error,
     borderRadius: 8,
     minWidth: 16,
-    height: 16,
+    // minHeight, not height: this box holds text, and at a large OS text size a
+    // fixed 16 clipped the count instead of growing with it.
+    minHeight: 16,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 3,
+    paddingHorizontal: KSPACE.s3,
   },
-  bellBadgeTxt: { color: COLORS.white, fontSize: 9, fontWeight: "800" },
+  bellBadgeTxt: { fontSize: 9, fontFamily: KFONT.sansExtra, color: COLORS.white },
 
   tabBar: {
     flexDirection: "row",
     backgroundColor: COLORS.surface,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
+    paddingHorizontal: KGUTTER.base,
+    borderBottomWidth: KBORDER.hairline,
     borderBottomColor: COLORS.border,
   },
   tabItem: {
@@ -1371,82 +1380,85 @@ const S = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: KSPACE.s6,
     minHeight: 44,
-    paddingVertical: 12,
+    paddingVertical: KSPACE.s12,
     borderBottomWidth: 2.5,
     borderBottomColor: "transparent",
   },
   tabItemActive: { borderBottomColor: GREEN },
-  tabTxt: { fontSize: 14, fontWeight: "600", color: COLORS.textLight },
-  tabTxtActive: { color: GREEN, fontWeight: "800" },
+  tabTxt: { ...noLead(KTYPE.body), fontFamily: KFONT.sansSemi, color: COLORS.textMedium },
+  tabTxtActive: { color: GREEN, fontFamily: KFONT.sansExtra },
 
-  searchRow: { paddingHorizontal: 16, paddingTop: 16 },
+  searchRow: { paddingHorizontal: KGUTTER.base, paddingTop: KSPACE.s16 },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: KSPACE.s10,
     backgroundColor: COLORS.surface,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1.5,
+    borderRadius: KRADIUS.r18,
+    paddingHorizontal: KSPACE.s14,
+    paddingVertical: KSPACE.s12,
+    borderWidth: KBORDER.chip,
     borderColor: KHET.primary,
     ...SHADOWS.small,
   },
-  searchInput: { flex: 1, fontSize: 14, color: COLORS.textDark, padding: 0 },
+  searchInput: { flex: 1, ...noLead(KTYPE.body), color: COLORS.textDark, padding: KSPACE.s0 },
 
   // GPS unavailable notice
   gpsNotice: {
     flexDirection: "row",
-    gap: SPACE[1],
-    marginHorizontal: SPACE[2],
-    marginTop: SPACE[1],
-    padding: SPACE[1.5],
+    gap: KSPACE.s8,
+    marginHorizontal: KGUTTER.base,
+    marginTop: KSPACE.s8,
+    padding: KSPACE.s12,
     backgroundColor: COLORS.orangeWarm,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.cta + "35",
+    borderRadius: KRADIUS.r12,
+    borderWidth: KBORDER.hairline,
+    borderColor: withAlpha(COLORS.cta, "35"),
   },
-  gpsNoticeTxt: { fontSize: 12, color: COLORS.textBody, lineHeight: 17 },
-  gpsNoticeBtns: { flexDirection: "row", flexWrap: "wrap", gap: SPACE[1], marginTop: SPACE[1] },
+  gpsNoticeTxt: { ...KTYPE.caption, fontFamily: KFONT.sans, color: COLORS.textBody },
+  gpsNoticeBtns: { flexDirection: "row", flexWrap: "wrap", gap: KSPACE.s8, marginTop: KSPACE.s8 },
   gpsNoticeBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
     minHeight: 44,
-    paddingHorizontal: SPACE[1.5],
+    paddingHorizontal: KSPACE.s12,
     backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.sm,
-    borderWidth: 1.5,
+    borderRadius: 8,
+    borderWidth: KBORDER.chip,
     borderColor: GREEN,
   },
-  gpsNoticeBtnTxt: { fontSize: 12, fontWeight: "800", color: GREEN, flexShrink: 1 },
+  gpsNoticeBtnTxt: {
+    ...noLead(KTYPE.caption),
+    fontFamily: KFONT.sansExtra,
+    color: GREEN,
+    flexShrink: 1,
+  },
 
   // Category chips
-  catRow: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
+  catRow: { paddingHorizontal: KGUTTER.tight, paddingVertical: KSPACE.s10, gap: KSPACE.s8 },
   catChip: {
     flexDirection: "column",
     alignItems: "center",
-    gap: 4,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    gap: KSPACE.s4,
+    paddingVertical: KSPACE.s10,
+    paddingHorizontal: KSPACE.s12,
     backgroundColor: COLORS.surface,
-    borderRadius: 18,
-    borderWidth: 1.5,
+    borderRadius: KRADIUS.r18,
+    borderWidth: KBORDER.chip,
     borderColor: COLORS.border,
     minWidth: 68,
   },
   catIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    ...circle(40),
     justifyContent: "center",
     alignItems: "center",
   },
   catLabel: {
     fontSize: 10,
-    fontWeight: "700",
+    fontFamily: KFONT.sansBold,
     color: COLORS.grayMid2,
     textAlign: "center",
   },
@@ -1454,63 +1466,57 @@ const S = StyleSheet.create({
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: SPACE[1.5],
-    paddingBottom: 6,
+    gap: KSPACE.s10,
+    paddingHorizontal: KGUTTER.base,
+    paddingTop: KSPACE.s12,
+    paddingBottom: KSPACE.s6,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: TYPE.weight.black,
-    color: COLORS.textDark,
-    flex: 1,
-    letterSpacing: -0.2,
-  },
+  sectionTitle: { ...noLead(KTYPE.title), color: COLORS.textDark, flex: 1 },
   countBadge: {
-    backgroundColor: GREEN + "15",
+    backgroundColor: withAlpha(GREEN, "15"),
     borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: KSPACE.s8,
+    paddingVertical: KSPACE.s3,
   },
-  countTxt: { fontSize: 11, color: GREEN, fontWeight: "700" },
+  countTxt: { ...noLead(KTYPE.meta), color: GREEN },
 
   scopeLine: {
-    fontSize: 12,
+    ...KTYPE.caption,
+    fontFamily: KFONT.sans,
     color: COLORS.textMedium,
-    paddingHorizontal: 16,
-    paddingBottom: SPACE[1],
-    lineHeight: 17,
+    paddingHorizontal: KGUTTER.base,
+    paddingBottom: KSPACE.s8,
   },
   unlocatedNote: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 6,
-    marginHorizontal: SPACE[2],
-    marginBottom: SPACE[1],
-    padding: SPACE[1],
+    gap: KSPACE.s6,
+    marginHorizontal: KGUTTER.base,
+    marginBottom: KSPACE.s8,
+    padding: KSPACE.s8,
     backgroundColor: COLORS.blueBg,
-    borderRadius: RADIUS.sm,
+    borderRadius: 8,
   },
-  unlocatedNoteTxt: { flex: 1, fontSize: 11, color: COLORS.blue, lineHeight: 16 },
+  unlocatedNoteTxt: { flex: 1, ...KTYPE.meta, fontFamily: KFONT.sans, color: COLORS.blue },
 
   // "Location not shared" pill on a card
   noLocPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: KSPACE.s4,
     alignSelf: "flex-start",
-    marginBottom: 8,
+    marginBottom: KSPACE.s8,
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: KSPACE.s3,
     backgroundColor: COLORS.orangeWarm,
-    borderRadius: RADIUS.sm,
+    borderRadius: 8,
   },
-  noLocTxt: { fontSize: 10, fontWeight: "700", color: COLORS.cta, flexShrink: 1 },
+  noLocTxt: { fontSize: 10, fontFamily: KFONT.sansBold, color: COLORS.cta, flexShrink: 1 },
 
   // 2-column grid — column wrapper supplies the gutter, the list container the
   // outer padding; cards flex:1 so each fills its half evenly.
-  listContent: { paddingHorizontal: 14, paddingBottom: 4 },
-  gridRow: { gap: 12, alignItems: "stretch", marginBottom: 16 },
+  listContent: { paddingHorizontal: KGUTTER.tight, paddingBottom: KSPACE.s4 },
+  gridRow: { gap: KSPACE.s12, alignItems: "stretch", marginBottom: KSPACE.s16 },
 
   // Machinery card
   mCard: {
@@ -1531,149 +1537,185 @@ const S = StyleSheet.create({
   },
   availBadge: {
     position: "absolute",
-    top: 10,
-    right: 10,
+    top: KSPACE.s10,
+    right: KSPACE.s10,
+    // catTag sits absolute at top-LEFT of the same image; both grow with the OS
+    // text size and at 2x they collide mid-card ("Rotavator" over "Available").
+    // Capping each at 45% of the card width keeps a gutter between them.
+    maxWidth: "45%",
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 10,
+    borderRadius: KRADIUS.r20,
+    borderWidth: KBORDER.hairline,
+    paddingHorizontal: KSPACE.s10,
     paddingVertical: 5,
     backgroundColor: COLORS.white,
   },
   availDot: { width: 7, height: 7, borderRadius: 4 },
-  availTxt: { fontSize: 11, fontWeight: "700" },
+  availTxt: { ...noLead(KTYPE.meta), flexShrink: 1 },
   catTag: {
     position: "absolute",
-    top: 10,
-    left: 10,
+    top: KSPACE.s10,
+    left: KSPACE.s10,
+    maxWidth: "45%",
     borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: KSPACE.s8,
+    paddingVertical: KSPACE.s4,
   },
-  catTagTxt: { fontSize: 10, color: COLORS.white, fontWeight: "800" },
+  catTagTxt: { fontSize: 10, fontFamily: KFONT.sansExtra, color: COLORS.white, flexShrink: 1 },  // paired with numberOfLines={1} at the call site
   distOverlay: {
     position: "absolute",
-    bottom: 8,
-    right: 10,
+    bottom: KSPACE.s8,
+    right: KSPACE.s10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    backgroundColor: "rgba(255,255,255,0.92)",
+    gap: KSPACE.s3,
+    backgroundColor: withAlpha(COLORS.white, 0.92),
     borderRadius: 8,
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: KSPACE.s3,
   },
-  distOverlayTxt: { fontSize: 11, color: COLORS.blue, fontWeight: "800" },
+  distOverlayTxt: { ...noLead(KTYPE.meta), fontFamily: KFONT.sansExtra, color: COLORS.blue },
   workerBooked: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: KSPACE.s3,
     alignSelf: "flex-start",
-    marginTop: 4,
+    marginTop: KSPACE.s4,
     borderRadius: 8,
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: KSPACE.s3,
   },
-  workerBookedTxt: { fontSize: 10, fontWeight: "800" },
-  mBody: { padding: 14 },
+  workerBookedTxt: { fontSize: 10, fontFamily: KFONT.sansExtra },
+  mBody: { padding: KSPACE.s14 },
   mTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 8,
-    gap: 8,
+    marginBottom: KSPACE.s8,
+    gap: KSPACE.s8,
   },
-  mName: {
-    fontSize: 16,
-    fontWeight: TYPE.weight.black,
-    color: COLORS.textDark,
+  // flexShrink + minWidth: at 2x text the price column ("₹/hr") grew and
+  // squeezed this column toward zero, so RN wrapped the machinery name one
+  // CHARACTER per line ("S h a k t i m a n" down the card). numberOfLines={1}
+  // does not prevent that — it only caps the line count, and a 1-char-wide
+  // column still renders 1 char. The minWidth is the actual guard.
+  mName: { ...noLead(KTYPE.subheadingExtra), color: COLORS.textDark, flexShrink: 1, minWidth: 90 },
+  mBrand: {
+    ...noLead(KTYPE.caption),
+    fontFamily: KFONT.sans,
+    color: COLORS.textMedium,
+    marginTop: KSPACE.s2,
   },
-  mBrand: { fontSize: 12, color: COLORS.textLight, marginTop: 2 },
   mPriceCol: { alignItems: "flex-end", flexShrink: 0 },
-  mPrice: { fontSize: 15, fontWeight: "900", color: GREEN },
-  mPriceDay: { fontSize: 11, color: COLORS.textLight, marginTop: 1 },
-  mMetaRow: { flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" },
+  mPrice: { ...noLead(KTYPE.subheadExtra), color: GREEN },
+  mPriceDay: {
+    ...noLead(KTYPE.meta),
+    fontFamily: KFONT.sans,
+    color: COLORS.textMedium,
+    marginTop: KSPACE.s1,
+  },
+  mMetaRow: { flexDirection: "row", gap: KSPACE.s6, marginBottom: KSPACE.s8, flexWrap: "wrap" },
   ratingPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: KSPACE.s3,
     backgroundColor: COLORS.yellowAmber,
     borderRadius: 8,
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: KSPACE.s3,
   },
-  ratingTxt: { fontSize: 11, color: COLORS.amber, fontWeight: "700" },
+  ratingTxt: { ...noLead(KTYPE.meta), color: COLORS.amber },
   // Shown in the rating pill's place for a worker with no ratings yet, so the
   // slot keeps its height and the card layout does not shift between the two.
   newPill: {
+    // Left on the raw concat: withAlpha() rounds alpha to 3dp, and 0x12/255 =
+    // 0.070588 -> 0.071 moves one channel by 1/255. Exactness over idiom.
     backgroundColor: GREEN + "12",
     borderRadius: 8,
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: KSPACE.s3,
   },
-  newPillTxt: { fontSize: 11, color: GREEN, fontWeight: "700" },
+  newPillTxt: { ...noLead(KTYPE.meta), color: GREEN },
   metaPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: KSPACE.s3,
     backgroundColor: COLORS.background,
     borderRadius: 8,
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: KSPACE.s3,
   },
-  metaTxt: { fontSize: 11, color: COLORS.textBody, fontWeight: "600" },
+  metaTxt: { ...noLead(KTYPE.meta), fontFamily: KFONT.sansSemi, color: COLORS.textBody },
   verifiedPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: KSPACE.s3,
     backgroundColor: COLORS.primaryPale,
     borderRadius: 8,
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: KSPACE.s3,
   },
   mLocRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    marginBottom: 12,
+    gap: KSPACE.s4,
+    marginBottom: KSPACE.s12,
   },
-  mLocTxt: { fontSize: 12, color: COLORS.textLight, flex: 1 },
+  mLocTxt: {
+    ...noLead(KTYPE.caption),
+    fontFamily: KFONT.sans,
+    color: COLORS.textMedium,
+    flex: 1,
+  },
   bookBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: KSPACE.s6,
     backgroundColor: GREEN,
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: KRADIUS.r12,
+    paddingVertical: KSPACE.s12,
   },
-  bookBtnTxt: { color: COLORS.white, fontSize: 14, fontWeight: "800" },
+  // flexShrink matches every sibling CTA label (ownTagTxt, callBtnTxt, widenTxt,
+  // addFirstTxt); without it a long Marathi "Book now" overflowed the button at
+  // 360dp. Costs nothing when the label already fits.
+  bookBtnTxt: {
+    ...noLead(KTYPE.body),
+    fontFamily: KFONT.sansExtra,
+    color: COLORS.white,
+    flexShrink: 1,
+  },
   ownTag: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
     backgroundColor: COLORS.primaryPale,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: GREEN + "40",
-    paddingVertical: 10,
-    paddingHorizontal: 10,
+    borderRadius: KRADIUS.r12,
+    borderWidth: KBORDER.chip,
+    borderColor: withAlpha(GREEN, "40"),
+    paddingVertical: KSPACE.s10,
+    paddingHorizontal: KSPACE.s10,
   },
-  ownTagTxt: { color: GREEN, fontSize: 12, fontWeight: "800", flexShrink: 1 },
+  ownTagTxt: {
+    ...noLead(KTYPE.caption),
+    fontFamily: KFONT.sansExtra,
+    color: GREEN,
+    flexShrink: 1,
+  },
   bookedTag: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
+    borderRadius: KRADIUS.r12,
+    borderWidth: KBORDER.chip,
+    paddingVertical: KSPACE.s10,
+    paddingHorizontal: KSPACE.s10,
   },
-  bookedTagTxt: { fontSize: 12, fontWeight: "800", flexShrink: 1 },
+  bookedTagTxt: { ...noLead(KTYPE.caption), fontFamily: KFONT.sansExtra, flexShrink: 1 },
 
   // Worker card
   // Vertical card — it lives in a 2-column grid (~155px wide), so the content
@@ -1681,85 +1723,100 @@ const S = StyleSheet.create({
   wCard: {
     flex: 1,
     backgroundColor: COLORS.surface,
-    borderRadius: 20,
+    borderRadius: KRADIUS.r20,
     overflow: "hidden",
     ...SHADOWS.small,
   },
   wHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingTop: 12,
+    gap: KSPACE.s10,
+    paddingHorizontal: KSPACE.s12,
+    paddingTop: KSPACE.s12,
   },
   wHeaderTxt: { flex: 1, minWidth: 0 },
-  wBody: { paddingHorizontal: 12, paddingBottom: 12, paddingTop: 8, gap: 6 },
+  wBody: {
+    paddingHorizontal: KSPACE.s12,
+    paddingBottom: KSPACE.s12,
+    paddingTop: KSPACE.s8,
+    gap: KSPACE.s6,
+  },
   wAvatarWrap: { position: "relative" },
   // 44 not 56: at ~155px column width the avatar plus its gap was eating a
   // third of the row before the name started.
   wAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: GREEN + "40",
+    ...circle(44),
+    borderWidth: KBORDER.selected,
+    borderColor: withAlpha(GREEN, "40"),
   },
   wAvatarPlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: GREEN + "15",
+    ...circle(44),
+    backgroundColor: withAlpha(GREEN, "15"),
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 2,
-    borderColor: GREEN + "30",
+    borderWidth: KBORDER.selected,
+    borderColor: withAlpha(GREEN, "30"),
   },
-  wInitials: { fontSize: 15, fontWeight: "800", color: GREEN },
+  wInitials: { ...noLead(KTYPE.subheadExtra), color: GREEN },
   wAvailDot: {
     position: "absolute",
-    bottom: 1,
-    right: 1,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    bottom: KSPACE.s1,
+    right: KSPACE.s1,
+    ...circle(14),
     borderWidth: 2.5,
     borderColor: COLORS.white,
   },
-  wName: { fontSize: 14, fontWeight: TYPE.weight.black, color: COLORS.textDark },
-  wGroup: { fontSize: 11, color: COLORS.textLight, marginTop: 1 },
-  wSkillsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  wName: { ...noLead(KTYPE.body), fontFamily: KFONT.sansExtra, color: COLORS.textDark },
+  wGroup: {
+    ...noLead(KTYPE.meta),
+    fontFamily: KFONT.sans,
+    color: COLORS.textMedium,
+    marginTop: KSPACE.s1,
+  },
+  wSkillsWrap: { flexDirection: "row", flexWrap: "wrap", gap: KSPACE.s4 },
   skillTag: {
+    // See newPill: 0x12 alpha does not survive withAlpha()'s 3dp rounding.
     backgroundColor: GREEN + "12",
     borderRadius: 8,
     paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: GREEN + "25",
+    paddingVertical: KSPACE.s3,
+    borderWidth: KBORDER.hairline,
+    borderColor: withAlpha(GREEN, "25"),
     // Cap relative to the column, not a fixed 120px that overflowed it.
     maxWidth: "100%",
     flexShrink: 1,
   },
-  skillTagTxt: { fontSize: 10, color: GREEN, fontWeight: "700" },
+  skillTagTxt: { fontSize: 10, fontFamily: KFONT.sansBold, color: GREEN },
   skillMore: {
     backgroundColor: COLORS.background,
     borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: KSPACE.s8,
+    paddingVertical: KSPACE.s4,
   },
-  skillMoreTxt: { fontSize: 10, color: COLORS.grayMedium, fontWeight: "700" },
-  wMetaRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  wMetaTxt: { fontSize: 11, color: COLORS.textLight, flex: 1 },
+  skillMoreTxt: { fontSize: 10, fontFamily: KFONT.sansBold, color: COLORS.grayMid2 },
+  wMetaRow: { flexDirection: "row", alignItems: "center", gap: KSPACE.s4 },
+  wMetaTxt: {
+    ...noLead(KTYPE.meta),
+    fontFamily: KFONT.sans,
+    color: COLORS.textMedium,
+    flex: 1,
+  },
   // Price and rating share a row; the CTA is full-width below them, so the
   // Call button can no longer land on top of the price.
   wPriceRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 6,
+    gap: KSPACE.s6,
   },
-  wPriceCol: { flexDirection: "row", alignItems: "baseline", gap: 1, flexShrink: 1 },
-  wPrice: { fontSize: 15, fontWeight: "900", color: GREEN },
-  wPriceUnit: { fontSize: 10, color: COLORS.textLight, fontWeight: "600" },
+  wPriceCol: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: KSPACE.s1,
+    flexShrink: 1,
+  },
+  wPrice: { ...noLead(KTYPE.subheadExtra), color: GREEN },
+  wPriceUnit: { fontSize: 10, fontFamily: KFONT.sansSemi, color: COLORS.textMedium },
   // Full-width CTA at the bottom of the card, matching machinery's bookBtn.
   callBtn: {
     flexDirection: "row",
@@ -1767,62 +1824,66 @@ const S = StyleSheet.create({
     justifyContent: "center",
     gap: 5,
     backgroundColor: GREEN,
-    borderRadius: 10,
+    borderRadius: KRADIUS.r10,
     paddingVertical: 9,
-    marginTop: 2,
+    marginTop: KSPACE.s2,
   },
-  callBtnTxt: { color: COLORS.white, fontSize: 12, fontWeight: "800" },
+  callBtnTxt: { ...noLead(KTYPE.caption), fontFamily: KFONT.sansExtra, color: COLORS.white },
 
-  loadWrap: { paddingVertical: 60, alignItems: "center", gap: 10 },
+  loadWrap: { paddingVertical: 60, alignItems: "center", gap: KSPACE.s10 },
   emptyWrap: {
     alignItems: "center",
-    paddingVertical: 40,
-    paddingHorizontal: 24,
-    gap: SPACE[1],
+    paddingVertical: KSPACE.s40,
+    paddingHorizontal: KSPACE.s24,
+    gap: KSPACE.s8,
   },
   emptyIconBg: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    ...circle(80),
     backgroundColor: COLORS.primaryPale,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: KSPACE.s8,
   },
   emptyTitle: {
     fontSize: 20,
-    fontWeight: "900",
+    fontFamily: KFONT.sansExtra,
     color: COLORS.textDark,
     textAlign: "center",
   },
   emptyTxt: {
-    fontSize: 14,
+    ...noLead(KTYPE.body),
+    fontFamily: KFONT.sansMed,
     color: COLORS.textMedium,
-    fontWeight: "500",
     textAlign: "center",
   },
   emptyHint: {
-    fontSize: 12,
-    color: COLORS.textLight,
+    ...noLead(KTYPE.caption),
+    fontFamily: KFONT.sans,
+    color: COLORS.textMedium,
     textAlign: "center",
-    marginTop: SPACE[1],
+    marginTop: KSPACE.s8,
   },
   widenBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: KSPACE.s8,
     minHeight: 44,
-    paddingHorizontal: SPACE[2],
+    paddingHorizontal: KSPACE.s16,
     backgroundColor: GREEN,
-    borderRadius: RADIUS.md,
-    marginTop: SPACE[1],
+    borderRadius: KRADIUS.r12,
+    marginTop: KSPACE.s8,
   },
-  widenTxt: { color: COLORS.white, fontSize: 13, fontWeight: "800", flexShrink: 1, textAlign: "center" },
-  emptyLinkBtn: { minHeight: 44, justifyContent: "center", paddingHorizontal: SPACE[1] },
+  widenTxt: {
+    ...noLead(KTYPE.labelExtra),
+    color: COLORS.white,
+    flexShrink: 1,
+    textAlign: "center",
+  },
+  emptyLinkBtn: { minHeight: 44, justifyContent: "center", paddingHorizontal: KSPACE.s8 },
   emptyLinkTxt: {
-    fontSize: 12,
-    fontWeight: "700",
+    ...noLead(KTYPE.caption),
+    fontFamily: KFONT.sansBold,
     color: COLORS.blue,
     textAlign: "center",
     textDecorationLine: "underline",
@@ -1831,42 +1892,42 @@ const S = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: KSPACE.s6,
     minHeight: 44,
-    borderWidth: 1.5,
+    borderWidth: KBORDER.chip,
     borderColor: GREEN,
-    borderRadius: 10,
-    paddingHorizontal: 16,
+    borderRadius: KRADIUS.r10,
+    paddingHorizontal: KSPACE.s16,
   },
-  addFirstTxt: { color: GREEN, fontSize: 13, fontWeight: "700", flexShrink: 1 },
+  addFirstTxt: { ...noLead(KTYPE.labelBold), color: GREEN, flexShrink: 1 },
 
   loadMoreBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: KSPACE.s8,
     minHeight: 44,
-    marginHorizontal: SPACE[1],
-    marginBottom: SPACE[1.5],
-    paddingHorizontal: SPACE[2],
+    marginHorizontal: KSPACE.s8,
+    marginBottom: KSPACE.s12,
+    paddingHorizontal: KSPACE.s16,
     backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
-    borderWidth: 1.5,
-    borderColor: GREEN + "40",
+    borderRadius: KRADIUS.r12,
+    borderWidth: KBORDER.chip,
+    borderColor: withAlpha(GREEN, "40"),
   },
-  loadMoreTxt: { fontSize: 13, fontWeight: "800", color: GREEN, flexShrink: 1 },
+  loadMoreTxt: { ...noLead(KTYPE.labelExtra), color: GREEN, flexShrink: 1 },
 
   listBanner: {
-    marginHorizontal: 0,
-    marginVertical: 8,
+    marginHorizontal: KSPACE.s0,
+    marginVertical: KSPACE.s8,
     backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: KRADIUS.r16,
+    padding: KSPACE.s16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderWidth: 1.5,
-    borderColor: GREEN + "30",
+    borderWidth: KBORDER.chip,
+    borderColor: withAlpha(GREEN, "30"),
     shadowColor: COLORS.black,
     shadowOpacity: 0.04,
     shadowRadius: 4,
@@ -1875,14 +1936,18 @@ const S = StyleSheet.create({
   listBannerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: KSPACE.s12,
     flex: 1,
   },
   listBannerTitle: {
-    fontSize: 15,
-    fontWeight: "800",
+    ...noLead(KTYPE.subheadExtra),
     color: COLORS.textDark,
-    marginBottom: 2,
+    marginBottom: KSPACE.s2,
   },
-  listBannerSub: { fontSize: 12, color: COLORS.textLight, lineHeight: 16 },
+  listBannerSub: {
+    ...noLead(KTYPE.caption),
+    fontFamily: KFONT.sans,
+    color: COLORS.textMedium,
+    lineHeight: 16,
+  },
 });

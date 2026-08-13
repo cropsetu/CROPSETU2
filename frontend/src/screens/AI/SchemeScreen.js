@@ -8,7 +8,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COLORS } from '@cropsetu/shared/constants/colors';
 
-const { width: W } = Dimensions.get('window');
 
 const SCHEMES = [
   {

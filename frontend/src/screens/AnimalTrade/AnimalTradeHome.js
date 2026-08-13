@@ -590,7 +590,9 @@ const S = StyleSheet.create({
   distRow:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 12, gap: 10 },
   distLabel:        { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 80 },
   distLabelTxt:     { fontSize: 12, fontWeight: TYPE.weight.bold, color: COLORS.textMedium },
-  distChips:        { gap: 7, flexDirection: 'row' },
+  // paddingRight matches sortRow's: without it the last chip ('100 km') is
+  // sliced mid-glyph at the viewport edge and reads as a wrong value ('10').
+  distChips:        { gap: 7, flexDirection: 'row', paddingRight: 16 },
   distChip:         { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.surface },
   distChipActive:   { backgroundColor: GREEN, borderColor: GREEN },
   distChipDisabled: { backgroundColor: COLORS.nearWhite, borderColor: COLORS.lightGray2 },

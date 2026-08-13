@@ -78,9 +78,12 @@ export const HIT = { top: 10, bottom: 10, left: 10, right: 10 };
 export const SCREEN = { W: SCREEN_W, H: SCREEN_H };
 
 /**
- * isSmallDevice — true for screens narrower than 360dp (budget Androids).
+ * isSmallDevice — true at 360dp AND BELOW (budget Androids). The comparison is
+ * <= deliberately: 360dp is the most common budget-Android width in India and the
+ * design base is 390dp, so 360 is exactly the case this guard exists to catch. A
+ * strict < 360 excluded it.
  */
-export const isSmallDevice = SCREEN_W < 360;
+export const isSmallDevice = SCREEN_W <= 360;
 
 /**
  * isLargeDevice — true for screens wider than 430dp (Plus/Max/tablets).

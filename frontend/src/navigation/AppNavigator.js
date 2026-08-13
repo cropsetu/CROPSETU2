@@ -27,7 +27,12 @@ const scale  = (v) => Math.round(v * (W / 390));
 const clamp  = (v, min, max) => Math.min(Math.max(v, min), max);
 
 const ICON_SIZE  = clamp(scale(38), 34, 44);
-const LABEL_SIZE = clamp(scale(12), 11, 13);
+// Floor is 9.5, not 11: at 360dp scale(12) resolves to exactly 11, so an 11
+// floor pins the label at its minimum and removes the only headroom the bar
+// has. The label box is 46dp at 360 and 'Krushi AI' needs ~50dp at 11/700, so
+// it tail-truncates in every locale. Paired with adjustsFontSizeToFit below,
+// the glyph shrinks to fit instead of losing characters.
+const LABEL_SIZE = clamp(scale(12), 9.5, 13);
 const BAR_H      = Platform.OS === 'ios'
   ? clamp(scale(100), 92, 116)
   : clamp(scale(84), 76, 98);
@@ -81,6 +86,18 @@ function TabItem({ route, options, focused, onPress }) {
         <Text
           style={[TB.label, { color: focused ? ACTIVE_COLOR : INACTIVE_COLOR, fontSize: LABEL_SIZE }]}
           numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+          // DELIBERATE EXCEPTION to the app-wide "respect OS text size uncapped"
+          // rule, and the only one. The tab bar is fixed chrome: six flex:1 cells
+          // in a bar whose height cannot grow, so it physically cannot absorb 2x
+          // text. Worse, adjustsFontSizeToFit shrinks each label INDEPENDENTLY to
+          // fit its own cell — so at 200% "Rent" rendered at full size next to a
+          // shrunken "Krushi AI", and the bar read as broken rather than large.
+          // Capping at 1.0 keeps all six optically equal. The icons carry the
+          // meaning; the labels are secondary, and every SCREEN still scales
+          // fully. Revisit only if the labels get shorter.
+          maxFontSizeMultiplier={1}
         >
           {options.tabBarLabel ?? route.name}
         </Text>

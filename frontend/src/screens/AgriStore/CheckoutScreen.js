@@ -18,7 +18,6 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { isValidPhone, isValidPincode, normalizePhone } from '@cropsetu/shared/utils/validators';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 
-const { width: W } = Dimensions.get('window');
 
 const GREEN_BG = 'rgba(23,107,67,0.08)';
 const GREEN_B  = 'rgba(23,107,67,0.15)';
