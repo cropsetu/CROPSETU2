@@ -17,6 +17,24 @@ import { resetRateLimitStore } from '../../src/middleware/rateLimit.js';
 import { resetOtpLockoutStore } from '../../src/services/otpLockout.service.js';
 import { signAccessToken } from '../../src/utils/jwt.js';
 
+// ── Guard: never run against a non-test database ─────────────────────────────
+// cleanupTestData() below deletes EVERY row in ~20 tables, users included. If
+// DATABASE_URL points at a dev or production database that wipe destroys real
+// accounts — the developer is thrown back to signup + onboarding on the next app
+// launch. fixtures/jest.env.js redirects the URL to `<db>_test`; this is the
+// backstop for anything that bypasses it (a stray runner, a hand-set env var).
+// Checked at import time so a mis-pointed suite fails before it writes anything.
+{
+  const dbName = /^[^?]*\/([^/?]*)/.exec(process.env.DATABASE_URL || '')?.[1];
+  if (!dbName || !dbName.endsWith('_test')) {
+    throw new Error(
+      `[tests] Refusing to run against database "${dbName || '(unset)'}" — the suite ` +
+      `deletes every user, order and listing when it finishes. Point DATABASE_URL ` +
+      `at a database whose name ends in "_test".`,
+    );
+  }
+}
+
 // ── App import ───────────────────────────────────────────────────────────────
 let _app;
 export async function getApp() {
