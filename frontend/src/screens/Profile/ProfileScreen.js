@@ -16,10 +16,8 @@ import api from '@cropsetu/shared/services/api';
 import { getAICredits } from '../../services/aiApi';
 import { fetchWeatherForCurrentLocation } from '../../services/weatherApi';
 import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
-import { safeOpenURL } from '../../utils/sanitize';
 import { openSellerApp } from '../../utils/sellerApp';
 import { getWeatherImage } from '../../utils/weatherBackground';
-import { API_BASE_URL } from '@cropsetu/shared/constants/config';
 import { EntrySlide, D } from '../../components/ui/ImmersiveKit';
 import { COLORS } from '@cropsetu/shared/constants/colors';
 import { isSellerAccount, isKycVerified } from '@cropsetu/shared/utils/roles';
@@ -35,11 +33,6 @@ import Svg, { Circle, Defs, RadialGradient as SvgRadialGradient, Stop, Path } fr
 // so the white avatar/name stay legible across both bright and dark images.
 const HERO_SCRIM      = ['rgba(6,12,10,0.34)', 'rgba(6,12,10,0.42)', 'rgba(4,9,7,0.86)'];
 const HERO_SCRIM_LOCS = [0, 0.5, 1];
-
-// The dedicated Krushi Seva Kendra onboarding website is served same-origin by
-// the backend at /kendra. Derive it from the API base (strip the /api/v1 suffix)
-// so it always points at whichever backend this build talks to.
-const KENDRA_PORTAL_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, '') + '/kendra';
 
 function HeroBgDecoration() {
   return (
@@ -724,15 +717,13 @@ export default function ProfileScreen({ navigation }) {
             <RowItem icon="chatbubble-ellipses-outline" iconColor={D.cyan} label={t('profile.browseFAQs')}          subtitle={t('profile.faqsSub')}           onPress={() => Linking.openURL('https://cropsetu.app/faqs')} isLast />
           </SectionCard>
 
-          {/* Seller handoff. Two audiences, never both at once:
-                - an account the backend already flipped to SELLER gets a way
-                  back into the seller app, which is where its dashboard,
-                  orders and crop-report inbox now live since the split
-                - everyone else gets the Kendra recruitment banner, which opens
-                  the onboarding website. Farmers forward this to their local
-                  agri-input dealer, who registers there with a licence.
-              Showing the app launcher to a farmer who has no seller account
-              would send them to a Play listing for an app they can't use. */}
+          {/* Seller handoff — only for accounts the backend already flipped to
+              SELLER, which get a way back into the seller app where their
+              dashboard, orders and crop-report inbox live since the split.
+              Farmers see nothing here: showing the app launcher to an account
+              with no seller profile would send them to a Play listing for an
+              app they can't use. Agri-input dealers onboard inside the seller
+              app itself (BusinessProfileScreen). */}
           <EntrySlide delay={510} fromY={16}>
             {isSeller ? (
               <TouchableOpacity
@@ -763,31 +754,7 @@ export default function ProfileScreen({ navigation }) {
                   </View>
                 </LinearGradient>
               </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => safeOpenURL(KENDRA_PORTAL_URL)}
-                accessibilityRole="button"
-                accessibilityLabel={t('profile.kendraPortalTitle', 'Are you a Krushi Seva Kendra?')}
-              >
-                <LinearGradient
-                  colors={['#14532d', '#15803d', '#22c55e']}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                  style={S.sellerBanner}
-                >
-                  <View style={S.sellerIconWrap}>
-                    <Ionicons name="leaf" size={22} color={COLORS.white} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={S.sellerTitle}>{t('profile.kendraPortalTitle', 'Are you a Krushi Seva Kendra?')}</Text>
-                    <Text style={S.sellerSub}>{t('profile.kendraPortalSub', 'Register your shop to receive farmers’ crop reports')}</Text>
-                  </View>
-                  <View style={S.bannerArrow}>
-                    <Ionicons name="open-outline" size={16} color={COLORS.white} />
-                  </View>
-                </LinearGradient>
-              </TouchableOpacity>
-            )}
+            ) : null}
           </EntrySlide>
 
           <EntrySlide delay={540} fromY={16}>
@@ -807,7 +774,7 @@ export default function ProfileScreen({ navigation }) {
           </EntrySlide>
 
           {/* Delete account — DPDP §8 right to erasure. Same banner language as
-              the Kendra card above, inverted into a warm red so it reads as the
+              the schemes card above, inverted into a warm red so it reads as the
               heavier of the two account actions. The real confirmation (and the
               OTP re-auth) lives in the modal, so this stays a plain entry point. */}
           <EntrySlide delay={570} fromY={16}>

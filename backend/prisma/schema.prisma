@@ -146,7 +146,7 @@ model SellerProfile {
   kycDocumentUrls   String[]
   kycVerifiedAt     DateTime?
   kycRejectedReason String?
-  // ── Krushi Seva Kendra licence (dedicated Kendra onboarding website) ─────────
+  // ── Krushi Seva Kendra agri-input dealer licence ─────────────────────────────
   // A Kendra registers with its agri-input dealer licence; an admin verifies the
   // licence + documents (User.kycStatus → VERIFIED) BEFORE the Kendra is approved
   // and becomes discoverable to nearby farmers (see cropReportShare routes — only

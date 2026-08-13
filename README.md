@@ -26,7 +26,6 @@ CROPSETU2/
 │                 Not an installed package — each app's metro.config.js maps
 │                 the specifier at this folder. See shared/README.md.
 ├── admin/        Vite + React + TypeScript. Internal admin console.
-├── kendra/       Vite + React + TypeScript. Krushi Seva Kendra onboarding.
 ├── docs/         Architecture and review documents.
 └── README.md
 ```

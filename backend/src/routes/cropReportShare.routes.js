@@ -64,9 +64,9 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 
 // ─── GET nearby Krushi Kendra sellers ───────────────────────────────────────
 // Only ADMIN-VERIFIED Kendras are returned (User.kycStatus = 'VERIFIED'): a
-// Kendra onboards on the dedicated website with its dealer licence and is only
-// discoverable to farmers AFTER an admin verifies that licence — "verification
-// before approval". Unverified / pending / rejected Kendras never surface here.
+// Kendra onboards in the seller app and is only discoverable to farmers AFTER an
+// admin verifies its KYC — "verification before approval". Unverified / pending /
+// rejected Kendras never surface here.
 // Strategy:
 //   1. Prefer GPS distance: when both farmer and seller have lat/lng, sort by
 //      Haversine and return distanceKm. Default radius = 150 km (Kendras are
