@@ -1,0 +1,35 @@
+diff --git a/node_modules/react-native/Libraries/Components/TextInput/TextInput.js b/node_modules/react-native/Libraries/Components/TextInput/TextInput.js
+index 1e95eb6..14299e2 100644
+--- a/node_modules/react-native/Libraries/Components/TextInput/TextInput.js
++++ b/node_modules/react-native/Libraries/Components/TextInput/TextInput.js
+@@ -884,7 +884,7 @@ const TextInput: component(
+   ...props: React.ElementConfig<typeof InternalTextInput>
+ ) = function TextInput({
+   ref: forwardedRef,
+-  allowFontScaling = true,
++  allowFontScaling = false,
+   rejectResponderTermination = true,
+   underlineColorAndroid = 'transparent',
+   autoComplete,
+diff --git a/node_modules/react-native/Libraries/Text/Text.js b/node_modules/react-native/Libraries/Text/Text.js
+index b08b8f3..afb791b 100644
+--- a/node_modules/react-native/Libraries/Text/Text.js
++++ b/node_modules/react-native/Libraries/Text/Text.js
+@@ -250,7 +250,7 @@ const TextImpl: component(
+           accessibilityLabel: _accessibilityLabel,
+           accessibilityState: _accessibilityState,
+           accessible: _accessible,
+-          allowFontScaling: allowFontScaling !== false,
++          allowFontScaling: allowFontScaling === true,
+           disabled: _disabled,
+           ellipsizeMode: ellipsizeMode ?? 'tail',
+           nativeID: _nativeID,
+@@ -283,7 +283,7 @@ const TextImpl: component(
+         accessibilityLabel={_accessibilityLabel}
+         accessibilityState={_accessibilityState}
+         accessible={_accessible}
+-        allowFontScaling={allowFontScaling !== false}
++        allowFontScaling={allowFontScaling === true}
+         disabled={_disabled}
+         ellipsizeMode={ellipsizeMode ?? 'tail'}
+         nativeID={_nativeID}
