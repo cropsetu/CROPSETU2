@@ -33,7 +33,7 @@ import FarmProfileBanner from '../../components/FarmProfileBanner';
 import { SoundEffects } from '@cropsetu/shared/utils/sounds';
 import { COLORS } from '@cropsetu/shared/constants/colors';
 import {
-  KHET, KFONT, KSPACE, KGUTTER, KRADIUS, KTYPE, KICON, KBORDER, noLead, circle, withAlpha,
+  KHET, KSPACE, KGUTTER, KRADIUS, KICON, KBORDER, circle, withAlpha,
 } from '@cropsetu/shared/constants/khetTheme';
 import { CropIcon } from '@cropsetu/shared/components/CropIcons';
 import SoilIcon from '../../components/SoilIcons';
@@ -1010,7 +1010,7 @@ export default function CropScanScreen({ navigation }) {
                       <View style={[SC.irrTileIcon, { backgroundColor: theme.bg }]}>
                         <IrrigationIcon type={ir.key} size={38} />
                       </View>
-                      <Text style={[SC.irrTileLabel, active && { color: theme.color, fontFamily: KFONT.sansExtra }]} numberOfLines={2}>
+                      <Text style={[SC.irrTileLabel, active && { color: theme.color, fontWeight: '800' }]} numberOfLines={2}>
                         {t(ir.tKey)}
                       </Text>
                       {active && (
@@ -1074,10 +1074,6 @@ export default function CropScanScreen({ navigation }) {
                         });
                       }}
                     >
-                      {/* Emoji: no fontFamily. Naming a Latin text face here makes
-                          Android miss the colour emoji font and fall back. Size 18
-                          stays raw for the same reason it has no KTYPE role — this
-                          is a glyph, not type. */}
                       <Text style={{ fontSize: 18 }}>{sym.emoji}</Text>
                       <Text style={[SC.symptomChipText, active && SC.symptomChipTextActive]}>
                         {t(`cropScan.${sym.tKey}`)}
@@ -1263,19 +1259,19 @@ export default function CropScanScreen({ navigation }) {
               <Text style={SC.summaryTitle}>{t('cropScan.scanSummary')}</Text>
               <View style={SC.summaryRow}>
                 <Ionicons name="leaf" size={13} color={COLORS.primary} />
-                <Text style={SC.summaryText}>{t('cropScan.cropLabel')} <Text style={{ color: COLORS.slate800, fontFamily: KFONT.sansBold }}>{cropName || '—'}</Text></Text>
+                <Text style={SC.summaryText}>{t('cropScan.cropLabel')} <Text style={{ color: COLORS.slate800, fontWeight: '700' }}>{cropName || '—'}</Text></Text>
               </View>
               {cropAge ? (
                 <View style={SC.summaryRow}>
                   <Ionicons name="time" size={13} color={COLORS.primary} />
-                  <Text style={SC.summaryText}>{t('cropScan.ageLabel')} <Text style={{ color: COLORS.slate800, fontFamily: KFONT.sansBold }}>{cropAge} {t('cropScan.daysUnit')}</Text></Text>
+                  <Text style={SC.summaryText}>{t('cropScan.ageLabel')} <Text style={{ color: COLORS.slate800, fontWeight: '700' }}>{cropAge} {t('cropScan.daysUnit')}</Text></Text>
                 </View>
               ) : null}
               {selectedSymptoms.size > 0 && (
                 <View style={SC.summaryRow}>
                   <Ionicons name="alert-circle" size={13} color={COLORS.amberDark} />
                   <Text style={SC.summaryText} numberOfLines={2}>
-                    {t('cropScan.symptomsLabel')} <Text style={{ color: COLORS.slate800, fontFamily: KFONT.sansBold }}>
+                    {t('cropScan.symptomsLabel')} <Text style={{ color: COLORS.slate800, fontWeight: '700' }}>
                       {Array.from(selectedSymptoms).map(k => {
                         const sym = SYMPTOM_KEYS.find(c => c.key === k);
                         return sym ? t(`cropScan.${sym.tKey}`) : k;
@@ -1288,7 +1284,7 @@ export default function CropScanScreen({ navigation }) {
                 <View style={SC.summaryRow}>
                   <Ionicons name="layers" size={13} color={COLORS.tangerine} />
                   <Text style={SC.summaryText}>
-                    {t('cropScan.soilLabel')} <Text style={{ color: COLORS.slate800, fontFamily: KFONT.sansBold }}>
+                    {t('cropScan.soilLabel')} <Text style={{ color: COLORS.slate800, fontWeight: '700' }}>
                       {(() => { const st = SOIL_TYPES.find(s => s.key === (soilType || farmProfile.soilType)); return st ? t(st.tKey) : soilType; })()}
                     </Text>
                   </Text>
@@ -1500,16 +1496,10 @@ const SC = StyleSheet.create({
   // A11y: 44dp tappable surface (chevron remains 22px but hitSlop + box hits the target).
   // 44 is a touch-target minimum, not rhythm — it has no KSPACE step and must not gain one.
   backBtn:     { width: 44, height: 44, borderRadius: KRADIUS.r10, justifyContent: 'center', alignItems: 'center', marginLeft: KSPACE.n8 },
-  headerTitle: { ...noLead(KTYPE.subheadingExtra), color: COLORS.slate800 },
-  // No KTYPE role sits at 11/Regular (meta and eyebrow are both Bold+), so the
-  // size stays raw and only the family is adopted. Same for every other
-  // `fontSize: 11, fontFamily: KFONT.sans` below — see the gap list.
-  headerSub:   { fontSize: 11, fontFamily: KFONT.sans, color: COLORS.textMedium, marginTop: KSPACE.s2 },
+  headerTitle: { fontSize: 16, fontWeight: '800', color: COLORS.slate800 },
+  headerSub:   { fontSize: 11, color: COLORS.textMedium, marginTop: KSPACE.s2 },
   historyBtn:  { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4, paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s6, borderRadius: KRADIUS.r14, backgroundColor: withAlpha(COLORS.primary, '12'), marginRight: KSPACE.s8 },
-  // eyebrow is the right size and face (11/ExtraBold) but ships letterSpacing 1,
-  // and this label had none. Tracking is restated at 0 so the pill keeps its
-  // width — the same move as restating a lineHeight the role would have changed.
-  historyBtnText: { ...noLead(KTYPE.eyebrow), letterSpacing: 0, color: COLORS.primary },
+  historyBtnText: { fontSize: 11, fontWeight: '800', color: COLORS.primary },
   aiBadge: {
     flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4,
     backgroundColor: withAlpha(COLORS.greenBright, 0.1), borderRadius: KRADIUS.r10,
@@ -1518,7 +1508,7 @@ const SC = StyleSheet.create({
   },
   // A11Y: was COLORS.greenBright on its own 10% tint — 2.76:1. COLORS.primary is
   // the darker step of the same hue and already this screen's green: 5.46:1.
-  aiBadgeText: { fontSize: 10, fontFamily: KFONT.sansExtra, color: COLORS.primary },
+  aiBadgeText: { fontSize: 10, fontWeight: '800', color: COLORS.primary },
 
   // Step bar
   stepBar: {
@@ -1537,7 +1527,7 @@ const SC = StyleSheet.create({
   },
   stepDotActive:   { backgroundColor: COLORS.greenBright, borderColor: COLORS.greenBright },
   stepDotDone:     { backgroundColor: COLORS.greenBright, borderColor: COLORS.greenBright },
-  stepDotNum:      { ...noLead(KTYPE.eyebrow), letterSpacing: 0, color: COLORS.textMedium },
+  stepDotNum:      { fontSize: 11, fontWeight: '800', color: COLORS.textMedium },
   stepLine:        { flex: 1, height: 2, backgroundColor: COLORS.grayBorder, marginHorizontal: KSPACE.s4 },
   stepLineDone:    { backgroundColor: COLORS.greenBright },
 
@@ -1551,7 +1541,7 @@ const SC = StyleSheet.create({
 
   // Section label
   sectionLabel: {
-    ...noLead(KTYPE.labelExtra), color: COLORS.gray700dark,
+    fontSize: 13, fontWeight: '800', color: COLORS.gray700dark,
     letterSpacing: 0.6, textTransform: 'uppercase',
     marginBottom: KSPACE.s10, marginTop: KSPACE.s14,
   },
@@ -1572,10 +1562,8 @@ const SC = StyleSheet.create({
     gap: KSPACE.s6,
   },
   cropTileSel: { borderColor: COLORS.primary, backgroundColor: withAlpha(COLORS.primary, '0C') },
-  cropTileLabel: { fontSize: 11, fontFamily: KFONT.sansSemi, color: '#444', textAlign: 'center' },
-  // Family, not weight: cropTileLabel now names a custom family and RN merges the
-  // two blocks, so a bare fontWeight here would be the Android fallback pairing.
-  cropTileLabelSel: { color: COLORS.primary, fontFamily: KFONT.sansExtra },
+  cropTileLabel: { fontSize: 11, color: '#444', textAlign: 'center', fontWeight: '600' },
+  cropTileLabelSel: { color: COLORS.primary, fontWeight: '800' },
   cropTileCheck: { position: 'absolute', top: KSPACE.s4, right: KSPACE.s4 },
 
   // Soil tile grid — gradient squares
@@ -1603,8 +1591,8 @@ const SC = StyleSheet.create({
     backgroundColor: COLORS.primary,
     justifyContent: 'center', alignItems: 'center',
   },
-  soilLabel: { fontSize: 10, fontFamily: KFONT.sansSemi, color: '#666', marginTop: KSPACE.s4, textAlign: 'center' },
-  soilLabelSel: { color: COLORS.primary, fontFamily: KFONT.sansExtra },
+  soilLabel: { fontSize: 10, color: '#666', marginTop: KSPACE.s4, textAlign: 'center', fontWeight: '600' },
+  soilLabelSel: { color: COLORS.primary, fontWeight: '800' },
 
   // Irrigation tile grid — 3 per row, card style with stacked icon + label
   irrGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s8 },
@@ -1621,9 +1609,7 @@ const SC = StyleSheet.create({
     width: 56, height: 56, borderRadius: KRADIUS.r14,
     justifyContent: 'center', alignItems: 'center',
   },
-  // meta is 11/Bold with leading 16; this label authored 14, so the leading is
-  // restated — these labels run to two lines and would reflow on the role's 16.
-  irrTileLabel: { ...noLead(KTYPE.meta), lineHeight: 14, color: '#555', textAlign: 'center' },
+  irrTileLabel: { fontSize: 11, color: '#555', fontWeight: '700', textAlign: 'center', lineHeight: 14 },
   irrTileCheck: {
     position: 'absolute', top: KSPACE.s4, right: KSPACE.s4,
     ...circle(18),
@@ -1641,7 +1627,7 @@ const SC = StyleSheet.create({
     borderWidth: KBORDER.hairline, borderColor: COLORS.border,
   },
   chipActive:     { backgroundColor: COLORS.greenBright, borderColor: COLORS.greenBright },
-  chipText:       { ...noLead(KTYPE.label), color: COLORS.gray700dark },
+  chipText:       { fontSize: 13, color: COLORS.gray700dark, fontWeight: '600' },
   chipTextActive: { color: COLORS.white },
 
   cropChip: {
@@ -1656,19 +1642,18 @@ const SC = StyleSheet.create({
     backgroundColor: COLORS.surface, overflow: 'hidden',
     justifyContent: 'center', alignItems: 'center',
   },
-  // captionBold is 12/Bold but ships letterSpacing 0.1; restated at 0.
-  cropChipText: { ...noLead(KTYPE.captionBold), letterSpacing: 0, color: COLORS.gray700dark },
+  cropChipText: { fontSize: 12, color: COLORS.gray700dark, fontWeight: '700' },
   chipThumb: { ...circle(32) },
 
   // Input fields
   textField: {
     backgroundColor: COLORS.white, borderRadius: KRADIUS.r12, paddingHorizontal: KSPACE.s14, paddingVertical: KSPACE.s12,
-    ...noLead(KTYPE.body), color: COLORS.slate800,
+    fontSize: 14, color: COLORS.slate800,
     borderWidth: KBORDER.hairline, borderColor: COLORS.border,
     marginBottom: KSPACE.s4,
   },
   rowInputWrap: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s10 },
-  inputUnit:    { ...noLead(KTYPE.bodySm), color: COLORS.textMedium, marginBottom: KSPACE.s4, width: 40 },
+  inputUnit:    { fontSize: 13, color: COLORS.textMedium, marginBottom: KSPACE.s4, width: 40 },
 
   // DEAD — see chipRow.
   profileHint: {
@@ -1677,7 +1662,7 @@ const SC = StyleSheet.create({
     padding: KSPACE.s10, marginTop: KSPACE.s16,
     borderWidth: KBORDER.hairline, borderColor: 'rgba(52,152,219,0.15)',
   },
-  profileHintText: { fontSize: 11, fontFamily: KFONT.sans, color: COLORS.blue, flex: 1 },
+  profileHintText: { fontSize: 11, color: COLORS.blue, flex: 1 },
 
   // Farm reference bar (futuristic) + dropdown
   farmBarWrap: { marginBottom: KSPACE.s6 },
@@ -1692,33 +1677,26 @@ const SC = StyleSheet.create({
     backgroundColor: COLORS.gray175,
   },
   farmBarIconOn: { backgroundColor: COLORS.greenBright },
-  // 13.5 lands on no KTYPE size, so only the family is adopted.
-  farmBarTitle: { fontSize: 13.5, fontFamily: KFONT.sansExtra, color: COLORS.slate800 },
-  farmBarMeta: { fontSize: 11, fontFamily: KFONT.sans, color: COLORS.textMedium, marginTop: KSPACE.s1 },
+  farmBarTitle: { fontSize: 13.5, fontWeight: '800', color: COLORS.slate800 },
+  farmBarMeta: { fontSize: 11, color: COLORS.textMedium, marginTop: KSPACE.s1 },
   farmBarToggle: {
     flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4, paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s6,
     borderRadius: KRADIUS.r10, backgroundColor: COLORS.white, borderWidth: KBORDER.hairline, borderColor: COLORS.border, marginLeft: KSPACE.s8,
   },
   farmBarToggleOn: { backgroundColor: withAlpha(COLORS.greenLive, 0.12), borderColor: withAlpha(COLORS.greenLive, 0.35) },
-  // eyebrow's size and face are right; its tracking (1) is restated to the
-  // authored 0.4 so 'ON'/'OFF' keep their width.
-  farmBarToggleText: { ...noLead(KTYPE.eyebrow), letterSpacing: 0.4 },
+  farmBarToggleText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4 },
   farmDrop: {
     marginTop: KSPACE.s6, backgroundColor: COLORS.white, borderRadius: KRADIUS.r14, padding: KSPACE.s10,
     borderWidth: KBORDER.hairline, borderColor: COLORS.border,
   },
-  farmDropLabel: { fontSize: 10.5, fontFamily: KFONT.sansExtra, color: COLORS.gray700dark, letterSpacing: 0.6, marginTop: KSPACE.s6, marginBottom: KSPACE.s2 },
+  farmDropLabel: { fontSize: 10.5, fontWeight: '800', color: COLORS.gray700dark, letterSpacing: 0.6, marginTop: KSPACE.s6, marginBottom: KSPACE.s2 },
   farmDropItem: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: KSPACE.s8,
     borderRadius: KRADIUS.r10, marginTop: KSPACE.s4, borderWidth: KBORDER.hairline, borderColor: 'transparent',
   },
   farmDropItemOn: { backgroundColor: withAlpha(COLORS.greenLive, 0.08), borderColor: withAlpha(COLORS.greenLive, 0.20) },
-  farmDropName: { fontSize: 13.5, fontFamily: KFONT.sansBold, color: COLORS.slate800 },
-  farmDropMeta: { fontSize: 11, fontFamily: KFONT.sans, color: COLORS.textMedium, marginTop: KSPACE.s1 },
-  // Italic stays on the SYSTEM font: Plus Jakarta loads no italic face and
-  // Android does not synthesise one, so naming any KFONT family here would fall
-  // back to Roboto and lose the brand face outright. Same call as
-  // DiagnosisResultScreen's scientificName.
+  farmDropName: { fontSize: 13.5, fontWeight: '700', color: COLORS.slate800 },
+  farmDropMeta: { fontSize: 11, color: COLORS.textMedium, marginTop: KSPACE.s1 },
   farmDropEmpty: { fontSize: 12, color: COLORS.textMedium, fontStyle: 'italic', marginVertical: KSPACE.s6, paddingHorizontal: KSPACE.s8 },
 
   // Symptom grid
@@ -1733,7 +1711,7 @@ const SC = StyleSheet.create({
     minWidth: (W - 44) / 2, flexGrow: 1,
   },
   symptomChipActive:     { backgroundColor: COLORS.greenBright, borderColor: COLORS.greenBright },
-  symptomChipText:       { fontSize: 12, fontFamily: KFONT.sansSemi, color: COLORS.gray700dark, flex: 1 },
+  symptomChipText:       { fontSize: 12, color: COLORS.gray700dark, fontWeight: '600', flex: 1 },
   symptomChipTextActive: { color: COLORS.white },
 
   // Option buttons (when/area)
@@ -1748,10 +1726,10 @@ const SC = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   optionBtnActive:    { backgroundColor: withAlpha(COLORS.greenBright, 0.1), borderColor: COLORS.greenBright },
-  optionBtnText:      { fontSize: 11, fontFamily: KFONT.sansSemi, color: COLORS.gray700dark, textAlign: 'center' },
+  optionBtnText:      { fontSize: 11, color: COLORS.gray700dark, fontWeight: '600', textAlign: 'center' },
   // A11Y: greenBright on its own 10% tint was 2.95:1 — and this is the SELECTED
   // state, so the failure landed on the option the user had just chosen. 5.84:1.
-  optionBtnTextActive:{ color: COLORS.primary, fontFamily: KFONT.sansBold },
+  optionBtnTextActive:{ color: COLORS.primary, fontWeight: '700' },
 
   // Affected area — 2x2 grid, larger tap targets
   areaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s8 },
@@ -1763,11 +1741,11 @@ const SC = StyleSheet.create({
     gap: KSPACE.s2,
   },
   areaBtnActive:    { backgroundColor: withAlpha(COLORS.greenBright, 0.08), borderColor: COLORS.greenBright },
-  areaBtnPct:       { ...noLead(KTYPE.subheadExtra), color: COLORS.gray700dark },
+  areaBtnPct:       { fontSize: 15, fontWeight: '800', color: COLORS.gray700dark },
   // A11Y: 3.02:1 → 5.97:1 on the 8% tint. 15px/ExtraBold is NOT WCAG "large
   // text" (that needs 18.66px bold), so the full 4.5:1 applies here.
   areaBtnPctActive: { color: COLORS.primary },
-  areaBtnDesc:      { fontSize: 11, fontFamily: KFONT.sans, color: COLORS.textMedium, textAlign: 'center' },
+  areaBtnDesc:      { fontSize: 11, color: COLORS.textMedium, textAlign: 'center' },
 
   // Photo picker
   photoTipCard: {
@@ -1778,8 +1756,8 @@ const SC = StyleSheet.create({
   // A11Y: amberDark on ivoryWarm is 2.12:1 — the same "gold used as text" failure
   // khetTheme documents for KHET.gold (2.03:1 on white). KHET.warningInk is the
   // darker step of that hue and exists for precisely this: 5.36:1.
-  photoTipTitle: { fontSize: 12, fontFamily: KFONT.sansExtra, color: KHET.warningInk, marginBottom: KSPACE.s4 },
-  photoTipText:  { fontSize: 11, fontFamily: KFONT.sans, color: COLORS.gray700dark, lineHeight: 17 },
+  photoTipTitle: { fontSize: 12, fontWeight: '800', color: KHET.warningInk, marginBottom: KSPACE.s4 },
+  photoTipText:  { fontSize: 11, color: COLORS.gray700dark, lineHeight: 17 },
 
   photoPickerWrap: { gap: KSPACE.s12, marginTop: KSPACE.s8 },
   // Shadow left RAW: opacity .04 / radius 8 / elevation 2 with NO shadowOffset
@@ -1798,8 +1776,8 @@ const SC = StyleSheet.create({
     backgroundColor: withAlpha(COLORS.greenBright, 0.1),
     justifyContent: 'center', alignItems: 'center',
   },
-  photoPickerTitle: { ...noLead(KTYPE.subheadExtra), color: COLORS.slate800 },
-  photoPickerSub:   { fontSize: 12, fontFamily: KFONT.sans, color: COLORS.textMedium },
+  photoPickerTitle: { fontSize: 15, fontWeight: '800', color: COLORS.slate800 },
+  photoPickerSub:   { fontSize: 12, color: COLORS.textMedium },
 
   previewWrap:    { borderRadius: KRADIUS.r16, overflow: 'hidden', marginBottom: KSPACE.s12 },
   previewImg:     { width: '100%', height: W * 0.65, borderRadius: KRADIUS.r16 },
@@ -1814,8 +1792,8 @@ const SC = StyleSheet.create({
   // A11Y: was COLORS.primary — dark green ink on a 65% BLACK scrim. 3.22:1 at the
   // very best (a black photo behind it) and 1.07:1 over a bright one, i.e. gone
   // exactly when the user has taken a well-lit picture. White is >= 6.98:1 over
-  // any possible photo. meta matches the authored 11/Bold exactly.
-  previewBadgeText: { ...noLead(KTYPE.meta), color: KHET.white },
+  // any possible photo.
+  previewBadgeText: { fontSize: 11, color: KHET.white, fontWeight: '700' },
   changePhotoBtn: {
     flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6,
     alignSelf: 'center', marginTop: KSPACE.s8,
@@ -1824,8 +1802,8 @@ const SC = StyleSheet.create({
     borderWidth: KBORDER.hairline, borderColor: withAlpha(COLORS.amberDark, 0.25),
   },
   // A11Y: amberDark on its own 10% tint was 1.90:1 — the worst pairing on the
-  // screen. KHET.warningInk: 4.80:1. captionBold's tracking (0.1) restated to 0.
-  changePhotoBtnText: { ...noLead(KTYPE.captionBold), letterSpacing: 0, color: KHET.warningInk },
+  // screen. KHET.warningInk: 4.80:1.
+  changePhotoBtnText: { fontSize: 12, color: KHET.warningInk, fontWeight: '700' },
 
   // Multi-image gallery card — DEAD: superseded by the single-photo preview
   // above. Migrated in place, not deleted.
@@ -1840,13 +1818,13 @@ const SC = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: KSPACE.s10, paddingHorizontal: KSPACE.s2,
   },
-  photoGalleryTitle: { ...noLead(KTYPE.labelExtra), color: COLORS.slate800 },
+  photoGalleryTitle: { fontSize: 13, fontWeight: '800', color: COLORS.slate800 },
   addMoreBtn: {
     flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4,
     paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s6, borderRadius: KRADIUS.r14,
     backgroundColor: withAlpha(COLORS.primary, '14'),
   },
-  addMoreBtnTxt: { ...noLead(KTYPE.eyebrow), letterSpacing: 0, color: COLORS.primary },
+  addMoreBtnTxt: { fontSize: 11, fontWeight: '800', color: COLORS.primary },
 
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s8 },
   // (card padding 12 each side ≈ 24, gaps 8×2 ≈ 16, screen padding 18×2 ≈ 36)
@@ -1867,7 +1845,7 @@ const SC = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   photoCellBadgePrimary: { backgroundColor: COLORS.primary },
-  photoCellBadgeTxt: { fontSize: 10, fontFamily: KFONT.sansExtra, color: COLORS.white },
+  photoCellBadgeTxt: { fontSize: 10, color: COLORS.white, fontWeight: '800' },
   photoCellRemove: {
     position: 'absolute', top: KSPACE.s6, right: KSPACE.s6,
     ...circle(24),
@@ -1880,13 +1858,13 @@ const SC = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', gap: KSPACE.s4,
     padding: KSPACE.s6,
   },
-  photoCellAddTxt: { ...noLead(KTYPE.eyebrow), letterSpacing: 0, color: COLORS.primary, textAlign: 'center' },
+  photoCellAddTxt: { fontSize: 11, fontWeight: '800', color: COLORS.primary, textAlign: 'center' },
 
   photoGalleryHint: {
     flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, marginTop: KSPACE.s12,
     paddingHorizontal: KSPACE.s2,
   },
-  photoGalleryHintTxt: { fontSize: 11, fontFamily: KFONT.sans, color: COLORS.textMedium, flex: 1, lineHeight: 16 },
+  photoGalleryHintTxt: { fontSize: 11, color: COLORS.textMedium, flex: 1, lineHeight: 16 },
 
   // Error modal (proper popup, replaces the inline "[status=undefined]" text)
   // The scrim is #0F172A at 55% — not a COLORS token, so it stays a literal.
@@ -1903,34 +1881,30 @@ const SC = StyleSheet.create({
     alignSelf: 'center', ...circle(56),
     justifyContent: 'center', alignItems: 'center', marginBottom: KSPACE.s12,
   },
-  // heading (17/ExtraBold) is where KTYPE sends weight 900 — Plus Jakarta loads
-  // no 900 face, so 900 resolves to ExtraBold. Its tracking (-0.1) restated to 0.
-  errModalTitle: { ...noLead(KTYPE.heading), letterSpacing: 0, color: COLORS.slate800, textAlign: 'center', marginBottom: KSPACE.s6 },
-  errModalMsg:   { ...noLead(KTYPE.bodySm), lineHeight: 19, color: COLORS.textMedium, textAlign: 'center', marginBottom: KSPACE.s18 },
+  errModalTitle: { fontSize: 17, fontWeight: '900', color: COLORS.slate800, textAlign: 'center', marginBottom: KSPACE.s6 },
+  errModalMsg:   { fontSize: 13, color: COLORS.textMedium, textAlign: 'center', lineHeight: 19, marginBottom: KSPACE.s18 },
   errModalRow:   { flexDirection: 'row', gap: KSPACE.s8 },
   errModalBtnSecondary: {
     flex: 1, paddingVertical: KSPACE.s12, borderRadius: KRADIUS.r12,
     backgroundColor: COLORS.surface, borderWidth: KBORDER.hairline, borderColor: COLORS.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  errModalBtnSecondaryTxt: { ...noLead(KTYPE.labelExtra), color: COLORS.gray700dark },
+  errModalBtnSecondaryTxt: { fontSize: 13, fontWeight: '800', color: COLORS.gray700dark },
   errModalBtnPrimary: {
     flex: 1, paddingVertical: KSPACE.s12, borderRadius: KRADIUS.r12,
     backgroundColor: COLORS.greenBright,
     alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: KSPACE.s6,
   },
-  errModalBtnPrimaryTxt: { ...noLead(KTYPE.labelExtra), color: COLORS.white },
+  errModalBtnPrimaryTxt: { fontSize: 13, fontWeight: '800', color: COLORS.white },
 
   summaryCard: {
     backgroundColor: COLORS.white, borderRadius: KRADIUS.r14, padding: KSPACE.s14, gap: KSPACE.s8,
     borderWidth: KBORDER.hairline, borderColor: COLORS.border, marginTop: KSPACE.s8,
     shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
-  // eyebrow matches this one EXACTLY — 11 / ExtraBold / tracking 1 — so it is the
-  // single label on the screen that needs no restated tracking.
-  summaryTitle: { ...noLead(KTYPE.eyebrow), color: COLORS.textMedium, textTransform: 'uppercase', marginBottom: KSPACE.s4 },
+  summaryTitle: { fontSize: 11, fontWeight: '800', color: COLORS.textMedium, letterSpacing: 1, textTransform: 'uppercase', marginBottom: KSPACE.s4 },
   summaryRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s8 },
-  summaryText:  { fontSize: 12, fontFamily: KFONT.sans, color: COLORS.gray700dark, flex: 1 },
+  summaryText:  { fontSize: 12, color: COLORS.gray700dark, flex: 1 },
 
   // Footer / buttons — sticks tight under content, consistent across devices
   footer: {
@@ -1952,7 +1926,7 @@ const SC = StyleSheet.create({
   },
   nextBtnDisabled: { backgroundColor: COLORS.gray175 },      // DEAD
   analyseBtn:      { backgroundColor: COLORS.greenBright },  // DEAD
-  nextBtnText: { ...noLead(KTYPE.subheadExtra), color: COLORS.white },
+  nextBtnText: { fontSize: 15, fontWeight: '800', color: COLORS.white },
 
   // Analysis screen
   analysisScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: KSPACE.s24 },
@@ -1963,9 +1937,8 @@ const SC = StyleSheet.create({
     borderWidth: KBORDER.chip, borderColor: withAlpha(COLORS.greenBright, 0.3),
     justifyContent: 'center', alignItems: 'center', marginBottom: KSPACE.s8,
   },
-  // titleLg is where KTYPE sends 20/900. Its tracking (-0.3) restated to 0.
-  analysisMainText: { ...noLead(KTYPE.titleLg), letterSpacing: 0, color: COLORS.slate800, textAlign: 'center' },
-  analysisSubText:  { fontSize: 12, fontFamily: KFONT.sans, color: COLORS.textMedium, textAlign: 'center' },
+  analysisMainText: { fontSize: 20, fontWeight: '900', color: COLORS.slate800, textAlign: 'center' },
+  analysisSubText:  { fontSize: 12, color: COLORS.textMedium, textAlign: 'center' },
 
   contextBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s8, justifyContent: 'center', marginBottom: KSPACE.s24 },
   contextBadge:  {
@@ -1974,7 +1947,7 @@ const SC = StyleSheet.create({
     paddingHorizontal: KSPACE.s10, paddingVertical: 5,
     borderWidth: KBORDER.hairline, borderColor: COLORS.border,
   },
-  contextBadgeText: { fontSize: 11, fontFamily: KFONT.sansSemi, color: COLORS.gray700dark },
+  contextBadgeText: { fontSize: 11, color: COLORS.gray700dark, fontWeight: '600' },
 
   progressList: { gap: KSPACE.s12, width: '100%', marginBottom: KSPACE.s24 },
   progressRow:  { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s12 },
@@ -1987,22 +1960,20 @@ const SC = StyleSheet.create({
   },
   progressDotDone:   { backgroundColor: COLORS.greenBright, borderColor: COLORS.greenBright },
   progressDotActive: { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
-  progressText:      { ...noLead(KTYPE.bodySm), color: COLORS.textMedium, flex: 1 },
+  progressText:      { fontSize: 13, color: COLORS.textMedium, flex: 1 },
   // A11Y: greenBright on the page background was 3.07:1 → COLORS.primary, 6.07:1.
   progressTextDone:  { color: COLORS.primary },
-  progressTextActive:{ color: COLORS.slate800, fontFamily: KFONT.sansBold },
-  // Italic — stays on the system font, same reason as farmDropEmpty.
+  progressTextActive:{ color: COLORS.slate800, fontWeight: '700' },
   analysisNote: { fontSize: 11, color: COLORS.textMedium, textAlign: 'center', fontStyle: 'italic' },
 
   // Error — DEAD: superseded by the errModal* block above.
   errorBox: { alignItems: 'center', gap: KSPACE.s12, paddingHorizontal: KSPACE.s20 },
-  // title (18/ExtraBold) is where KTYPE sends 18/900; tracking (-0.2) restated to 0.
-  errorTitle: { ...noLead(KTYPE.title), letterSpacing: 0, color: COLORS.red },
-  errorMsg:   { ...noLead(KTYPE.bodySm), lineHeight: 20, color: COLORS.textMedium, textAlign: 'center' },
+  errorTitle: { fontSize: 18, fontWeight: '900', color: COLORS.red },
+  errorMsg:   { fontSize: 13, color: COLORS.textMedium, textAlign: 'center', lineHeight: 20 },
   retryBtn: {
     flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8,
     backgroundColor: COLORS.greenBright, borderRadius: KRADIUS.r12, paddingHorizontal: KSPACE.s24, paddingVertical: KSPACE.s12,
     marginTop: KSPACE.s8,
   },
-  retryBtnText: { fontSize: 14, fontFamily: KFONT.sansExtra, color: COLORS.white },
+  retryBtnText: { fontSize: 14, fontWeight: '800', color: COLORS.white },
 });

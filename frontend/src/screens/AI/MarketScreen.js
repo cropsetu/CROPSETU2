@@ -16,7 +16,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import CropIcon from '@cropsetu/shared/components/CropIcons';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import {
-  KHET, KFONT, KSPACE, KGUTTER, KRADIUS, KTYPE, KICON, KBORDER, noLead, circle, withAlpha,
+  KHET, KSPACE, KGUTTER, KRADIUS, KICON, KBORDER, circle, withAlpha,
 } from '@cropsetu/shared/constants/khetTheme';
 
 const { width: W, height: H } = Dimensions.get('window');
@@ -317,7 +317,7 @@ function CropPickerModal({ visible, selected, onSelect, onClose, t }) {
             <View style={{ alignItems: 'center', paddingTop: KSPACE.s40, gap: KSPACE.s8 }}>
               {/* GAP: KICON jumps 24 → 48, so this empty-state glyph stays raw. */}
               <Ionicons name="leaf-outline" size={36} color={COLORS.textDisabled} />
-              <Text style={{ ...noLead(KTYPE.bodySm), color: COLORS.textMedium }}>{t('market.noCropsFound', 'No crops found')}</Text>
+              <Text style={{ color: COLORS.textMedium, fontSize: 13 }}>{t('market.noCropsFound', 'No crops found')}</Text>
             </View>
           }
         />
@@ -400,19 +400,17 @@ function SparkLine({ data, color, days, width: cw = CHART_W, height: ch = 80 }) 
           // GAP: radius 6 and padding 5 have no KRADIUS/KSPACE step.
           borderRadius: 6, paddingHorizontal: 5, paddingVertical: KSPACE.s2,
         }}>
-          {/* GAP: KTYPE has no 8px role at any weight. */}
-          <Text style={{ fontSize: 8, fontFamily: KFONT.sansExtra, color: COLORS.white }}>
+          <Text style={{ fontSize: 8, color: COLORS.white, fontWeight: '800' }}>
             ₹{(max / 1000).toFixed(1)}k
           </Text>
         </View>
       )}
       {/* Day labels */}
       {(days || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']).slice(0, data.length).map((d, i) => (
-        // GAP: KTYPE's only 9px role is `badge` (ExtraBold); this is Semibold.
         <Text key={i} style={{
           position: 'absolute',
           left: pts[i].x - 12, top: ch - 16,
-          fontSize: 9, fontFamily: KFONT.sansSemi, color: COLORS.textMedium, width: 26, textAlign: 'center',
+          fontSize: 9, color: COLORS.textMedium, width: 26, textAlign: 'center', fontWeight: '600',
         }}>{d}</Text>
       ))}
     </Animated.View>
@@ -602,10 +600,7 @@ export default function MarketScreen({ navigation }) {
         >
             <Ionicons name="location-outline" size={KICON.xs} color={selectedDistrict ? COLORS.primary : COLORS.textMedium} />
           <Text
-            // fontWeight → fontFamily: the base style now names a family, and
-            // family + fontWeight >= 700 makes Android drop the brand face back
-            // to Roboto. sansBold IS the 700 face.
-            style={[M.districtBtnTxt, selectedDistrict && { color: SLATE, fontFamily: KFONT.sansBold }]}
+            style={[M.districtBtnTxt, selectedDistrict && { color: SLATE, fontWeight: '700' }]}
             numberOfLines={1}
           >
             {selectedDistrict || t('market.allDistricts', 'All Districts')}
@@ -653,7 +648,7 @@ export default function MarketScreen({ navigation }) {
                   loadMandiPrices(selectedCrop, s, '');
                 }}
               >
-                <Text style={[M.stateItemTxt, s === selectedState && { color: COLORS.primary, fontFamily: KFONT.sansExtra }]}>{s}</Text>
+                <Text style={[M.stateItemTxt, s === selectedState && { color: COLORS.primary, fontWeight: '800' }]}>{s}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -673,7 +668,7 @@ export default function MarketScreen({ navigation }) {
                 loadMandiPrices(selectedCrop, selectedState, '');
               }}
             >
-              <Text style={[M.stateItemTxt, !selectedDistrict && { color: COLORS.primary, fontFamily: KFONT.sansExtra }]}>
+              <Text style={[M.stateItemTxt, !selectedDistrict && { color: COLORS.primary, fontWeight: '800' }]}>
                 {t('market.allDistricts', 'All Districts')}
               </Text>
             </Pressable>
@@ -688,14 +683,12 @@ export default function MarketScreen({ navigation }) {
                     loadMandiPrices(selectedCrop, selectedState, d);
                   }}
                 >
-                  <Text style={[M.stateItemTxt, d === selectedDistrict && { color: COLORS.primary, fontFamily: KFONT.sansExtra }]}>{d}</Text>
+                  <Text style={[M.stateItemTxt, d === selectedDistrict && { color: COLORS.primary, fontWeight: '800' }]}>{d}</Text>
                 </Pressable>
               ))
               : (
                 <View style={{ padding: KSPACE.s12 }}>
-                  {/* GAP: KTYPE's 12px roles are Medium (caption) and Bold
-                      (captionBold); this is Regular. */}
-                  <Text style={{ fontSize: 12, fontFamily: KFONT.sans, color: COLORS.textMedium, textAlign: 'center' }}>
+                  <Text style={{ fontSize: 12, color: COLORS.textMedium, textAlign: 'center' }}>
                     {t('market.noDistricts', { state: selectedState })}
                   </Text>
                 </View>
@@ -935,12 +928,10 @@ const M = StyleSheet.create({
     borderBottomWidth: KBORDER.hairline, borderBottomColor: COLORS.border,
   },
   backBtn:     { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { ...noLead(KTYPE.heading), color: SLATE },
-  // GAP: KTYPE's only 10px role is `micro` (Bold); this is Regular.
-  headerSub:   { fontSize: 10, fontFamily: KFONT.sans, color: COLORS.textMedium, marginTop: KSPACE.s1 },
+  headerTitle: { fontSize: 17, fontWeight: '800', color: SLATE },
+  headerSub:   { fontSize: 10, color: COLORS.textMedium, marginTop: KSPACE.s1 },
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s3, marginTop: KSPACE.s2 },
-  // GAP: 10px Semibold — `micro` is the only 10px role and it is Bold.
-  locationText:{ fontSize: 10, fontFamily: KFONT.sansSemi, color: COLORS.primary },
+  locationText:{ fontSize: 10, color: COLORS.primary, fontWeight: '600' },
   livePill:    {
     // GAP: gap/paddingVertical 5 sits between KSPACE.s4 and s6.
     flexDirection: 'row', alignItems: 'center', gap: 5,
@@ -949,8 +940,7 @@ const M = StyleSheet.create({
     borderWidth: KBORDER.hairline, borderColor: COLORS.greenMint300,
   },
   liveDot: { ...circle(6), backgroundColor: COLORS.primary },
-  // GAP: 10px ExtraBold — `micro` is Bold.
-  liveTxt: { fontSize: 10, fontFamily: KFONT.sansExtra, color: COLORS.primary },
+  liveTxt: { fontSize: 10, fontWeight: '800', color: COLORS.primary },
 
   // ── Crop selector button
   cropSelector: {
@@ -969,11 +959,10 @@ const M = StyleSheet.create({
   // this is a no-op at 100%.
   cropSelectorLeft:    { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s12, flexShrink: 1 },
   cropSelectorIcon:    { width: 46, height: 46, borderRadius: KRADIUS.r14, backgroundColor: COLORS.greenMint, justifyContent: 'center', alignItems: 'center', borderWidth: KBORDER.hairline, borderColor: COLORS.greenMint300, overflow: 'hidden' },
-  cropSelectorLabel:   { fontSize: 10, fontFamily: KFONT.sansSemi, color: COLORS.textMedium, marginBottom: KSPACE.s2 },
-  cropSelectorName:    { ...noLead(KTYPE.subheadingExtra), color: SLATE },
+  cropSelectorLabel:   { fontSize: 10, color: COLORS.textMedium, fontWeight: '600', marginBottom: KSPACE.s2 },
+  cropSelectorName:    { fontSize: 16, fontWeight: '800', color: SLATE },
   cropSelectorRight:   { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, flexShrink: 1 },
-  // GAP: KTYPE's only 11px Regular-weight neighbour is `meta` (Bold).
-  cropSelectorHint:    { fontSize: 11, fontFamily: KFONT.sans, color: COLORS.textMedium },
+  cropSelectorHint:    { fontSize: 11, color: COLORS.textMedium },
   // GAP: radius 8 sits between KRADIUS.r4 and r10.
   cropSelectorChevron: { width: 28, height: 28, borderRadius: 8, backgroundColor: COLORS.greenMint, justifyContent: 'center', alignItems: 'center' },
 
@@ -994,7 +983,7 @@ const M = StyleSheet.create({
   // GAP: radius 2 is below KRADIUS.r4.
   modalHandle:   { width: 40, height: 4, borderRadius: 2, backgroundColor: COLORS.textDisabled, alignSelf: 'center', marginTop: KSPACE.s12, marginBottom: KSPACE.s4 },
   modalTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: KSPACE.s20, paddingVertical: KSPACE.s12 },
-  modalTitle:    { ...noLead(KTYPE.heading), color: SLATE },
+  modalTitle:    { fontSize: 17, fontWeight: '800', color: SLATE },
   modalClose:    { ...circle(32), backgroundColor: COLORS.slateBg, justifyContent: 'center', alignItems: 'center' },
   searchBox:     {
     flexDirection: 'row', alignItems: 'center', gap: KSPACE.s10,
@@ -1004,7 +993,7 @@ const M = StyleSheet.create({
     paddingHorizontal: KSPACE.s14, paddingVertical: 11,
     borderWidth: KBORDER.chip, borderColor: COLORS.border,
   },
-  searchInput:   { flex: 1, ...noLead(KTYPE.body), color: SLATE, padding: KSPACE.s0 },
+  searchInput:   { flex: 1, fontSize: 14, color: SLATE, padding: KSPACE.s0 },
   catScroll:     { paddingHorizontal: KGUTTER.base, gap: KSPACE.s8, paddingVertical: KSPACE.s6 },
   catChip: {
     flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6,
@@ -1013,9 +1002,8 @@ const M = StyleSheet.create({
     borderRadius: 17, borderWidth: KBORDER.hairline, borderColor: COLORS.border,
     backgroundColor: COLORS.slate50,
   },
-  catChipText:   { ...noLead(KTYPE.label), color: COLORS.textMedium },
-  // GAP: 11px Semibold — `meta` is the 11px role and it is Bold.
-  resultsCount:  { fontSize: 11, fontFamily: KFONT.sansSemi, color: COLORS.textMedium, paddingHorizontal: KSPACE.s20, marginTop: KSPACE.s8, marginBottom: KSPACE.s4 },
+  catChipText:   { fontSize: 13, color: COLORS.textMedium, fontWeight: '600' },
+  resultsCount:  { fontSize: 11, color: COLORS.textMedium, paddingHorizontal: KSPACE.s20, marginTop: KSPACE.s8, marginBottom: KSPACE.s4, fontWeight: '600' },
   cropGrid:      { paddingHorizontal: KGUTTER.base, paddingTop: KSPACE.s6, paddingBottom: KSPACE.s20, gap: KSPACE.s10 },
   cropTile: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
@@ -1027,11 +1015,8 @@ const M = StyleSheet.create({
     shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
   cropTileActive: { backgroundColor: COLORS.greenMint, borderColor: COLORS.primary },
-  // GAP: 12px Semibold — KTYPE runs `caption` (Medium) and `captionBold` (Bold).
-  cropTileText:   { fontSize: 12, fontFamily: KFONT.sansSemi, color: SLATE, textAlign: 'center' },
-  // fontWeight '800' → the ExtraBold FACE: this override lands on a block that
-  // now names a family, and family + weight >= 700 is the Android fallback bug.
-  cropTileTextActive: { color: COLORS.primary, fontFamily: KFONT.sansExtra },
+  cropTileText:   { fontSize: 12, color: SLATE, fontWeight: '600', textAlign: 'center' },
+  cropTileTextActive: { color: COLORS.primary, fontWeight: '800' },
   // GAP: top/right 5 sits between KSPACE.s4 and s6.
   cropTileCheck:  { position: 'absolute', top: 5, right: 5, ...circle(16), backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
 
@@ -1051,10 +1036,10 @@ const M = StyleSheet.create({
   cardDot:        { width: 7, height: 7, borderRadius: KRADIUS.r4 },
   // RESPONSIVE: every child of `sectionHeader` was flexShrink 0, so the title
   // and the "data.gov.in" badge overflow the card at large text sizes.
-  cardTitle:      { ...noLead(KTYPE.labelBold), color: SLATE, flexShrink: 1 },
+  cardTitle:      { fontSize: 13, fontWeight: '700', color: SLATE, flexShrink: 1 },
   // GAP: radius 8 sits between KRADIUS.r4 and r10.
   trendBadge:     { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4, borderRadius: 8, borderWidth: KBORDER.hairline, paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s4 },
-  trendBadgeText: { ...noLead(KTYPE.micro) },
+  trendBadgeText: { fontSize: 10, fontWeight: '700' },
 
   // ── Stale data warning bar
   staleBar: {
@@ -1064,8 +1049,7 @@ const M = StyleSheet.create({
     backgroundColor: COLORS.yellowPale, borderRadius: KRADIUS.r10,
     borderWidth: KBORDER.hairline, borderColor: COLORS.goldLight, padding: KSPACE.s10,
   },
-  // GAP: 11px Regular. lineHeight was authored, so it is restated verbatim.
-  staleTxt: { flex: 1, fontSize: 11, fontFamily: KFONT.sans, color: COLORS.brownDeep, lineHeight: 15 },
+  staleTxt: { flex: 1, fontSize: 11, color: COLORS.brownDeep, lineHeight: 15 },
 
   // ── Real data badge + price range
   realDataBadge: {
@@ -1076,18 +1060,16 @@ const M = StyleSheet.create({
     borderWidth: KBORDER.hairline, borderColor: COLORS.skyBorder,
   },
   // A11Y: was COLORS.skyBright #0EA5E9 on #F0F9FF — 2.60:1. infoInk is 5.41:1.
-  realDataBadgeTxt: { ...noLead(KTYPE.badge), color: KHET.infoInk },
+  realDataBadgeTxt: { fontSize: 9, fontWeight: '800', color: KHET.infoInk },
 
   // RESPONSIVE: `priceHeroMid` is space-between with both children at
   // flexShrink 0; at ~130% text the range column leaves the hero. The other
   // child is an unstyled inline <View>, so only this half can be fixed without
   // touching JSX — see the report.
   priceRangeBox:   { alignItems: 'flex-end', gap: KSPACE.s3, flexShrink: 1 },
-  // GAP: KTYPE's only 9px role is `badge` (ExtraBold); this is Semibold.
-  priceRangeLabel: { fontSize: 9, fontFamily: KFONT.sansSemi, color: COLORS.textMedium },
-  // GAP: 12px ExtraBold — KTYPE stops at `captionBold` (Bold) at this size.
-  priceRangeVal:   { fontSize: 12, fontFamily: KFONT.sansExtra, color: SLATE },
-  priceRangeAvg:   { ...noLead(KTYPE.meta) },
+  priceRangeLabel: { fontSize: 9, color: COLORS.textMedium, fontWeight: '600' },
+  priceRangeVal:   { fontSize: 12, fontWeight: '800', color: SLATE },
+  priceRangeAvg:   { fontSize: 11, fontWeight: '700' },
 
   // ── Predict prompt button
   predictPromptBtn: {
@@ -1096,9 +1078,8 @@ const M = StyleSheet.create({
     borderWidth: KBORDER.chip, borderColor: COLORS.lavender,
     padding: KSPACE.s14,
   },
-  // GAP: 14px ExtraBold — `bodyBold` is the heaviest 14px role and it is Bold.
-  predictPromptTitle: { fontSize: 14, fontFamily: KFONT.sansExtra, color: PURPLE },
-  predictPromptSub:   { fontSize: 11, fontFamily: KFONT.sans, color: COLORS.textMedium, marginTop: KSPACE.s2, lineHeight: 15 },
+  predictPromptTitle: { fontSize: 14, fontWeight: '800', color: PURPLE },
+  predictPromptSub:   { fontSize: 11, color: COLORS.textMedium, marginTop: KSPACE.s2, lineHeight: 15 },
 
   // ── Price hero
   priceHero: {
@@ -1113,21 +1094,15 @@ const M = StyleSheet.create({
   priceHeroTop:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   // GAP: paddingVertical 5. The scrim IS exactly withAlpha(KHET.white, 0.7).
   priceHeroCropBadge:{ flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, backgroundColor: withAlpha(KHET.white, 0.7), borderRadius: KRADIUS.r10, paddingHorizontal: KSPACE.s10, paddingVertical: 5, borderWidth: KBORDER.hairline, borderColor: COLORS.greenMint300 },
-  priceHeroCropName: { ...noLead(KTYPE.labelBold), color: SLATE },
-  priceHeroDate:     { fontSize: 11, fontFamily: KFONT.sansSemi, color: COLORS.textMedium },
+  priceHeroCropName: { fontSize: 13, fontWeight: '700', color: SLATE },
+  priceHeroDate:     { fontSize: 11, color: COLORS.textMedium, fontWeight: '600' },
   priceHeroMid:      { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
-  priceHeroRupee:    { ...noLead(KTYPE.subheading), color: COLORS.textMedium, marginTop: KSPACE.s4 },
-  // KTYPE.figureLg is the 44px role, but its leading (48) and tracking (-1.2)
-  // are both authored differently here. Overriding two of a role's four
-  // properties is worse than naming the face directly, so this is longhand —
-  // same escape hatch DiagnosisResultScreen's `checkText` uses.
-  priceHeroValue:    { fontSize: 44, fontFamily: KFONT.displayBold, color: SLATE, letterSpacing: -1, lineHeight: 50 },
-  // GAP: 12px Regular — `caption` is Medium.
-  priceHeroUnit:     { fontSize: 12, fontFamily: KFONT.sans, color: COLORS.textMedium, marginTop: KSPACE.s4 },
+  priceHeroRupee:    { fontSize: 16, fontWeight: '700', color: COLORS.textMedium, marginTop: KSPACE.s4 },
+  priceHeroValue:    { fontSize: 44, fontWeight: '900', color: SLATE, letterSpacing: -1, lineHeight: 50 },
+  priceHeroUnit:     { fontSize: 12, color: COLORS.textMedium, marginTop: KSPACE.s4 },
   changeBadge:       { borderRadius: KRADIUS.r16, borderWidth: KBORDER.hairline, padding: KSPACE.s12, alignItems: 'center', gap: KSPACE.s4 },
-  // GAP: KTYPE's only 22px role is `displayMd`, a Fraunces SERIF editorial face.
-  changePct:         { fontSize: 22, fontFamily: KFONT.sansExtra },
-  changeCaption:     { fontSize: 9, fontFamily: KFONT.sansSemi, opacity: 0.8 },
+  changePct:         { fontSize: 22, fontWeight: '900' },
+  changeCaption:     { fontSize: 9, fontWeight: '600', opacity: 0.8 },
 
   // Week stats
   weekStatRow: { flexDirection: 'row', backgroundColor: withAlpha(KHET.white, 0.7), borderRadius: KRADIUS.r14, padding: KSPACE.s12, gap: KSPACE.s0 },
@@ -1141,9 +1116,8 @@ const M = StyleSheet.create({
   // 360dp. alignSelf 'stretch' makes the text box exactly the pill's inner
   // width so it wraps instead; textAlign keeps it centred, so nothing moves at
   // widths where it already fitted.
-  // GAP: KTYPE has no 8px role at any weight.
-  statPillLabel:{ fontSize: 8, fontFamily: KFONT.sansBold, letterSpacing: 0.5, alignSelf: 'stretch', textAlign: 'center' },
-  statPillValue:{ ...noLead(KTYPE.labelExtra), alignSelf: 'stretch', textAlign: 'center' },
+  statPillLabel:{ fontSize: 8, fontWeight: '700', letterSpacing: 0.5, alignSelf: 'stretch', textAlign: 'center' },
+  statPillValue:{ fontSize: 13, fontWeight: '800', alignSelf: 'stretch', textAlign: 'center' },
 
   // ── Insight card
   // GAP: no KELEV tier — and this one is tinted AMBER, which no tier offers.
@@ -1151,10 +1125,8 @@ const M = StyleSheet.create({
   insightGradient: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s12, padding: KSPACE.s16 },
   // GAP: rgba(217,119,6,0.12) is amber-600, which is not a KHET colour.
   insightIconWrap: { width: 36, height: 36, borderRadius: KRADIUS.r10, backgroundColor: 'rgba(217,119,6,0.12)', justifyContent: 'center', alignItems: 'center' },
-  // GAP: 9px ExtraBold exists (`badge`) but carries letterSpacing 0.2 against
-  // the 1.5 authored here, so the face is named longhand and tracking kept.
-  insightLabel:    { fontSize: 9, fontFamily: KFONT.sansExtra, color: AMBER, letterSpacing: 1.5, marginBottom: 5 },
-  insightText:     { ...noLead(KTYPE.bodySm), color: COLORS.brownDeep, lineHeight: 19 },
+  insightLabel:    { fontSize: 9, fontWeight: '900', color: AMBER, letterSpacing: 1.5, marginBottom: 5 },
+  insightText:     { fontSize: 13, color: COLORS.brownDeep, lineHeight: 19 },
 
   // ── Sections
   section:        { marginHorizontal: CARD_MARGIN, marginBottom: KSPACE.s12 },
@@ -1162,11 +1134,10 @@ const M = StyleSheet.create({
   // GAP: radius 6 and paddingHorizontal 7 have no step.
   sourceBadge:    { marginLeft: KSPACE.s4, backgroundColor: COLORS.slateBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: KSPACE.s3 },
   // A11Y: was COLORS.textMedium #78716C on #F1F5F9 — 4.38:1. mutedForeground
-  // is 5.43:1.  GAP: 9px Semibold has no role.
-  sourceBadgeText:{ fontSize: 9, fontFamily: KFONT.sansSemi, color: KHET.mutedForeground },
+  // is 5.43:1.
+  sourceBadgeText:{ fontSize: 9, color: KHET.mutedForeground, fontWeight: '600' },
   aiBadge:        { marginLeft: KSPACE.s4, flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4, backgroundColor: COLORS.violetPale, borderRadius: 6, paddingHorizontal: 7, paddingVertical: KSPACE.s3, borderWidth: KBORDER.hairline, borderColor: COLORS.lavender },
-  // GAP: 9px Bold — `badge` is ExtraBold.
-  aiBadgeText:    { fontSize: 9, fontFamily: KFONT.sansBold, color: PURPLE },
+  aiBadgeText:    { fontSize: 9, color: PURPLE, fontWeight: '700' },
 
   // ── Mandi
   // GAP: no KELEV tier matches.
@@ -1175,33 +1146,26 @@ const M = StyleSheet.create({
   mandiRowTop:     { backgroundColor: COLORS.mintWhite },
   mandiLeft:       { flex: 1 },
   mandiNameRow:    { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, marginBottom: KSPACE.s3 },
-  mandiName:       { ...noLead(KTYPE.labelBold), color: SLATE, flexShrink: 1 },
+  mandiName:       { fontSize: 13, fontWeight: '700', color: SLATE, flexShrink: 1 },
   // GAP: radius 6.
   mandiNearestBadge:{ backgroundColor: COLORS.successLight, borderRadius: 6, paddingHorizontal: KSPACE.s6, paddingVertical: KSPACE.s2 },
-  // GAP: KTYPE has no 8px role at any weight.
-  mandiNearestText: { fontSize: 8, fontFamily: KFONT.sansExtra, color: COLORS.primary },
+  mandiNearestText: { fontSize: 8, fontWeight: '800', color: COLORS.primary },
   mandiMeta:       { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s3 },
-  // GAP: 10px Regular — `micro` is the only 10px role and it is Bold.
-  // NOTE: a conditional `fontStyle: 'italic'` override rides on this for stale
-  // rows and KFONT loads no italic face, so those rows fall back to the system
-  // italic on Android. Flagged rather than reverted — the common case is upright.
-  mandiDist:       { fontSize: 10, fontFamily: KFONT.sans, color: COLORS.textMedium },
+  mandiDist:       { fontSize: 10, color: COLORS.textMedium },
   mandiRight:      { alignItems: 'flex-end', gap: KSPACE.s3 },
-  mandiPrice:      { ...noLead(KTYPE.subheadingExtra), color: SLATE },
-  // GAP: 9px Regular — `badge` is ExtraBold.
-  mandiRange:      { fontSize: 9, fontFamily: KFONT.sans, color: COLORS.textMedium },
+  mandiPrice:      { fontSize: 16, fontWeight: '900', color: SLATE },
+  mandiRange:      { fontSize: 9, color: COLORS.textMedium },
   mandiDiv:        { height: 1, backgroundColor: COLORS.slateBg, marginHorizontal: KSPACE.s14 },
   // GAP: marginTop 5.
-  updatedAt:       { fontSize: 9, fontFamily: KFONT.sans, color: COLORS.textMedium, marginTop: 5, marginLeft: KSPACE.s2 },
+  updatedAt:       { fontSize: 9, color: COLORS.textMedium, marginTop: 5, marginLeft: KSPACE.s2 },
   reportingNote:   { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s6, marginTop: KSPACE.s10, marginHorizontal: KSPACE.s14, padding: KSPACE.s10, backgroundColor: COLORS.slate50, borderRadius: 8, borderWidth: KBORDER.hairline, borderColor: COLORS.border },
-  reportingNoteTxt:{ flex: 1, fontSize: 11, fontFamily: KFONT.sans, color: COLORS.textMedium, lineHeight: 16 },
+  reportingNoteTxt:{ flex: 1, fontSize: 11, color: COLORS.textMedium, lineHeight: 16 },
 
   // ── Ask button
   // GAP: no KELEV tier — and this shadow is tinted COLORS.primary at 0.3.
   askBtn:           { borderRadius: KRADIUS.r18, overflow: 'hidden', shadowColor: COLORS.primary, shadowOpacity: 0.3, shadowRadius: 10, elevation: 4 },
   askBtnGradient:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: KSPACE.s10, paddingVertical: KSPACE.s16, paddingHorizontal: KSPACE.s20 },
-  // GAP: 14px ExtraBold — `bodyBold` is the heaviest 14px role and it is Bold.
-  askBtnText:       { fontSize: 14, fontFamily: KFONT.sansExtra, color: COLORS.white, flex: 1, textAlign: 'center' },
+  askBtnText:       { fontSize: 14, fontWeight: '800', color: COLORS.white, flex: 1, textAlign: 'center' },
 
   // ── Filter row (state + district + search button)
   filterRow: {
@@ -1217,7 +1181,7 @@ const M = StyleSheet.create({
     paddingHorizontal: KSPACE.s10, paddingVertical: 9,
     borderWidth: KBORDER.hairline, borderColor: COLORS.greenMint300, maxWidth: 130,
   },
-  stateBtnTxt: { ...noLead(KTYPE.captionBold), color: SLATE, flex: 1 },
+  stateBtnTxt: { fontSize: 12, fontWeight: '700', color: SLATE, flex: 1 },
   stateDropdown: {
     position: 'absolute', top: 130, left: KGUTTER.base, right: KGUTTER.base, zIndex: 99,
     backgroundColor: COLORS.surface, borderRadius: KRADIUS.r12,
@@ -1226,7 +1190,7 @@ const M = StyleSheet.create({
     shadowColor: COLORS.black, shadowOpacity: 0.12, shadowRadius: 10, elevation: 6,
   },
   stateItem: { paddingHorizontal: KSPACE.s16, paddingVertical: KSPACE.s12, borderBottomWidth: KBORDER.hairline, borderBottomColor: COLORS.border },
-  stateItemTxt: { ...noLead(KTYPE.bodySm), color: SLATE },
+  stateItemTxt: { fontSize: 13, color: SLATE },
   districtBtn: {
     // GAP: gap 5 and paddingVertical 9.
     flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5,
@@ -1234,8 +1198,7 @@ const M = StyleSheet.create({
     paddingHorizontal: KSPACE.s10, paddingVertical: 9,
     borderWidth: KBORDER.hairline, borderColor: COLORS.border,
   },
-  // GAP: 12px Regular — `caption` is Medium.
-  districtBtnTxt: { flex: 1, fontSize: 12, fontFamily: KFONT.sans, color: COLORS.textMedium },
+  districtBtnTxt: { flex: 1, fontSize: 12, color: COLORS.textMedium },
   searchBtn: {
     width: 38, height: 38, borderRadius: KRADIUS.r10,
     backgroundColor: COLORS.skyBright,
@@ -1247,54 +1210,48 @@ const M = StyleSheet.create({
   // AgriPredict feature was removed and nothing renders these. Migrated anyway
   // so the file holds ONE vocabulary; see the report before deleting them.
   agriSyncMsg:      { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, backgroundColor: COLORS.skyBg, borderRadius: KRADIUS.r10, borderWidth: KBORDER.hairline, borderColor: COLORS.skyBorder, padding: KSPACE.s10, marginBottom: KSPACE.s8 },
-  agriSyncMsgText:  { flex: 1, fontSize: 12, fontFamily: KFONT.sans, color: COLORS.skyMid, lineHeight: 16 },
+  agriSyncMsgText:  { flex: 1, fontSize: 12, color: COLORS.skyMid, lineHeight: 16 },
   agriErrorBox:     { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, backgroundColor: COLORS.blushPink, borderRadius: KRADIUS.r10, borderWidth: KBORDER.hairline, borderColor: COLORS.coralPink, padding: KSPACE.s10, marginBottom: KSPACE.s8 },
-  agriErrorText:    { flex: 1, fontSize: 12, fontFamily: KFONT.sans, color: COLORS.crimsonAlt, lineHeight: 16 },
+  agriErrorText:    { flex: 1, fontSize: 12, color: COLORS.crimsonAlt, lineHeight: 16 },
   agriLoadingRow:   { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8, paddingVertical: KSPACE.s10 },
-  agriLoadingTxt:   { fontSize: 12, fontFamily: KFONT.sans, color: COLORS.textMedium },
+  agriLoadingTxt:   { fontSize: 12, color: COLORS.textMedium },
 
   agriSummaryRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.slate50, borderRadius: KRADIUS.r12, borderWidth: KBORDER.hairline, borderColor: COLORS.border, padding: KSPACE.s12, marginBottom: KSPACE.s10 },
   agriSummaryItem:  { flex: 1, alignItems: 'center', gap: KSPACE.s3 },
-  // GAP: KTYPE has no 8px role at any weight.
-  agriSummaryLabel: { fontSize: 8, fontFamily: KFONT.sansBold, color: COLORS.textMedium, letterSpacing: 0.3 },
-  agriSummaryVal:   { ...noLead(KTYPE.labelExtra), color: SLATE },
+  agriSummaryLabel: { fontSize: 8, color: COLORS.textMedium, fontWeight: '700', letterSpacing: 0.3 },
+  agriSummaryVal:   { fontSize: 13, fontWeight: '800', color: SLATE },
   agriSummaryDiv:   { width: 1, height: 28, backgroundColor: COLORS.border },
 
   agriChartWrap:  { marginTop: KSPACE.s4, marginBottom: KSPACE.s8 },
-  // GAP: `micro` is 10px Bold but tracks 0.4 against the 0.3 authored here.
-  agriChartTitle: { fontSize: 10, fontFamily: KFONT.sansBold, color: COLORS.textMedium, marginBottom: KSPACE.s8, letterSpacing: 0.3 },
+  agriChartTitle: { fontSize: 10, color: COLORS.textMedium, fontWeight: '700', marginBottom: KSPACE.s8, letterSpacing: 0.3 },
 
   // Prediction box
   agriPredBox:    { backgroundColor: COLORS.slate50, borderRadius: KRADIUS.r14, borderWidth: KBORDER.hairline, borderColor: COLORS.skyTint, padding: KSPACE.s14, gap: KSPACE.s10, marginTop: KSPACE.s8 },
   agriCachePill:  { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4, alignSelf: 'flex-start', backgroundColor: COLORS.white, borderRadius: 8, paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s4, borderWidth: KBORDER.hairline, borderColor: COLORS.border },
-  // GAP: 9px Bold — `badge` is ExtraBold.
-  agriCacheText:  { fontSize: 9, fontFamily: KFONT.sansBold },
+  agriCacheText:  { fontSize: 9, fontWeight: '700' },
   agriRangeRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.white, borderRadius: KRADIUS.r12, borderWidth: KBORDER.hairline, borderColor: COLORS.border, padding: KSPACE.s12 },
   agriRangeItem:  { flex: 1, alignItems: 'center', gap: KSPACE.s3 },
-  agriRangeLabel: { fontSize: 8, fontFamily: KFONT.sansSemi, color: COLORS.textMedium },
-  agriRangeVal:   { ...noLead(KTYPE.subheadExtra), color: SLATE },
+  agriRangeLabel: { fontSize: 8, color: COLORS.textMedium, fontWeight: '600' },
+  agriRangeVal:   { fontSize: 15, fontWeight: '900', color: SLATE },
   agriConfBadge:  { paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s6, borderRadius: 8, borderWidth: KBORDER.hairline, alignItems: 'center', gap: KSPACE.s1 },
-  // GAP: 11px ExtraBold exists (`eyebrow`) but tracks 1; this tracks none.
-  agriConfText:   { fontSize: 11, fontFamily: KFONT.sansExtra },
-  // GAP: KTYPE's smallest role is 9px (`badge`); there is no 7px step.
-  agriConfSub:    { fontSize: 7, fontFamily: KFONT.sansBold },
+  agriConfText:   { fontSize: 11, fontWeight: '900' },
+  agriConfSub:    { fontSize: 7, fontWeight: '700' },
   agriTrendRow:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  agriTrendText:  { ...noLead(KTYPE.labelBold) },
+  agriTrendText:  { fontSize: 13, fontWeight: '700' },
   agriInsightBox: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s6, backgroundColor: COLORS.yellowPale, borderRadius: KRADIUS.r10, borderWidth: KBORDER.hairline, borderColor: COLORS.goldLight, padding: KSPACE.s10 },
-  agriInsightText:{ flex: 1, fontSize: 12, fontFamily: KFONT.sans, color: COLORS.brownDeep, lineHeight: 17 },
+  agriInsightText:{ flex: 1, fontSize: 12, color: COLORS.brownDeep, lineHeight: 17 },
   agriFactorChip: { backgroundColor: COLORS.skyBg, borderRadius: 8, paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s4, borderWidth: KBORDER.hairline, borderColor: COLORS.skyBorder },
-  agriFactorText: { fontSize: 10, fontFamily: KFONT.sansSemi, color: COLORS.skyMid },
+  agriFactorText: { fontSize: 10, color: COLORS.skyMid, fontWeight: '600' },
   agriRecoBox:    { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s6, backgroundColor: COLORS.greenMint, borderRadius: KRADIUS.r10, borderWidth: KBORDER.hairline, borderColor: COLORS.greenMint300, padding: KSPACE.s10 },
-  agriRecoText:   { flex: 1, fontSize: 12, fontFamily: KFONT.sansSemi, color: COLORS.darkGreen, lineHeight: 17 },
+  agriRecoText:   { flex: 1, fontSize: 12, color: COLORS.darkGreen, lineHeight: 17, fontWeight: '600' },
 
   // Nearby markets
   agriNearbyWrap:       { marginTop: KSPACE.s10 },
-  agriNearbyTitle:      { ...noLead(KTYPE.meta), color: SLATE, marginBottom: KSPACE.s8 },
+  agriNearbyTitle:      { fontSize: 11, color: SLATE, fontWeight: '700', marginBottom: KSPACE.s8 },
   agriNearbyRow:        { flexDirection: 'row', alignItems: 'center', paddingVertical: KSPACE.s8, gap: KSPACE.s8 },
   agriNearbyRowBorder:  { borderBottomWidth: KBORDER.hairline, borderBottomColor: COLORS.border },
-  agriNearbyDistrict:   { flex: 1, ...noLead(KTYPE.label), color: SLATE },
-  // GAP: 14px ExtraBold — `bodyBold` is the heaviest 14px role and it is Bold.
-  agriNearbyPrice:      { fontSize: 14, fontFamily: KFONT.sansExtra, color: SLATE, marginRight: KSPACE.s6 },
+  agriNearbyDistrict:   { flex: 1, fontSize: 13, color: SLATE, fontWeight: '600' },
+  agriNearbyPrice:      { fontSize: 14, fontWeight: '800', color: SLATE, marginRight: KSPACE.s6 },
   agriNearbyTrend:      { width: 26, height: 26, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
 
   // ── States
@@ -1303,10 +1260,10 @@ const M = StyleSheet.create({
   loadingSpinner:{ ...circle(64), backgroundColor: COLORS.greenMint, justifyContent: 'center', alignItems: 'center', marginBottom: KSPACE.s4 },
   // A11Y: was COLORS.textMedium #78716C on the #F4F8F1 page — 4.46:1, just
   // under AA. mutedForeground is 5.53:1.
-  loadingTxt:    { ...noLead(KTYPE.bodySm), color: KHET.mutedForeground, textAlign: 'center', paddingHorizontal: KSPACE.s32 },
+  loadingTxt:    { fontSize: 13, color: KHET.mutedForeground, textAlign: 'center', paddingHorizontal: KSPACE.s32 },
   errorIcon:     { ...circle(64), backgroundColor: COLORS.slate50, justifyContent: 'center', alignItems: 'center' },
   // A11Y: was COLORS.error #EF4444 on #F4F8F1 — 3.50:1. destructiveInk is 6.15:1.
-  errorTxt:      { ...noLead(KTYPE.body), color: KHET.destructiveInk, textAlign: 'center', paddingHorizontal: KSPACE.s32 },
+  errorTxt:      { fontSize: 14, color: KHET.destructiveInk, textAlign: 'center', paddingHorizontal: KSPACE.s32 },
   retryBtn:      { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, backgroundColor: COLORS.greenMint, borderRadius: KRADIUS.r12, paddingHorizontal: KSPACE.s20, paddingVertical: KSPACE.s10, borderWidth: KBORDER.hairline, borderColor: COLORS.greenMint300 },
-  retryTxt:      { ...noLead(KTYPE.labelBold), color: COLORS.primary },
+  retryTxt:      { fontSize: 13, fontWeight: '700', color: COLORS.primary },
 });

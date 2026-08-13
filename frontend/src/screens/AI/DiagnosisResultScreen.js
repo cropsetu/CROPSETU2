@@ -34,7 +34,7 @@ import logger from '../../utils/logger';
 import { SoundEffects } from '@cropsetu/shared/utils/sounds';
 import { COLORS } from '@cropsetu/shared/constants/colors';
 import {
-  KHET, KFONT, KSPACE, KGUTTER, KRADIUS, KELEV, KTYPE, KICON, KBORDER, noLead, circle, withAlpha,
+  KHET, KSPACE, KGUTTER, KRADIUS, KELEV, KICON, KBORDER, circle, withAlpha,
 } from '@cropsetu/shared/constants/khetTheme';
 // Kit <Text> is a zero-imposition drop-in for RN's Text (a bare <Text> emits no
 // style at all) and permanently blocks the Android fontFamily+fontWeight
@@ -94,8 +94,8 @@ function ConfidenceRing({ value, color, size = 80, confidenceLabel }) {
         borderWidth: size * 0.1, borderColor: withAlpha(color, '25'), position: 'absolute',
       }} />
       <View style={{ justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ ...noLead(KTYPE.figureMd), fontSize: size * 0.28, color }}>{value}%</Text>
-        <Text style={{ ...noLead(KTYPE.micro), fontSize: size * 0.13, color: KHET.mutedForeground }}>{confidenceLabel}</Text>
+        <Text style={{ fontSize: size * 0.28, fontWeight: '900', color }}>{value}%</Text>
+        <Text style={{ fontSize: size * 0.13, fontWeight: '600', color: KHET.mutedForeground }}>{confidenceLabel}</Text>
       </View>
     </View>
   );
@@ -1845,8 +1845,17 @@ ${(() => {
 // ─── Styles ────────────────────────────────────────────────────────────────────
 //
 // Migrated onto the KHET design system: KSPACE / KGUTTER (spacing), KRADIUS
-// (corners), KTYPE (type roles), KELEV (elevation), KICON (glyphs), KBORDER
-// (border widths), KHET (colour).
+// (corners), KELEV (elevation), KICON (glyphs), KBORDER (border widths),
+// KHET (colour).
+//
+// TYPOGRAPHY IS DELIBERATELY NOT MIGRATED. Every fontSize / fontWeight /
+// lineHeight / letterSpacing below is the pre-migration value, and no fontFamily
+// is named anywhere, so all text renders in the OS face (Roboto / SF). Plus
+// Jakarta's hhea ratio is 1.260 and Fraunces Bold's 1.233 against Roboto's 1.172,
+// so adopting a brand family adds ~7.5% leading on Android and ~5% on iOS to
+// every block that never declared a lineHeight — text came out bigger, looser,
+// and in places stopped fitting its box. Until that reflow is designed for, type
+// stays on the system font: do NOT reintroduce KTYPE / KFONT on this screen.
 //
 // Anything still holding a number is marked RAW and has no step to go to. The
 // recurring ones, so they are not re-litigated per line:
@@ -1857,21 +1866,6 @@ ${(() => {
 //       44 · 46 · 52 · 56 · 60 · 150 — CONTROL AND MEDIA SIZES, not spacing. The
 //                                     kit has no size scale (ListRow itself
 //                                     hardcodes TILE=36 for exactly this reason).
-//   RAW fontSize 8 · 10 · 11        — see the type gap in the report: KTYPE has
-//                                     NO regular (400) face below 13px, so these
-//                                     blocks keep the OS face rather than being
-//                                     silently turned bold.
-//
-// Every KTYPE role is SPREAD, and spread through noLead() wherever the original
-// declared no lineHeight — so type adopts size, family and tracking without
-// changing a single DECLARED lineHeight.
-//
-// It does NOT mean nothing moves. Adopting a family changes the font's implicit
-// line box: Plus Jakarta's hhea ratio is 1.260 and Fraunces Bold 1.233, against
-// Roboto's 1.172 — so any block that never declared a lineHeight gains roughly
-// 7.5% leading on Android and ~5% on iOS. That is the intended cost of putting
-// the brand face on a screen that had none; it is not zero, and the claim that
-// it is should not be repeated.
 
 const D = StyleSheet.create({
   root: { flex: 1, backgroundColor: KHET.background },
@@ -1885,8 +1879,8 @@ const D = StyleSheet.create({
   backBtn: { width: 36, height: 36, borderRadius: KRADIUS.r10, justifyContent: 'center', alignItems: 'center' },
   headerBarTitleWrap: { flex: 1, marginLeft: KSPACE.s6 },
   brandEyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4, marginBottom: KSPACE.s1 },
-  brandEyebrowText: { ...noLead(KTYPE.micro), color: withAlpha(KHET.white, 0.85) },
-  headerBarTitle: { ...noLead(KTYPE.heading), color: KHET.white },
+  brandEyebrowText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.6, color: withAlpha(KHET.white, 0.85) },
+  headerBarTitle: { fontSize: 17, fontWeight: '800', color: KHET.white },
   chatHeaderBtn: { width: 36, height: 36, borderRadius: KRADIUS.r10, justifyContent: 'center', alignItems: 'center', backgroundColor: withAlpha(KHET.white, 0.15) },
 
   // ── Hero card ──
@@ -1899,17 +1893,14 @@ const D = StyleSheet.create({
     ...KELEV.e2,
   },
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  diseaseLabel: { ...noLead(KTYPE.eyebrow), color: KHET.primary, marginBottom: KSPACE.s4 },
-  diseaseName: { ...KTYPE.displayLg, color: KHET.foreground, marginBottom: KSPACE.s4 },
-  // No italic face is loaded for Plus Jakarta, and Android does not synthesise
-  // one — naming the family here would make it fall back to system Roboto and
-  // lose the brand face entirely. Stays raw until KFONT gains sansItalic.
+  diseaseLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1.5, color: KHET.primary, marginBottom: KSPACE.s4 },
+  diseaseName: { fontSize: 26, fontWeight: '900', lineHeight: 32, color: KHET.foreground, marginBottom: KSPACE.s4 },
   scientificName: { fontSize: 13, color: KHET.mutedForeground, fontStyle: 'italic', marginBottom: KSPACE.s2 },
 
   // Badge row
   badgeRow: { flexDirection: 'row', gap: KSPACE.s8, flexWrap: 'wrap' },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: KSPACE.s10, paddingVertical: 5, borderRadius: KRADIUS.r20 },
-  badgeText: { ...noLead(KTYPE.micro) },
+  badgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
 
   // Urgency strip
   urgencyStrip: {
@@ -1917,7 +1908,7 @@ const D = StyleSheet.create({
     backgroundColor: KHET.destructiveBg, borderRadius: 8, paddingHorizontal: KSPACE.s12, paddingVertical: KSPACE.s8,
     borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.destructive, 0.15),
   },
-  urgencyStripText: { ...noLead(KTYPE.captionBold), color: KHET.destructiveInk },
+  urgencyStripText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5, color: KHET.destructiveInk },
 
   // Crop meta row (grid)
   cropMetaRow: {
@@ -1928,8 +1919,8 @@ const D = StyleSheet.create({
     flex: 1, alignItems: 'center',
     borderRightWidth: KBORDER.hairline, borderRightColor: KHET.border,
   },
-  cropMetaValue: { ...noLead(KTYPE.bodyBold), color: KHET.foreground },
-  cropMetaLabel: { ...noLead(KTYPE.badge), color: KHET.mutedForeground, marginTop: KSPACE.s2 },
+  cropMetaValue: { fontSize: 14, fontWeight: '700', color: KHET.foreground },
+  cropMetaLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 0.8, color: KHET.mutedForeground, marginTop: KSPACE.s2 },
 
   // ── Scanned image compare ──
   imageCompareCard: {
@@ -1944,7 +1935,7 @@ const D = StyleSheet.create({
     paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s6,
     backgroundColor: KHET.muted, borderBottomWidth: KBORDER.hairline, borderBottomColor: KHET.border,
   },
-  imageBoxLabel: { ...noLead(KTYPE.micro), color: KHET.mutedForeground },
+  imageBoxLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5, color: KHET.mutedForeground },
   scannedImage: { width: '100%', height: 150, backgroundColor: KHET.muted },
   // Strip of additional photos shown below the hero image when the scan had
   // more than one submission. Compact, horizontally-scrollable, so 4 extra
@@ -1968,23 +1959,23 @@ const D = StyleSheet.create({
     minWidth: 56, paddingHorizontal: KSPACE.s6, minHeight: 56, borderRadius: KRADIUS.pill,
     backgroundColor: KHET.secondary, justifyContent: 'center', alignItems: 'center', marginBottom: KSPACE.s8,
   },
-  detectionConfNum: { ...noLead(KTYPE.statInline), color: KHET.primary },
+  detectionConfNum: { fontSize: 18, fontWeight: '900', color: KHET.primary },
   detectionConfLabel: { fontSize: 8, fontWeight: '700', color: KHET.mutedForeground, letterSpacing: 0.5 },
-  detectionDisease: { ...noLead(KTYPE.bodyBold), color: KHET.foreground, textAlign: 'center', marginBottom: KSPACE.s2 },
+  detectionDisease: { fontSize: 14, fontWeight: '800', color: KHET.foreground, textAlign: 'center', marginBottom: KSPACE.s2 },
   detectionScientific: { fontSize: 10, color: KHET.mutedForeground, fontStyle: 'italic', textAlign: 'center', marginBottom: KSPACE.s6 },
   detectionTypeChip: {
     backgroundColor: KHET.secondary, paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s3, borderRadius: KRADIUS.r10, marginBottom: KSPACE.s8,
   },
-  detectionTypeText: { ...noLead(KTYPE.badge), color: KHET.primary },
+  detectionTypeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.3, color: KHET.primary },
   detectionMeta: { gap: KSPACE.s4 },
   detectionMetaItem: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4 },
-  detectionMetaText: { ...noLead(KTYPE.badge) },
+  detectionMetaText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.3 },
 
   // ── Section headers ──
   section: { marginTop: KSPACE.s16, marginHorizontal: KGUTTER.base },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8, marginBottom: KSPACE.s10 },
   sectionDot: { ...circle(6) },
-  sectionTitle: { ...noLead(KTYPE.eyebrow), color: KHET.mutedForeground, textTransform: 'uppercase' },
+  sectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 1.2, color: KHET.mutedForeground, textTransform: 'uppercase' },
 
   sectionHeaderAccent: {
     flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8,
@@ -1992,7 +1983,7 @@ const D = StyleSheet.create({
     paddingHorizontal: KSPACE.s14, paddingVertical: KSPACE.s10, marginBottom: KSPACE.s10,
     borderWidth: KBORDER.hairline, borderColor: KHET.border,
   },
-  sectionHeaderAccentText: { ...noLead(KTYPE.subheadExtra), color: KHET.foreground },
+  sectionHeaderAccentText: { fontSize: 15, fontWeight: '800', color: KHET.foreground },
 
   // ── Weekly action checklist ──
   checklistCard: {
@@ -2012,14 +2003,8 @@ const D = StyleSheet.create({
     backgroundColor: KHET.primary, justifyContent: 'center', alignItems: 'center',
     flexShrink: 0, marginTop: KSPACE.s1,
   },
-  checkNumText: { ...noLead(KTYPE.labelExtra), color: KHET.white },
-  // Had an explicit lineHeight, so it is restated rather than taken from the role —
-  // adopting body's 20 would reflow every checklist item.
-  // bodyMed, not body: the original was fontWeight 500 and KTYPE has no 14/500
-  // role — the exact size x family hole the kit's <Text weight="med"> fills. Using
-  // `body` here silently dropped the checklist from Medium to Regular, on the
-  // screen's primary call to action. Naming the Medium face keeps the emphasis.
-  checkText: { fontSize: 14, fontFamily: KFONT.sansMed, lineHeight: 21, color: KHET.foreground, flex: 1 },
+  checkNumText: { fontSize: 13, fontWeight: '800', color: KHET.white },
+  checkText: { fontSize: 14, fontWeight: '500', lineHeight: 21, color: KHET.foreground, flex: 1 },
 
   // ── Spray schedule table ──
   sprayCard: {
@@ -2031,7 +2016,7 @@ const D = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: KHET.primary, paddingHorizontal: KSPACE.s12, paddingVertical: KSPACE.s10,
   },
-  sprayHeaderCell: { ...noLead(KTYPE.micro), color: KHET.white },
+  sprayHeaderCell: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5, color: KHET.white },
   sprayRow: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: KSPACE.s12, paddingVertical: KSPACE.s12,
@@ -2042,24 +2027,23 @@ const D = StyleSheet.create({
     width: 24, minHeight: 24, borderRadius: KRADIUS.pill,
     backgroundColor: KHET.mutedForeground, justifyContent: 'center', alignItems: 'center',
   },
-  sprayNumText: { ...noLead(KTYPE.meta), color: KHET.white },
-  sprayProduct: { ...noLead(KTYPE.labelBold), color: KHET.foreground },
+  sprayNumText: { fontSize: 11, fontWeight: '800', color: KHET.white },
+  sprayProduct: { fontSize: 13, fontWeight: '700', color: KHET.foreground },
   sprayBrand: { fontSize: 11, color: KHET.mutedForeground, fontStyle: 'italic', marginTop: KSPACE.s1 },
   sprayFrac: {
-    ...noLead(KTYPE.badge), color: KHET.primary,
+    fontSize: 9, fontWeight: '700', letterSpacing: 0.5, color: KHET.primary,
     backgroundColor: KHET.secondary, paddingHorizontal: KSPACE.s6, paddingVertical: KSPACE.s2,
     borderRadius: KRADIUS.r4, alignSelf: 'flex-start', marginTop: KSPACE.s3,
   },
-  sprayDose: { ...noLead(KTYPE.captionBold), color: KHET.mutedForeground },
-  sprayWhen: { ...noLead(KTYPE.captionBold), color: KHET.foreground },
+  sprayDose: { fontSize: 12, fontWeight: '600', color: KHET.mutedForeground },
+  sprayWhen: { fontSize: 12, fontWeight: '700', color: KHET.foreground },
   sprayPhi: { fontSize: 10, color: KHET.warningInk, marginTop: KSPACE.s2 },
   rotationNote: {
     flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s8,
     paddingHorizontal: KSPACE.s14, paddingVertical: KSPACE.s12,
     backgroundColor: KHET.secondary,
   },
-  // captionBold's authored leading IS 17 — the role is spread whole, delta 0.
-  rotationNoteText: { ...KTYPE.captionBold, color: KHET.primary, flex: 1 },
+  rotationNoteText: { fontSize: 12, fontWeight: '600', lineHeight: 17, color: KHET.primary, flex: 1 },
 
   // ── Causes ──
   causesCard: {
@@ -2071,7 +2055,7 @@ const D = StyleSheet.create({
   // NOT circle(): 5×5 with radius 3 is not w===h===2r, so circle(5) would round it
   // to 2.5 and change the shape. Left exactly as authored.
   causeBullet: { width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.purple, marginTop: 7, flexShrink: 0 },
-  causeText: { ...noLead(KTYPE.bodySm), lineHeight: 19, color: KHET.mutedForeground, flex: 1 },
+  causeText: { fontSize: 13, lineHeight: 19, color: KHET.mutedForeground, flex: 1 },
 
   // ── Organic ──
   organicCard: {
@@ -2079,11 +2063,10 @@ const D = StyleSheet.create({
     borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.successInk, 0.2),
   },
   organicHeader: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8, marginBottom: KSPACE.s4 },
-  organicTitle: { ...noLead(KTYPE.bodyBold), color: KHET.successInk, flex: 1 },
-  // caption's authored leading IS 17 — role spread whole, delta 0.
-  organicDetail: { ...KTYPE.caption, color: KHET.mutedForeground, paddingLeft: 26 },
+  organicTitle: { fontSize: 14, fontWeight: '700', color: KHET.successInk, flex: 1 },
+  organicDetail: { fontSize: 12, lineHeight: 17, color: KHET.mutedForeground, paddingLeft: 26 },
   organicItem: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s8, paddingVertical: KSPACE.s4 },
-  organicItemName: { ...noLead(KTYPE.labelBold), color: KHET.successInk },
+  organicItemName: { fontSize: 13, fontWeight: '700', color: KHET.successInk },
 
   // ── Safety checklist ──
   safetyCard: {
@@ -2091,15 +2074,15 @@ const D = StyleSheet.create({
     borderWidth: KBORDER.hairline, borderColor: KHET.border,
   },
   safetyRow: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s8 },
-  safetyText: { ...noLead(KTYPE.bodySm), lineHeight: 19, color: KHET.mutedForeground, flex: 1 },
+  safetyText: { fontSize: 13, lineHeight: 19, color: KHET.mutedForeground, flex: 1 },
 
   // ── Weather risk ──
   weatherRiskBadge: { flexWrap: 'wrap',
     flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8, marginBottom: KSPACE.s8,
   },
-  weatherRiskLabel: { flexShrink: 1, ...noLead(KTYPE.label), color: KHET.mutedForeground },
+  weatherRiskLabel: { flexShrink: 1, fontSize: 13, fontWeight: '600', color: KHET.mutedForeground },
   riskChip: { paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s4, borderRadius: KRADIUS.r20 },
-  riskChipText: { ...noLead(KTYPE.meta) },
+  riskChipText: { fontSize: 11, fontWeight: '800' },
 
   // ── Insights ──
   // Surface is `card`, NOT warningBg. This card holds four CATEGORICAL rows —
@@ -2112,7 +2095,7 @@ const D = StyleSheet.create({
     borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.gold, 0.2),
   },
   insightRow: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s8 },
-  insightText: { ...KTYPE.caption, color: KHET.mutedForeground, flex: 1 },
+  insightText: { fontSize: 12, lineHeight: 17, color: KHET.mutedForeground, flex: 1 },
 
   // ── Follow-up ──
   followUpCard: {
@@ -2127,8 +2110,8 @@ const D = StyleSheet.create({
   // RESPONSIVE: height 32 → minHeight 32. The 46px width is a real 360dp risk —
   // see the responsive note in the report; not changed here (it is a layout call).
   followUpDay: { width: 46, minHeight: 32, borderRadius: 8, backgroundColor: KHET.infoBg, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  followUpDayText: { ...noLead(KTYPE.meta), color: KHET.infoInk },
-  followUpAction: { ...noLead(KTYPE.caption), lineHeight: 18, color: KHET.mutedForeground, flex: 1, paddingTop: 7 },
+  followUpDayText: { fontSize: 11, fontWeight: '800', color: KHET.infoInk },
+  followUpAction: { fontSize: 12, lineHeight: 18, color: KHET.mutedForeground, flex: 1, paddingTop: 7 },
 
   // ── Prevention ──
   preventCard: {
@@ -2136,7 +2119,7 @@ const D = StyleSheet.create({
     backgroundColor: withAlpha(KHET.primary, 0.06), borderRadius: KRADIUS.r14, padding: KSPACE.s16,
     borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.primary, 0.15),
   },
-  preventText: { flex: 1, ...noLead(KTYPE.bodySm), lineHeight: 19, color: KHET.mutedForeground },
+  preventText: { flex: 1, fontSize: 13, lineHeight: 19, color: KHET.mutedForeground },
 
   // ── Products ──
   productsCard: {
@@ -2152,7 +2135,7 @@ const D = StyleSheet.create({
     width: 36, height: 36, borderRadius: KRADIUS.r10,
     backgroundColor: withAlpha(KHET.gold, 0.1), justifyContent: 'center', alignItems: 'center',
   },
-  productName: { ...noLead(KTYPE.labelBold), color: KHET.foreground },
+  productName: { fontSize: 13, fontWeight: '700', color: KHET.foreground },
   productMeta: { fontSize: 11, color: KHET.mutedForeground, marginTop: KSPACE.s2 },
   productsRow: { gap: KSPACE.s8, paddingVertical: KSPACE.s2 },
   productChip: {
@@ -2161,7 +2144,7 @@ const D = StyleSheet.create({
     paddingHorizontal: KSPACE.s14, paddingVertical: KSPACE.s10,
     borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.gold, 0.25),
   },
-  productChipText: { ...noLead(KTYPE.label), color: KHET.warningInk },
+  productChipText: { fontSize: 13, fontWeight: '600', color: KHET.warningInk },
 
   // ── Consult banner ──
   // The purple wash stays raw — KHET has no purple, and this is a CATEGORICAL
@@ -2172,7 +2155,7 @@ const D = StyleSheet.create({
     backgroundColor: 'rgba(155,89,182,0.06)', borderRadius: KRADIUS.r14, padding: KSPACE.s14,
     borderWidth: KBORDER.hairline, borderColor: 'rgba(155,89,182,0.15)',
   },
-  consultTitle: { ...noLead(KTYPE.labelExtra), color: COLORS.purple, marginBottom: KSPACE.s4 },
+  consultTitle: { fontSize: 13, fontWeight: '800', color: COLORS.purple, marginBottom: KSPACE.s4 },
   consultText: { fontSize: 11, lineHeight: 17, color: KHET.mutedForeground },
 
   // ── Action buttons ──
@@ -2182,12 +2165,12 @@ const D = StyleSheet.create({
     borderRadius: KRADIUS.r14, paddingVertical: KSPACE.s14,
     borderWidth: KBORDER.chip, borderColor: withAlpha(KHET.primary, 0.4),
   },
-  actionOutlineText: { flexShrink: 1, textAlign: 'center', ...noLead(KTYPE.labelBold), color: KHET.primary },
+  actionOutlineText: { flexShrink: 1, textAlign: 'center', fontSize: 13, fontWeight: '700', color: KHET.primary },
   actionFill: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
     borderRadius: KRADIUS.r14, paddingVertical: KSPACE.s14, backgroundColor: KHET.primary,
   },
-  actionFillText: { flexShrink: 1, textAlign: 'center', ...noLead(KTYPE.labelExtra), color: KHET.white },
+  actionFillText: { flexShrink: 1, textAlign: 'center', fontSize: 13, fontWeight: '800', color: KHET.white },
 
   // ── Download ──
   downloadBtn: {
@@ -2196,7 +2179,7 @@ const D = StyleSheet.create({
     backgroundColor: KHET.foreground, borderRadius: KRADIUS.r14, paddingVertical: KSPACE.s14,
   },
   downloadBtnDisabled: { opacity: 0.6 },
-  downloadBtnText: { ...noLead(KTYPE.labelExtra), color: KHET.white },
+  downloadBtnText: { fontSize: 13, fontWeight: '800', color: KHET.white },
 
   // ── Krushi Kendra share ──
   kkShareBtn: {
@@ -2204,36 +2187,36 @@ const D = StyleSheet.create({
     marginHorizontal: KGUTTER.base, marginTop: KSPACE.s10,
     backgroundColor: KHET.primary, borderRadius: KRADIUS.r14, paddingVertical: KSPACE.s14,
   },
-  kkShareBtnText: { ...noLead(KTYPE.labelExtra), color: KHET.white },
+  kkShareBtnText: { fontSize: 13, fontWeight: '800', color: KHET.white },
 
   shareList: { marginHorizontal: KGUTTER.base, marginTop: KSPACE.s16 },
-  shareListTitle: { ...noLead(KTYPE.labelExtra), color: KHET.foreground, marginBottom: KSPACE.s8 },
+  shareListTitle: { fontSize: 13, fontWeight: '800', color: KHET.foreground, marginBottom: KSPACE.s8 },
   shareCard: {
     padding: KSPACE.s12, borderRadius: KRADIUS.r12, marginBottom: KSPACE.s8,
     backgroundColor: KHET.card, borderWidth: KBORDER.hairline, borderColor: KHET.border,
   },
   shareCardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: KSPACE.s4 },
-  shareSellerName: { flex: 1, ...noLead(KTYPE.labelBold), color: KHET.foreground, marginRight: KSPACE.s8 },
+  shareSellerName: { flex: 1, fontSize: 13, fontWeight: '700', color: KHET.foreground, marginRight: KSPACE.s8 },
   shareSellerMeta: { fontSize: 11, color: KHET.mutedForeground, marginTop: KSPACE.s2 },
   // was `COLORS.amberLight || COLORS.darkAmber + '20'` — a `||` whose right side
   // was unreachable (amberLight is truthy). The warning surface says it directly.
   shareStatusPill: { backgroundColor: KHET.warningBg, borderRadius: 6, paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s2 },
-  shareStatusTxt:  { ...noLead(KTYPE.micro), color: KHET.warningInk, textTransform: 'uppercase' },
+  shareStatusTxt:  { fontSize: 10, fontWeight: '700', color: KHET.warningInk, textTransform: 'uppercase' },
   shareReplyBox:   { marginTop: KSPACE.s8, padding: KSPACE.s8, borderRadius: 8, backgroundColor: KHET.background },
-  shareReplyText:  { ...noLead(KTYPE.caption), lineHeight: 18, color: KHET.foreground },
-  shareReplySku:   { ...noLead(KTYPE.meta), color: KHET.primary, marginTop: KSPACE.s6 },
+  shareReplyText:  { fontSize: 12, lineHeight: 18, color: KHET.foreground },
+  shareReplySku:   { fontSize: 11, fontWeight: '700', color: KHET.primary, marginTop: KSPACE.s6 },
   availableBanner: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, padding: KSPACE.s8, borderRadius: 6, backgroundColor: KHET.primary, marginBottom: KSPACE.s8 },
-  availableBannerText: { flex: 1, ...noLead(KTYPE.meta), color: KHET.white },
+  availableBannerText: { flex: 1, fontSize: 11, fontWeight: '800', letterSpacing: 0.3, color: KHET.white },
 
-  recommendedHeading: { ...noLead(KTYPE.eyebrow), color: KHET.mutedForeground, textTransform: 'uppercase', marginBottom: KSPACE.s6 },
+  recommendedHeading: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3, color: KHET.mutedForeground, textTransform: 'uppercase', marginBottom: KSPACE.s6 },
   productCard:        { flexDirection: 'row', gap: KSPACE.s10, padding: KSPACE.s10, borderRadius: KRADIUS.r10, marginBottom: KSPACE.s8, backgroundColor: KHET.card, borderWidth: KBORDER.hairline, borderColor: KHET.border },
   productImage:       { width: 60, height: 60, borderRadius: 8, backgroundColor: KHET.muted },
   productImageEmpty:  { justifyContent: 'center', alignItems: 'center' },
   // NOTE: `productName` is declared twice in this sheet (also above, in Products).
   // Both are identical, last wins. Left as authored — deduping is a code edit.
-  productName:        { ...noLead(KTYPE.labelBold), color: KHET.foreground },
-  productPrice:       { ...noLead(KTYPE.bodyBold), color: KHET.primary, marginTop: KSPACE.s4 },
-  productUnit:        { ...noLead(KTYPE.meta), color: KHET.mutedForeground },
+  productName:        { fontSize: 13, fontWeight: '700', color: KHET.foreground },
+  productPrice:       { fontSize: 14, fontWeight: '800', color: KHET.primary, marginTop: KSPACE.s4 },
+  productUnit:        { fontSize: 11, fontWeight: '600', color: KHET.mutedForeground },
   productMrp:         { fontSize: 11, color: KHET.mutedForeground, textDecorationLine: 'line-through' },
   inStock:            { fontSize: 11, color: KHET.successInk, marginTop: KSPACE.s2 },
   outStock:           { fontSize: 11, color: KHET.destructiveInk, marginTop: KSPACE.s2 },
@@ -2241,19 +2224,19 @@ const D = StyleSheet.create({
   productBtn:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexShrink: 1, gap: KSPACE.s4, paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s8, borderRadius: 8 },
   productBtnPrimary:  { backgroundColor: KHET.primary },
   productBtnOutline:  { borderWidth: KBORDER.hairline, borderColor: KHET.primary, backgroundColor: KHET.card },
-  productBtnTextWhite:{ color: KHET.white, ...noLead(KTYPE.meta) },
-  productBtnTextOutline:{ color: KHET.primary, ...noLead(KTYPE.meta) },
+  productBtnTextWhite:{ color: KHET.white, fontSize: 11, fontWeight: '800' },
+  productBtnTextOutline:{ color: KHET.primary, fontSize: 11, fontWeight: '800' },
 
   visitBackdrop:  { flex: 1, backgroundColor: withAlpha(KHET.foreground, 0.45), justifyContent: 'flex-end' },
   visitSheet:     { backgroundColor: KHET.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: KSPACE.s18, paddingBottom: 28, paddingTop: KSPACE.s8 },
   visitHandleWrap:{ alignItems: 'center', paddingVertical: KSPACE.s8 },
   visitHandle:    { width: 44, height: 4, borderRadius: 2, backgroundColor: KHET.border },
-  visitTitle:     { ...noLead(KTYPE.title), color: KHET.foreground, marginTop: KSPACE.s6 },
-  visitMeta:      { ...noLead(KTYPE.bodySm), color: KHET.mutedForeground, marginTop: KSPACE.s4 },
+  visitTitle:     { fontSize: 18, fontWeight: '800', color: KHET.foreground, marginTop: KSPACE.s6 },
+  visitMeta:      { fontSize: 13, color: KHET.mutedForeground, marginTop: KSPACE.s4 },
   visitCallBtn:   { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: KSPACE.s8, marginTop: KSPACE.s18, paddingVertical: KSPACE.s14, borderRadius: KRADIUS.r12, backgroundColor: KHET.primary },
-  visitCallTxt:   { color: KHET.white, ...noLead(KTYPE.bodyBold) },
+  visitCallTxt:   { color: KHET.white, fontSize: 14, fontWeight: '800' },
   visitCloseBtn:  { marginTop: KSPACE.s10, paddingVertical: KSPACE.s12, alignItems: 'center' },
-  visitCloseTxt:  { color: KHET.mutedForeground, ...noLead(KTYPE.labelBold) },
+  visitCloseTxt:  { color: KHET.mutedForeground, fontSize: 13, fontWeight: '700' },
 
   // ── Disclaimer ──
   disclaimer: {

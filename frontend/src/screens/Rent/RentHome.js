@@ -63,17 +63,14 @@ import api from "@cropsetu/shared/services/api";
 import { useLanguage } from "@cropsetu/shared/context/LanguageContext";
 import { useAuth } from "@cropsetu/shared/context/AuthContext";
 import MockImagePlaceholder from "../../components/MockImagePlaceholder";
-import { COLORS, SHADOWS } from "@cropsetu/shared/constants/colors";
+import { COLORS, TYPE, SHADOWS } from "@cropsetu/shared/constants/colors";
 import {
   KHET,
-  KFONT,
   KSPACE,
   KGUTTER,
   KRADIUS,
-  KTYPE,
   KICON,
   KBORDER,
-  noLead,
   circle,
   withAlpha,
 } from "@cropsetu/shared/constants/khetTheme";
@@ -1336,7 +1333,7 @@ const S = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  errorBannerTxt: { ...noLead(KTYPE.label), color: COLORS.white, flexShrink: 1 },
+  errorBannerTxt: { fontSize: 13, fontWeight: "600", color: COLORS.white, flexShrink: 1 },
 
   header: {
     flexDirection: "row",
@@ -1349,7 +1346,12 @@ const S = StyleSheet.create({
     gap: 9,
     ...SHADOWS.small,
   },
-  headerTitle: { ...noLead(KTYPE.titleLg), color: COLORS.textDark },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: TYPE.weight.black,
+    letterSpacing: -0.3,
+    color: COLORS.textDark,
+  },
   gpsDot: { ...circle(8) },
   bellBtn: { padding: KSPACE.s4, position: "relative" },
   bellBadge: {
@@ -1366,7 +1368,7 @@ const S = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: KSPACE.s3,
   },
-  bellBadgeTxt: { fontSize: 9, fontFamily: KFONT.sansExtra, color: COLORS.white },
+  bellBadgeTxt: { fontSize: 9, fontWeight: "800", color: COLORS.white },
 
   tabBar: {
     flexDirection: "row",
@@ -1387,8 +1389,8 @@ const S = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   tabItemActive: { borderBottomColor: GREEN },
-  tabTxt: { ...noLead(KTYPE.body), fontFamily: KFONT.sansSemi, color: COLORS.textMedium },
-  tabTxtActive: { color: GREEN, fontFamily: KFONT.sansExtra },
+  tabTxt: { fontSize: 14, fontWeight: "600", color: COLORS.textMedium },
+  tabTxtActive: { color: GREEN, fontWeight: "800" },
 
   searchRow: { paddingHorizontal: KGUTTER.base, paddingTop: KSPACE.s16 },
   searchBar: {
@@ -1403,7 +1405,7 @@ const S = StyleSheet.create({
     borderColor: KHET.primary,
     ...SHADOWS.small,
   },
-  searchInput: { flex: 1, ...noLead(KTYPE.body), color: COLORS.textDark, padding: KSPACE.s0 },
+  searchInput: { flex: 1, fontSize: 14, color: COLORS.textDark, padding: KSPACE.s0 },
 
   // GPS unavailable notice
   gpsNotice: {
@@ -1417,7 +1419,7 @@ const S = StyleSheet.create({
     borderWidth: KBORDER.hairline,
     borderColor: withAlpha(COLORS.cta, "35"),
   },
-  gpsNoticeTxt: { ...KTYPE.caption, fontFamily: KFONT.sans, color: COLORS.textBody },
+  gpsNoticeTxt: { fontSize: 12, lineHeight: 17, color: COLORS.textBody },
   gpsNoticeBtns: { flexDirection: "row", flexWrap: "wrap", gap: KSPACE.s8, marginTop: KSPACE.s8 },
   gpsNoticeBtn: {
     flexDirection: "row",
@@ -1431,8 +1433,8 @@ const S = StyleSheet.create({
     borderColor: GREEN,
   },
   gpsNoticeBtnTxt: {
-    ...noLead(KTYPE.caption),
-    fontFamily: KFONT.sansExtra,
+    fontSize: 12,
+    fontWeight: "800",
     color: GREEN,
     flexShrink: 1,
   },
@@ -1458,7 +1460,7 @@ const S = StyleSheet.create({
   },
   catLabel: {
     fontSize: 10,
-    fontFamily: KFONT.sansBold,
+    fontWeight: "700",
     color: COLORS.grayMid2,
     textAlign: "center",
   },
@@ -1471,18 +1473,24 @@ const S = StyleSheet.create({
     paddingTop: KSPACE.s12,
     paddingBottom: KSPACE.s6,
   },
-  sectionTitle: { ...noLead(KTYPE.title), color: COLORS.textDark, flex: 1 },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: TYPE.weight.black,
+    letterSpacing: -0.2,
+    color: COLORS.textDark,
+    flex: 1,
+  },
   countBadge: {
     backgroundColor: withAlpha(GREEN, "15"),
     borderRadius: 8,
     paddingHorizontal: KSPACE.s8,
     paddingVertical: KSPACE.s3,
   },
-  countTxt: { ...noLead(KTYPE.meta), color: GREEN },
+  countTxt: { fontSize: 11, fontWeight: "700", color: GREEN },
 
   scopeLine: {
-    ...KTYPE.caption,
-    fontFamily: KFONT.sans,
+    fontSize: 12,
+    lineHeight: 17,
     color: COLORS.textMedium,
     paddingHorizontal: KGUTTER.base,
     paddingBottom: KSPACE.s8,
@@ -1497,7 +1505,7 @@ const S = StyleSheet.create({
     backgroundColor: COLORS.blueBg,
     borderRadius: 8,
   },
-  unlocatedNoteTxt: { flex: 1, ...KTYPE.meta, fontFamily: KFONT.sans, color: COLORS.blue },
+  unlocatedNoteTxt: { flex: 1, fontSize: 11, lineHeight: 16, color: COLORS.blue },
 
   // "Location not shared" pill on a card
   noLocPill: {
@@ -1511,7 +1519,7 @@ const S = StyleSheet.create({
     backgroundColor: COLORS.orangeWarm,
     borderRadius: 8,
   },
-  noLocTxt: { fontSize: 10, fontFamily: KFONT.sansBold, color: COLORS.cta, flexShrink: 1 },
+  noLocTxt: { fontSize: 10, fontWeight: "700", color: COLORS.cta, flexShrink: 1 },
 
   // 2-column grid — column wrapper supplies the gutter, the list container the
   // outer padding; cards flex:1 so each fills its half evenly.
@@ -1553,7 +1561,7 @@ const S = StyleSheet.create({
     backgroundColor: COLORS.white,
   },
   availDot: { width: 7, height: 7, borderRadius: 4 },
-  availTxt: { ...noLead(KTYPE.meta), flexShrink: 1 },
+  availTxt: { fontSize: 11, fontWeight: "700", flexShrink: 1 },
   catTag: {
     position: "absolute",
     top: KSPACE.s10,
@@ -1563,7 +1571,7 @@ const S = StyleSheet.create({
     paddingHorizontal: KSPACE.s8,
     paddingVertical: KSPACE.s4,
   },
-  catTagTxt: { fontSize: 10, fontFamily: KFONT.sansExtra, color: COLORS.white, flexShrink: 1 },  // paired with numberOfLines={1} at the call site
+  catTagTxt: { fontSize: 10, fontWeight: "800", color: COLORS.white, flexShrink: 1 },  // paired with numberOfLines={1} at the call site
   distOverlay: {
     position: "absolute",
     bottom: KSPACE.s8,
@@ -1576,7 +1584,7 @@ const S = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: KSPACE.s3,
   },
-  distOverlayTxt: { ...noLead(KTYPE.meta), fontFamily: KFONT.sansExtra, color: COLORS.blue },
+  distOverlayTxt: { fontSize: 11, fontWeight: "800", color: COLORS.blue },
   workerBooked: {
     flexDirection: "row",
     alignItems: "center",
@@ -1587,7 +1595,7 @@ const S = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: KSPACE.s3,
   },
-  workerBookedTxt: { fontSize: 10, fontFamily: KFONT.sansExtra },
+  workerBookedTxt: { fontSize: 10, fontWeight: "800" },
   mBody: { padding: KSPACE.s14 },
   mTopRow: {
     flexDirection: "row",
@@ -1601,18 +1609,22 @@ const S = StyleSheet.create({
   // CHARACTER per line ("S h a k t i m a n" down the card). numberOfLines={1}
   // does not prevent that — it only caps the line count, and a 1-char-wide
   // column still renders 1 char. The minWidth is the actual guard.
-  mName: { ...noLead(KTYPE.subheadingExtra), color: COLORS.textDark, flexShrink: 1, minWidth: 90 },
+  mName: {
+    fontSize: 16,
+    fontWeight: TYPE.weight.black,
+    color: COLORS.textDark,
+    flexShrink: 1,
+    minWidth: 90,
+  },
   mBrand: {
-    ...noLead(KTYPE.caption),
-    fontFamily: KFONT.sans,
+    fontSize: 12,
     color: COLORS.textMedium,
     marginTop: KSPACE.s2,
   },
   mPriceCol: { alignItems: "flex-end", flexShrink: 0 },
-  mPrice: { ...noLead(KTYPE.subheadExtra), color: GREEN },
+  mPrice: { fontSize: 15, fontWeight: "900", color: GREEN },
   mPriceDay: {
-    ...noLead(KTYPE.meta),
-    fontFamily: KFONT.sans,
+    fontSize: 11,
     color: COLORS.textMedium,
     marginTop: KSPACE.s1,
   },
@@ -1626,7 +1638,7 @@ const S = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: KSPACE.s3,
   },
-  ratingTxt: { ...noLead(KTYPE.meta), color: COLORS.amber },
+  ratingTxt: { fontSize: 11, fontWeight: "700", color: COLORS.amber },
   // Shown in the rating pill's place for a worker with no ratings yet, so the
   // slot keeps its height and the card layout does not shift between the two.
   newPill: {
@@ -1637,7 +1649,7 @@ const S = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: KSPACE.s3,
   },
-  newPillTxt: { ...noLead(KTYPE.meta), color: GREEN },
+  newPillTxt: { fontSize: 11, fontWeight: "700", color: GREEN },
   metaPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1647,7 +1659,7 @@ const S = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: KSPACE.s3,
   },
-  metaTxt: { ...noLead(KTYPE.meta), fontFamily: KFONT.sansSemi, color: COLORS.textBody },
+  metaTxt: { fontSize: 11, fontWeight: "600", color: COLORS.textBody },
   verifiedPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1664,8 +1676,7 @@ const S = StyleSheet.create({
     marginBottom: KSPACE.s12,
   },
   mLocTxt: {
-    ...noLead(KTYPE.caption),
-    fontFamily: KFONT.sans,
+    fontSize: 12,
     color: COLORS.textMedium,
     flex: 1,
   },
@@ -1682,8 +1693,8 @@ const S = StyleSheet.create({
   // addFirstTxt); without it a long Marathi "Book now" overflowed the button at
   // 360dp. Costs nothing when the label already fits.
   bookBtnTxt: {
-    ...noLead(KTYPE.body),
-    fontFamily: KFONT.sansExtra,
+    fontSize: 14,
+    fontWeight: "800",
     color: COLORS.white,
     flexShrink: 1,
   },
@@ -1700,8 +1711,8 @@ const S = StyleSheet.create({
     paddingHorizontal: KSPACE.s10,
   },
   ownTagTxt: {
-    ...noLead(KTYPE.caption),
-    fontFamily: KFONT.sansExtra,
+    fontSize: 12,
+    fontWeight: "800",
     color: GREEN,
     flexShrink: 1,
   },
@@ -1715,7 +1726,7 @@ const S = StyleSheet.create({
     paddingVertical: KSPACE.s10,
     paddingHorizontal: KSPACE.s10,
   },
-  bookedTagTxt: { ...noLead(KTYPE.caption), fontFamily: KFONT.sansExtra, flexShrink: 1 },
+  bookedTagTxt: { fontSize: 12, fontWeight: "800", flexShrink: 1 },
 
   // Worker card
   // Vertical card — it lives in a 2-column grid (~155px wide), so the content
@@ -1757,7 +1768,7 @@ const S = StyleSheet.create({
     borderWidth: KBORDER.selected,
     borderColor: withAlpha(GREEN, "30"),
   },
-  wInitials: { ...noLead(KTYPE.subheadExtra), color: GREEN },
+  wInitials: { fontSize: 15, fontWeight: "800", color: GREEN },
   wAvailDot: {
     position: "absolute",
     bottom: KSPACE.s1,
@@ -1766,10 +1777,9 @@ const S = StyleSheet.create({
     borderWidth: 2.5,
     borderColor: COLORS.white,
   },
-  wName: { ...noLead(KTYPE.body), fontFamily: KFONT.sansExtra, color: COLORS.textDark },
+  wName: { fontSize: 14, fontWeight: TYPE.weight.black, color: COLORS.textDark },
   wGroup: {
-    ...noLead(KTYPE.meta),
-    fontFamily: KFONT.sans,
+    fontSize: 11,
     color: COLORS.textMedium,
     marginTop: KSPACE.s1,
   },
@@ -1786,18 +1796,17 @@ const S = StyleSheet.create({
     maxWidth: "100%",
     flexShrink: 1,
   },
-  skillTagTxt: { fontSize: 10, fontFamily: KFONT.sansBold, color: GREEN },
+  skillTagTxt: { fontSize: 10, fontWeight: "700", color: GREEN },
   skillMore: {
     backgroundColor: COLORS.background,
     borderRadius: 8,
     paddingHorizontal: KSPACE.s8,
     paddingVertical: KSPACE.s4,
   },
-  skillMoreTxt: { fontSize: 10, fontFamily: KFONT.sansBold, color: COLORS.grayMid2 },
+  skillMoreTxt: { fontSize: 10, fontWeight: "700", color: COLORS.grayMid2 },
   wMetaRow: { flexDirection: "row", alignItems: "center", gap: KSPACE.s4 },
   wMetaTxt: {
-    ...noLead(KTYPE.meta),
-    fontFamily: KFONT.sans,
+    fontSize: 11,
     color: COLORS.textMedium,
     flex: 1,
   },
@@ -1815,8 +1824,8 @@ const S = StyleSheet.create({
     gap: KSPACE.s1,
     flexShrink: 1,
   },
-  wPrice: { ...noLead(KTYPE.subheadExtra), color: GREEN },
-  wPriceUnit: { fontSize: 10, fontFamily: KFONT.sansSemi, color: COLORS.textMedium },
+  wPrice: { fontSize: 15, fontWeight: "900", color: GREEN },
+  wPriceUnit: { fontSize: 10, fontWeight: "600", color: COLORS.textMedium },
   // Full-width CTA at the bottom of the card, matching machinery's bookBtn.
   callBtn: {
     flexDirection: "row",
@@ -1828,7 +1837,7 @@ const S = StyleSheet.create({
     paddingVertical: 9,
     marginTop: KSPACE.s2,
   },
-  callBtnTxt: { ...noLead(KTYPE.caption), fontFamily: KFONT.sansExtra, color: COLORS.white },
+  callBtnTxt: { fontSize: 12, fontWeight: "800", color: COLORS.white },
 
   loadWrap: { paddingVertical: 60, alignItems: "center", gap: KSPACE.s10 },
   emptyWrap: {
@@ -1846,19 +1855,18 @@ const S = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 20,
-    fontFamily: KFONT.sansExtra,
+    fontWeight: "900",
     color: COLORS.textDark,
     textAlign: "center",
   },
   emptyTxt: {
-    ...noLead(KTYPE.body),
-    fontFamily: KFONT.sansMed,
+    fontSize: 14,
+    fontWeight: "500",
     color: COLORS.textMedium,
     textAlign: "center",
   },
   emptyHint: {
-    ...noLead(KTYPE.caption),
-    fontFamily: KFONT.sans,
+    fontSize: 12,
     color: COLORS.textMedium,
     textAlign: "center",
     marginTop: KSPACE.s8,
@@ -1875,15 +1883,16 @@ const S = StyleSheet.create({
     marginTop: KSPACE.s8,
   },
   widenTxt: {
-    ...noLead(KTYPE.labelExtra),
+    fontSize: 13,
+    fontWeight: "800",
     color: COLORS.white,
     flexShrink: 1,
     textAlign: "center",
   },
   emptyLinkBtn: { minHeight: 44, justifyContent: "center", paddingHorizontal: KSPACE.s8 },
   emptyLinkTxt: {
-    ...noLead(KTYPE.caption),
-    fontFamily: KFONT.sansBold,
+    fontSize: 12,
+    fontWeight: "700",
     color: COLORS.blue,
     textAlign: "center",
     textDecorationLine: "underline",
@@ -1899,7 +1908,7 @@ const S = StyleSheet.create({
     borderRadius: KRADIUS.r10,
     paddingHorizontal: KSPACE.s16,
   },
-  addFirstTxt: { ...noLead(KTYPE.labelBold), color: GREEN, flexShrink: 1 },
+  addFirstTxt: { fontSize: 13, fontWeight: "700", color: GREEN, flexShrink: 1 },
 
   loadMoreBtn: {
     flexDirection: "row",
@@ -1915,7 +1924,7 @@ const S = StyleSheet.create({
     borderWidth: KBORDER.chip,
     borderColor: withAlpha(GREEN, "40"),
   },
-  loadMoreTxt: { ...noLead(KTYPE.labelExtra), color: GREEN, flexShrink: 1 },
+  loadMoreTxt: { fontSize: 13, fontWeight: "800", color: GREEN, flexShrink: 1 },
 
   listBanner: {
     marginHorizontal: KSPACE.s0,
@@ -1940,13 +1949,13 @@ const S = StyleSheet.create({
     flex: 1,
   },
   listBannerTitle: {
-    ...noLead(KTYPE.subheadExtra),
+    fontSize: 15,
+    fontWeight: "800",
     color: COLORS.textDark,
     marginBottom: KSPACE.s2,
   },
   listBannerSub: {
-    ...noLead(KTYPE.caption),
-    fontFamily: KFONT.sans,
+    fontSize: 12,
     color: COLORS.textMedium,
     lineHeight: 16,
   },
