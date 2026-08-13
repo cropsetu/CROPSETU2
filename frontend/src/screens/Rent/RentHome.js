@@ -375,13 +375,13 @@ const MachineryCard = memo(function MachineryCard({
           ]}
         >
           <View style={[S.availDot, { backgroundColor: statusColor }]} />
-          <Text style={[S.availTxt, { color: statusColor }]}>
+          <Text style={[S.availTxt, { color: statusColor }]} numberOfLines={1}>
             {statusLabel}
           </Text>
         </View>
         {/* Category label */}
         <View style={[S.catTag, { backgroundColor: catInfo.color }]}>
-          <Text style={S.catTagTxt}>{t("rent." + catInfo.tKey)}</Text>
+          <Text style={S.catTagTxt} numberOfLines={1}>{t("rent." + catInfo.tKey)}</Text>
         </View>
         {/* Distance */}
         {item.distanceKm != null && (
@@ -1537,6 +1537,10 @@ const S = StyleSheet.create({
     position: "absolute",
     top: KSPACE.s10,
     right: KSPACE.s10,
+    // catTag sits absolute at top-LEFT of the same image; both grow with the OS
+    // text size and at 2x they collide mid-card ("Rotavator" over "Available").
+    // Capping each at 45% of the card width keeps a gutter between them.
+    maxWidth: "45%",
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -1547,16 +1551,17 @@ const S = StyleSheet.create({
     backgroundColor: COLORS.white,
   },
   availDot: { width: 7, height: 7, borderRadius: 4 },
-  availTxt: { ...noLead(KTYPE.meta) },
+  availTxt: { ...noLead(KTYPE.meta), flexShrink: 1 },
   catTag: {
     position: "absolute",
     top: KSPACE.s10,
     left: KSPACE.s10,
+    maxWidth: "45%",
     borderRadius: 8,
     paddingHorizontal: KSPACE.s8,
     paddingVertical: KSPACE.s4,
   },
-  catTagTxt: { fontSize: 10, fontFamily: KFONT.sansExtra, color: COLORS.white },
+  catTagTxt: { fontSize: 10, fontFamily: KFONT.sansExtra, color: COLORS.white, flexShrink: 1 },  // paired with numberOfLines={1} at the call site
   distOverlay: {
     position: "absolute",
     bottom: KSPACE.s8,
@@ -1589,7 +1594,12 @@ const S = StyleSheet.create({
     marginBottom: KSPACE.s8,
     gap: KSPACE.s8,
   },
-  mName: { ...noLead(KTYPE.subheadingExtra), color: COLORS.textDark },
+  // flexShrink + minWidth: at 2x text the price column ("₹/hr") grew and
+  // squeezed this column toward zero, so RN wrapped the machinery name one
+  // CHARACTER per line ("S h a k t i m a n" down the card). numberOfLines={1}
+  // does not prevent that — it only caps the line count, and a 1-char-wide
+  // column still renders 1 char. The minWidth is the actual guard.
+  mName: { ...noLead(KTYPE.subheadingExtra), color: COLORS.textDark, flexShrink: 1, minWidth: 90 },
   mBrand: {
     ...noLead(KTYPE.caption),
     fontFamily: KFONT.sans,

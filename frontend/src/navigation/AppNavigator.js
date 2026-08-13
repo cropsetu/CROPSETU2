@@ -88,6 +88,16 @@ function TabItem({ route, options, focused, onPress }) {
           numberOfLines={1}
           adjustsFontSizeToFit
           minimumFontScale={0.75}
+          // DELIBERATE EXCEPTION to the app-wide "respect OS text size uncapped"
+          // rule, and the only one. The tab bar is fixed chrome: six flex:1 cells
+          // in a bar whose height cannot grow, so it physically cannot absorb 2x
+          // text. Worse, adjustsFontSizeToFit shrinks each label INDEPENDENTLY to
+          // fit its own cell — so at 200% "Rent" rendered at full size next to a
+          // shrunken "Krushi AI", and the bar read as broken rather than large.
+          // Capping at 1.0 keeps all six optically equal. The icons carry the
+          // meaning; the labels are secondary, and every SCREEN still scales
+          // fully. Revisit only if the labels get shorter.
+          maxFontSizeMultiplier={1}
         >
           {options.tabBarLabel ?? route.name}
         </Text>
