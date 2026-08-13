@@ -9,7 +9,6 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import OnboardingLanguageScreen from '../screens/Onboarding/OnboardingLanguageScreen';
 import OnboardingProfileScreen from '../screens/Onboarding/OnboardingProfileScreen';
-import OnboardingVoiceAgentScreen from '../screens/Onboarding/OnboardingVoiceAgentScreen';
 
 const Stack = createStackNavigator();
 
@@ -37,7 +36,6 @@ export default function OnboardingNavigator() {
         <Stack.Navigator screenOptions={{ headerShown: false, gestureEnabled: false }}>
           <Stack.Screen name="OnboardingLanguage" component={OnboardingLanguageScreen} />
           <Stack.Screen name="OnboardingProfile" component={OnboardingProfileScreen} />
-          <Stack.Screen name="OnboardingVoiceAgent" component={OnboardingVoiceAgentScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </ErrorCatcher>

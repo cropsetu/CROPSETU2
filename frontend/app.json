@@ -20,7 +20,7 @@
         "NSCameraUsageDescription": "CropSetu needs camera access to photograph your crops for AI disease analysis.",
         "NSPhotoLibraryUsageDescription": "CropSetu needs photo library access to upload crop images for analysis.",
         "NSLocationWhenInUseUsageDescription": "CropSetu uses your location to show local weather conditions for your farm.",
-        "NSMicrophoneUsageDescription": "CropSetu uses your microphone for the ‘Hey Krushi’ voice assistant and voice chat."
+        "NSMicrophoneUsageDescription": "CropSetu uses your microphone for voice chat with the AI assistant."
       }
     },
     "android": {
@@ -55,8 +55,7 @@
         }
       ],
       "expo-secure-store",
-      "react-native-compressor",
-      "./plugins/withVoskModel"
+      "react-native-compressor"
     ],
     "extra": {
       "eas": {
