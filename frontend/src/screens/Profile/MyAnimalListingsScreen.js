@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '@cropsetu/shared/services/api';
 import { formatLocation } from '../../utils/location';
+import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 
 function ListingCard({ item, onDelete, onEdit }) {
   const firstImg = item.images?.[0];
@@ -104,6 +105,8 @@ export default function MyAnimalListingsScreen({ navigation }) {
     const id = pendingDelete.id;
     try {
       await api.delete(`/animals/${id}`);
+      invalidateFocusData('animals');
+      invalidateFocusData('profile');
       setListings((prev) => prev.filter((l) => l.id !== id));
       setPendingDelete(null);
     } catch (e) {

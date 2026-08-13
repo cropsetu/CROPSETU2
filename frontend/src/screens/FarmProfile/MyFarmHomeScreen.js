@@ -16,7 +16,7 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import useFocusRefresh from '../../hooks/useFocusRefresh';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -96,8 +96,11 @@ export default function MyFarmHomeScreen({ navigation }) {
     setLoadingDetail(false);
   }, [activeFarmId, user?.id]);
 
-  // Reload on every focus so a newly created cycle appears without a manual pull-to-refresh.
-  useFocusEffect(useCallback(() => { loadAll(); }, [loadAll]));
+  // Reload when the active farm changes, when a farm screen invalidated it, or
+  // once the data has gone stale — NOT on every tab switch. Cycle create/delete
+  // and farm edit call invalidateFocusData('farm'), so a newly created cycle
+  // still appears immediately without a manual pull-to-refresh.
+  useFocusRefresh(loadAll, { key: `farm:${activeFarmId ?? 'none'}` });
 
   const onRefresh = useCallback(async () => {
     await refresh();

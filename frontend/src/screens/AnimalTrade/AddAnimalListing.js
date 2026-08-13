@@ -13,6 +13,7 @@ import api from '@cropsetu/shared/services/api';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { prepareImageForFormData } from '@cropsetu/shared/utils/mediaCompressor';
 import { formatLocation } from '../../utils/location';
+import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 
 const ANIMAL_TYPE_KEYS = ['animalCow', 'animalBuffalo', 'animalGoat', 'animalBullock', 'animalSheep', 'animalPig', 'animalHorse', 'animalCamel'];
 // English values used for form submission (backend expects English)
@@ -198,6 +199,10 @@ export default function AddAnimalListing({ navigation, route }) {
           breed: form.breed,
         });
       }
+      // The marketplace and the profile counts are now wrong; make the next
+      // focus of either reload instead of waiting out its freshness window.
+      invalidateFocusData('animals');
+      invalidateFocusData('profile');
     } catch (err) {
       // Surface the ACTUAL backend validation error so users can self-diagnose
       const details   = err?.response?.data?.error?.details;

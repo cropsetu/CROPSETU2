@@ -38,6 +38,7 @@ import * as farmApi from '../../services/farmApi';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COSMIC, CR, CS, activityMeta } from './theme/cosmicTheme';
 import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -242,6 +243,7 @@ export default function CropCycleDetailScreen({ navigation, route }) {
       await farmApi.completeCycle(cycleId);
       Haptics.success?.();
       setShowComplete(false);
+      invalidateFocusData('farm'); // the active-cycle list on MyFarmHome changed
       load();
     } catch (e) {
       Haptics.error?.();
@@ -258,6 +260,7 @@ export default function CropCycleDetailScreen({ navigation, route }) {
     try {
       await farmApi.updateCropCycle(cycleId, { status: 'ACTIVE' });
       Haptics.success?.();
+      invalidateFocusData('farm'); // the active-cycle list on MyFarmHome changed
       load();
     } catch (e) {
       Haptics.error?.();
@@ -273,7 +276,8 @@ export default function CropCycleDetailScreen({ navigation, route }) {
       await farmApi.deleteCropCycle(cycleId);
       Haptics.success?.();
       setShowDelete(false);
-      navigation.goBack();   // FarmDetail/MyFarmHome reload on focus
+      invalidateFocusData('farm');
+      navigation.goBack();   // FarmDetail/MyFarmHome reload on the next focus
     } catch (e) {
       Haptics.error?.();
       setShowDelete(false);

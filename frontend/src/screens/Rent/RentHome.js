@@ -4,16 +4,18 @@
  * Location model (see ./rentLocationPrefs.js):
  *   • One location bar states the active source — GPS, a hand-picked district,
  *     or "everywhere" — and opens onto a picker that can change it. Source,
- *     radius, strictness and sort all persist across restarts.
+ *     radius and strictness all persist across restarts.
  *   • "Within 5 km" is enforced server-side with ?strict=true, so a listing that
  *     never shared coordinates is either excluded or labelled "Location not
  *     shared" — it never poses as a nearby result.
  *   • "Any" keeps lat/lng and sends ?radius=all, so distance badges and distance
  *     ordering survive; it only removes the ceiling.
- *   • Search, category, sort and pagination are query params, so they filter the
+ *   • Search, category and pagination are query params, so they filter the
  *     whole catalogue rather than the twenty rows that happen to be loaded.
+ *   • Ordering is not user-facing: there is no sort control. buildListParams
+ *     picks it from the active source — nearest under GPS, rating otherwise.
  *   • The list is a single virtualized FlatList that pages; the header (search,
- *     location bar, categories, sort) rides in ListHeaderComponent.
+ *     location bar, categories) rides in ListHeaderComponent.
  */
 import {
   useState,
@@ -24,7 +26,7 @@ import {
   useDeferredValue,
   memo,
 } from "react";
-import { useFocusEffect } from "@react-navigation/native";
+import useFocusRefresh from "../../hooks/useFocusRefresh";
 import {
   View,
   Text,
@@ -79,7 +81,6 @@ import {
   RentLocationBar,
   RentLocationSheet,
   RentRadiusRow,
-  RentSortRow,
 } from "./RentLocationBar";
 
 const GREEN = COLORS.primary;
@@ -659,7 +660,7 @@ export default function RentHome({ navigation }) {
   } = useScrollHeader(55);
   const listRef = useRef(null);
 
-  // ── Location: global GPS + the persisted source/radius/sort preference ─────
+  // ── Location: global GPS + the persisted source/radius preference ──────────
   const {
     coords,
     loading: gpsLoading,
@@ -776,22 +777,28 @@ export default function RentHome({ navigation }) {
       .catch(() => {});
   }, [isLoggedIn]);
 
-  // Refresh on focus — but only on a RETURN to the screen, and only via a ref.
+  // Refresh on focus — but only on a RETURN to the screen, only via a ref, and
+  // only when the data is actually stale.
   //
-  // Both halves matter. Depending on `active.refresh` directly would re-run this
+  // All three matter. Depending on `active.refresh` directly would re-run this
   // effect every time the params change (its identity tracks them), firing a
   // second request right behind the one the params effect just sent — which is
   // exactly the double-fetch this screen used to have. Skipping the first focus
-  // leaves the initial load to the params effect alone.
+  // leaves the initial load to the params effect alone. And the staleness gate
+  // stops the four side-data requests (my machinery, my labour, my bookings,
+  // pending count) from refiring every single time the tab is tapped; screens
+  // that add, delete or book a listing call invalidateFocusData('rent'), so a
+  // real change still lands immediately.
   const focusedBefore = useRef(false);
   const refreshRef = useRef(null);
   useEffect(() => { refreshRef.current = active.refresh; }, [active.refresh]);
-  useFocusEffect(
-    useCallback(() => {
+  useFocusRefresh(
+    () => {
       loadSideData();
       if (focusedBefore.current) refreshRef.current?.();
       focusedBefore.current = true;
-    }, [loadSideData]),
+    },
+    { key: 'rent' },
   );
 
   // ── Recovery: how many listings exist one radius up ────────────────────────
@@ -955,16 +962,11 @@ export default function RentHome({ navigation }) {
         </View>
       )}
 
-      {/* Radius (GPS only) + sort */}
+      {/* Radius (GPS only) */}
       <RentRadiusRow
         prefs={prefs}
         coords={coords}
         onChange={(km) => setPrefs({ radiusKm: km })}
-      />
-      <RentSortRow
-        prefs={prefs}
-        coords={coords}
-        onChange={(sort) => setPrefs({ sort })}
       />
 
       {/* Category filter (machinery only) — now a server-side `category` param */}

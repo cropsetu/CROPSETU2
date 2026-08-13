@@ -4,7 +4,7 @@
  * Uses real API (/animals) — falls back to mock data if offline
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import useFocusRefresh from '../../hooks/useFocusRefresh';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Pressable,
   TextInput, StatusBar, Image, ScrollView, Dimensions, Alert,
@@ -346,12 +346,14 @@ export default function AnimalTradeHome({ navigation, route }) {
     fetchListings();
   }, [activeFilter, searchQuery, distanceKm, userLocation, sortBy]);
 
-  // Re-fetch when returning to this screen (e.g., after posting a new listing)
-  useFocusEffect(
-    useCallback(() => {
-      fetchListings();
-    }, [])
-  );
+  // Re-fetch when returning to this screen (e.g. after posting a new listing).
+  // Gated: the effect above already fetches on mount and on every filter change,
+  // so this only needs to cover changes made elsewhere — an invalidation from
+  // the create/delete screens, or data that has simply gone stale.
+  useFocusRefresh(() => fetchListings(), {
+    key: 'animals',
+    runOnFirstFocus: false,
+  });
 
   // When AddAnimalListing finishes successfully it navigates here with a
   // `freshListingId` param. Reset filters so the new card is guaranteed to be

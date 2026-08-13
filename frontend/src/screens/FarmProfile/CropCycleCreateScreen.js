@@ -25,6 +25,7 @@ import GlowButton   from './ui/GlowButton';
 import CropIcon     from '@cropsetu/shared/components/CropIcons';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { createCropCycle } from '../../services/farmApi';
+import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 import { COSMIC, CR, CS, CT, GLOW } from './theme/cosmicTheme';
 import { Haptics } from '@cropsetu/shared/utils/haptics';
 
@@ -116,6 +117,7 @@ export default function CropCycleCreateScreen({ navigation, route }) {
         seedTotalCostInr: seedCost ? parseFloat(seedCost) : null,
       });
       Haptics.success?.();
+      invalidateFocusData('farm'); // MyFarmHome/FarmDetail reload on next focus
       navigation.goBack();
     } catch (e) {
       Haptics.error?.();

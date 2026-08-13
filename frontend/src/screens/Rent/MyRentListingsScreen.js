@@ -14,6 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import api from '@cropsetu/shared/services/api';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 
 const RED   = COLORS.error;
 
@@ -178,6 +179,8 @@ export default function MyRentListingsScreen({ navigation }) {
     setDelError(null);
     try {
       await api.delete(`/rent/${type}/${item.id}`);
+      invalidateFocusData('profile');
+      invalidateFocusData('rent');
       if (type === 'machinery') setMachinery(prev => prev.filter(m => m.id !== item.id));
       else                      setLabour(prev => prev.filter(l => l.id !== item.id));
       setConfirm(null);

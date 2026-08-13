@@ -4,7 +4,7 @@
  * Left slide drawer (flat category list) + animated language bottom sheet
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import useFocusRefresh from '../../hooks/useFocusRefresh';
 import { useCart } from '../../context/CartContext';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable,
@@ -482,9 +482,11 @@ export default function AgriStoreHome({ navigation }) {
     setSelectedSubcategory(sub || null);
   };
 
-  // Re-sync the global cart count whenever this screen regains focus —
-  // covers the case where it changed in a screen that doesn't go through CartContext.
-  useFocusEffect(useCallback(() => { refreshCart(); }, [refreshCart]));
+  // Re-sync the global cart count on focus — covers a change made in a screen
+  // that doesn't go through CartContext. Gated: CartContext already loads the
+  // count on mount, and cart mutations update it through the context, so the
+  // only job left here is catching drift. Once a minute is plenty.
+  useFocusRefresh(refreshCart, { key: 'cart', staleMs: 60_000, runOnFirstFocus: false });
 
   // Route params carry the CATALOG product id — never a listing id. The detail
   // screen refetches by id and resolves the winning offer itself; passing the
