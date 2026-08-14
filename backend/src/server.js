@@ -16,6 +16,7 @@ import { checkCacheAlerts } from './utils/cacheMetrics.js';
 import { runRetentionSweep } from './services/retention.service.js';
 import { refreshActiveSellerStats } from './services/sellerStats.service.js';
 import { refreshAllSellerMetrics } from './services/sellerMetrics.service.js';
+import { expireStaleAnimalListings } from './services/animalListing.service.js';
 import { withLeaderLock } from './utils/leaderLock.js';
 import { startWorkers, stopWorkers } from './queue/worker.js';
 import { closeQueues } from './queue/jobQueue.js';
@@ -298,6 +299,21 @@ async function start() {
         logger.info({ purged }, '[Retention] Daily sweep complete');
       } catch (err) {
         logger.error({ err }, '[Retention] Daily sweep failed');
+      }
+    }));
+
+    // ── Animal-listing expiry sweep ─────────────────────────────────────────
+    // Hourly. Livestock sells within days; an ad left up for months is the main
+    // source of "I called and it was sold ages ago" complaints, which is what
+    // makes buyers stop trusting the marketplace. Expired rows go INACTIVE (a
+    // reversible state — the seller can renew from My Listings), never deleted.
+    // Leader-locked so one instance does the sweep.
+    cron.schedule('15 * * * *', () => withLeaderLock('animal-listing-expiry', async () => {
+      try {
+        const expired = await expireStaleAnimalListings();
+        if (expired > 0) logger.info('[AnimalTrade] expired %d stale listings', expired);
+      } catch (err) {
+        logger.error({ err }, '[AnimalTrade] expiry sweep failed');
       }
     }));
 

@@ -125,6 +125,9 @@ model User {
   voiceSessions            VoiceSession[]
   voiceConversations       VoiceConversation[]
   deviceLinks              DeviceAccountLink[]
+  listingReportsFiled      ListingReport[]      @relation("ListingReportsFiled")
+  blocksMade               UserBlock[]          @relation("BlocksMade")
+  blocksReceived           UserBlock[]          @relation("BlocksReceived")
 
   @@index([phone])
   @@index([district])
@@ -660,8 +663,42 @@ model AnimalListing {
   updatedAt      DateTime      @updatedAt
   lat            Float?
   lng            Float?
+
+  // ── Normalised numerics (derived from the display strings on every write) ──
+  // age/weight/milkYield above stay exactly as the seller typed them because
+  // that is what the UI renders. These are the machine-readable twins that the
+  // indexed range filters and sorts actually use. Nullable: an unparseable
+  // string yields null rather than failing the write, and legacy rows are
+  // filled in by prisma/backfill-animals.js.
+  ageMonths      Int?
+  weightKg       Float?
+  milkYieldLpd   Float?
+
+  // ── Structured flags (previously encoded only as free-text `tags`) ─────────
+  // `tags` keeps being written for backward compatibility; these are what the
+  // filters query, because a String[] contains-scan cannot use an index.
+  negotiable        Boolean @default(false)
+  vaccinated        Boolean @default(false)
+  healthCertificate Boolean @default(false)
+  // Only meaningful for female milch animals; null = not stated.
+  pregnant          Boolean?
+  lactating         Boolean?
+
+  // Lowercased haystack: animal + breed + location + tags + description head,
+  // PLUS the Marathi/Hindi names of the animal, so "म्हैस" finds a listing
+  // typed as "Buffalo". One trigram index instead of OR-ing four columns.
+  searchText     String?
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  // Livestock sells fast; a listing left up for months is the main source of
+  // "seller doesn't reply" complaints. expiresAt is set on create/renew and
+  // swept by the expiry job; renewing pushes it out and stamps lastRenewedAt.
+  expiresAt      DateTime?
+  lastRenewedAt  DateTime?
+
   seller         User          @relation(fields: [sellerId], references: [id])
   chats          Chat[]
+  reports        ListingReport[]
 
   @@index([sellerId])
   @@index([animal])
@@ -669,12 +706,66 @@ model AnimalListing {
   @@index([createdAt])
   // Seller's listings: where sellerId (+ status inequality) + ORDER BY createdAt DESC.
   @@index([sellerId, createdAt(sort: Desc)])
+  // The marketplace default: WHERE status='ACTIVE' ORDER BY createdAt DESC.
+  // Without the composite, Postgres bitmap-scanned @@index([status]) and then
+  // sorted the whole ACTIVE set on every page.
+  @@index([status, createdAt(sort: Desc)])
+  // Category browse (the animal-type pills) with the same ordering.
+  @@index([status, animal, createdAt(sort: Desc)])
+  // Price sort / price-range filter over ACTIVE rows.
+  @@index([status, price])
+  // Expiry sweep: WHERE status='ACTIVE' AND expiresAt < now().
+  @@index([status, expiresAt])
+  // Bounding-box prefilter for the radius search (geoPageIds).
+  @@index([lat, lng])
   // Trigram GIN — accelerates search OR (animal/breed/sellerLocation ILIKE).
   // All three OR'd columns are indexed so the planner can BitmapOr them.
   @@index([animal(ops: raw("gin_trgm_ops"))], type: Gin, map: "animal_listings_animal_trgm")
   @@index([breed(ops: raw("gin_trgm_ops"))], type: Gin, map: "animal_listings_breed_trgm")
   @@index([sellerLocation(ops: raw("gin_trgm_ops"))], type: Gin, map: "animal_listings_sellerLocation_trgm")
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin, map: "animal_listings_searchtext_trgm")
   @@map("animal_listings")
+}
+
+/// A buyer's report of a problem listing (fraud, wrong animal, already sold,
+/// abusive seller). One row per (listing, reporter) so tapping Report twice
+/// does not inflate the count; the admin queue reads `status`.
+model ListingReport {
+  id         String           @id @default(uuid())
+  listingId  String
+  reporterId String
+  reason     String
+  details    String?
+  status     ModerationStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+  resolvedAt DateTime?
+
+  listing  AnimalListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reporter User          @relation("ListingReportsFiled", fields: [reporterId], references: [id])
+
+  @@unique([listingId, reporterId])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([listingId])
+  @@map("listing_reports")
+}
+
+/// "Block seller" — a one-way mute. Blocked users' listings are hidden from the
+/// blocker's marketplace feed and neither side can open a new chat. Enforced on
+/// the SERVER on every read/write, never by the client hiding rows.
+model UserBlock {
+  id        String   @id @default(uuid())
+  blockerId String
+  blockedId String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  blocker User @relation("BlocksMade", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+  @@map("user_blocks")
 }
 
 model Chat {
@@ -702,11 +793,20 @@ model ChatMessage {
   text      String?
   imageUrl  String?
   readAt    DateTime?
+  // Client-generated id for the send attempt. A farmer on a flaky 2G link
+  // retries (or the app replays the request after a token refresh) and the same
+  // message would land twice. The unique constraint below makes the insert
+  // idempotent: the retry hits the conflict and we return the original row.
+  // Nullable so pre-existing rows and the legacy socket path still work.
+  clientMsgId String?
   createdAt DateTime  @default(now())
   chat      Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
+  @@unique([chatId, clientMsgId])
   @@index([chatId])
   @@index([chatId, createdAt])
+  // Newest-first history paging: WHERE chatId=? ORDER BY createdAt DESC, id DESC.
+  @@index([chatId, createdAt(sort: Desc), id(sort: Desc)])
   @@map("chat_messages")
 }
 

@@ -11,6 +11,8 @@
  * existing rows in place.
  */
 import prisma from '../src/config/db.js';
+import { normalizedColumns } from '../src/utils/animalNormalize.js';
+import { listingExpiry } from '../src/services/animalListing.service.js';
 
 const ARG_PHONE = process.argv[2]?.trim() || null;
 const ENV_PHONE = process.env.SEED_SELLER_PHONE?.trim() || null;
@@ -272,6 +274,25 @@ async function main() {
         sellerLocation,
         lat: seller.lat,
         lng: seller.lng,
+        expiresAt: listingExpiry(),
+        // Structured health flags previously encoded only in `tags`. The
+        // marketplace filters query these columns, so a seeded listing that
+        // only had the tag was invisible to the "vaccinated" filter.
+        vaccinated: (item.tags ?? []).some((t) => /vaccinat/i.test(t)),
+        healthCertificate: (item.tags ?? []).some((t) => /certificate/i.test(t)),
+        // Derived columns (ageMonths / weightKg / milkYieldLpd / searchText).
+        // Without them a freshly seeded database has no Marathi search and no
+        // working age or milk-yield filters until backfill-animals.js is run.
+        ...normalizedColumns({
+          animal: group.category,
+          breed: item.breed,
+          age: item.age,
+          weight: item.weight,
+          milkYield: item.milkYield ?? null,
+          description: item.description ?? null,
+          sellerLocation,
+          tags: item.tags ?? [],
+        }),
       };
 
       const existing = await prisma.animalListing.findFirst({

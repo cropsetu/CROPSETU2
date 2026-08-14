@@ -240,6 +240,10 @@ export async function cleanupTestData() {
     prisma.cartItem.deleteMany(),
     prisma.chatMessage.deleteMany(),
     prisma.chat.deleteMany(),
+    // listing_reports FKs the reporter with RESTRICT, so it has to clear before
+    // users; user_blocks cascades but is listed for symmetry.
+    prisma.listingReport.deleteMany(),
+    prisma.userBlock.deleteMany(),
     prisma.animalListing.deleteMany(),
     prisma.labourListing.deleteMany(),
     prisma.machineryListing.deleteMany(),

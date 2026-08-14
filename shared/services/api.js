@@ -149,12 +149,16 @@ function attachInterceptors(instance) {
       if (csrf) config.headers['X-CSRF-Token'] = csrf;
     }
 
-    // Idempotency-Key on farm/cycle mutations. Set once per config so the
-    // 401-refresh replay (and writeQueue retries that reuse this config) carry
-    // the SAME key — the backend idempotency middleware then dedupes duplicates.
+    // Idempotency-Key on mutations that must not double-apply. Set once per
+    // config so the 401-refresh replay (and writeQueue retries that reuse this
+    // config) carry the SAME key — the backend idempotency middleware then
+    // dedupes duplicates. `/animals` is here because a slow POST on a village
+    // connection is exactly the case where a farmer taps Publish twice and ends
+    // up with the same buffalo listed twice.
     if (MUTATING.has((config.method || 'get').toUpperCase())) {
       const url = config.url || '';
-      if ((url.includes('/farms') || url.includes('/cycles')) && !config.headers['Idempotency-Key']) {
+      const needsIdem = url.includes('/farms') || url.includes('/cycles') || url.includes('/animals');
+      if (needsIdem && !config.headers['Idempotency-Key']) {
         config.headers['Idempotency-Key'] = genIdemKey();
       }
     }
