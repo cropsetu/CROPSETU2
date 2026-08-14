@@ -166,7 +166,12 @@ export async function callFastAPIScan({
  * Returns one of:
  *   { jobId, status: 'queued' }                                  — newly enqueued
  *   { jobId, status: 'queued'|'running', idempotentReplay: true } — same idem key in flight
- *   { jobId: null, status: 'done', data, idempotentReplay: true } — cached result available
+ *   { jobId, status: 'done', data, idempotentReplay: true }       — cached result available
+ *
+ * `jobId` is non-null on ALL THREE branches now; it is null on the last one only
+ * for a result cached before FastAPI started storing the job id with the report.
+ * The caller settles credits under a `scan_settled:${jobId}` claim, so a null
+ * there means "cannot dedupe this replay" — see the branch comment below.
  */
 export async function submitFastAPIScan({
   filePath,
@@ -239,8 +244,22 @@ export async function submitFastAPIScan({
   }
 
   // Cached idempotent replay — pipeline already done, return data immediately.
+  //
+  // The job id MUST ride out on this branch. Returning `jobId: null` here meant
+  // the caller's `scan_settled:${jobId}` Redis claim (ai.routes.js) could never
+  // fire for a replay, so the replay ran the full persist path a second time:
+  // 3 credits deducted again and a duplicate CropDiseaseReport row for a scan
+  // whose pipeline never re-ran. FastAPI now returns `job_id` alongside the
+  // cached report; `|| null` keeps a legacy done envelope (stored before that
+  // change, bare-report shape, no job_id) working instead of throwing — the
+  // caller degrades to the old unclaimed behaviour for those, it does not fail.
   if (envelope.status === 'done' && envelope.data) {
-    return { jobId: null, status: 'done', data: envelope.data, idempotentReplay: true };
+    return {
+      jobId: envelope.job_id || null,
+      status: 'done',
+      data: envelope.data,
+      idempotentReplay: true,
+    };
   }
 
   if (!envelope.job_id) {
@@ -285,10 +304,85 @@ export async function getFastAPIScanStatus({ jobId, userId, requestId }) {
 
 
 /**
+ * Classify a RAW FastAPI report as one of the two non-result envelopes, or null
+ * for a real diagnosis.
+ *
+ * The orchestrator does NOT emit a top-level `needs_rescan` boolean — it emits
+ * `report_id: "needs_rescan"` with `meta.reason: "unusable_images"`. Express
+ * guarded on `raw?.needs_rescan === true`, a key that has never existed, so both
+ * non-result envelopes fell straight through to the normal success path: the
+ * farmer was billed the 3-credit scan floor for a blurry photo, a junk row was
+ * written to his scan history, and a Gemini outage opened a full diagnosis
+ * screen whose disease name was the literal string "SERVICE UNAVAILABLE".
+ *
+ * `service_unavailable` is checked on all three keys the orchestrator sets
+ * (report_id, the top-level flag and meta.service_unavailable) because the
+ * report_id is the only one guaranteed by contract; the other two are belt.
+ *
+ * @param {object} report RAW FastAPI report.data (NOT the flattened shape)
+ * @returns {'needs_rescan'|'service_unavailable'|null}
+ */
+export function scanNonResultKind(report) {
+  if (!report || typeof report !== 'object') return null;
+  if (report.report_id === 'needs_rescan') return 'needs_rescan';
+  if (report.report_id === 'service_unavailable'
+      || report.service_unavailable === true
+      || report.meta?.service_unavailable === true) {
+    return 'service_unavailable';
+  }
+  return null;
+}
+
+/**
+ * Flat shape for a non-result envelope. Both kinds render the same way — no
+ * disease, no confidence, no treatment, "see an expert" on — and differ only in
+ * the copy and in `nonResult`, which is what the route and the client branch on.
+ * One factory so the two can never drift apart.
+ */
+function flattenNonResult(report, farmCtx, { disease, fallbackAction, fallbackNotes, nonResult }) {
+  return {
+    disease,
+    scientific:           '',
+    confidence:           0,
+    severity:             'unknown',
+    isHealthy:            false,
+    crop:                 farmCtx.cropName || '',
+    stage:                farmCtx.growthStage || '',
+    affectedAreaEstimate: farmCtx.affectedArea || '',
+    spreadRisk:           '',
+    urgencyLevel:         '',
+    estimatedYieldLoss:   '',
+    immediateAction:      (report.next_steps || [])[0] || fallbackAction,
+    treatment:            [],
+    organicTreatment:     null,
+    prevention:           '',
+    nextSteps:            report.next_steps || [],
+    notes:                report.farmer_summary || fallbackNotes,
+    causes:               [],
+    weatherRiskNote:      report.weather_outlook?.advisory || '',
+    soilConsideration:    '',
+    previousCropNote:     '',
+    consultExpert:        true,
+    followUpSchedule:     [],
+    // `needsRescan` is the pre-existing client/route flag and stays true ONLY for
+    // the photo-quality case — a provider outage is not something a better photo
+    // fixes, and telling the farmer to retake it would be a lie.
+    needsRescan:          nonResult === 'needs_rescan',
+    nonResult,
+    _fullReport:          report,
+  };
+}
+
+/**
  * Convert the FastAPI agentic report → the FLAT shape DiagnosisResultScreen
  * expects. Mirrors flattenNodePrediction() in ai.routes.js so the migration
  * is invisible to the mobile client. New rich fields (urgency badge, compliance
  * audit, etc.) ride along on _fullReport for future client opt-in.
+ *
+ * Every returned object carries `nonResult` ('needs_rescan' | 'service_unavailable'
+ * | null) so the route can decide "do not charge, do not persist" and the client
+ * can decide "show a retake/retry modal instead of a diagnosis" from ONE field,
+ * without either of them re-deriving it from the raw FastAPI shape.
  *
  * @param {object} report FastAPI report.data
  * @param {object} farmCtx The same farmContext object the client sent
@@ -296,35 +390,29 @@ export async function getFastAPIScanStatus({ jobId, userId, requestId }) {
 export function flattenFastAPIDiagnosis(report, farmCtx = {}) {
   if (!report || typeof report !== 'object') return report;
 
+  const kind = scanNonResultKind(report);
+
   // Detect the "images unusable, please rescan" short-circuit.
-  if (report.report_id === 'needs_rescan') {
-    return {
-      disease:              'Needs rescan',
-      scientific:           '',
-      confidence:           0,
-      severity:             'unknown',
-      isHealthy:            false,
-      crop:                 farmCtx.cropName || '',
-      stage:                farmCtx.growthStage || '',
-      affectedAreaEstimate: farmCtx.affectedArea || '',
-      spreadRisk:           '',
-      urgencyLevel:         '',
-      estimatedYieldLoss:   '',
-      immediateAction:      (report.next_steps || [])[0] || 'Please retake clearer photos',
-      treatment:            [],
-      organicTreatment:     null,
-      prevention:           '',
-      nextSteps:            report.next_steps || [],
-      notes:                report.farmer_summary || 'The uploaded images could not be analysed. Please retake.',
-      causes:               [],
-      weatherRiskNote:      report.weather_outlook?.advisory || '',
-      soilConsideration:    '',
-      previousCropNote:     '',
-      consultExpert:        true,
-      followUpSchedule:     [],
-      needsRescan:          true,
-      _fullReport:          report,
-    };
+  if (kind === 'needs_rescan') {
+    return flattenNonResult(report, farmCtx, {
+      disease:        'Needs rescan',
+      fallbackAction: 'Please retake clearer photos',
+      fallbackNotes:  'The uploaded images could not be analysed. Please retake.',
+      nonResult:      'needs_rescan',
+    });
+  }
+
+  // Provider outage (e.g. Gemini 503). The photos were never analysed, so the
+  // disease name is deliberately EMPTY rather than the orchestrator's placeholder
+  // "SERVICE UNAVAILABLE" string — that placeholder rendered as a diagnosis on
+  // the result screen, complete with a 0% confidence ring and a red VERY_LOW badge.
+  if (kind === 'service_unavailable') {
+    return flattenNonResult(report, farmCtx, {
+      disease:        '',
+      fallbackAction: 'Please run the scan again in a few minutes',
+      fallbackNotes:  'The AI diagnosis service is temporarily busy. Your photos were not analysed — please try again shortly.',
+      nonResult:      'service_unavailable',
+    });
   }
 
   const disease   = report.disease || {};
@@ -408,6 +496,9 @@ export function flattenFastAPIDiagnosis(report, farmCtx = {}) {
     modelDiagnose:        meta.model_diagnose || null,
     modelTreatment:       meta.model_treatment || null,
     safety:               meta.safety || null,
+    // Explicitly null on the real-diagnosis path so callers can test one defined
+    // field on every return path instead of `'nonResult' in flat`.
+    nonResult:            null,
     _fullReport:          report,
   };
 }

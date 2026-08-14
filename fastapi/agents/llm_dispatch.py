@@ -46,6 +46,7 @@ from agents.llm_utils import (
     call_groq_text,
     call_openai_text,
     call_openai_vision,
+    is_priced,
     stream_gemini_text,
     stream_groq_text,
 )
@@ -173,7 +174,23 @@ def get_feature_config(feature: str, model_override: Optional[str] = None) -> Fe
                            ov, feature, model)
     # Provider-aware key (WI-11): a 'claude-*'/'gpt-*'/'llama-*' model defaults to
     # its own provider's key, not GEMINI_API_KEY. AI_<FEATURE>_API_KEY still overrides.
+    # Runs before the pricing check below so a typo'd prefix still reports
+    # "unsupported model" rather than the less useful "no pricing row".
     provider = _detect_provider(model)
+
+    # Every selectable model must be priced. An unpriced id used to sail through
+    # here and get billed at whatever llm_utils._calc_cost guessed from a
+    # substring of its name, so the daily USD cap and the ensemble headroom gate
+    # were both reading a number that was never true. Fail at SELECTION time,
+    # where nothing has been spent yet and the message names the fix.
+    if not is_priced(model):
+        raise ConfigError(
+            f"{feature}: model {model!r} has no pricing row in "
+            f"agents.llm_utils._PRICING, so its spend cannot be metered and the "
+            f"daily USD cap would not see it. Add a row (with the provider's "
+            f"published per-token rate) before selecting this model."
+        )
+
     default_key = os.environ.get(_PROVIDER_KEY_ENV[provider], "")
     api_key = (os.environ.get(f"AI_{feature}_API_KEY") or default_key).strip()
 
@@ -203,10 +220,29 @@ def get_feature_config(feature: str, model_override: Optional[str] = None) -> Fe
 _AUTO_FALLBACK_FEATURES = {"TEXT_CHAT", "CHAT_WRITER", "CHAT_ENHANCER", "ALERT", "PEST"}
 
 
+def _warn_if_unpriced(model: str, what: str) -> None:
+    """Warn (never raise) for a model reached on a FALLBACK path.
+
+    Primary selection raises on an unpriced model (get_feature_config), because
+    that is a deploy-time config choice with nothing spent yet. A fallback fires
+    mid-incident, so refusing it would turn a recoverable provider outage into a
+    hard failure for the farmer — _calc_cost bills the unknown id at the most
+    expensive known rate instead, which errs toward stopping spend.
+    """
+    if model and not is_priced(model):
+        logger.warning(
+            "[LLMDispatch] %s model %r has no _PRICING row — its spend will be "
+            "estimated at the most expensive known rate. Add a row.", what, model,
+        )
+
+
 def _fallback_model(feature: str, primary: str) -> Optional[str]:
     explicit = (os.environ.get(f"AI_{feature}_FALLBACK_MODEL") or "").strip()
     if explicit:
-        return explicit if explicit.lower() != (primary or "").lower() else None
+        if explicit.lower() == (primary or "").lower():
+            return None
+        _warn_if_unpriced(explicit, "capacity fallback")
+        return explicit
     if feature not in _AUTO_FALLBACK_FEATURES:
         return None
     p = (primary or "").lower()
@@ -241,7 +277,10 @@ def _groq_fallback(feature: str) -> Optional[tuple[str, str]]:
     if enabled != "true":
         return None
     model = (os.environ.get(f"AI_{feature}_GROQ_MODEL") or GROQ_FALLBACK_MODEL).strip()
-    return (model, api_key) if model else None
+    if not model:
+        return None
+    _warn_if_unpriced(model, "cross-provider Groq fallback")
+    return (model, api_key)
 
 
 # ── Transient-failure retry ──────────────────────────────────────────────────
@@ -300,11 +339,26 @@ async def call_llm_text(
     *,
     max_tokens: int = 4096,
     temperature: float = 0.3,
+    json_mode: bool = False,
+    response_schema: dict | None = None,
+    system_instruction: str | None = None,
+    history: list[dict] | None = None,
 ) -> tuple[str, dict]:
     """One-shot text LLM call. No fallback. Returns (text, token_info).
 
     Raises whatever the provider raised on failure — the caller (route
     handler or service) decides how to surface that to the user.
+
+    json_mode / response_schema constrain the reply to valid JSON at the
+    provider, so a caller with a JSON contract stops paying for prose
+    parse-retries. Only Gemini and the OpenAI-compatible providers implement it;
+    Anthropic accepts and ignores both (see call_anthropic_text).
+
+    system_instruction puts the static prompt in the provider's own system
+    channel instead of gluing it onto the user turn — a stable cache prefix, and
+    the only slot the model treats as operator authority. history is
+    [{"role": "user"|"assistant", "content": str}], oldest first, rendered as
+    real role-tagged turns rather than a flattened "Speaker: text" transcript.
     """
     provider = _detect_provider(cfg.model, cfg.base_url)
     logger.info(
@@ -313,29 +367,35 @@ async def call_llm_text(
     )
 
     label = f"{cfg.feature}/{provider}"
+    extra = {
+        "json_mode": json_mode,
+        "response_schema": response_schema,
+        "system_instruction": system_instruction,
+        "history": history,
+    }
 
     # Non-Gemini providers (WI-11): direct call, no Gemini-family fallback chain.
     if provider == "anthropic":
         return await _with_retry(lambda: call_anthropic_text(
             system_prompt, user_prompt, cfg.api_key,
-            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature, **extra,
         ), label=label)
     if provider == "openai":
         return await _with_retry(lambda: call_openai_text(
             system_prompt, user_prompt, cfg.api_key,
-            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature, **extra,
         ), label=label)
     if provider == "groq":
         return await _with_retry(lambda: call_groq_text(
             system_prompt, user_prompt, cfg.api_key,
-            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature, **extra,
         ), label=label)
 
     # Gemini (primary) → Gemini-family capacity fallback → cross-provider Groq.
     try:
         return await _with_retry(lambda: call_gemini_text(
             system_prompt, user_prompt, cfg.api_key,
-            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature, **extra,
         ), label=label)
     except Exception as primary_exc:  # noqa: BLE001
         # 1) Gemini capacity fallback (Flash↔Pro) — same provider, separate quota.
@@ -348,7 +408,7 @@ async def call_llm_text(
             try:
                 return await _with_retry(lambda: call_gemini_text(
                     system_prompt, user_prompt, cfg.api_key,
-                    model=fb, max_tokens=max_tokens, temperature=temperature,
+                    model=fb, max_tokens=max_tokens, temperature=temperature, **extra,
                 ), label=f"{label}/fallback:{fb}")
             except Exception:  # noqa: BLE001
                 pass  # Gemini path exhausted — fall through to cross-provider Groq.
@@ -364,7 +424,7 @@ async def call_llm_text(
             try:
                 return await _with_retry(lambda: call_groq_text(
                     system_prompt, user_prompt, groq_key,
-                    model=groq_model, max_tokens=max_tokens, temperature=temperature,
+                    model=groq_model, max_tokens=max_tokens, temperature=temperature, **extra,
                 ), label=f"{cfg.feature}/groq:{groq_model}")
             except Exception:  # noqa: BLE001
                 pass  # Groq also failed — surface the original Gemini failure below.
@@ -383,6 +443,8 @@ async def stream_llm_text(
     *,
     max_tokens: int = 512,
     temperature: float = 0.3,
+    system_instruction: str | None = None,
+    history: list[dict] | None = None,
 ):
     """Streaming text generation for the gemini/groq providers (the ones the voice
     writer uses). Yields {"type":"delta","text":...} events then a final
@@ -393,16 +455,21 @@ async def stream_llm_text(
     expected to fall back to the fully-resilient non-streaming call_llm_text if
     this raises before producing output. A provider without a streaming helper
     raises StreamingUnsupported so that fallback triggers immediately.
+
+    system_instruction / history behave exactly as in call_llm_text; json_mode is
+    deliberately absent because a streamed reply is spoken, not parsed.
     """
     provider = _detect_provider(cfg.model, cfg.base_url)
     logger.info("[LLMDispatch] STREAM feature=%s provider=%s model=%s",
                 cfg.feature, provider, cfg.model)
     if provider == "gemini":
         gen = stream_gemini_text(system_prompt, user_prompt, cfg.api_key,
-                                 model=cfg.model, max_tokens=max_tokens, temperature=temperature)
+                                 model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+                                 system_instruction=system_instruction, history=history)
     elif provider == "groq":
         gen = stream_groq_text(system_prompt, user_prompt, cfg.api_key,
-                               model=cfg.model, max_tokens=max_tokens, temperature=temperature)
+                               model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+                               system_instruction=system_instruction, history=history)
     else:
         raise StreamingUnsupported(provider)
     async for evt in gen:
@@ -417,8 +484,16 @@ async def call_llm_vision(
     *,
     max_tokens: int = 4096,
     temperature: float = 0.3,
+    json_mode: bool = False,
+    response_schema: dict | None = None,
 ) -> tuple[str, dict]:
-    """One-shot vision LLM call. No fallback. Returns (text, token_info)."""
+    """One-shot vision LLM call. No fallback. Returns (text, token_info).
+
+    json_mode / response_schema were previously unreachable from here — the
+    parameter existed on call_gemini_text and nowhere else — so diagnose and
+    soil OCR had no way to ask for constrained JSON and paid for a full second
+    vision call whenever the first reply failed to parse.
+    """
     provider = _detect_provider(cfg.model, cfg.base_url)
     logger.info(
         "[LLMDispatch] feature=%s provider=%s model=%s (vision)",
@@ -426,15 +501,16 @@ async def call_llm_vision(
     )
 
     label = f"{cfg.feature}/{provider}/vision"
+    extra = {"json_mode": json_mode, "response_schema": response_schema}
     if provider == "anthropic":
         return await _with_retry(lambda: call_anthropic_vision(
             system_prompt, user_prompt, images_b64, cfg.api_key,
-            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature, **extra,
         ), label=label)
     if provider == "openai":
         return await _with_retry(lambda: call_openai_vision(
             system_prompt, user_prompt, images_b64, cfg.api_key,
-            model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+            model=cfg.model, max_tokens=max_tokens, temperature=temperature, **extra,
         ), label=label)
     if provider == "groq":
         raise ConfigError(
@@ -443,5 +519,5 @@ async def call_llm_vision(
         )
     return await _with_retry(lambda: call_gemini_vision(
         system_prompt, user_prompt, images_b64, cfg.api_key,
-        model=cfg.model, max_tokens=max_tokens, temperature=temperature,
+        model=cfg.model, max_tokens=max_tokens, temperature=temperature, **extra,
     ), label=label)

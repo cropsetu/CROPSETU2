@@ -15,12 +15,14 @@ Public surface this module exposes to routes/scan.py:
   - get_job_status(job_id) -> {"status": ..., "data": ...}
   - bind_idempotency(idempotency_key, job_id)
   - lookup_job_for_key(idempotency_key) -> job_id | None
+  - get_job_idem_key(job_id) -> idempotency_key | None   (reverse of the above)
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import time
 from typing import Optional
 
 from celery import Celery
@@ -76,16 +78,82 @@ celery_app.conf.update(
 _IDEM_NAMESPACE = "idem:scan:job"
 _IDEM_TTL = 60 * 60  # 1 hour, matches services/idempotency
 
+# Health is NOT latched at import. The previous version ping()'d once and
+# pinned _REDIS_OK for the process lifetime, so a blip during a worker fork
+# permanently disabled key→job dedup, the IDOR owner check and the job-existence
+# marker in that process — every one of them failing open, silently. Same
+# bounded re-probe shape as services/idempotency.py (deliberately duplicated
+# rather than shared: the two modules must not import each other).
+_REDIS_RETRY_SEC = 30
+_redis_ok = False
+_redis_ever_ok = False
+_redis_next_probe = 0.0
+
+# See job_was_enqueued(): jobs enqueued while Redis was down carry no existence
+# marker, so for a short window after a recovery a missing marker must NOT be
+# read as "unknown job". 300s ≥ celery task_time_limit, so any job enqueued
+# during the outage has either finished (SUCCESS, marker not consulted) or been
+# killed by the time the grace period lapses.
+_EXISTS_GRACE_SEC = 300
+_exists_grace_until = 0.0
+
 try:
     import redis as _redis_lib
     _redis = _redis_lib.Redis.from_url(_RESULT_BACK, socket_connect_timeout=2)
-    _redis.ping()
-    _REDIS_OK = True
-    logger.info("[Jobs] Redis bound for idempotency-key -> job_id mapping")
 except Exception:  # noqa: BLE001
     _redis = None
-    _REDIS_OK = False
-    logger.warning("[Jobs] Redis unavailable — idempotency-key → job_id dedup disabled")
+    logger.warning("[Jobs] redis client unavailable — idempotency-key → job_id dedup disabled")
+
+
+def _redis_available() -> bool:
+    """Re-probe at most every 30s. The old import-time latch meant a Redis blip
+    during a worker fork dropped that process onto no-op dedup forever."""
+    global _redis_ok, _redis_ever_ok, _redis_next_probe, _exists_grace_until
+    if _redis is None:
+        return False
+    if _redis_ok:
+        return True
+    now = time.monotonic()
+    if now < _redis_next_probe:
+        return False
+    _redis_next_probe = now + _REDIS_RETRY_SEC
+    try:
+        _redis.ping()
+    except Exception:  # noqa: BLE001
+        return False
+    _redis_ok = True
+    if _redis_ever_ok:
+        _exists_grace_until = now + _EXISTS_GRACE_SEC
+        logger.error(
+            "[ALERT][Redis] Job registry RECOVERED — key→job dedup, owner checks and "
+            "existence markers are live again"
+        )
+    else:
+        _redis_ever_ok = True
+        logger.info("[Jobs] Redis bound for idempotency-key -> job_id mapping")
+    return True
+
+
+def _mark_redis_down(op: str, exc: Exception) -> None:
+    """One loud line on the healthy→down edge, then silence until it recovers."""
+    global _redis_ok, _redis_next_probe
+    _redis_next_probe = time.monotonic() + _REDIS_RETRY_SEC
+    if _redis_ok:
+        _redis_ok = False
+        logger.error(
+            "[ALERT][Redis] Job registry UNAVAILABLE (%s: %s) — scan dedup, the job-owner "
+            "IDOR check and unknown-job detection are all disabled; re-probing every %ds",
+            op, exc, _REDIS_RETRY_SEC,
+        )
+
+
+# Probe once at import so a healthy boot logs where it always did; a failure
+# here is no longer terminal.
+if _redis is not None and not _redis_available():
+    logger.warning(
+        "[Jobs] Redis unreachable at import — dedup disabled; re-probing every %ds",
+        _REDIS_RETRY_SEC,
+    )
 
 
 def _idem_key(idempotency_key: str) -> str:
@@ -93,22 +161,64 @@ def _idem_key(idempotency_key: str) -> str:
 
 
 def bind_idempotency(idempotency_key: str, job_id: str) -> None:
-    if not _REDIS_OK or not idempotency_key:
+    if not _redis_available() or not idempotency_key:
         return
     try:
         _redis.setex(_idem_key(idempotency_key), _IDEM_TTL, job_id)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _mark_redis_down("bind_idempotency", exc)
         logger.warning("[Jobs] failed to bind idempotency-key -> %s", job_id)
 
 
 def lookup_job_for_key(idempotency_key: str | None) -> Optional[str]:
-    if not _REDIS_OK or not idempotency_key:
+    if not _redis_available() or not idempotency_key:
         return None
     try:
         raw = _redis.get(_idem_key(idempotency_key))
         if raw:
             return raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _mark_redis_down("lookup_job_for_key", exc)
+        return None
+    return None
+
+
+# ── job_id → idempotency-key reverse binding ────────────────────────────────
+# GET /ai/scan/{job_id} has to promote a finished report into the idempotency
+# cache under the key the SUBMIT built, but it only holds a job id — it never
+# sees the original body or the Idempotency-Key header. Without this reverse map
+# the status route invented `idem:scan:hdr:{request_id}`, a shape cache_key()
+# never produces, so the write could not be read back and the POST handler's
+# inline-replay branch was unreachable dead code.
+
+_IDEM_REV_NAMESPACE = "idem:scan:key"
+
+
+def _idem_rev_key(job_id: str) -> str:
+    return f"{_IDEM_REV_NAMESPACE}:{(job_id or '').strip()[:128]}"
+
+
+def bind_job_idem_key(job_id: str, idempotency_key: str | None) -> None:
+    """Record the submit-time cache key for this job. No-op without Redis."""
+    if not _redis_available() or not job_id or not idempotency_key:
+        return
+    try:
+        _redis.setex(_idem_rev_key(job_id), _IDEM_TTL, idempotency_key[:256])
+    except Exception as exc:  # noqa: BLE001
+        _mark_redis_down("bind_job_idem_key", exc)
+        logger.warning("[Jobs] failed to bind job_id=%s -> idempotency-key", job_id)
+
+
+def get_job_idem_key(job_id: str) -> Optional[str]:
+    """Return the submit-time cache key for a job, or None if unknown."""
+    if not _redis_available() or not job_id:
+        return None
+    try:
+        raw = _redis.get(_idem_rev_key(job_id))
+        if raw:
+            return raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+    except Exception as exc:  # noqa: BLE001
+        _mark_redis_down("get_job_idem_key", exc)
         return None
     return None
 
@@ -128,23 +238,25 @@ def _owner_key(job_id: str) -> str:
 
 def bind_job_owner(job_id: str, owner_id: str | None) -> None:
     """Record which user owns this job. No-op when owner/redis is absent."""
-    if not _REDIS_OK or not job_id or not owner_id:
+    if not _redis_available() or not job_id or not owner_id:
         return
     try:
         _redis.setex(_owner_key(job_id), _OWNER_TTL, str(owner_id)[:128])
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _mark_redis_down("bind_job_owner", exc)
         logger.warning("[Jobs] failed to bind owner for job_id=%s", job_id)
 
 
 def get_job_owner(job_id: str) -> Optional[str]:
     """Return the owner user_id for a job, or None if unknown/redis down."""
-    if not _REDIS_OK or not job_id:
+    if not _redis_available() or not job_id:
         return None
     try:
         raw = _redis.get(_owner_key(job_id))
         if raw:
             return raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _mark_redis_down("get_job_owner", exc)
         return None
     return None
 
@@ -164,24 +276,33 @@ def _exists_key(job_id: str) -> str:
 
 
 def mark_job_exists(job_id: str) -> None:
-    if not _REDIS_OK or not job_id:
+    if not _redis_available() or not job_id:
         return
     try:
         _redis.setex(_exists_key(job_id), _EXISTS_TTL, "1")
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _mark_redis_down("mark_job_exists", exc)
         logger.warning("[Jobs] failed to mark existence for job_id=%s", job_id)
 
 
 def job_was_enqueued(job_id: str) -> bool:
     """True if we recorded this job at enqueue. False = unknown/expired id.
     Returns True when Redis is down (can't disprove existence → don't false-fail)."""
-    if not _REDIS_OK:
+    if not _redis_available():
         return True
     if not job_id:
         return False
+    # Grace window after a reconnect: jobs enqueued while Redis was down never
+    # got a marker, and now that Redis answers again a missing marker would be
+    # read as "unknown job" and abort a scan the worker is still running. Only
+    # the reconnect path arms this (see _EXISTS_GRACE_SEC); a process that has
+    # been healthy throughout never enters it.
+    if _exists_grace_until and time.monotonic() < _exists_grace_until:
+        return True
     try:
         return _redis.exists(_exists_key(job_id)) == 1
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _mark_redis_down("job_was_enqueued", exc)
         return True
 
 
@@ -220,6 +341,9 @@ def enqueue_diagnosis(payload: dict, *, idempotency_key: str | None = None) -> s
     )
     if idempotency_key:
         bind_idempotency(idempotency_key, async_result.id)
+        # Reverse direction too, so GET /ai/scan/{job_id} can cache the finished
+        # report under the key the submit actually used.
+        bind_job_idem_key(async_result.id, idempotency_key)
     # Bind ownership so the result can only be polled back by its submitter.
     bind_job_owner(async_result.id, (payload or {}).get("user_id"))
     # Record existence so an unknown/expired job_id isn't reported as "queued"

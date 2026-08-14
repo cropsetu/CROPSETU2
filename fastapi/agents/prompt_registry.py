@@ -49,6 +49,19 @@ ACTIVE_VERSIONS: dict[str, str | dict[str, float]] = {
     # never served to live traffic.
     "diagnose":  "v2",
     "treatment": "v1",
+    # Chat surface. It carries the most traffic and the least downstream
+    # validation in the product, so it is the surface that most needs the
+    # registry's rollback + replay properties. chat_rules / chat_followups /
+    # chat_clarify are FRAGMENTS: they are interpolated into the three system
+    # prompts through {quality_rules} / {followups_tail} / {clarify_block}
+    # rather than sent on their own, and live here so there is exactly one
+    # copy of each on disk and its hash lands in token_info with the rest.
+    "chat_writer":    "v1",
+    "chat_enhancer":  "v1",
+    "chat_vision":    "v1",
+    "chat_rules":     "v1",
+    "chat_followups": "v1",
+    "chat_clarify":   "v1",
 }
 
 

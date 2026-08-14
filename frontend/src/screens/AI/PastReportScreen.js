@@ -131,6 +131,16 @@ function pickReportFields(row) {
     full.risk_level || row.riskLevel || 'UNKNOWN'
   ).toUpperCase();
 
+  // Native-language strips FastAPI already generated and paid Sarvam to
+  // translate. Same wrapper/block contract as the live result screen; this
+  // archival view had the payload in hand and never read it, so re-opening a
+  // saved report showed a Marathi farmer an all-English report.
+  const localBlocks   = full.local_blocks || {};
+  const localLang     = localBlocks.language || '';
+  const localLangName = localBlocks.language_name || '';
+  const localStrips   = localBlocks.blocks || {};
+  const showLocal     = !!localLang && localLang !== 'en' && Object.keys(localStrips).length > 0;
+
   return {
     diseaseName,
     scientific,
@@ -142,7 +152,21 @@ function pickReportFields(row) {
     culturalList,
     preventionList,
     immediateActions,
+    localLang,
+    localLangName,
+    localBlock: (key) => (showLocal ? (localStrips[key] || '') : ''),
   };
+}
+
+// See LocalStrip in DiagnosisResultScreen — same contract, this screen's styles.
+function LocalStrip({ text, langName }) {
+  if (!text) return null;
+  return (
+    <View style={S.localStrip}>
+      <Text style={S.localStripLang}>{langName}</Text>
+      <Text style={S.localStripText}>{text}</Text>
+    </View>
+  );
 }
 
 function buildReportHTML(row, fields, t) {
@@ -371,6 +395,15 @@ export default function PastReportScreen({ navigation, route }) {
           </View>
         ) : null}
 
+        {/* S.section is a padded white card with a shadow, so it only renders
+            when a strip actually exists — an empty one is a visible artifact. */}
+        {(fields.localBlock('summary') || fields.localBlock('diagnosis')) ? (
+          <View style={S.section}>
+            <LocalStrip text={fields.localBlock('summary')}   langName={fields.localLangName} />
+            <LocalStrip text={fields.localBlock('diagnosis')} langName={fields.localLangName} />
+          </View>
+        ) : null}
+
         {/* Immediate actions */}
         {fields.immediateActions.length > 0 ? (
           <BulletList title={t('pastReport.immediateActions', 'Immediate actions')} items={fields.immediateActions} accent={COLORS.error} />
@@ -379,6 +412,14 @@ export default function PastReportScreen({ navigation, route }) {
         {/* Treatment */}
         {fields.treatmentList.length > 0 ? (
           <BulletList title={t('pastReport.treatment', 'Recommended treatment')} items={fields.treatmentList} accent={COLORS.primary} />
+        ) : null}
+
+        {(fields.localBlock('treatment') || fields.localBlock('prognosis') || fields.localBlock('follow_up')) ? (
+          <View style={S.section}>
+            <LocalStrip text={fields.localBlock('treatment')} langName={fields.localLangName} />
+            <LocalStrip text={fields.localBlock('prognosis')} langName={fields.localLangName} />
+            <LocalStrip text={fields.localBlock('follow_up')} langName={fields.localLangName} />
+          </View>
         ) : null}
 
         {/* Organic */}
@@ -586,6 +627,12 @@ const S = StyleSheet.create({
   sectionTitle:    { fontSize: 13, fontWeight: '800', color: COLORS.textDark, marginBottom: 6 },
   bodyTxt:         { fontSize: 13, color: COLORS.textDark, lineHeight: 20, flex: 1 },
   bullet:          { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 6 },
+
+  // Native-language strips (report.local_blocks). Indic scripts need the extra
+  // line-height so Devanagari matras and Tamil/Malayalam loops don't clip.
+  localStrip:     { marginBottom: 10 },
+  localStripLang: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, color: COLORS.primary, marginBottom: 4, textTransform: 'uppercase' },
+  localStripText: { fontSize: 14, lineHeight: 22, color: COLORS.textDark },
 
   // Krushi Kendra reply card
   kendraHead:   { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },

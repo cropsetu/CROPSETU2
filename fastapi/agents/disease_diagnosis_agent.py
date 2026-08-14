@@ -299,6 +299,13 @@ def _build_context(image_quality: dict, weather_risk: dict, params: dict, local_
         if _fh else ""
     )
     candidate_block = _candidate_block(params.get("crop_name"))
+    # first_noticed / season / month are collected on step 2 of the scan form and
+    # forwarded by Express, but nothing here read them, so the model was guessing
+    # at onset speed and at the seasonal window — the two cues that separate
+    # look-alikes with the same lesion (an overnight blight from a slow
+    # nutrient burn; a rabi rust from a kharif one). They are rendered below with
+    # `or` rather than a dict default because Express sends '' for an unfilled
+    # field, and `params.get(k, default)` only falls back when the key is ABSENT.
     return f"""CROP DISEASE ANALYSIS
 
 {candidate_block}CROP & FIELD:
@@ -312,6 +319,9 @@ def _build_context(image_quality: dict, weather_risk: dict, params: dict, local_
   Irrigation   : {params.get('irrigation_system', 'Unknown')}
   Affected Area: {params.get('affected_area_percent', '?')}%
   Symptoms     : {params.get('symptom_description', 'None reported')}
+  First Noticed: {params.get('first_noticed') or 'Not stated'}
+  Season       : {params.get('season') or 'Unknown'}
+  Month        : {params.get('month') or 'Unknown'}
   Pesticides   : {params.get('recent_pesticide_used', 'None')}
   Fertilizer   : {params.get('fertilizer_history', 'Not provided')}
 

@@ -106,12 +106,25 @@ const WHEN_KEYS = [
   { key: '2weeks',  tKey: 'when_2weeks' },
 ];
 
+// `pct` is the numeric midpoint of each band, sent as `affectedAreaPercent`.
+// Express reads farmCtx.affectedAreaPercent (a 0-100 integer) to render
+// "Affected Area: N%" in the vision prompt; the client only ever sent
+// `affectedArea`, the TRANSLATED label, so the prompt always said "?%".
+// Both fields are sent now — `affectedArea` still feeds the report card's
+// affectedAreaEstimate, so it must not be repurposed.
 const AREA_KEYS = [
-  { key: 'less10', tLabel: 'area_less10', tDesc: 'area_less10_desc' },
-  { key: '10-25',  tLabel: 'area_1025',   tDesc: 'area_1025_desc'   },
-  { key: '25-50',  tLabel: 'area_2550',   tDesc: 'area_2550_desc'   },
-  { key: 'over50', tLabel: 'area_over50', tDesc: 'area_over50_desc' },
+  { key: 'less10', pct: 5,  tLabel: 'area_less10', tDesc: 'area_less10_desc' },
+  { key: '10-25',  pct: 18, tLabel: 'area_1025',   tDesc: 'area_1025_desc'   },
+  { key: '25-50',  pct: 38, tLabel: 'area_2550',   tDesc: 'area_2550_desc'   },
+  { key: 'over50', pct: 75, tLabel: 'area_over50', tDesc: 'area_over50_desc' },
 ];
+
+// Quality tier forwarded to FastAPI's model chain selector. 'fast' is the cheap
+// chain, 'best' the frontier fan-out; anything else is coerced to 'fast' on both
+// sides (_scanTier in ai.routes.js, normalize_tier in FastAPI). There is no UI to
+// choose yet, so this pins the wire value to what every scan already ran as
+// instead of leaving the server to infer it from an absent field.
+const SCAN_TIER = 'fast';
 
 const ANALYSIS_STEP_KEYS = [
   'analysisStep0', 'analysisStep1', 'analysisStep2',
@@ -238,6 +251,34 @@ function classifyScanError(err, t = (k, def) => def) {
     kind: 'unknown',
     title: t('cropScan.err.unknownTitle', 'Diagnosis failed'),
     message: t('cropScan.err.unknownMsg', 'We couldn\'t finish the diagnosis. Please try again with a clearer photo.'),
+  };
+}
+
+// FastAPI can return a NON-RESULT envelope instead of a diagnosis: the photos
+// were unusable (`needs_rescan`) or the vision provider was down and they were
+// never analysed at all (`service_unavailable`). Express flattens both to a
+// single `nonResult` field and — since C5/C6 landed — charges nothing and
+// persists nothing for them. The client used to play the success chime and open
+// DiagnosisResultScreen anyway, so a blurry photo produced a full report card
+// titled "Needs rescan" and a Gemini outage produced one whose disease name was
+// the literal string "SERVICE UNAVAILABLE", both with a 0% confidence ring and a
+// red VERY_LOW badge, and neither with a retake affordance.
+//
+// Returns the same { kind, title, message } shape classifyScanError does, so the
+// existing modal renders it and its primary button already lands back on step 3
+// (the photo step) — which is the correct action for both kinds.
+function nonResultModal(kind, t = (k, def) => def) {
+  if (kind === 'needs_rescan') {
+    return {
+      kind: 'rescan',
+      title: t('cropScan.err.rescanTitle', 'We need a clearer photo'),
+      message: t('cropScan.err.rescanMsg', 'The photo was too blurry, dark or far away to read. Take another one in daylight, close to the affected leaf. You were not charged for this.'),
+    };
+  }
+  return {
+    kind: 'warmup',
+    title: t('cropScan.err.unavailableTitle', 'Diagnosis service is busy'),
+    message: t('cropScan.err.unavailableMsg', 'Your photo was not analysed, so nothing was charged. Please try the scan again in a few minutes.'),
   };
 }
 
@@ -617,6 +658,13 @@ export default function CropScanScreen({ navigation }) {
       symptoms:         [],
       firstNoticed:     '',
       affectedArea:     '',
+      // NOTE: `affectedAreaPercent` is deliberately NOT initialised here. It is
+      // assigned below only when the farmer actually picks a band, because
+      // Express's _scanAffectedPercent does Number(v), and Number(null) and
+      // Number('') are both 0 — seeding either would put "Affected Area: 0%" in
+      // the vision prompt, which reads as "no visible damage" rather than "not
+      // stated". Only an absent key reaches the intended "?%".
+      tier:             SCAN_TIER,
       additionalSymptoms: additionalText.trim(),
     };
 
@@ -641,8 +689,11 @@ export default function CropScanScreen({ navigation }) {
       const chip = symptomChipsForCtx.find(c => c.key === k);
       return chip ? chip.label : k;
     });
-    farmCtx.firstNoticed = WHEN_KEYS.find(o => o.key === firstNoticed) ? t(`cropScan.${WHEN_KEYS.find(o => o.key === firstNoticed).tKey}`) : '';
-    farmCtx.affectedArea = AREA_KEYS.find(o => o.key === affectedArea) ? t(`cropScan.${AREA_KEYS.find(o => o.key === affectedArea).tLabel}`) : '';
+    const whenOpt = WHEN_KEYS.find(o => o.key === firstNoticed);
+    const areaOpt = AREA_KEYS.find(o => o.key === affectedArea);
+    farmCtx.firstNoticed = whenOpt ? t(`cropScan.${whenOpt.tKey}`) : '';
+    farmCtx.affectedArea = areaOpt ? t(`cropScan.${areaOpt.tLabel}`) : '';
+    if (areaOpt) farmCtx.affectedAreaPercent = areaOpt.pct;
 
     // Helper to clear all step-advance timers (cancellation point used on
     // success, error, and unmount). Centralised so we never leak timers.
@@ -675,6 +726,9 @@ export default function CropScanScreen({ navigation }) {
               farmCtx.landSize = farm.landSizeAcres || farmCtx.landSize;
               farmCtx.state    = farm.state || farmCtx.state;
               farmCtx.district = farm.district || farmCtx.district;
+              // Express forwards `village` into the diagnose params; the profile's
+              // village is where the farmer lives, the farm's is where the crop is.
+              farmCtx.village  = farm.village || farmCtx.village;
             }
           }
         } catch (e) {
@@ -701,6 +755,15 @@ export default function CropScanScreen({ navigation }) {
       if (diagnosis.error) {
         console.error('[Scan] diagnosis.error field set:', diagnosis.error);
         setAnalysisError(classifyScanError({ message: String(diagnosis.error) }, t));
+        return;
+      }
+
+      // Non-result envelope — no diagnosis exists. Must be checked BEFORE the
+      // success chime and the navigation.replace below, or the farmer is walked
+      // into a report screen for a scan that never happened.
+      if (diagnosis.nonResult) {
+        console.warn('[Scan] non-result envelope:', diagnosis.nonResult);
+        setAnalysisError(nonResultModal(diagnosis.nonResult, t));
         return;
       }
 
@@ -1422,6 +1485,7 @@ export default function CropScanScreen({ navigation }) {
                   : analysisError?.kind === 'auth' ? 'lock-closed-outline'
                   : analysisError?.kind === 'credits' ? 'wallet-outline'
                   : analysisError?.kind === 'busy' ? 'time-outline'
+                  : analysisError?.kind === 'rescan' ? 'camera-outline'
                   : analysisError?.kind === 'warmup' ? 'flash-outline'
                   : analysisError?.kind === 'image' ? 'image-outline'
                   : analysisError?.kind === 'timeout' ? 'hourglass-outline'
@@ -1468,9 +1532,11 @@ export default function CropScanScreen({ navigation }) {
                   onPress={() => { setAnalysisError(null); goToStep(3); }}
                   accessibilityRole="button"
                 >
-                  <Ionicons name="refresh" size={KICON.base} color={COLORS.white} />
+                  <Ionicons name={analysisError?.kind === 'rescan' ? 'camera' : 'refresh'} size={KICON.base} color={COLORS.white} />
                   <Text style={SC.errModalBtnPrimaryTxt}>
-                    {t('cropScan.tryAgain', 'Try again')}
+                    {analysisError?.kind === 'rescan'
+                      ? t('cropScan.retakePhoto', 'Retake photo')
+                      : t('cropScan.tryAgain', 'Try again')}
                   </Text>
                 </TouchableOpacity>
               )}

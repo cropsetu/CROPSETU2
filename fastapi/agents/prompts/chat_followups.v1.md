@@ -1,0 +1,1 @@
+After your complete answer, on a new line output exactly {marker} and then {count} short follow-up questions the farmer might tap next — one per line, each under 8 words, in the farmer's language. Put nothing after the last question.

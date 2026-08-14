@@ -28,28 +28,57 @@ from services.http_clients import get_gemini, get_groq, get_openai
 
 logger = logging.getLogger(__name__)
 
-# ── Pricing (USD per 1K tokens, approximate) ────────────────────────────────
-# A model missing from this table makes _calc_cost() silently return 0.0 — which
-# breaks the daily spend cap (it would see $0). Keep a row for every Gemini model
-# the registry/_DEFAULTS can select. Verify against Google's published rates.
+# ── Pricing (USD per 1K tokens) ─────────────────────────────────────────────
+# This table is the meter behind DAILY_SPEND_CAP_USD, remaining_budget() and the
+# ensemble headroom gate, so a wrong row silently disables a spend control.
+#
+# Two bugs used to live here. (1) The Gemini rows carried the BATCH/FLEX prices,
+# not the standard interactive ones, which understated Gemini output 2-4x — the
+# single largest line in the product. (2) An id missing from the table was priced
+# by a substring guess ("pro" in the id → Pro rates, else Flash), so a new model
+# billed at whatever the guess happened to land on. The rule now: every
+# selectable model MUST have a row here. llm_dispatch.get_feature_config and
+# router._call_one_vision both refuse an unpriced model BEFORE spending anything
+# (see is_priced), and _calc_cost falls back to the most expensive known rate so
+# the cap can only over-estimate, never under.
+#
+# Rates verified 2026-08-14 against each provider's published STANDARD
+# (non-batch, non-flex) rates; the per-1M figures are in the comments, ÷1000 in
+# the table. Gemini output prices include thinking tokens — see
+# _gemini_output_tokens, which is why thoughtsTokenCount is now counted.
 _PRICING = {
-    "gemini-2.5-flash":            {"input": 0.00015, "output": 0.0006},
-    "gemini-2.5-pro":              {"input": 0.00125, "output": 0.005},
-    # Groq — chat fallback only. Keep a row so the daily spend cap stays accurate
-    # when chat fails over to Groq (an unpriced model would bill $0). Verify
-    # against Groq's published per-token rates.
+    # Google — $0.30/$2.50 and $1.25/$10.00 per 1M (Pro: prompts ≤200k).
+    "gemini-2.5-flash":            {"input": 0.00030, "output": 0.00250},
+    "gemini-2.5-pro":              {"input": 0.00125, "output": 0.01000},
+    # Groq — chat fallback only. $0.59/$0.79 per 1M.
     "llama-3.3-70b-versatile":     {"input": 0.00059, "output": 0.00079},
-    # OpenAI — crop-diagnosis ensemble voter. Same rationale: an unpriced model
-    # bills $0 and breaks the daily spend cap. Verify against OpenAI's rates.
+    # OpenAI — crop-diagnosis ensemble voter. $2.50/$10.00 and $0.15/$0.60 per 1M.
     "gpt-4o":                      {"input": 0.0025,  "output": 0.01},
     "gpt-4o-mini":                 {"input": 0.00015, "output": 0.0006},
-    # Anthropic (Claude) — multi-provider routing (WI-11). USD per 1K tokens
-    # (Anthropic publishes per-MTok: Opus 4.8 $5/$25, Sonnet 4.6 $3/$15,
-    # Haiku 4.5 $1/$5 → ÷1000 here). Verify against current rates.
+    # Anthropic (Claude) — multi-provider routing (WI-11). Per 1M: Opus 4.8
+    # $5/$25, Sonnet 4.6 $3/$15, Haiku 4.5 $1/$5.
     "claude-opus-4-8":             {"input": 0.005,   "output": 0.025},
     "claude-sonnet-4-6":           {"input": 0.003,   "output": 0.015},
     "claude-haiku-4-5":            {"input": 0.001,   "output": 0.005},
 }
+
+# The most expensive row in the table, computed at import. An unpriced model is
+# billed at this rate: over-estimating trips the cap early (visible, annoying),
+# while under-estimating disables the cap entirely (a near-free runaway).
+_MAX_PRICE = {
+    "input":  max(p["input"] for p in _PRICING.values()),
+    "output": max(p["output"] for p in _PRICING.values()),
+}
+
+
+def is_priced(model: str) -> bool:
+    """True when `model` has an explicit _PRICING row.
+
+    Call sites that SELECT a model check this before spending anything, so an
+    unpriced id fails loudly at selection time instead of quietly mis-billing
+    at call time — when the tokens are already gone.
+    """
+    return (model or "") in _PRICING
 
 _GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 _GROQ_BASE = "https://api.groq.com/openai/v1/chat/completions"
@@ -70,17 +99,15 @@ def empty_token_info(model: str = "none") -> dict:
 def _calc_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     prices = _PRICING.get(model)
     if prices is None:
-        # An unpriced model would silently bill $0 and disable the daily USD cap
-        # (a near-free runaway). Fall back to the closest Gemini family price and
-        # log loudly so the row gets added.
-        m = (model or "").lower()
-        if "pro" in m:
-            prices = _PRICING["gemini-2.5-pro"]
-        else:
-            prices = _PRICING["gemini-2.5-flash"]
-        logger.warning(
-            "[Pricing] model %r missing from _PRICING — using %s pricing as fallback. "
-            "Add an explicit row.", model, "pro" if "pro" in m else "flash",
+        # The selection-time guards should make this unreachable. If one is
+        # bypassed the tokens are already spent, so record them at the most
+        # expensive known rate rather than guessing a family from the id — a
+        # guess that lands low is indistinguishable from having no cap at all.
+        prices = _MAX_PRICE
+        logger.error(
+            "[Pricing] model %r has no _PRICING row — billing at the most expensive "
+            "known rate ($%.5f in / $%.5f out per 1K). Add an explicit row.",
+            model, prices["input"], prices["output"],
         )
     return round(
         (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1000, 6
@@ -98,15 +125,207 @@ def _make_token_info(model: str, input_tokens: int, output_tokens: int) -> dict:
     }
 
 
-def _gemini_disable_thinking(model: str) -> bool:
-    """Whether to send thinkingConfig.thinkingBudget=0 for this Gemini model.
+def _gemini_output_tokens(usage: dict) -> int:
+    """Billable output tokens from a Gemini `usageMetadata` block.
 
-    Gemini 2.5 Flash lets us disable "thinking" tokens (cuts latency + avoids
-    JSON truncation). Gemini 2.5 Pro REQUIRES thinking mode and returns
-    HTTP 400 "Budget 0 is invalid" if we force it off — so only opt out on
-    models we know allow it.
+    Gemini bills `thoughtsTokenCount` (hidden reasoning) at the OUTPUT rate but
+    reports it in a field of its own. Reading only `candidatesTokenCount` meant
+    the most expensive part of a Pro call — sometimes the majority of it — was
+    recorded as exactly $0. Fold the two together; total_tokens and cost_usd
+    then follow automatically.
     """
-    return "flash" in (model or "").lower()
+    return int(usage.get("candidatesTokenCount", 0) or 0) + int(
+        usage.get("thoughtsTokenCount", 0) or 0
+    )
+
+
+def _gemini_thinking_config(model: str, max_tokens: int) -> dict | None:
+    """generationConfig.thinkingConfig for this Gemini model, or None to omit.
+
+    Gemini 2.5 spends hidden "thinking" tokens BEFORE the visible output, and
+    they come out of maxOutputTokens — so an unbudgeted call can burn 1-3K of
+    its ceiling on reasoning and truncate mid-JSON. Flash accepts a budget of 0
+    (thinking off). Pro REQUIRES thinking and returns HTTP 400 "Budget 0 is
+    invalid", which is why the previous version omitted the field entirely for
+    Pro — leaving the strongest model in the ensemble the only one with an
+    unbounded scratchpad, and the one most likely to truncate.
+
+    Give Pro a small EXPLICIT budget instead, scaled to the output ceiling so a
+    512-token streaming reply cannot spend its whole allowance thinking. 128 is
+    Pro's documented minimum budget.
+    """
+    m = (model or "").lower()
+    if "flash" in m:
+        return {"thinkingBudget": 0}
+    if "pro" in m:
+        return {"thinkingBudget": max(128, min(512, max_tokens // 4))}
+    return None
+
+
+# Gemini safetySettings. CropSetu's legitimate output names pesticides and
+# explains how to mix and apply them, which reads as DANGEROUS_CONTENT to the
+# default filter — and a filtered response comes back as HTTP 200 with no text,
+# i.e. indistinguishable from an outage unless we read promptFeedback. Pin the
+# threshold explicitly rather than inheriting a provider default that can move
+# under us; the deterministic layer in fastapi/safety/ is what actually gates
+# which chemical a farmer is allowed to be told about.
+_SAFETY_SETTINGS = [
+    {"category": category, "threshold": "BLOCK_ONLY_HIGH"}
+    for category in (
+        "HARM_CATEGORY_HARASSMENT",
+        "HARM_CATEGORY_HATE_SPEECH",
+        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "HARM_CATEGORY_DANGEROUS_CONTENT",
+    )
+]
+
+
+def _raise_gemini_empty(data: dict, label: str) -> None:
+    """Raise a typed error that tells a CONTENT BLOCK apart from an outage.
+
+    Gemini returns HTTP 200 with no usable text in three different situations:
+    promptFeedback.blockReason (safety filter tripped), finishReason=MAX_TOKENS
+    where thinking ate the whole budget, and SAFETY/RECITATION with an empty
+    content block. Reading none of them made all three surface as the same
+    opaque "empty response", so a filter trip looked like a Gemini outage and
+    got retried instead of reported.
+    """
+    block = (data.get("promptFeedback") or {}).get("blockReason")
+    finish = ""
+    try:
+        finish = data["candidates"][0].get("finishReason", "")
+    except (KeyError, IndexError):
+        pass
+    logger.error(
+        "Unexpected Gemini %s response (block=%s finish=%s): %s",
+        label, block or "none", finish or "none", json.dumps(data)[:500],
+    )
+    raise ValueError(
+        f"Empty or malformed Gemini response (blockReason={block or 'none'}, "
+        f"finishReason={finish or 'none'})"
+    )
+
+
+# ── Multi-turn / structured-output request builders ─────────────────────────
+# Gemini and the OpenAI-compatible providers both accept a real turn list; the
+# chat surface previously flattened its whole transcript into ONE user-role part
+# as "Farmer: …\nFarmMind: …", so a farmer message containing those literal
+# labels forged assistant turns the model could not tell from real ones. These
+# helpers keep every turn in its own role-tagged entry, where the role is
+# structural rather than a string in the text.
+
+_GEMINI_ROLE = {"user": "user", "assistant": "model", "model": "model"}
+_OPENAI_ROLE = {"user": "user", "assistant": "assistant", "model": "assistant"}
+
+
+def _gemini_contents(
+    user_prompt: str,
+    *,
+    system_prompt: str = "",
+    history: list[dict] | None = None,
+) -> list[dict]:
+    """Build Gemini `contents` from an optional [{role, content}] history.
+
+    `system_prompt` is prepended to the FINAL user turn, exactly as the old
+    single-part payload did — callers that pass neither history nor
+    system_instruction get a byte-identical request. Callers that have moved
+    their static prompt to `system_instruction` pass system_prompt="".
+
+    Leading non-user turns are dropped, the same contract call_anthropic_text
+    enforces. This is not defensive tidiness: the scan follow-up conversation is
+    SEEDED with a lone assistant message (ai.routes.js creates it with
+    isScanSession + role 'assistant'), so the very first follow-up hands this
+    builder a history whose turn 1 is `model` — and all four adapters should
+    agree on one history contract rather than each having its own.
+    """
+    contents: list[dict] = []
+    for turn in history or []:
+        role = _GEMINI_ROLE.get(str((turn or {}).get("role", "")).strip().lower())
+        text = (turn or {}).get("content") or ""
+        if not role or not text:
+            continue
+        if not contents and role != "user":
+            continue
+        contents.append({"role": role, "parts": [{"text": text}]})
+    final = f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt
+    contents.append({"role": "user", "parts": [{"text": final}]})
+    return contents
+
+
+def _openai_messages(
+    system_text: str,
+    user_content,
+    history: list[dict] | None = None,
+) -> list[dict]:
+    """Build an OpenAI-compatible `messages` array (shared by OpenAI and Groq).
+
+    `user_content` is a plain string for text calls and a content-part list for
+    vision calls, so both adapters can share the turn-assembly logic.
+
+    Leading non-user turns are dropped for the same reason _gemini_contents drops
+    them — the scan follow-up conversation opens with an assistant message, and
+    all four adapters hold to one history contract.
+    """
+    msgs: list[dict] = []
+    if system_text:
+        msgs.append({"role": "system", "content": system_text})
+    started = False
+    for turn in history or []:
+        role = _OPENAI_ROLE.get(str((turn or {}).get("role", "")).strip().lower())
+        text = (turn or {}).get("content") or ""
+        if not role or not text:
+            continue
+        if not started and role != "user":
+            continue
+        started = True
+        msgs.append({"role": role, "content": text})
+    msgs.append({"role": "user", "content": user_content})
+    return msgs
+
+
+def _join_system(*blocks: str) -> str:
+    """Join the system_instruction and system_prompt slots for providers that
+    have exactly one system channel (OpenAI, Groq, Anthropic)."""
+    return "\n\n".join(b for b in blocks if b)
+
+
+def _apply_json_mode(
+    gen_config: dict, json_mode: bool, response_schema: dict | None
+) -> None:
+    """Set Gemini's structured-output fields on a generationConfig, in place.
+
+    A response_schema implies JSON output, so passing one is enough — callers
+    don't have to remember to set json_mode as well.
+    """
+    if response_schema:
+        gen_config["responseMimeType"] = "application/json"
+        gen_config["responseSchema"] = response_schema
+    elif json_mode:
+        gen_config["responseMimeType"] = "application/json"
+
+
+def _openai_response_format(
+    json_mode: bool, response_schema: dict | None
+) -> dict | None:
+    """OpenAI/Groq `response_format` for the same (json_mode, response_schema).
+
+    strict=False deliberately: the schemas in this repo are written for Gemini's
+    OpenAPI subset, and OpenAI's strict mode additionally requires
+    additionalProperties:false on every object — turning it on would 400 on
+    schemas that work fine everywhere else.
+    """
+    if response_schema:
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "response",
+                "strict": False,
+                "schema": response_schema,
+            },
+        }
+    if json_mode:
+        return {"type": "json_object"}
+    return None
 
 
 # ── Gemini Vision ────────────────────────────────────────────────────────────
@@ -120,18 +339,32 @@ async def call_gemini_vision(
     model: str = "gemini-2.5-flash",
     max_tokens: int = 4096,
     temperature: float = 0.3,
+    json_mode: bool = False,
+    response_schema: dict | None = None,
 ) -> tuple[str, dict]:
     """
     Call Gemini vision with images + text.
     Returns (raw_response_text, token_info).
+
+    json_mode / response_schema constrain the model to emit a single valid JSON
+    document, which makes the caller's "JSON parse failed → resample at a higher
+    temperature" retry unreachable. That retry costs a second FULL vision call
+    (~5.6K tokens on diagnose), so this is the cheapest reliability win here.
     """
     # Pass the API key in a header rather than the URL querystring — query
     # params end up in proxy / LB / debug logs.
     url = f"{_GEMINI_BASE}/{model}:generateContent"
     headers = {"x-goog-api-key": gemini_api_key}
 
-    # Build parts: images first, then text
-    parts = []
+    # Part order is a cost decision. The static system prompt (4.2K tokens on
+    # diagnose) goes FIRST so it forms a stable prefix Gemini's implicit cache
+    # can hit across scans. The old order appended the images first, so every
+    # request began with bytes unique to that photo and the prompt behind it was
+    # re-billed at full rate on every scan and every ensemble member. The user
+    # prompt stays immediately after the images (Google's guidance for
+    # image-plus-instruction prompts); only the static block moves. The OpenAI
+    # adapter further down already builds its parts this way.
+    parts: list[dict] = [{"text": system_prompt}]
     for img in images_b64:
         parts.append({
             "inline_data": {
@@ -139,23 +372,20 @@ async def call_gemini_vision(
                 "data": img["data"],
             }
         })
-    parts.append({"text": f"{system_prompt}\n\n{user_prompt}"})
+    parts.append({"text": user_prompt})
 
-    # Disable Gemini 2.5's internal "thinking" tokens. By default Flash/Pro
-    # spend hundreds-to-thousands of tokens on hidden reasoning BEFORE the
-    # visible output, eating the maxOutputTokens budget and causing
-    # truncation mid-JSON. Our system prompt already structures the
-    # reasoning steps, so we don't need the model's internal scratchpad.
-    # This roughly halves end-to-end latency too.
     gen_config = {
         "maxOutputTokens": max_tokens,
         "temperature": temperature,
     }
-    if _gemini_disable_thinking(model):
-        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+    thinking = _gemini_thinking_config(model, max_tokens)
+    if thinking:
+        gen_config["thinkingConfig"] = thinking
+    _apply_json_mode(gen_config, json_mode, response_schema)
     payload = {
-        "contents": [{"parts": parts}],
+        "contents": [{"role": "user", "parts": parts}],
         "generationConfig": gen_config,
+        "safetySettings": _SAFETY_SETTINGS,
     }
 
     client = get_gemini()
@@ -194,14 +424,16 @@ async def call_gemini_vision(
     try:
         text = data["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError):
-        logger.error("Unexpected Gemini response: %s", json.dumps(data)[:500])
-        raise ValueError("Empty or malformed Gemini response")
+        # Was a bare "Empty or malformed Gemini response" — a safety block and a
+        # thinking-ate-the-budget truncation looked identical here. See
+        # _raise_gemini_empty; the text path has read promptFeedback for a while.
+        _raise_gemini_empty(data, "vision")
 
     usage = data.get("usageMetadata", {})
     tok = _make_token_info(
         model,
         usage.get("promptTokenCount", 0),
-        usage.get("candidatesTokenCount", 0),
+        _gemini_output_tokens(usage),
     )
     return text, tok
 
@@ -250,13 +482,27 @@ async def call_gemini_text(
     max_tokens: int = 4096,
     temperature: float = 0.3,
     json_mode: bool = False,
+    response_schema: dict | None = None,
+    system_instruction: str | None = None,
+    history: list[dict] | None = None,
 ) -> tuple[str, dict]:
     """Call Gemini text-only (no images). Returns (raw_text, token_info).
 
     json_mode=True sets responseMimeType=application/json so Gemini is
-    constrained to emit a single syntactically-valid JSON document (used by the
-    structured-extraction features like FARM_AGENT — the prompt describes the
-    shape; the caller validates the semantics).
+    constrained to emit a single syntactically-valid JSON document; pass
+    response_schema as well to constrain the SHAPE, not just the syntax (the
+    caller still validates semantics).
+
+    system_instruction is sent as Gemini's native `systemInstruction` field
+    rather than being glued onto the user turn. That matters twice over: it is
+    the stable cache prefix, and it is the only channel the model treats as
+    operator authority — text pasted into a user turn is not. `system_prompt`
+    keeps its legacy behaviour (prepended to the final user turn) so existing
+    callers are unaffected; a caller that has moved to system_instruction passes
+    system_prompt="".
+
+    history is [{"role": "user"|"assistant", "content": str}], oldest first, and
+    becomes real role-tagged turns instead of a flattened transcript.
     """
     url = f"{_GEMINI_BASE}/{model}:generateContent"
     headers = {"x-goog-api-key": gemini_api_key}
@@ -265,18 +511,21 @@ async def call_gemini_text(
         "maxOutputTokens": max_tokens,
         "temperature": temperature,
     }
-    if json_mode:
-        gen_config["responseMimeType"] = "application/json"
-    # See call_gemini_vision / _gemini_disable_thinking — only Flash allows
-    # turning thinking off; Pro requires it (else HTTP 400).
-    if _gemini_disable_thinking(model):
-        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+    _apply_json_mode(gen_config, json_mode, response_schema)
+    # See _gemini_thinking_config — Flash takes a budget of 0, Pro takes a small
+    # explicit one (a budget of 0 is a hard 400 on Pro).
+    thinking = _gemini_thinking_config(model, max_tokens)
+    if thinking:
+        gen_config["thinkingConfig"] = thinking
     payload = {
-        "contents": [
-            {"parts": [{"text": f"{system_prompt}\n\n{user_prompt}"}]}
-        ],
+        "contents": _gemini_contents(
+            user_prompt, system_prompt=system_prompt, history=history
+        ),
         "generationConfig": gen_config,
+        "safetySettings": _SAFETY_SETTINGS,
     }
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
     client = get_gemini()
     # Quick in-call retry on the FULL transient set (429 + 5xx), matching
@@ -304,30 +553,16 @@ async def call_gemini_text(
     # SAFETY/RECITATION with empty content. Accessing the path blindly raised a
     # KeyError that _with_retry does NOT retry (not an HTTPStatusError) and that
     # surfaced to the user as a cryptic "Chat unavailable — ... 'candidates'".
-    # Mirror call_gemini_vision: parse defensively and raise a typed error.
     try:
         text = data["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError):
-        block = (data.get("promptFeedback") or {}).get("blockReason")
-        finish = ""
-        try:
-            finish = data["candidates"][0].get("finishReason", "")
-        except (KeyError, IndexError):
-            pass
-        logger.error(
-            "Unexpected Gemini text response (block=%s finish=%s): %s",
-            block, finish, json.dumps(data)[:500],
-        )
-        raise ValueError(
-            f"Empty or malformed Gemini response (blockReason={block or 'none'}, "
-            f"finishReason={finish or 'none'})"
-        )
+        _raise_gemini_empty(data, "text")
 
     usage = data.get("usageMetadata", {})
     tok = _make_token_info(
         model,
         usage.get("promptTokenCount", 0),
-        usage.get("candidatesTokenCount", 0),
+        _gemini_output_tokens(usage),
     )
     return text, tok
 
@@ -349,6 +584,10 @@ async def call_groq_text(
     model: str = "llama-3.3-70b-versatile",
     max_tokens: int = 4096,
     temperature: float = 0.3,
+    json_mode: bool = False,
+    response_schema: dict | None = None,
+    system_instruction: str | None = None,
+    history: list[dict] | None = None,
 ) -> tuple[str, dict]:
     """Call Groq's OpenAI-compatible chat API. Returns (raw_text, token_info).
 
@@ -356,6 +595,9 @@ async def call_groq_text(
     helpers — then raises HTTPStatusError so the dispatcher's _with_retry applies
     its backoff or surfaces the failure. Keeps the cross-provider fallback well
     inside the request budget rather than burning 60s on internal retries.
+
+    Groq has one system channel, so system_instruction and system_prompt are
+    joined into it (Gemini keeps them separate — see call_gemini_text).
     """
     headers = {
         "Authorization": f"Bearer {groq_api_key}",
@@ -363,13 +605,17 @@ async def call_groq_text(
     }
     payload = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        "messages": _openai_messages(
+            _join_system(system_instruction or "", system_prompt),
+            user_prompt,
+            history,
+        ),
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    response_format = _openai_response_format(json_mode, response_schema)
+    if response_format:
+        payload["response_format"] = response_format
 
     client = get_groq()
     for attempt in range(2):
@@ -429,17 +675,27 @@ async def stream_gemini_text(
     model: str = "gemini-2.5-flash",
     max_tokens: int = 512,
     temperature: float = 0.3,
+    system_instruction: str | None = None,
+    history: list[dict] | None = None,
 ):
     """Stream Gemini text via :streamGenerateContent?alt=sse. Yields delta/usage events."""
     url = f"{_GEMINI_BASE}/{model}:streamGenerateContent?alt=sse"
     headers = {"x-goog-api-key": gemini_api_key}
     gen_config = {"maxOutputTokens": max_tokens, "temperature": temperature}
-    if _gemini_disable_thinking(model):
-        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+    # max_tokens is only ~512 on the voice path, so _gemini_thinking_config
+    # scales Pro's budget down rather than letting it eat the whole reply.
+    thinking = _gemini_thinking_config(model, max_tokens)
+    if thinking:
+        gen_config["thinkingConfig"] = thinking
     payload = {
-        "contents": [{"parts": [{"text": f"{system_prompt}\n\n{user_prompt}"}]}],
+        "contents": _gemini_contents(
+            user_prompt, system_prompt=system_prompt, history=history
+        ),
         "generationConfig": gen_config,
+        "safetySettings": _SAFETY_SETTINGS,
     }
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
     client = get_gemini()
     prompt_toks, cand_toks = 0, 0
@@ -468,7 +724,10 @@ async def stream_gemini_text(
             usage = data.get("usageMetadata")
             if usage:
                 prompt_toks = usage.get("promptTokenCount", prompt_toks)
-                cand_toks = usage.get("candidatesTokenCount", cand_toks)
+                # candidates + thoughts — see _gemini_output_tokens. Gemini's
+                # stream reports usage cumulatively, so keep the latest non-zero
+                # reading rather than letting an early empty block reset it.
+                cand_toks = _gemini_output_tokens(usage) or cand_toks
             if text:
                 yield {"type": "delta", "text": text}
     yield {"type": "usage", "token_info": _make_token_info(model, prompt_toks, cand_toks)}
@@ -482,15 +741,18 @@ async def stream_groq_text(
     model: str = "llama-3.3-70b-versatile",
     max_tokens: int = 512,
     temperature: float = 0.3,
+    system_instruction: str | None = None,
+    history: list[dict] | None = None,
 ):
     """Stream Groq's OpenAI-compatible chat API (stream=True). Yields delta/usage events."""
     headers = {"Authorization": f"Bearer {groq_api_key}", "Content-Type": "application/json"}
     payload = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        "messages": _openai_messages(
+            _join_system(system_instruction or "", system_prompt),
+            user_prompt,
+            history,
+        ),
         "max_tokens": max_tokens,
         "temperature": temperature,
         "stream": True,
@@ -544,6 +806,8 @@ async def call_openai_vision(
     model: str = "gpt-4o",
     max_tokens: int = 4096,
     temperature: float = 0.3,
+    json_mode: bool = False,
+    response_schema: dict | None = None,
 ) -> tuple[str, dict]:
     """Call OpenAI vision with images + text. Returns (raw_text, token_info).
 
@@ -565,13 +829,13 @@ async def call_openai_vision(
 
     payload = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
+        "messages": _openai_messages(system_prompt, user_content),
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    response_format = _openai_response_format(json_mode, response_schema)
+    if response_format:
+        payload["response_format"] = response_format
 
     client = get_openai()
     for attempt in range(2):
@@ -624,21 +888,33 @@ async def call_openai_text(
     model: str = "gpt-4o",
     max_tokens: int = 4096,
     temperature: float = 0.3,
+    json_mode: bool = False,
+    response_schema: dict | None = None,
+    system_instruction: str | None = None,
+    history: list[dict] | None = None,
 ) -> tuple[str, dict]:
-    """Call OpenAI's chat API (OpenAI-compatible). Returns (raw_text, token_info)."""
+    """Call OpenAI's chat API (OpenAI-compatible). Returns (raw_text, token_info).
+
+    One system channel, so system_instruction and system_prompt are joined —
+    see call_gemini_text for why Gemini keeps them apart.
+    """
     headers = {
         "Authorization": f"Bearer {openai_api_key}",
         "Content-Type": "application/json",
     }
     payload = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        "messages": _openai_messages(
+            _join_system(system_instruction or "", system_prompt),
+            user_prompt,
+            history,
+        ),
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    response_format = _openai_response_format(json_mode, response_schema)
+    if response_format:
+        payload["response_format"] = response_format
     client = get_openai()
     for attempt in range(2):
         resp = await client.post(_OPENAI_BASE, headers=headers, json=payload, timeout=90)
@@ -693,16 +969,45 @@ async def call_anthropic_text(
     model: str = "claude-opus-4-8",
     max_tokens: int = 4096,
     temperature: float = 0.3,  # accepted for signature parity; NOT sent to Claude
+    json_mode: bool = False,          # accepted for parity; Claude has no
+    response_schema: dict | None = None,  # response_format equivalent here
+    system_instruction: str | None = None,
+    history: list[dict] | None = None,
 ) -> tuple[str, dict]:
-    """Call Anthropic Claude (text) via the official SDK. Returns (raw_text, token_info)."""
+    """Call Anthropic Claude (text) via the official SDK. Returns (raw_text, token_info).
+
+    json_mode / response_schema are accepted so every text adapter shares one
+    signature, but Claude's Messages API has no response_format field on this
+    path — they are logged and ignored rather than silently pretended to work.
+    """
     from anthropic import AsyncAnthropic
+
+    if json_mode or response_schema:
+        logger.debug(
+            "[Anthropic] %s: json_mode/response_schema not supported on this path — "
+            "the prompt must describe the JSON shape.", model,
+        )
+
+    # Claude's `system` is a top-level param, not a message, and the FIRST
+    # message must be a user turn — drop any leading assistant turns a caller's
+    # history happens to start with rather than 400 on them.
+    messages: list[dict] = []
+    for turn in history or []:
+        role = _OPENAI_ROLE.get(str((turn or {}).get("role", "")).strip().lower())
+        text = (turn or {}).get("content") or ""
+        if not role or not text:
+            continue
+        if not messages and role != "user":
+            continue
+        messages.append({"role": role, "content": text})
+    messages.append({"role": "user", "content": user_prompt})
 
     client = AsyncAnthropic(api_key=anthropic_api_key)
     resp = await client.messages.create(
         model=model,
         max_tokens=max_tokens,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
+        system=_join_system(system_instruction or "", system_prompt),
+        messages=messages,
     )
     text = _anthropic_text_from(resp)
     if not text:
@@ -720,9 +1025,17 @@ async def call_anthropic_vision(
     model: str = "claude-opus-4-8",
     max_tokens: int = 4096,
     temperature: float = 0.3,  # accepted for signature parity; NOT sent to Claude
+    json_mode: bool = False,          # accepted for parity; see call_anthropic_text
+    response_schema: dict | None = None,
 ) -> tuple[str, dict]:
     """Call Anthropic Claude (vision) via the official SDK. Returns (raw_text, token_info)."""
     from anthropic import AsyncAnthropic
+
+    if json_mode or response_schema:
+        logger.debug(
+            "[Anthropic] %s: json_mode/response_schema not supported on this path — "
+            "the prompt must describe the JSON shape.", model,
+        )
 
     content: list[dict] = [{"type": "text", "text": user_prompt}]
     for img in images_b64:

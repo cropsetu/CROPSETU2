@@ -52,6 +52,41 @@ def _primary_canonical(result: dict, crop: str | None = None) -> str:
     return canonicalize(pd.get("disease") or pd.get("scientific_name") or "", crop)
 
 
+def _display_name(canonical: str, crop: str | None) -> str:
+    """
+    Map a CANONICAL disease name back to the crop's ballot COMMON name.
+
+    Voting has to happen on the canonical — that is the entire point of Step 1 —
+    but `primary_diagnosis.disease` is not a display-only field: treatment_agent
+    hands it straight to `rag_retrieve`, whose label-claim matrix is keyed on
+    common names (("potato", "early blight")). Publishing the canonical there
+    meant a fused potato scan looked up ("potato", "alternaria solani"), missed,
+    and `validate_treatment` then blocked EVERY chemical as off_label — for a
+    disease where Mancozeb and Azoxystrobin are registered and sitting in the KB.
+    Measured over the 22 registered pairs, 7 of them resolved to zero actives on
+    the ensemble path and to their real active list on the single-model path. The
+    farmer also read a Latin binomial as the disease name, and the vetted
+    disease_lexicon (keyed on common names too) missed, so his native-language
+    strip carried the Latin name as well.
+
+    The single-model path already snaps back (disease_diagnosis_agent._normalise);
+    the ensemble path never did. Match-only, same as everywhere else: an uncovered
+    crop or a name that is not on the ballot returns None and we keep the
+    canonical, so an incomplete whitelist can never rename a diagnosis.
+    """
+    if not canonical or not crop:
+        return canonical
+    try:
+        # Lazy import mirrors disease_diagnosis_agent._normalise — keeps this
+        # module importable without pulling in the whitelist's KB chain.
+        from data.crop_disease_whitelist import snap_to_candidate
+        return snap_to_candidate(crop, canonical) or canonical
+    except Exception:  # noqa: BLE001 — a lookup failure must never sink a fusion
+        logger.warning("[Reconciler] snap_to_candidate failed (crop=%s name=%s)",
+                       crop, canonical, exc_info=True)
+        return canonical
+
+
 def _canon_differentials(result: dict, crop: str | None = None) -> list[dict]:
     """Return differentials with each name canonicalized in-place (copy)."""
     out: list[dict] = []
@@ -200,6 +235,11 @@ def fuse(
     n = len(live)
     agreement_str = f"{top_count}/{n}"
 
+    # Vote on the canonical, publish the common name (see _display_name).
+    display_top = _display_name(top_name, crop)
+    if display_top != top_name:
+        logger.info("[Reconciler] display name '%s' → '%s' (crop=%s)", top_name, display_top, crop)
+
     # Models that voted for the winner — used for confidence fusion.
     winners = [r for r, name in live if name == top_name]
     losers  = [r for r, name in live if name != top_name]
@@ -256,6 +296,9 @@ def fuse(
     # Differentials — start with the LOSERS' primary picks (they become
     # contenders), then merge in each model's own differentials, then
     # de-dup by canonical name. Always exclude the winner itself.
+    # De-dup and winner-exclusion stay on the CANONICAL (two models naming the
+    # same pathogen differently must collapse); only the published `disease`
+    # goes through _display_name, for the same reason the primary does.
     diff_pool: dict[str, dict] = {}
     for r in losers:
         pd = r.get("primary_diagnosis") or {}
@@ -263,7 +306,7 @@ def fuse(
         if not name or name == top_name:
             continue
         diff_pool[name.lower()] = {
-            "disease":     name,
+            "disease":     _display_name(name, crop),
             "probability": _safe_float(r.get("confidence_score"), 0.3),
             "reason":      f"Picked by {_model_id(r) or 'a dissenting model'}",
         }
@@ -281,19 +324,21 @@ def fuse(
                 )
             else:
                 diff_pool[key] = {
-                    "disease":     name,
+                    "disease":     _display_name(name, crop),
                     "probability": _safe_float(d.get("probability"), 0.2),
                     "reason":      d.get("reason") or "Surfaced by ensemble",
                 }
     differentials = sorted(diff_pool.values(), key=lambda x: x["probability"], reverse=True)[:5]
 
-    # Scientific name — first winner's value, falling back to the
-    # canonicalised primary (which is often already scientific).
+    # Scientific name — first winner's value, falling back to the CANONICAL
+    # (which is often already the binomial). Keeping the canonical here is what
+    # makes it safe for `disease` to carry the common name: nothing downstream
+    # loses the precise pathogen id.
     scientific_name = (winners[0].get("primary_diagnosis") or {}).get("scientific_name") or top_name
 
     fused: dict = {
         "primary_diagnosis": {
-            "disease":         top_name,
+            "disease":         display_top,
             "scientific_name": scientific_name,
             "confidence":      base_conf,
             "severity":        severity,
@@ -327,8 +372,8 @@ def fuse(
             fused["_prompt_meta"] = r["_prompt_meta"]
 
     logger.info(
-        "[Reconciler] fused %d results → '%s' (agree=%s conf=%.2f lab=%s)",
-        n, top_name, agreement_str, base_conf, needs_lab,
+        "[Reconciler] fused %d results → '%s' (canonical=%s agree=%s conf=%.2f lab=%s)",
+        n, display_top, top_name, agreement_str, base_conf, needs_lab,
     )
     return fused
 

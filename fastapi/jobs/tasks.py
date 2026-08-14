@@ -140,7 +140,17 @@ def run_diagnosis_task(self, *, payload: dict) -> dict:
     logger.info("[Worker] start job_id=%s crop=%s", job_id, (payload.get("params") or {}).get("crop_name"))
 
     images_in = payload.get("images") or []
-    params    = payload.get("params") or {}
+    # `user_id` rides at the payload TOP level (routes/scan.py puts it there for
+    # the log context), but the only thing handed down the pipeline is the inner
+    # `params` dict — and persistence/diagnosis_repo.py reads the column off
+    # `params.get("user_id")`. Result: every ai_scan_diagnoses row was written
+    # with user_id NULL and the (user_id, created_at DESC) index was dead weight.
+    # Copy it down. The pipeline reads params through explicit allowlists
+    # (orchestrator, the treatment cache key, the PDF annex), so an extra key is
+    # inert everywhere except the audit row that wants it.
+    params = dict(payload.get("params") or {})
+    if payload.get("user_id") and not params.get("user_id"):
+        params["user_id"] = str(payload["user_id"])
     images, temp_paths = _materialise(images_in)
 
     # Stamp context vars so structured logs from the orchestrator carry

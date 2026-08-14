@@ -63,18 +63,24 @@ const MIN_REC_MS = 500;
 
 // Human-readable error mapping for API failures. Keeps bubble text short and
 // actionable in whatever language the UI is showing.
-function humanReadableError(err, fallback = 'Something went wrong. Please try again.') {
+//
+// It did NOT, despite the sentence above: every branch returned an English
+// literal and the result is injected as an AI-styled bubble, so a Marathi farmer
+// was told "You've used all your AI credits" in English by the assistant itself.
+// `t` is threaded in as a parameter because this is a module-level function with
+// no hook access — the same shape CropScanScreen's classifyScanError uses.
+function humanReadableError(err, t = (k, def) => def) {
   const status = err?.response?.status ?? err?.status;
   const serverMsg = err?.response?.data?.error?.message;
-  if (status === 429) return 'Too many requests — please wait 30 seconds and try again.';
-  if (status === 402) return 'You’ve used all your AI credits for this month. They refill on the 1st — check your balance in the AI home screen.';
+  if (status === 429) return t('aiChat.err.busy', 'Too many requests — please wait 30 seconds and try again.');
+  if (status === 402) return t('aiChat.err.credits', 'You’ve used all your AI credits for this month. They refill on the 1st — check your balance in the AI home screen.');
   if (status === 503 || status === 500 || status === 502 || status === 504)
-    return 'The AI service is temporarily down. Please try again in a moment.';
-  if (status === 413) return 'That was too large. Please try a shorter message or smaller photo.';
-  if (status === 401) return 'Session expired. Please log in again.';
+    return t('aiChat.err.serviceDown', 'The AI service is temporarily down. Please try again in a moment.');
+  if (status === 413) return t('aiChat.err.tooLarge', 'That was too large. Please try a shorter message or smaller photo.');
+  if (status === 401) return t('aiChat.err.auth', 'Session expired. Please log in again.');
   if (err?.message === 'Network Error' || err?.code === 'ERR_NETWORK')
-    return 'No internet — check your connection and try again.';
-  return serverMsg || fallback;
+    return t('aiChat.err.network', 'No internet — check your connection and try again.');
+  return serverMsg || t('aiChat.err.generic', 'Something went wrong. Please try again.');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -138,6 +144,9 @@ function TypingDots() {
 }
 
 function DiagnosisCard({ data, onBuyMedicine }) {
+  // aiChat.matchPct / .treatmentPlan / .buyProducts have existed in every bundle
+  // since this card shipped; the card just never asked for them.
+  const { t } = useLanguage();
   const sevColor = { low: PRIMARY, moderate: ACCENT, high: DANGER, critical: '#B91C1C' }[data.severity] || MUTED;
   const steps = Array.isArray(data.treatment)
     ? data.treatment
@@ -151,12 +160,12 @@ function DiagnosisCard({ data, onBuyMedicine }) {
         <View style={[S.diagSevDot, { backgroundColor: sevColor }]} />
         <Text style={S.diagName}>{data.disease || data.name}</Text>
         <View style={[S.diagConf, { backgroundColor: `${sevColor}18` }]}>
-          <Text style={[S.diagConfText, { color: sevColor }]}>{data.confidence}% match</Text>
+          <Text style={[S.diagConfText, { color: sevColor }]}>{t('aiChat.matchPct', { pct: data.confidence, defaultValue: '{{pct}}% match' })}</Text>
         </View>
       </View>
       <View style={S.diagMeta}><Leaf size={12} color={MUTED} strokeWidth={2.2} /><Text style={S.diagMetaText}>{data.crop ? `${data.crop} · ` : ''}{data.severity}</Text></View>
       <View style={S.diagDivider} />
-      <Text style={S.diagSectionLabel}>Treatment Plan</Text>
+      <Text style={S.diagSectionLabel}>{t('aiChat.treatmentPlan', 'Treatment Plan')}</Text>
       {steps.map((step, i) => (
         <View key={i} style={S.diagStep}>
           <View style={S.diagStepNum}><Text style={S.diagStepNumText}>{i + 1}</Text></View>
@@ -167,7 +176,7 @@ function DiagnosisCard({ data, onBuyMedicine }) {
       <TouchableOpacity style={S.buyBtn} onPress={onBuyMedicine} activeOpacity={0.8}>
         <LinearGradient colors={[USER_A, USER_B]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={S.buyBtnGrad}>
           <ShoppingCart size={14} color={COLORS.white} strokeWidth={2.4} />
-          <Text style={S.buyBtnText}>Buy Products</Text>
+          <Text style={S.buyBtnText}>{t('aiChat.buyProducts', 'Buy Recommended Products')}</Text>
         </LinearGradient>
       </TouchableOpacity>
     </View>
@@ -175,17 +184,18 @@ function DiagnosisCard({ data, onBuyMedicine }) {
 }
 
 function MarketCard({ data }) {
+  const { t } = useLanguage();
   const prices  = data.prices || [];
   const insight = data.insight || data.sellingAdvice || '';
   const metaRows = [
-    data.msp         && { label: 'MSP',         value: data.msp },
-    data.marketRange && { label: 'Market range', value: data.marketRange },
-    data.trend       && { label: 'Trend',        value: data.trend },
-    data.bestMarket  && { label: 'Best market',  value: data.bestMarket },
+    data.msp         && { label: t('aiChat.mspLabel',         'MSP'),          value: data.msp },
+    data.marketRange && { label: t('aiChat.marketRangeLabel', 'Market range'), value: data.marketRange },
+    data.trend       && { label: t('aiChat.trendLabel',       'Trend'),        value: data.trend },
+    data.bestMarket  && { label: t('aiChat.bestMarketLabel',  'Best market'),  value: data.bestMarket },
   ].filter(Boolean);
   return (
     <View style={S.mktCard}>
-      <Text style={S.mktCrop}>{data.crop} Prices Today</Text>
+      <Text style={S.mktCrop}>{t('aiChat.pricesToday', { crop: data.crop, defaultValue: '{{crop}} Prices Today' })}</Text>
       {prices.map((p, i) => <View key={i} style={S.mktRow}><Text style={S.mktMandi}>{p.mandi}</Text><Text style={S.mktPrice}>₹{(p.price || 0).toLocaleString()}</Text></View>)}
       {metaRows.map((r, i) => <View key={i} style={S.mktRow}><Text style={S.mktMandi}>{r.label}</Text><Text style={S.mktPrice}>{r.value}</Text></View>)}
       {!!insight && <View style={S.mktTip}><Lightbulb size={12} color={ACCENT} strokeWidth={2.2} /><Text style={S.mktTipText}>{insight}</Text></View>}
@@ -683,9 +693,9 @@ export default function AIChatScreen({ navigation, route }) {
       if (Array.isArray(result.followUps) && result.followUps.length) aiMsg.followUps = result.followUps;
       addMessage(aiMsg);
     } catch (err) {
-      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, 'Could not reach Krushi Intelligence. Check your connection.')}` });
+      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, t)}` });
     } finally { setTyping(false); }
-  }, [input, typing, conversationId, addMessage, getAIContext, farmContextEnabled, resolveMsgLang, responseLength, attachedImage]);
+  }, [input, typing, conversationId, addMessage, getAIContext, farmContextEnabled, resolveMsgLang, responseLength, attachedImage, t]);
 
   // ── Reset / new chat ───────────────────────────────────────────────────────
   // Clears the on-screen conversation only — saved history stays in the sidebar.
@@ -897,9 +907,9 @@ export default function AIChatScreen({ navigation, route }) {
       }
     } catch (err) {
       recordRef.current = null;
-      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, 'Processing failed. Please try again.')}` });
+      addMessage({ role: 'ai', text: `⚠ ${humanReadableError(err, t)}` });
     } finally { setIsProcessing(false); }
-  }, [conversationId, addMessage, getAIContext, language, chatLanguage]);
+  }, [conversationId, addMessage, getAIContext, language, chatLanguage, t]);
 
   const cancelRecording = useCallback(async () => {
     if (maxDurationTimerRef.current) {

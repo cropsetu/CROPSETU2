@@ -160,6 +160,17 @@ export async function getOrCreateCredits(userId) {
 /**
  * Check if user has enough credits for an AI feature.
  * Returns { allowed, balance, cost, shortfall } or error message.
+ *
+ * ⚠ DEPRECATED for gating — use reserveCredits/settleCredits/releaseCredits.
+ *   This is a plain READ-then-return: the balance is checked here and debited
+ *   much later by deductCredits, so two requests that arrive inside that window
+ *   both see the same balance and both pass. It gated the three PRICIEST routes
+ *   (/scan, /scan/submit, /soil-card-ocr, 3 credits each) while every 1-credit
+ *   route already used the atomic path, so a farmer with 3 credits could run two
+ *   concurrent scans and the overdraft was silently clamped to 0 in
+ *   deductCredits. It is kept (not deleted) only so an older caller still
+ *   resolves; it has no callers in this repo today. Anything new that spends
+ *   must hold first — the conditional decrement below is the only race-free gate.
  */
 export async function checkCredits(userId, featureType) {
   const cost = CREDIT_COSTS[featureType] ?? 1;
@@ -260,6 +271,18 @@ export async function deductCredits(userId, featureType, details = {}) {
  * @returns {{ ok:boolean, reserved:number, holdId:string|null, balance:number|null, message?:string }}
  */
 export async function reserveCredits(userId, featureType) {
+  // A key that is not in CREDIT_COSTS silently falls back to the 1-credit
+  // minimum, which UNDER-gates every 3-credit feature: a caller that typo'd
+  // 'ai_scan_gemni' would hold 1 credit for a scan that costs 3, let a farmer
+  // with 1 credit through, and only discover the shortfall at settle time — where
+  // the overdraft is clamped to 0. The fallback is deliberately kept (a wrong
+  // floor still beats an exception mid-request), but it must not be silent: this
+  // is the greppable line that tells you a route is gating on a key nobody
+  // defined. Add the key to CREDIT_COSTS rather than living with the warning.
+  if (!(featureType in CREDIT_COSTS)) {
+    console.warn('[AICredit] UNKNOWN FEATURE KEY "%s" — holding the %d-credit minimum instead of a real floor (user=%s)',
+      featureType, MIN_CREDITS_PER_CALL, userId);
+  }
   const estimate = CREDIT_COSTS[featureType] ?? MIN_CREDITS_PER_CALL;
   if (estimate === 0) return { ok: true, reserved: 0, holdId: null, balance: null }; // free feature
 

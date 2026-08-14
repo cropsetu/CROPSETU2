@@ -164,6 +164,75 @@ def _build_english_local_blocks(report: dict, params: dict) -> dict[str, str]:
     }
 
 
+# Machine translation must never touch these. Anything a farmer reads out at a
+# dealer's counter — a trade name, an active, a FRAC group, a dose — is swapped
+# for a bracket token before the text goes to Sarvam and restored verbatim after.
+# The bracket characters appear nowhere in the composed English blocks, so a
+# leftover one after the restore pass is proof a token was mangled in transit.
+_MT_TOKEN_RESIDUE = re.compile(r"[⟦⟧]")
+_MT_MIN_TERM_LEN = 3
+
+
+def _mt_token(idx: int) -> str:
+    """Nth protection token, in a DIGIT-FREE alphabet (⟦RXA⟧, ⟦RXB⟧ … ⟦RXAA⟧).
+
+    The obvious ⟦RX0⟧/⟦RX1⟧ numbering is unsafe here: the one thing an Indic MT
+    engine is guaranteed to rewrite inside an opaque span is a digit, and
+    "⟦RX0⟧" → "⟦RX०⟧" defeats the restore pass on exactly the tokens that carry
+    the dose. Letters are never transliterated by Sarvam's Devanagari/Tamil
+    output, so the token survives even if `numerals_format` is ignored upstream.
+
+    The trailing ⟧ also keeps the alphabet prefix-free — ⟦RXA⟧ is not a
+    substring of ⟦RXAA⟧ — so restoring in insertion order can never eat a
+    longer token's prefix.
+    """
+    letters = ""
+    idx += 1
+    while idx:
+        idx, rem = divmod(idx - 1, 26)
+        letters = chr(ord("A") + rem) + letters
+    return f"⟦RX{letters}⟧"
+
+
+def _do_not_translate_terms(report: dict) -> list[str]:
+    """
+    Ordered do-not-translate list for the local-language strips.
+
+    _build_english_local_blocks' docstring has always promised that trade names,
+    actives and FRAC codes stay in English ("a translated brand name is
+    dangerous"), but only the disease NAME was ever token-protected. The chemical
+    and the dose were interpolated straight into the prose at :132-138, and the
+    weekly-action line ("Spray <product> (<dosage>) in evening after 5 PM") rides
+    into `summary` through top_3_actions — so the two strings that decide what a
+    farmer buys and how much he mixes were the only ones with no protection at
+    all. A machine-translated "2.5 g per litre water" can come back reordered,
+    re-worded, or in Devanagari numerals.
+
+    Returned LONGEST FIRST: replacement is plain substring, so "Mancozeb 75% WP"
+    has to be swapped before the bare active "Mancozeb" or the longer term is
+    left half-tokenised.
+    """
+    terms: list[str] = []
+    for chem in ((report.get("treatment") or {}).get("chemical") or []):
+        if not isinstance(chem, dict):
+            continue
+        for key in ("product", "active_ingredient", "name",
+                    "dosage", "dosage_per_acre", "dose", "frac_irac_group"):
+            val = chem.get(key)
+            if isinstance(val, str) and len(val.strip()) >= _MT_MIN_TERM_LEN:
+                terms.append(val.strip())
+        for brand in (chem.get("brands") or []):
+            if isinstance(brand, dict):
+                name = brand.get("name")
+                if isinstance(name, str) and len(name.strip()) >= _MT_MIN_TERM_LEN:
+                    terms.append(name.strip())
+
+    seen: set[str] = set()
+    uniq = [t for t in terms if not (t in seen or seen.add(t))]
+    uniq.sort(key=len, reverse=True)
+    return uniq
+
+
 async def _attach_local_blocks(report: dict, params: dict) -> None:
     """
     Compute and attach `report['local_blocks']` in-place.
@@ -189,28 +258,96 @@ async def _attach_local_blocks(report: dict, params: dict) -> None:
         return
 
     source_blocks = _build_english_local_blocks(report, params)
-    # Protect the disease NAME from machine translation — an MT'd pathogen name
-    # can be wrong or unrecognizable to the local dealer who fills the
-    # prescription (same discipline we already apply to chemical/brand names).
-    # Swap it for a non-translatable token, translate the prose, restore English.
+    # Protect everything that must survive machine translation byte-for-byte:
+    # the disease NAME (an MT'd pathogen name can be wrong or unrecognizable to
+    # the local dealer who fills the prescription) AND every chemical, brand,
+    # FRAC group and DOSE the prose interpolated. Swap each for a
+    # non-translatable token, translate the prose, then restore.
+    #   • the disease token is restored from the VETTED lexicon for this
+    #     language — never a machine translation, never Latin;
+    #   • every chemical/dose token is restored to the English original.
     dx = ((report.get("disease") or {}).get("name_common") or "").strip()
     _DX = "⟦DX⟧"
-    protect = bool(dx) and len(dx) >= 3
-    to_translate = ({k: v.replace(dx, _DX) for k, v in source_blocks.items()}
-                    if protect else source_blocks)
+    restore: dict[str, str] = {}
+    to_translate = dict(source_blocks)
+
+    # ONE protection pass over every term, LONGEST FIRST — the disease name is
+    # not tokenised in a separate pass. Substitution is plain substring, so any
+    # term that contains another has to go first: "Mancozeb 75% WP" before the
+    # bare active "Mancozeb", and a short disease name before nothing at all.
+    # Two passes let a 4-letter dx ("Rust") tokenise inside a longer trade name
+    # that had not been swapped yet, and the restore would then splice a
+    # Devanagari disease term into the middle of an English brand.
+    protect = bool(dx) and len(dx) >= _MT_MIN_TERM_LEN
+    chem_terms = _do_not_translate_terms(report)
+    ordered = sorted(set(chem_terms) | ({dx} if protect else set()), key=len, reverse=True)
+
+    rx_tokens: list[str] = []
+    for idx, term in enumerate(ordered):
+        # The disease keeps its own token: it alone is restored from the vetted
+        # lexicon rather than to the English original.
+        token = _DX if (protect and term == dx) else _mt_token(idx)
+        swapped = {k: v.replace(term, token) for k, v in to_translate.items()}
+        if swapped == to_translate:
+            continue                # term never reached the prose — no token needed
+        to_translate = swapped
+        restore[token] = term
+        if token != _DX:
+            rx_tokens.append(token)
+    protect = protect and _DX in restore
+
+    # Which CHEMICAL tokens each block is owed back. A mangled token leaves
+    # bracket residue we can see; a token the engine DROPS leaves none, and the
+    # sentence comes back reading cleanly as "Spray at 2.5 g per litre" with the
+    # product silently gone — a complete-looking instruction with a missing term,
+    # which is worse than an obviously broken one. Residue alone cannot catch it,
+    # so the chemical tokens are also checked for presence.
+    # Deliberately RX-only: ⟦DX⟧ is not a dosing instruction, it is restored from
+    # the vetted lexicon, and its loss shows up as a visibly empty slot
+    # ("Detected disease: ."). Holding the pre-existing disease-name protection to
+    # the stricter standard would change behaviour this fix was not asked to change.
+    expected_tokens = {k: [t for t in rx_tokens if t in v] for k, v in to_translate.items()}
+
     raw_translated = await translate_blocks(to_translate, target)
     # Detect a Sarvam no-op (down / key missing) by comparing the translator's
-    # output to its INPUT — independent of the lexicon restore below (which
-    # legitimately changes the text even when translation succeeded).
-    untranslated = all(raw_translated.get(k) == to_translate[k] for k in to_translate)
+    # output to its INPUT — independent of the restore below (which legitimately
+    # changes the text even when translation succeeded).
+    stale_keys = [k for k in to_translate if raw_translated.get(k) == to_translate[k]]
+    untranslated = len(stale_keys) == len(to_translate)
+    if stale_keys and not untranslated:
+        # translate_blocks swallows PER-BLOCK failures and returns the English
+        # original for that key (sarvam_translator:130-132), so a 3-of-5 outcome
+        # still publishes as a translated report with no signal anywhere. Alert
+        # on the partial case — a degrading translator should be visible in the
+        # logs before a farmer notices half his report is in English.
+        logger.warning(
+            "[ALERT][Sarvam] partial translation to %s — %d/%d blocks fell back to English: %s",
+            target, len(stale_keys), len(to_translate), ",".join(sorted(stale_keys)),
+        )
     if protect:
-        # Restore the disease term from the VETTED lexicon for this language,
-        # falling back to the English name — never a machine translation.
         from data.disease_lexicon import local_disease_name
-        local_dx = local_disease_name(dx, target) or dx
-        translated = {k: v.replace(_DX, local_dx) for k, v in raw_translated.items()}
-    else:
-        translated = raw_translated
+        restore[_DX] = local_disease_name(dx, target) or dx
+
+    translated: dict[str, str] = {}
+    for key, value in raw_translated.items():
+        dropped = [t for t in expected_tokens.get(key, ()) if t not in value]
+        for token, original in restore.items():
+            value = value.replace(token, original)
+        residue = bool(_MT_TOKEN_RESIDUE.search(value))
+        if dropped or residue:
+            # Sarvam either lost a chemical token outright or mangled one
+            # (respaced it, transliterated a character, dropped one bracket).
+            # There is no safe repair of a half-restored or absent chemical/dose,
+            # so this section falls back to the English original rather than
+            # shipping a corrupted or silently incomplete one in the farmer's
+            # language. English here is a degradation, never a hazard.
+            logger.warning(
+                "[LocalBlocks] block %r unusable after %s translation "
+                "(dropped=%s residue=%s) — keeping English",
+                key, target, dropped or None, residue,
+            )
+            value = source_blocks.get(key, value)
+        translated[key] = value
 
     report["local_blocks"] = {
         "language": target,

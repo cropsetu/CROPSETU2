@@ -1184,10 +1184,54 @@ export const translations = {
       voiceTag: 'voice', recentHistory: 'Recent History',
       noConversations: 'No conversations yet',
       addFarmHint: 'Add your farm for personalized AI advice',
+      // Market-card row labels. These render inside an assistant bubble, so an
+      // English label sits next to a Marathi answer if they are not localized.
+      mspLabel: 'MSP',
+      marketRangeLabel: 'Market range',
+      trendLabel: 'Trend',
+      bestMarketLabel: 'Best market',
+      // humanReadableError() — injected as an AI-styled bubble, so these are
+      // read as the assistant speaking. Mirrors cropScan.err.* in shape.
+      err: {
+        busy: 'Too many requests — please wait 30 seconds and try again.',
+        credits: 'You’ve used all your AI credits for this month. They refill on the 1st — check your balance in the AI home screen.',
+        serviceDown: 'The AI service is temporarily down. Please try again in a moment.',
+        tooLarge: 'That was too large. Please try a shorter message or smaller photo.',
+        auth: 'Session expired. Please log in again.',
+        network: 'No internet — check your connection and try again.',
+        generic: 'Something went wrong. Please try again.',
+      },
     },
+
+    // ── Krushi Vaani (full-screen voice conversation) ─────────────────────────
+    // Its OWN namespace, not aiChat.voice*: those keys belong to the inline chat
+    // composer's mic and mean different things. This screen is the one built for
+    // farmers who cannot read and it shipped 100% hardcoded English.
+    aiVoice: {
+      listening: 'Listening…',
+      thinking: 'Thinking…',
+      speaking: 'Speaking…',
+      prompt: 'Say something…',
+      noSpeech: 'I didn’t catch that — try speaking closer to the mic.',
+      cutShort: 'The answer was cut short. Please ask again.',
+      micStartFailed: 'Could not start microphone.',
+      err: {
+        busy: 'Too many requests — please wait 30 seconds and try again.',
+        credits: 'You’ve used all your AI credits for this month. They refill on the 1st.',
+        serviceDown: 'The voice service is temporarily down. Please try again in a moment.',
+        tooLong: 'That recording was too long. Please keep it shorter.',
+        auth: 'Session expired. Please log in again.',
+        network: 'No internet — check your connection and try again.',
+        stalled: 'No answer came back. Please check your connection and ask again.',
+        stream: 'Voice service had a problem. Please try again.',
+        generic: 'Could not process. Please try again.',
+      },
+    },
+
     market: {
       title: 'Market Price',
       live: 'LIVE',
+      cached: 'CACHED',
       fetchingPrices: 'Fetching live prices...',
       retry: 'Retry',
       today: 'Today',
@@ -1343,6 +1387,20 @@ export const translations = {
       area_1025: '10–25%',  area_1025_desc: 'Some plants',
       area_2550: '25–50%',  area_2550_desc: 'Half crop',
       area_over50: '>50%',  area_over50_desc: 'Most crop',
+      retakePhoto: 'Retake photo',
+      viewCredits: 'View credits',
+      // NON-RESULT envelopes. FastAPI can return "your photos were unusable" or
+      // "the vision provider was down" instead of a diagnosis; neither is
+      // charged. The rest of cropScan.err.* lives in lang/_backfill.js as flat
+      // dotted keys — these are nested, which t() resolves identically.
+      err: {
+        creditsTitle: 'Your AI credit limit is exhausted',
+        creditsMsg: "You've used all your AI credits for this month. They refill on the 1st. Check your balance on the AI home screen.",
+        rescanTitle: 'We need a clearer photo',
+        rescanMsg: 'The photo was too blurry, dark or far away to read. Take another one in daylight, close to the affected leaf. You were not charged for this.',
+        unavailableTitle: 'Diagnosis service is busy',
+        unavailableMsg: 'Your photo was not analysed, so nothing was charged. Please try the scan again in a few minutes.',
+      },
     },
 
     // ── Scheme Screen ──────────────────────────────────────────────────────────
@@ -1638,6 +1696,23 @@ export const translations = {
       used: 'used', total: 'total', today: 'Today', monthly: 'Monthly', lifetime: 'Lifetime',
       creditCosts: 'Credit Costs', free: 'FREE', buyCredits: 'Buy Credits',
       credits: 'credits', recentActivity: 'Recent Activity', noActivity: 'No activity yet',
+      loadError: "Couldn't load your latest balance. Pull down to refresh.",
+    },
+
+    // ── Past Report Screen (Krushi Kendra share block) ────────────────────────
+    // The rest of pastReport.* lives in lang/_backfill.js as flat dotted keys and
+    // IS translated in all ten; these nine shipped with the Kendra feature and
+    // had no key at all, so every language rendered the English default.
+    pastReport: {
+      kendra: 'Krushi Kendra',
+      product: 'Product',
+      collect: 'Collect from shop',
+      delivery: 'Home delivery',
+      replied: 'Replied',
+      awaitingReply: 'Awaiting reply',
+      awaitingReplyBody: 'This Krushi Kendra has not responded yet.',
+      available: 'Available',
+      notAvailable: 'Not available',
     },
 
     // ── Daily Planner Screen ───────────────────────────────────────────────────

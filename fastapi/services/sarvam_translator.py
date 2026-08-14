@@ -69,7 +69,14 @@ async def _cache_set(key: tuple[str, str], value: str) -> None:
 
 
 async def _translate_one(text: str, target_tag: str, source_tag: str) -> str:
-    """Single Sarvam call. Caller handles caching and error mapping."""
+    """Single Sarvam call. Caller handles caching and error mapping.
+
+    Sarvam's /translate exposes no glossary / do-not-translate parameter, so the
+    protected-term list lives at the caller: report_generator_agent swaps every
+    chemical, brand, FRAC group and dose for a ⟦…⟧ token before calling
+    translate_blocks and restores them afterwards. Do not add a "leave this in
+    English" instruction to `input` — it would be translated along with it.
+    """
     client = get_sarvam()
     resp = await client.post(
         _TRANSLATE_URL,
@@ -82,10 +89,34 @@ async def _translate_one(text: str, target_tag: str, source_tag: str) -> str:
             "source_language_code": source_tag,
             "target_language_code": target_tag,
             "mode": "formal",
+            # Pin Latin digits, do not inherit whatever the provider defaults
+            # to. The blocks we translate carry doses ("2.5 g per litre") and
+            # PHI day counts, and the farmer matches those against a pesticide
+            # label printed in Latin numerals — "२.५" is the one number in the
+            # report he must not have to transliterate at the dealer's counter.
+            "numerals_format": "international",
         },
         timeout=15,
     )
-    resp.raise_for_status()
+    try:
+        resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001 — re-raised immediately, see below
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if isinstance(status, int) and 400 <= status < 500:
+            # A 4xx means WE sent something the API rejected — a renamed
+            # parameter, a bad key, a language tag Sarvam dropped. That is
+            # categorically different from upstream flakiness: translate_blocks
+            # turns every exception into "return the English original", so if
+            # this fires on all five blocks the report publishes with blocks={}
+            # and the farmer's native strip disappears with nothing but a
+            # per-block WARNING to show for it. Log at ERROR with the greppable
+            # prefix so a request-shape regression surfaces as an alert rather
+            # than as a quiet loss of the whole localization feature.
+            logger.error(
+                "[ALERT][Sarvam] translate REJECTED the request (HTTP %s) — %s",
+                status, str(exc)[:300],
+            )
+        raise
     data = resp.json()
     out = data.get("translated_text") or ""
     if not out:

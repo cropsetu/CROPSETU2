@@ -503,12 +503,15 @@ export default function MarketScreen({ navigation }) {
     setMandiError(null);
     setMandiPrices([]);
     try {
+      // getMandiPrices now returns { prices, isStale, fetchedAt, … } lifted off
+      // the response META envelope. `result.stale` (no `is`) never existed on any
+      // envelope level, so the staleness UI below has never once rendered.
       const result = await getMandiPrices(crop, state, district || null);
-      const prices = Array.isArray(result) ? result : (result?.prices || result || []);
+      const prices = Array.isArray(result?.prices) ? result.prices : [];
       const sorted = [...prices].sort((a, b) => (b.modalPrice || 0) - (a.modalPrice || 0));
       setMandiPrices(sorted);
-      setMandiStale(result?.stale || false);
-      setMandiUpdatedAt(result?.fetchedAt || result?.cachedAt || null);
+      setMandiStale(result?.isStale === true);
+      setMandiUpdatedAt(result?.fetchedAt || null);
       contentAnim.setValue(0);
       Animated.timing(contentAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
     } catch (err) {
@@ -559,10 +562,20 @@ export default function MarketScreen({ navigation }) {
               : <Text style={M.headerSub}>{t('market.realDataSource', 'Real data · data.gov.in')}</Text>
           }
         </View>
-        <View style={M.livePill}>
-          <LiveDot />
-          <Text style={M.liveTxt}>{t('market.live', 'LIVE')}</Text>
-        </View>
+        {/* The pill must tell the truth about the data behind it. It used to
+            render LIVE unconditionally, including over pre-seeded rows several
+            days old, because the staleness flag never reached this screen. */}
+        {mandiStale ? (
+          <View style={M.cachedPill}>
+            <Ionicons name="time-outline" size={KICON.xs} color={AMBER} />
+            <Text style={M.cachedTxt}>{t('market.cached', 'CACHED')}</Text>
+          </View>
+        ) : (
+          <View style={M.livePill}>
+            <LiveDot />
+            <Text style={M.liveTxt}>{t('market.live', 'LIVE')}</Text>
+          </View>
+        )}
       </View>
 
       {/* ── Crop selector ── */}
@@ -941,6 +954,15 @@ const M = StyleSheet.create({
   },
   liveDot: { ...circle(6), backgroundColor: COLORS.primary },
   liveTxt: { fontSize: 10, fontWeight: '800', color: COLORS.primary },
+  // Same geometry as livePill so the header doesn't reflow when the freshness
+  // of the data changes; only the tint and the word differ.
+  cachedPill:  {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: COLORS.yellowPale, borderRadius: KRADIUS.r20,
+    paddingHorizontal: KSPACE.s10, paddingVertical: 5,
+    borderWidth: KBORDER.hairline, borderColor: COLORS.goldLight,
+  },
+  cachedTxt: { fontSize: 10, fontWeight: '800', color: COLORS.brownDeep },
 
   // ── Crop selector button
   cropSelector: {

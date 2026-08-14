@@ -32,7 +32,7 @@ import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
 import { createConnectionLimiter, onLimited } from './socketRateLimit.js';
 import { ConnectionRegistry } from './connectionLimiter.js';
-import { cancelVoiceStream } from '../services/voiceStream.registry.js';
+import { cancelVoiceStream, cancelVoiceStreamsForUser } from '../services/voiceStream.registry.js';
 
 // Per-user socket cap (SCALE-5). One registry per process; entries are dropped
 // as users' last sockets disconnect, so it stays bounded.
@@ -213,8 +213,14 @@ export function registerChatSocket(io) {
     // (stops generation, TTS, audio emits, and refunds the credit hold). Honoured
     // unconditionally (not rate-limited): it only flips an in-memory flag, and
     // dropping it would leave audio playing.
+    // cancelVoiceStream is async (it publishes to Redis so the replica actually
+    // running the pipeline sees the cancel). Nothing here needs the result, but
+    // the rejection has to go somewhere or a Redis blip becomes an unhandled
+    // rejection that takes the process down.
     socket.on('voice:cancel', ({ streamId } = {}) => {
-      if (streamId) cancelVoiceStream(`${userId}:${streamId}`);
+      if (!streamId) return;
+      cancelVoiceStream(`${userId}:${streamId}`)
+        .catch(err => logger.warn('[VoiceStream] cancel failed: %s', err?.message));
     });
 
     // ── Disconnect ──────────────────────────────────────────────────────────────
@@ -224,6 +230,15 @@ export function registerChatSocket(io) {
       // Only flip presence to offline once the user's LAST socket is gone —
       // otherwise closing one of several tabs would mark them offline everywhere.
       if (connections.countFor(userId) === 0) {
+        // A farmer who walks out of coverage never emits voice:cancel — the socket
+        // just dies. Without this the background pipeline ran to completion for an
+        // audience of nobody: full Gemini generation plus a per-sentence Sarvam TTS
+        // bill. The room-occupancy check in runVoiceStreamPipeline refunds the
+        // credit hold, but only AFTER all that spend has already happened, so it
+        // fixes the ledger and not the leak. A disconnect carries no streamId,
+        // which is why the registry tracks live streams per user.
+        await cancelVoiceStreamsForUser(userId)
+          .catch(err => logger.warn('[VoiceStream] disconnect cancel failed: %s', err?.message));
         await prisma.user.update({
           where: { id: userId },
           data: { isOnline: false, lastSeenAt: new Date() },

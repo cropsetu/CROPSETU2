@@ -1,6 +1,20 @@
 /**
  * AI Prediction Service — FarmEasy Krishi Raksha
  *
+ * ⚠ DEPRECATED — SCHEDULED FOR DELETION. DO NOT EXTEND, DO NOT MIRROR.
+ *   This is a SECOND, forked disease-diagnosis contract living on the Express
+ *   tier: its own persona ("Dr. Krishi AI"), its own schema (`primary_disease`
+ *   vs FastAPI's `primary_diagnosis`, `overall_risk` 0-100 vs `confidence_score`
+ *   0-1), no ensemble ballot, no RAG grounding, and — the reason it is dangerous
+ *   — no `safety.validator.validate_treatment`, so nothing here checks a named
+ *   chemical against the state ban list, the PHI table or the label claims. The
+ *   FastAPI pipeline in fastapi/orchestrator.py is the one diagnosis contract.
+ *
+ *   It survives only as the USE_FASTAPI_FOR_SCAN=false rollback path
+ *   (ai.routes.js) — that is the ONLY reason it was not removed. When that flag
+ *   is retired, delete this file and its two importers together. Anything added
+ *   here has to be added to FastAPI as well and will drift; add it there instead.
+ *
  * Sends crop images + field context to Gemini (primary) or Groq (429 fallback)
  * and returns a structured disease diagnosis JSON. Key design choices:
  *  - Chain-of-thought _reasoning field forces the model to reason before diagnosing
@@ -81,7 +95,7 @@ R4  CONSERVATIVE CONFIDENCE (decimal 0.0–1.0):
 R5  DISEASE CATEGORY: must be exactly one of: "disease", "pest", "abiotic", "healthy", "unknown"
 R6  STATUS: must be exactly one of: "ok", "needs_rescan", "needs_more_context"
 R7  CROSS-REFERENCE: weather × soil × growth_stage × das × irrigation × fungicide_history × image findings
-R8  PESTICIDES: Use only CIB&RC registered products. Include actual registration numbers (e.g. CIR-2023-xxx). If you do not know the real CIB&RC reg number, set reg_no to null — never fabricate it.
+R8  PESTICIDES: Recommend only CIB&RC-registered products, named by trade name + active ingredient. Do NOT output registration numbers — always set reg_no to null.
 R9  FARMER SUMMARY: Write farmer_friendly_summary in 2–3 simple sentences. No technical jargon. Focus on what to do TODAY.
 R10 RISK LEVEL: must be exactly one of: "LOW", "MODERATE", "HIGH", "CRITICAL"
 R11 NEVER: Do not use "N/A", do not return arrays with null elements, do not skip the _reasoning field.
@@ -105,7 +119,7 @@ If ALL images are unusable, set status="needs_rescan", confidence=0.0.
   "primary_disease": { "name":string, "scientific_name":string, "probability":number, "severity":"Low"|"Moderate"|"High"|"Critical", "description":string, "cause":string },
   "differential_diagnoses": [{ "name":string, "type":string, "probability":number, "reason":string }],
   "diseases": [{ "name":string, "probability":number, "severity":string }],
-  "pesticides": [{ "name":string, "active_ingredient":string, "dose":string, "dose_per_acre":string, "timing":string, "reg_no":string|null, "type":string, "phi_days":number, "resistance_group":string }],
+  "pesticides": [{ "name":string, "active_ingredient":string, "dose":string, "dose_per_acre":string, "timing":string, "reg_no":null, "type":string, "phi_days":number, "resistance_group":string }],
   "fertilizers": [{ "nutrient":string, "product":string, "dose":string, "method":string, "timing":string, "reason":string }],
   "cultural_controls": string[],
   "immediate_actions": string[],
@@ -292,6 +306,14 @@ function validateAndRepair(result) {
   if (!Array.isArray(result.diseases)) result.diseases = [];
 
   // ── pesticides ──
+  // reg_no is FORCED to null, not merely defaulted. A CIB&RC registration number
+  // is a regulatory claim under the Insecticides Act, and nothing on this tier can
+  // check one against the register — the old `p.reg_no || p.regNo || null` passed
+  // whatever the model produced straight through to the persisted report with no
+  // format check at all. A well-formed fabricated number is worse than a missing
+  // one, because it reads as authoritative to a farmer and to a dealer. The prompt
+  // (R8) no longer asks for them either; this is the deterministic backstop for a
+  // model that volunteers one anyway.
   if (!Array.isArray(result.pesticides)) result.pesticides = [];
   result.pesticides = result.pesticides.filter(Boolean).map((p) => ({
     name: p.name || '',
@@ -299,7 +321,7 @@ function validateAndRepair(result) {
     dose: p.dose || '',
     dose_per_acre: p.dose_per_acre || p.dosePerAcre || '',
     timing: p.timing || '',
-    reg_no: p.reg_no || p.regNo || null,  // null is fine, never fabricate
+    reg_no: null,
     type: p.type || 'Fungicide',
     phi_days: p.phi_days ?? p.phi ?? null,
     resistance_group: p.resistance_group || p.resistanceGroup || '',

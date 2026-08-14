@@ -3,7 +3,7 @@
  * All AI, market, and planner endpoints hit the same Express backend (port 3001).
  * Auth token is injected automatically via the existing api.js interceptors.
  */
-import api, { getAccessToken } from '@cropsetu/shared/services/api';
+import api, { aiApi, getAccessToken } from '@cropsetu/shared/services/api';
 import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_BASE_URL } from '@cropsetu/shared/constants/config';
@@ -172,7 +172,11 @@ export async function scanCropImage(imageUris, farmContext = {}, mimeTypes = nul
   const submitData = submitJson?.data || {};
 
   // Server may have served a cached result inline; if so, we're done.
-  if (submitData.status === 'done' && submitData.disease) {
+  // `nonResult` is checked alongside `disease` because the service_unavailable
+  // envelope deliberately carries an EMPTY disease name (ai.scan.fastapi.js) —
+  // testing `disease` alone dropped that reply on the floor and fell through to
+  // polling a job that has already finished.
+  if (submitData.status === 'done' && (submitData.disease || submitData.nonResult)) {
     return submitData;
   }
 
@@ -195,7 +199,13 @@ export async function scanCropImage(imageUris, farmContext = {}, mimeTypes = nul
   while (Date.now() - startedAt < POLL_MAX_MS) {
     let pollResp;
     try {
-      const { data } = await api.get(`/ai/scan/job/${encodeURIComponent(jobId)}`);
+      // `aiApi` (200s), NOT the default `api` (15s). Timeout ordering must be
+      // client >= server >= pipeline: the poll that finds the job done also runs
+      // the finaliser, which awaits the Cloudinary upload for up to 10s on top of
+      // fastapi-signed's 90s budget. Under 15s that request aborted, the retry hit
+      // the Redis settle-claim, and the farmer got a charged scan back with
+      // reportId: null — or, with Redis down, a second charge.
+      const { data } = await aiApi.get(`/ai/scan/job/${encodeURIComponent(jobId)}`);
       pollResp = data?.data || {};
     } catch (err) {
       // Network blip — retry next tick. Hard failures (4xx/5xx with body)
@@ -250,7 +260,11 @@ export async function getScanSessionDetail(sessionId) {
  * Send a follow-up message in a scan session.
  */
 export async function sendScanFollowUp(sessionId, message) {
-  const { data } = await api.post(`/ai/scan/${sessionId}/chat`, { message });
+  // Same timeout-ordering rule as the scan poll above: this route proxies to
+  // FastAPI on fastapi-signed's 90s budget and settles credits regardless of
+  // whether the client is still waiting, so the default 15s `api` instance
+  // billed the farmer for answers the app had already given up on.
+  const { data } = await aiApi.post(`/ai/scan/${sessionId}/chat`, { message });
   return data.data;
 }
 
@@ -523,11 +537,34 @@ export async function generateAITasks(context = {}) {
 // MANDI BHAV (Real mandi prices from data.gov.in)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Mandi prices + the freshness envelope.
+ *
+ * The staleness flags are NOT on `data` — mandi.routes.js passes them as
+ * sendSuccess's fourth `meta` argument, so they land on `data.meta`. This
+ * function returned `data.data` (the rows array) alone, and MarketScreen read
+ * `result.stale` / `result.fetchedAt`: both permanently undefined, which left
+ * the "showing cached data" banner dead code while the LIVE pill rendered
+ * unconditionally — days-old prices under a LIVE badge, on the screen a farmer
+ * uses to decide whether to load a truck.
+ *
+ * The SERVER field names are authoritative (`isStale`, `fetchedAt`); this side
+ * adapts. Renaming them server-side is a separate, owned change.
+ *
+ * @returns {{prices: Array, isStale: boolean, fetchedAt: string|null, source: string, disclaimer: string|null}}
+ */
 export async function getMandiPrices(commodity = 'Tomato', state = 'Maharashtra', district = null) {
   const params = { commodity, state };
   if (district) params.district = district;
   const { data } = await api.get('/mandi/prices', { params });
-  return data.data;
+  const meta = data?.meta || {};
+  return {
+    prices:     Array.isArray(data?.data) ? data.data : [],
+    isStale:    meta.isStale === true,
+    fetchedAt:  meta.fetchedAt || null,
+    source:     meta.source || '',
+    disclaimer: meta.disclaimer || null,
+  };
 }
 
 export async function getMandiTrend(commodity, market, days = 7) {

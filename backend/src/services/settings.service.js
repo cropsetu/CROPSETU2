@@ -69,14 +69,29 @@ export const SETTINGS_MANIFEST = [
   // a model that errors fails that scan loudly (by design), so pick a keyed provider.
   { key: 'ai.model.chat', type: 'ENUM', category: 'AI Models', label: 'Text chat model', description: 'LLM for the farmer text assistant (chat). Any provider works; if the primary is unavailable it falls back Gemini→Groq so the farmer still gets a reply. Switching e.g. Gemini Flash↔Pro is verified working.', envKey: 'AI_TEXT_CHAT_MODEL', default: 'gemini-2.5-flash', options: LLM_MODEL_OPTIONS },
   { key: 'ai.model.diagnose', type: 'ENUM', category: 'AI Models', label: 'Disease diagnosis model', description: 'Vision LLM that identifies the disease from the leaf photo — the always-on first pass of every scan. Vision-capable models only (Groq is text-only, excluded). No fallback: an unkeyed or failing model fails the scan, so pick a provider whose key is set.', envKey: 'AI_CROP_DIAGNOSE_MODEL', default: 'gemini-2.5-flash', options: VISION_MODEL_OPTIONS },
-  { key: 'ai.model.treatment', type: 'ENUM', category: 'AI Models', label: 'Treatment plan model', description: 'Text LLM that writes the RAG-grounded spray/IPM treatment plan after diagnosis. Skipped automatically for uncertain or out-of-scope diagnoses. Pro is the default for accuracy.', envKey: 'AI_CROP_TREATMENT_MODEL', default: 'gemini-2.5-pro', options: LLM_MODEL_OPTIONS },
+  // NOTE (cost): this default is 'gemini-2.5-pro' and Express forwards it as
+  // model_treatment on BOTH scan paths, so it overrides FastAPI's own default for
+  // this feature (llm_dispatch._DEFAULTS CROP_TREATMENT = gemini-2.5-flash). Pro is
+  // ~4x Flash per million output tokens and this call runs at max_tokens 8192, so it
+  // is the single largest controllable line item on a scan. The content is already
+  // constrained to a closed list of registered actives by rag_retrieve and
+  // post-filtered by validate_treatment — i.e. template filling, not open reasoning
+  // — so Flash is defensible. Flipping it is an ACCURACY call that needs the golden
+  // set to answer, not an engineering one: left on Pro deliberately, pending that.
+  { key: 'ai.model.treatment', type: 'ENUM', category: 'AI Models', label: 'Treatment plan model', description: 'Text LLM that writes the RAG-grounded spray/IPM treatment plan after diagnosis. Skipped automatically for uncertain or out-of-scope diagnoses. Pro is the default for accuracy and overrides the FastAPI-side Flash default — it is roughly 4× the output-token price of Flash, so it is the biggest per-scan cost lever on this page.', envKey: 'AI_CROP_TREATMENT_MODEL', default: 'gemini-2.5-pro', options: LLM_MODEL_OPTIONS },
   { key: 'ai.model.soilOcr', type: 'ENUM', category: 'AI Models', label: 'Soil-card OCR model', description: 'Vision LLM that reads the 12 parameters off a soil health card photo. Vision-capable models only (Groq is text-only, excluded).', envKey: 'AI_SOIL_OCR_MODEL', default: 'gemini-2.5-flash', options: VISION_MODEL_OPTIONS },
   { key: 'ai.model.voiceStt', type: 'ENUM', category: 'AI Models', label: 'Voice / audio STT model', description: 'Speech-to-text for the voice assistant. Sarvam Saaras is Indic-tuned (recommended for Marathi/Hindi/regional); Whisper falls back to Sarvam until enabled.', envKey: 'AI_VOICE_STT_MODEL', default: 'sarvam:saaras:v3', options: VOICE_STT_OPTIONS },
 
   // ── AI diagnosis behaviour ──────────────────────────────────────────────────
-  // Admin-controlled, default ON. Forwarded per-scan to FastAPI (params.ensemble),
-  // which overrides its own ENABLE_ENSEMBLE env. Toggle OFF to minimise cost.
-  { key: 'ai.diagnose.ensemble', type: 'BOOL', category: 'AI Models', label: 'Second-opinion ensemble (diagnosis)', description: 'When the first diagnosis is unsure (confidence < 0.80) or ambiguous, re-check the photo with extra models in parallel (Gemini Pro + Flash, plus the GPT-4o voter when the OpenAI key is set) and vote for the most reliable answer. Improves accuracy on hard scans; it only fires on those — easy, confident scans skip it. Costs roughly 2–4× on a scan when it triggers, and near-budget users are skipped automatically. Turn off to minimise cost.', default: true },
+  // Admin-controlled, default OFF. Forwarded per-scan to FastAPI (params.ensemble),
+  // which OVERRIDES its own ENABLE_ENSEMBLE env — so this default is the effective
+  // one on any deploy, and it used to be `true` while fastapi/config.py:100 defaults
+  // ENABLE_ENSEMBLE to "false" with an incident comment saying a code default of
+  // "true" had already silently enabled the 2-4x fan-out once. A fresh deploy with
+  // no app_settings row therefore shipped the ensemble ON at ENSEMBLE_ESCALATE_BELOW
+  // = 0.80, against a prompt that explicitly rewards under-confidence. The two sides
+  // now agree; turning it on is one admin click and an explicit decision.
+  { key: 'ai.diagnose.ensemble', type: 'BOOL', category: 'AI Models', label: 'Second-opinion ensemble (diagnosis)', description: 'When the first diagnosis is unsure (confidence < 0.80) or ambiguous, re-check the photo with extra models in parallel (Gemini Pro + Flash, plus the GPT-4o voter when the OpenAI key is set) and vote for the most reliable answer. Improves accuracy on hard scans; it only fires on those — easy, confident scans skip it. Costs roughly 2–4× on a scan when it triggers, and near-budget users are skipped automatically. OFF by default — turn on deliberately once you can measure the accuracy gain.', default: false },
 
   // ── Marketplace ─────────────────────────────────────────────────────────────
   { key: 'marketplace.commissionRatePct', type: 'NUMBER', category: 'Marketplace', label: 'Seller commission (%)', description: 'Platform commission deducted from seller sales when computing settlement balances.', default: 5 },

@@ -103,14 +103,35 @@ def test_idempotency_header_key_wins():
     assert "abc-123" in key1
 
 
-def test_idempotency_body_hash_when_no_header():
+def test_idempotency_body_hash_distinguishes_different_images():
+    # The digest is over the image CONTENT, not its filename. This test used to
+    # assert the opposite — that two different photos sharing a basename dedup to
+    # one key — which is precisely how a farmer's second scan (a different plant)
+    # was served the first plant's diagnosis and its pesticide.
     body_a = {"params": {"crop": "Tomato", "tier": "fast"},
               "images": [{"path": "/tmp/a/img.jpg", "type": "leaf"}]}
     body_b = {"params": {"crop": "Tomato", "tier": "fast"},
               "images": [{"path": "/tmp/b/img.jpg", "type": "leaf"}]}
-    # Image PATHS differ but the last segment (filename) is the same →
-    # the canonical-body hash strips temp paths so these dedup correctly
-    assert idempotency.cache_key(body_a, None) == idempotency.cache_key(body_b, None)
+    assert idempotency.cache_key(body_a, None) != idempotency.cache_key(body_b, None)
+
+
+def test_idempotency_same_image_still_dedups():
+    # The flip side: a genuine retry of the SAME submission must still collapse
+    # to one key, or a double-tap bills the farmer twice.
+    body = {"params": {"crop": "Tomato", "tier": "fast"},
+            "images": [{"data": "aGVsbG8=", "type": "leaf"}]}
+    assert idempotency.cache_key(body, None) == idempotency.cache_key(dict(body), None)
+
+
+def test_idempotency_key_is_namespaced_per_user():
+    # Without the user namespace the key is a bearer token: farmer B's identical
+    # retry is served farmer A's stored report.
+    body = {"params": {"crop": "Tomato", "tier": "fast"}, "images": []}
+    assert idempotency.cache_key(body, None, user_id="u1") != \
+           idempotency.cache_key(body, None, user_id="u2")
+    # …and the same holds when the client supplies its own Idempotency-Key.
+    assert idempotency.cache_key(body, "abc-123", user_id="u1") != \
+           idempotency.cache_key(body, "abc-123", user_id="u2")
 
 
 def test_idempotency_tier_change_yields_different_key():

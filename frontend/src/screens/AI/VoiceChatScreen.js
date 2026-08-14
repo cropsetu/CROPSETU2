@@ -42,18 +42,32 @@ const MIN_REC_MS = 500;
 const SILENCE_DB = -45;
 const SILENCE_MS = 1_800;
 
-function humanReadableVoiceError(err, fallback = 'Could not process. Please try again.') {
+// ── Socket watchdog ──────────────────────────────────────────────────────────
+// The streaming turn is fire-and-forget: the HTTP call returns a bare ack and
+// everything after it arrives on the socket. When the socket dies mid-generation
+// the server still finishes, still bills and still persists the turn, but the
+// screen sat on "Thinking…" forever — the only timer in this file used to be the
+// 60s record cap, so the farmer's only exit was killing the app. This is an
+// INACTIVITY timer, re-armed on every reply_delta / audio_chunk, so a genuinely
+// long spoken answer never trips it.
+const STREAM_IDLE_MS = 45_000;
+
+// Every user-visible string on this screen goes through t(). This screen is the
+// one built for farmers who cannot read, and it shipped 100% hardcoded English;
+// `t` is threaded in as a parameter (same shape as CropScanScreen's
+// classifyScanError) because this is a module-level function with no hook access.
+function humanReadableVoiceError(err, t = (k, def) => def) {
   const status = err?.response?.status ?? err?.status;
   const serverMsg = err?.response?.data?.error?.message;
-  if (status === 429) return 'Too many requests — please wait 30 seconds and try again.';
-  if (status === 402) return 'You’ve used all your AI credits for this month. They refill on the 1st.';
+  if (status === 429) return t('aiVoice.err.busy', 'Too many requests — please wait 30 seconds and try again.');
+  if (status === 402) return t('aiVoice.err.credits', 'You’ve used all your AI credits for this month. They refill on the 1st.');
   if (status === 503 || status === 500 || status === 502 || status === 504)
-    return 'The voice service is temporarily down. Please try again in a moment.';
-  if (status === 413) return 'That recording was too long. Please keep it shorter.';
-  if (status === 401) return 'Session expired. Please log in again.';
+    return t('aiVoice.err.serviceDown', 'The voice service is temporarily down. Please try again in a moment.');
+  if (status === 413) return t('aiVoice.err.tooLong', 'That recording was too long. Please keep it shorter.');
+  if (status === 401) return t('aiVoice.err.auth', 'Session expired. Please log in again.');
   if (err?.message === 'Network Error' || err?.code === 'ERR_NETWORK')
-    return 'No internet — check your connection and try again.';
-  return serverMsg || fallback;
+    return t('aiVoice.err.network', 'No internet — check your connection and try again.');
+  return serverMsg || t('aiVoice.err.generic', 'Could not process. Please try again.');
 }
 
 // ── Galaxy Particle Sphere — exact port of Lovable cosmic-chat-companion Galaxy.tsx ──
@@ -343,6 +357,49 @@ export default function VoiceChatScreen({ navigation }) {
   const playingRef = useRef(false);        // a clip is currently playing
   const streamDoneRef = useRef(false);     // server emitted voice:done (no more chunks)
   const cancelledRef = useRef(false);      // user left the screen — drop everything NOW
+  const idleTimerRef = useRef(null);       // STREAM_IDLE_MS watchdog for the in-flight turn
+
+  // ── Stream watchdog ────────────────────────────────────────────────────────
+  // Armed when a streaming turn is handed to the socket, re-armed on every
+  // reply_delta / audio_chunk, cleared on voice:done / voice:error. If it ever
+  // fires, the socket went quiet mid-turn: cancel the server pipeline so the
+  // hold is refunded instead of settled into a dead room, and give the farmer
+  // a way out that isn't force-quitting the app.
+  const clearStreamWatchdog = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+  }, []);
+
+  // Tell the server to abandon the turn that is still in flight, then forget it.
+  // stopPlayback has always done this; startRecording did NOT — it just nulled
+  // streamIdRef, so turn 1 ran to completion server-side (Gemini generation,
+  // per-sentence Sarvam TTS, both messages persisted, settleCredits) while every
+  // event it emitted was dropped by the matches() filter. The farmer was charged
+  // twice for one question and heard neither answer.
+  const cancelActiveStream = useCallback(() => {
+    const sid = streamIdRef.current;
+    streamIdRef.current = null;
+    if (!sid) return;
+    try { socketRef.current?.emit('voice:cancel', { streamId: sid }); } catch { /* socket gone */ }
+  }, []);
+
+  const armStreamWatchdog = useCallback(() => {
+    clearStreamWatchdog();
+    idleTimerRef.current = setTimeout(() => {
+      idleTimerRef.current = null;
+      if (streamDoneRef.current || cancelledRef.current) return;
+      streamDoneRef.current = true;
+      isStreamingRef.current = false;
+      cancelActiveStream();
+      chunkQueueRef.current = [];
+      setIsProcessing(false);
+      setIsPlaying(false);
+      setErrorMsg(t('aiVoice.err.stalled', 'No answer came back. Please check your connection and ask again.'));
+      setShowTranscript(true);
+    }, STREAM_IDLE_MS);
+  }, [clearStreamWatchdog, cancelActiveStream, t]);
 
   // Animations
   const transcriptFade = useRef(new Animated.Value(0)).current;
@@ -396,6 +453,7 @@ export default function VoiceChatScreen({ navigation }) {
   useEffect(() => {
     return () => {
       if (maxDurationTimerRef.current) clearTimeout(maxDurationTimerRef.current);
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       if (recordRef.current) {
         try { recordRef.current.stopAndUnloadAsync(); } catch {}
         try { Audio.setAudioModeAsync({ allowsRecordingIOS: false }); } catch {}
@@ -422,12 +480,16 @@ export default function VoiceChatScreen({ navigation }) {
     if (isProcessing || isPlaying || lockRef.current) return;
     lockRef.current = true;
 
-    // Clear previous transcripts + any leftover streaming state from the last turn
+    // Clear previous transcripts + any leftover streaming state from the last turn.
+    // cancelActiveStream (not a bare `streamIdRef.current = null`) so a turn that
+    // is somehow still running server-side is actually TERMINATED and its credit
+    // hold released — otherwise the farmer pays for an answer nobody can hear.
     setUserTranscript('');
     setAiReply('');
     setErrorMsg('');
     setShowTranscript(false);
-    streamIdRef.current = null;
+    clearStreamWatchdog();
+    cancelActiveStream();
     isStreamingRef.current = false;
     streamDoneRef.current = false;
     cancelledRef.current = false;
@@ -493,12 +555,12 @@ export default function VoiceChatScreen({ navigation }) {
         }
       });
     } catch (err) {
-      Alert.alert(t('aiChat.recErrorTitle'), err?.message || 'Could not start microphone.');
+      Alert.alert(t('aiChat.recErrorTitle'), err?.message || t('aiVoice.micStartFailed', 'Could not start microphone.'));
     } finally {
       lockRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isProcessing, isPlaying]);
+  }, [isProcessing, isPlaying, clearStreamWatchdog, cancelActiveStream, t]);
 
   // ── Stop and send ─────────────────────────────────────────────────────────
   const stopAndSend = useCallback(async () => {
@@ -560,10 +622,12 @@ export default function VoiceChatScreen({ navigation }) {
       // If STT returned nothing meaningful, surface a friendly hint instead of
       // a fake voice bubble + garbage reply.
       if (!transcribed) {
-        streamIdRef.current = null;
+        clearStreamWatchdog();
+        cancelActiveStream();
         isStreamingRef.current = false;
+        streamDoneRef.current = true;
         setUserTranscript('');
-        setAiReply('I didn’t catch that — try speaking closer to the mic.');
+        setAiReply(t('aiVoice.noSpeech', 'I didn’t catch that — try speaking closer to the mic.'));
         setShowTranscript(true);
         setIsProcessing(false);
         return;
@@ -573,10 +637,18 @@ export default function VoiceChatScreen({ navigation }) {
       setShowTranscript(true);
 
       // Streaming: the reply text + audio now arrive over the socket
-      // (voice:reply_delta / voice:audio_chunk / voice:done). Stop showing
-      // "Thinking…"; the socket handlers drive the rest.
+      // (voice:reply_delta / voice:audio_chunk / voice:done).
+      //
+      // isProcessing deliberately stays TRUE here. It used to be cleared on this
+      // HTTP ack while isPlaying only flips inside playNextInQueue, so between the
+      // ack and the first audio chunk the mic was live again and the hint read
+      // "Say something…" — an explicit invitation to speak while turn 1 was still
+      // generating and billing. A second tap orphaned turn 1 (it ran to completion
+      // and settled server-side) and the farmer paid twice for one question. The
+      // delta/chunk handlers clear it the moment real output arrives; done/error
+      // and the watchdog clear it if it never does.
       if (useStream && result.streaming) {
-        setIsProcessing(false);
+        armStreamWatchdog();
         return;
       }
 
@@ -593,14 +665,18 @@ export default function VoiceChatScreen({ navigation }) {
       }
     } catch (err) {
       recordRef.current = null;
-      streamIdRef.current = null;
+      clearStreamWatchdog();
+      // The POST failed, but a streamId was already handed to the server — if the
+      // pipeline started before the socket/HTTP hiccup, cancel it rather than
+      // leaving it to generate, speak into nothing and settle.
+      cancelActiveStream();
       isStreamingRef.current = false;
       streamDoneRef.current = true;
-      setErrorMsg(humanReadableVoiceError(err));
+      setErrorMsg(humanReadableVoiceError(err, t));
       setShowTranscript(true);
       setIsProcessing(false);
     }
-  }, [conversationId, sarvamLang, getAIContext]);
+  }, [conversationId, sarvamLang, getAIContext, armStreamWatchdog, clearStreamWatchdog, cancelActiveStream, t]);
 
   // ── Cancel recording ────────────────────────────────────────────────────────
   const cancelRecording = useCallback(async () => {
@@ -691,11 +767,8 @@ export default function VoiceChatScreen({ navigation }) {
     cancelledRef.current = true;
     streamDoneRef.current = true;
     chunkQueueRef.current = [];
-    const sid = streamIdRef.current;
-    streamIdRef.current = null;
-    if (sid) {
-      try { socketRef.current?.emit('voice:cancel', { streamId: sid }); } catch { /* ignore */ }
-    }
+    clearStreamWatchdog();
+    cancelActiveStream();
     if (soundRef.current) {
       try { await soundRef.current.stopAsync(); } catch {}
       try { await soundRef.current.unloadAsync(); } catch {}
@@ -703,7 +776,7 @@ export default function VoiceChatScreen({ navigation }) {
     }
     playingRef.current = false;
     setIsPlaying(false);
-  }, []);
+  }, [clearStreamWatchdog, cancelActiveStream]);
 
   // Stop playback (and the mic) whenever the screen loses focus — not just on
   // full unmount — so navigating away immediately silences the assistant.
@@ -724,6 +797,7 @@ export default function VoiceChatScreen({ navigation }) {
 
     const onDelta = (p) => {
       if (!active || !matches(p)) return;
+      armStreamWatchdog();          // real output arrived — restart the idle clock
       setIsProcessing(false);
       isStreamingRef.current = true;
       const text = p.text || '';
@@ -731,24 +805,41 @@ export default function VoiceChatScreen({ navigation }) {
     };
     const onChunk = (p) => {
       if (!active || !matches(p) || !p.audio) return;
+      armStreamWatchdog();
+      // Audio can land before any text delta (short replies synthesise fast), so
+      // this is the second place the "still generating" state has to clear.
+      setIsProcessing(false);
       chunkQueueRef.current.push({ seq: p.seq ?? 0, audio: p.audio, mimeType: p.mimeType });
       playNextInQueue();
     };
     const onDone = (p) => {
       if (!active || !matches(p)) return;
+      clearStreamWatchdog();
       streamDoneRef.current = true;
       setIsProcessing(false);
       if (p.reply) { setAiReply(p.reply); setTypedReply(p.reply); }   // authoritative final text
       if (p.conversationId) setConvId((cur) => cur || p.conversationId);
+      // `partial: true` means generation blew its budget or threw mid-stream: the
+      // farmer heard a sentence or two of a dosing answer and the rest never
+      // existed. Silence there reads as a complete answer, which is the dangerous
+      // reading — say so instead. The server does not persist a partial turn.
+      if (p.partial === true) {
+        setErrorMsg(t('aiVoice.cutShort', 'The answer was cut short. Please ask again.'));
+        setShowTranscript(true);
+      }
       if (!playingRef.current && chunkQueueRef.current.length === 0) setIsPlaying(false);
     };
     const onStreamErr = (p) => {
       if (!active || !matches(p)) return;
+      clearStreamWatchdog();
       streamDoneRef.current = true;
       setIsProcessing(false);
       // Only surface the banner if we haven't already spoken anything.
+      // The server's `message` is a fixed English sentence (ai.routes.js emits one
+      // literal on this event) — showing it verbatim is exactly the hardcoded-English
+      // path this screen is being fixed for, so the localized key wins.
       if (!playingRef.current && chunkQueueRef.current.length === 0) {
-        setErrorMsg(p?.message || 'Voice service had a problem. Please try again.');
+        setErrorMsg(t('aiVoice.err.stream', 'Voice service had a problem. Please try again.'));
       }
     };
 
@@ -775,13 +866,17 @@ export default function VoiceChatScreen({ navigation }) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playNextInQueue]);
+  }, [playNextInQueue, armStreamWatchdog, clearStreamWatchdog, t]);
 
   // Status hint — minimal, action-only. Shown below the sphere when idle/listening;
   // hidden while the AI reply types in at the top.
-  const statusText = isRecording ? 'Listening…'
-    : isProcessing ? 'Thinking…'
-    : 'Say something…';
+  // "Say something…" must never render while a turn is in flight — see the
+  // isProcessing note in stopAndSend. isPlaying is covered too: the hint block
+  // is suppressed once aiReply exists, and a chunk always precedes playback.
+  const statusText = isRecording ? t('aiVoice.listening', 'Listening…')
+    : isProcessing ? t('aiVoice.thinking', 'Thinking…')
+    : isPlaying ? t('aiVoice.speaking', 'Speaking…')
+    : t('aiVoice.prompt', 'Say something…');
 
   // Main mic button logic: idle→startRecording / recording→stopAndSend
   const onMicTap = () => {
@@ -827,11 +922,12 @@ export default function VoiceChatScreen({ navigation }) {
           >
             <ArrowLeft size={22} color="#F0FDF4" strokeWidth={2.2} />
           </TouchableOpacity>
+          {/* aiBrand.vaani already resolves to the native script in all ten
+              bundles, so the old hi/mr-only subtitle was a duplicate — and it
+              hardcoded the MARATHI spelling (कृषी वाणी) above the Hindi title
+              (कृषि वाणी). One localized line, every language. */}
           <View style={S.brandBlock} pointerEvents="none">
             <Text style={S.brandTitle} numberOfLines={1}>{t('aiBrand.vaani', 'Krushi Vaani')}</Text>
-            {(language === 'hi' || language === 'mr') ? (
-              <Text style={S.brandSubtitle}>कृषी वाणी</Text>
-            ) : null}
           </View>
         </View>
 
@@ -946,10 +1042,6 @@ const S = StyleSheet.create({
     fontFamily: INTER_BOLD,
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8,
-  },
-  brandSubtitle: {
-    fontSize: 11, color: 'rgba(240,253,244,0.7)', letterSpacing: 0.5,
-    fontFamily: INTER_REG, marginTop: 1,
   },
 
   // ── TOP: AI reply types in here (Perplexity-style), flows downward ──

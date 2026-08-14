@@ -27,6 +27,7 @@ the dispensing-sheet compliance audit.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -356,3 +357,271 @@ def _validate_chemical(
         "detail": detail,
         "sanitized": sanitized,
     }
+
+
+# ── Free-text advice gate (chat / voice) ─────────────────────────────────────
+# validate_treatment() above sanitizes the STRUCTURED treatment dict the scan
+# pipeline builds — chemical_controls / medicine_combinations / rotation_plan.
+# Chat and voice never build that dict: they hand the model's prose straight
+# to the farmer and to TTS, which is why a banned active named in a chat answer
+# used to reach the farmer with no registry check at all. Same registry, same
+# blocker vocabulary, different input shape — so this is a second entry point,
+# not an overload of the first. validate_treatment's signature is load-bearing
+# for the scan path and is deliberately untouched.
+
+_ADVICE_MAX_NGRAM = 4   # longest banned name is 4 words
+                        # ("methoxy ethyl mercury chloride")
+
+# Sentence boundary used when excising an unsafe sentence. The negative
+# lookbehind on a digit is the same guard the TTS splitter needs: "Spray at
+# 2.5 g/L" has to stay ONE sentence, or dropping the flagged half leaves the
+# farmer a bare "5 g/L".
+_ADVICE_SENTENCE_BREAK = re.compile(r"(?<!\d)[.!?](?=\s|$)|[।\n]")
+
+# Latin-only, and deliberately left that way for now — see the RESIDUAL RISK note
+# in validate_advice_text. Widening this to `[^\W\d_]` looks like it would cover
+# Devanagari, and does not: Python's `\w` excludes Indic combining marks (matras,
+# virama, nukta are all str.isalnum() == False), so "मॅन्कोझेब" shatters into five
+# one-letter tokens and the registry lookup sees garbage. A real fix needs the
+# Indic mark ranges in the character class AND a transliteration alias layer over
+# safety.chemicals; half of that is worse than neither, because it reads as
+# coverage that does not exist.
+_ADVICE_WORD = re.compile(r"[A-Za-z][\w'\-]*")
+
+# "Chlorpyrifos 20EC", "Mancozeb 75% WP" — a name carrying a formulation code
+# is a pesticide product whatever the registry knows about it.
+_ADVICE_PRODUCT = re.compile(
+    r"\b([A-Za-z][\w\-]{4,})\s*[\d.]*\s*%?\s*(?:EC|SC|WP|WG|WDG|SL|SP|SG|DP|GR)\b"
+)
+
+# Suffixes that are pesticide nomenclature rather than ordinary words. These
+# only ever raise an unverified_active WARNING — never a blocker — so a false
+# positive costs one metadata flag and nothing the farmer can see.
+_ADVICE_ACTIVE_SUFFIXES = (
+    "conazole", "strobin", "thrin", "prid", "mectin",
+    "phos", "fos", "sulfuron", "carb", "myl", "oxam",
+)
+
+# Returned when every sentence had to be dropped. English, because this
+# function has no language argument by contract — `replaced_with_fallback`
+# in the meta tells the caller to substitute its own localized line.
+_ADVICE_SAFE_FALLBACK = (
+    "I can't recommend a chemical for this. Please contact your nearest "
+    "Krishi Vigyan Kendra (KVK) or agriculture officer before spraying anything."
+)
+
+
+@dataclass
+class TextValidationResult:
+    sanitized_text: str
+    blockers: list[dict] = field(default_factory=list)   # [{"code","active","detail"}]
+    warnings: list[dict] = field(default_factory=list)
+    registry_version: str = REGISTRY_VERSION
+    replaced_with_fallback: bool = False
+
+    def to_meta(self) -> dict:
+        return {
+            "registry_version": self.registry_version,
+            "state_bans_version": STATE_BANS_VERSION,
+            "blockers": self.blockers,
+            "warnings": self.warnings,
+            "blocker_count": len(self.blockers),
+            "warning_count": len(self.warnings),
+            "replaced_with_fallback": self.replaced_with_fallback,
+        }
+
+
+def _advice_sentence_spans(text: str) -> list[tuple[int, int]]:
+    """Contiguous (start, end) spans covering the whole string, so joining a
+    subset of them preserves the original spacing of what survives."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for m in _ADVICE_SENTENCE_BREAK.finditer(text):
+        end = m.end()
+        if end > start:
+            spans.append((start, end))
+        start = end
+    if start < len(text):
+        spans.append((start, len(text)))
+    return spans
+
+
+def _advice_strip(text: str, cuts: list[tuple[int, int]]) -> str:
+    """Drop every sentence overlapping a flagged span. Redacting only the
+    chemical name would leave "Spray ___ at 2 ml/L" — an instruction to spray
+    an unnamed thing at a real dose, which is worse than saying nothing."""
+    kept = [
+        text[s:e] for s, e in _advice_sentence_spans(text)
+        if not any(c_start < e and c_end > s for c_start, c_end in cuts)
+    ]
+    return re.sub(r"\n{3,}", "\n\n", "".join(kept)).strip()
+
+
+def _advice_named_active(phrase: str) -> Any | None:
+    """Stricter wrapper over find_active() for prose.
+
+    find_active()'s last resort is an alias SUBSTRING match, which is right
+    for an LLM-emitted `product` field but wrong for free text, where
+    "bordeauxish" or "ridomil-like" would resolve. Require the canonical name
+    (or one full alias) to appear as whole words.
+
+    Brand aliases that are also ordinary English words ("score", "tilt",
+    "fame") still resolve, so an organic-state farmer can lose a sentence
+    containing "score". That is the safe direction: the alternative is naming
+    a synthetic pesticide in a state where synthetics are barred.
+    """
+    active = find_active(phrase)
+    if active is None:
+        return None
+    words = set(re.findall(r"[\w+-]+", phrase.lower()))
+    for candidate in (active.name, *active.aliases):
+        cand_words = set(candidate.lower().split())
+        if cand_words and cand_words.issubset(words):
+            return active
+    return None
+
+
+def _advice_record(bucket: list[dict], seen: set[str], code: str, active: str, detail: str) -> None:
+    key = f"{code}:{active.lower()}"
+    if key in seen:
+        return
+    seen.add(key)
+    bucket.append({"code": code, "active": active, "detail": detail})
+
+
+def validate_advice_text(text: str, *, state: str | None = None) -> TextValidationResult:
+    """Registry gate for free-text advice (chat, voice, scan follow-up).
+
+    Blocks (sentence is excised from `sanitized_text`):
+      • banned_active  — the mention is centrally banned, or banned in the
+                         farmer's state (STATE_LEVEL_BANS via is_banned).
+      • organic_state  — a synthetic registered active named in a fully
+                         organic state (Sikkim).
+    Warns (text untouched, surfaced in `to_meta()` for monitoring):
+      • unverified_active — the text names something shaped like a pesticide
+                         that is not in the registry slice, so nothing checked
+                         its label claim, PHI or state bans.
+
+    `state` must be the RAW farmer state, unabbreviated and lowercase-safe
+    ("Kerala", "Maharashtra"). A default like "India" is not a key in
+    STATE_LEVEL_BANS and silently disables every state-level ban.
+
+    RESIDUAL RISK — ACCEPTED, NOT CLOSED. Detection is Latin-script only, because
+    the registry keys are: `is_banned("क्लोरपायरीफॉस")` is False, so a banned
+    active written in Devanagari or Tamil passes this gate untouched. Closing it
+    needs a transliteration alias layer over safety.chemicals (Devanagari + Tamil
+    + Telugu spellings of at least chlorpyrifos, monocrotophos, endosulfan and
+    imidacloprid) plus an Indic-aware tokeniser — see _ADVICE_WORD. Until that
+    ships, the only thing keeping actives in Latin is the instruction in
+    agents/prompts/chat_rules.v1.md — a prompt, not a gate. Chat/voice is the
+    surface with no other validator behind it, so this is the known hole, and it
+    is a known hole rather than a covered case.
+    """
+    original = text or ""
+    if not original.strip():
+        return TextValidationResult(sanitized_text=original)
+
+    state_key = (state or "").strip()
+    organic = is_state_organic(state_key)
+    # Whole-text prefilter. is_banned() is a substring test, so if no banned
+    # name appears anywhere in the answer it cannot appear in any window of it
+    # — that skips the O(tokens × registry) scan on the ~99% of answers that
+    # name nothing banned, which matters on a per-request path.
+    text_banned, text_ban_reason = is_banned(original, state=state_key)
+
+    blockers: list[dict] = []
+    warnings: list[dict] = []
+    seen: set[str] = set()
+    cuts: list[tuple[int, int]] = []
+
+    tokens = [(m.group(0), m.start(), m.end()) for m in _ADVICE_WORD.finditer(original)]
+
+    if text_banned or organic:
+        total = len(tokens)
+        consumed: set[int] = set()
+        # Window width ascends across the WHOLE token list, not per start
+        # index. is_banned() is a substring test, so a wider window starting
+        # one token early ("Use Monocrotophos", "infected leaves Spray
+        # Endosulfan") also matches — and it would then be reported as the
+        # active and excise a span far wider than the mention. Narrowest
+        # match wins; its tokens are consumed so no wider window re-reports it.
+        for n in range(1, _ADVICE_MAX_NGRAM + 1):
+            for i in range(0, total - n + 1):
+                if any(j in consumed for j in range(i, i + n)):
+                    continue
+                window = tokens[i:i + n]
+                phrase = " ".join(w for w, _s, _e in window)
+                span = (window[0][1], window[-1][2])
+
+                if text_banned:
+                    banned, reason = is_banned(phrase, state=state_key)
+                    if banned:
+                        _advice_record(blockers, seen, "banned_active", phrase, reason)
+                        cuts.append(span)
+                        consumed.update(range(i, i + n))
+                        continue
+
+                # Registered names top out at two words ("copper oxychloride",
+                # "emamectin benzoate"), so wider windows can only produce
+                # find_active() token-subset artefacts.
+                if n <= 2:
+                    active = _advice_named_active(phrase)
+                    if active is not None:
+                        if organic and active.frac_irac_group != "BIO":
+                            _advice_record(
+                                blockers, seen, "organic_state", active.name,
+                                f"{state_key.title()} is a fully organic state — "
+                                f"synthetic pesticide ({active.name}) cannot be recommended",
+                            )
+                            cuts.append(span)
+                        consumed.update(range(i, i + n))
+
+    checked: set[str] = set()
+
+    def _flag_unverified(name: str) -> None:
+        key = name.lower()
+        if key in checked:
+            return
+        checked.add(key)
+        if _advice_named_active(name) is not None:
+            return          # in the registry — validated above
+        if is_banned(name, state=state_key)[0]:
+            return          # already a blocker
+        _advice_record(
+            warnings, seen, "unverified_active", name,
+            f"{name!r}: named in advice but absent from the CIB&RC registry slice — "
+            "label claim, PHI and state bans unchecked",
+        )
+
+    for m in _ADVICE_PRODUCT.finditer(original):
+        _flag_unverified(m.group(1))
+    for word, _s, _e in tokens:
+        if len(word) >= 7 and word.lower().endswith(_ADVICE_ACTIVE_SUFFIXES):
+            _flag_unverified(word)
+
+    sanitized = original
+    replaced = False
+    if cuts:
+        sanitized = _advice_strip(original, cuts)
+        if not sanitized.strip():
+            sanitized, replaced = _ADVICE_SAFE_FALLBACK, True
+    elif text_banned:
+        # The prefilter found a banned active the token scan could not locate —
+        # it only exists once punctuation is normalised away ("...sodium.
+        # Cyanide..."). Nothing to excise surgically, so drop the whole answer
+        # rather than ship an unlocated ban.
+        _advice_record(blockers, seen, "banned_active", "", text_ban_reason)
+        sanitized, replaced = _ADVICE_SAFE_FALLBACK, True
+
+    if blockers:
+        logger.warning(
+            "[Validator] advice text: state=%s blockers=%s warnings=%d replaced=%s",
+            state_key or "?", [b["code"] for b in blockers], len(warnings), replaced,
+        )
+
+    return TextValidationResult(
+        sanitized_text=sanitized,
+        blockers=blockers,
+        warnings=warnings,
+        replaced_with_fallback=replaced,
+    )

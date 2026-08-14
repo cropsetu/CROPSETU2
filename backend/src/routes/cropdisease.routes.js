@@ -1,14 +1,30 @@
 /**
- * Crop Disease Prediction Routes — FarmEasy Krishi Raksha
- * POST /api/v1/crop-disease/predict
- * Accepts multipart/form-data (with optional images) OR JSON.
+ * Crop Disease Report Routes — FarmEasy Krishi Raksha
+ *
+ * READ-ONLY history for the AI scan reports, plus two pincode lookups. The
+ * diagnosis itself lives on POST /api/v1/ai/scan (ai.routes.js → the FastAPI
+ * agentic pipeline).
+ *
+ * REMOVED: POST /api/v1/crop-disease/predict.
+ *   It was a SECOND, forked diagnosis path — it called ai.predict.service's
+ *   "Dr. Krishi AI" prompt, which has its own schema, no ensemble ballot, no RAG
+ *   grounding and, critically, never reaches fastapi/safety/validator, so nothing
+ *   checked a named pesticide against the state ban list, the PHI table or the
+ *   CIB&RC label claims. It then persisted that unvalidated output as a
+ *   cropDiseaseReport row — the same rows ScanHistoryScreen and PastReportScreen
+ *   render, so an unchecked chemical + dose reached the farmer's history looking
+ *   exactly like a validated scan. On top of that the route had no rate limiter
+ *   and no credit gate at all, so an authenticated caller could burn 4 × 5 MB of
+ *   Gemini vision per request without spending a credit.
+ *
+ *   It had no client caller: the app calls only GET /reports and /reports/:id
+ *   here, and /ai/scan for a diagnosis. Removing it deletes the exposure outright
+ *   rather than rate-limiting a path that should not exist. ai.predict.service.js
+ *   itself survives ONLY as ai.routes.js's USE_FASTAPI_FOR_SCAN=false rollback;
+ *   when that flag retires, delete the service and that import together.
  */
 import { Router } from 'express';
 import { query } from 'express-validator';
-import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
-import os from 'os';
 
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -16,199 +32,10 @@ import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError, sendServerError } from '../utils/response.js';
 import { getWeatherData } from '../services/weather.service.js';
 import { getSoilData } from '../services/soildata.service.js';
-import { predictCropDisease } from '../services/ai.predict.service.js';
 import prisma from '../config/db.js';
 
 const router = Router();
 router.param('id', uuidParamGuard); // reject non-UUID :id (reports) with 400 before Prisma
-
-// ─── Multer — store to OS temp dir ───────────────────────────────────────────
-const upload = multer({
-  dest: os.tmpdir(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 4 },  // 5 MB per image, max 4
-  fileFilter: (_req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
-    cb(null, allowed.includes(file.mimetype));
-  },
-});
-
-// ─── Cleanup temp files ───────────────────────────────────────────────────────
-function cleanupFiles(files = []) {
-  files.forEach((f) => {
-    try { fs.unlinkSync(f.path); } catch { /* ignore */ }
-  });
-}
-
-// ─── POST /api/v1/crop-disease/predict ───────────────────────────────────────
-router.post(
-  '/predict',
-  authenticate,
-  upload.array('images', 4),
-  async (req, res) => {
-    const uploadedFiles = req.files || [];
-
-    try {
-      // ── 1. Parse body fields (supports both JSON body and multipart) ────────
-      const body = req.body;
-
-      const {
-        pincode,
-        cropType,
-        growthStage,
-        variety,
-        sowingDate,
-        fieldArea,
-        irrigationMethod,
-        lastIrrigatedDate,
-        fertilizerType,
-        prevCrop,
-        waterQuality,
-        soilPh,
-        organicCarbon,
-        nitrogenLevel,
-        phosphorusLevel,
-        potassiumLevel,
-        soilMoisture,
-        lastFungicideDate,
-      } = body;
-
-      // Parse symptoms (may be JSON string or comma-separated)
-      let symptoms = body.symptoms || [];
-      if (typeof symptoms === 'string') {
-        try {
-          symptoms = JSON.parse(symptoms);
-        } catch {
-          symptoms = symptoms.split(',').map((s) => s.trim()).filter(Boolean);
-        }
-      }
-
-      // Parse symptomOnsetDays (optional integer)
-      const symptomOnsetDays = body.symptomOnsetDays ? parseInt(body.symptomOnsetDays, 10) || null : null;
-
-      // ── 2. Validate required fields ────────────────────────────────────────
-      if (!pincode || !cropType || !growthStage) {
-        cleanupFiles(uploadedFiles);
-        return sendError(res, 'pincode, cropType, and growthStage are required', 400);
-      }
-
-      const pincodeNum = String(pincode).replace(/\D/g, '');
-      if (pincodeNum.length !== 6) {
-        cleanupFiles(uploadedFiles);
-        return sendError(res, 'Invalid pincode — must be 6 digits', 400);
-      }
-
-      // ── 3. Fetch weather + soil data in parallel ───────────────────────────
-      const [weatherData, soilData] = await Promise.allSettled([
-        getWeatherData(pincodeNum),
-        Promise.resolve(getSoilData(pincodeNum)),
-      ]);
-
-      const weather = weatherData.status === 'fulfilled' ? weatherData.value : null;
-      const soil = soilData.status === 'fulfilled' ? soilData.value : null;
-
-      if (!weather) {
-        // Weather is important but not fatal — AI can still work with soil data
-        console.warn('[CropDisease] Weather fetch failed:', weatherData.reason?.message);
-      }
-
-      // ── 4. Call AI prediction ──────────────────────────────────────────────
-      // Build typed image objects — client sends imageType_0, imageType_1, ... alongside each file
-      // Valid types: field_view | whole_plant | close_up | underside | other
-      const VALID_IMAGE_TYPES = ['field_view', 'whole_plant', 'close_up', 'underside', 'other'];
-      const images = uploadedFiles.map((f, idx) => {
-        const rawType = body[`imageType_${idx}`] || body.imageType || 'other';
-        const type = VALID_IMAGE_TYPES.includes(rawType) ? rawType : 'other';
-        return { path: f.path, type };
-      });
-
-      const prediction = await predictCropDisease(
-        {
-          pincode: pincodeNum,
-          cropType, growthStage, variety, sowingDate, fieldArea,
-          irrigationMethod, lastIrrigatedDate, fertilizerType, prevCrop, waterQuality,
-          soilPh, organicCarbon, nitrogenLevel, phosphorusLevel, potassiumLevel, soilMoisture,
-          lastFungicideDate, symptoms, symptomOnsetDays,
-          weather, soilData: soil,
-        },
-        images,
-      );
-
-      // ── 5. Cleanup temp images ─────────────────────────────────────────────
-      cleanupFiles(uploadedFiles);
-
-      // ── 6. Persist report to database ─────────────────────────────────────
-      // Awaited so the saved row's id can be returned (lets the farmer share
-      // the report with a Krushi Kendra seller from the result screen).
-      let savedReportId = null;
-      try {
-        const saved = await prisma.cropDiseaseReport.create({
-          data: {
-            userId:          req.user.id,
-            pincode:         pincodeNum,
-            cropType,
-            growthStage,
-            variety:         variety    || null,
-            fieldArea:       fieldArea  || null,
-            symptoms:        Array.isArray(symptoms) ? symptoms : [],
-            imageCount:      images.length,
-            overallRisk:     prediction.overall_risk     ?? prediction.overallRisk     ?? 0,
-            riskLevel:       prediction.risk_level       ?? prediction.riskLevel       ?? 'UNKNOWN',
-            primaryDisease:  prediction.primary_disease?.name ?? prediction.primaryDisease?.name ?? 'Unknown',
-            confidenceScore: prediction.confidence_score ?? prediction.confidenceScore ?? 0,
-            fullReport:      prediction,
-            weatherSnapshot: weather ?? null,
-            soilSnapshot:    soil    ?? null,
-          },
-        });
-        savedReportId = saved.id;
-      } catch (err) {
-        console.error('[CropDisease] Failed to save report:', err.message);
-      }
-
-      // ── 7. Return enriched response ────────────────────────────────────────
-      return sendSuccess(res, {
-        ...prediction,
-        reportId: savedReportId,
-        weatherSummary: weather
-          ? {
-              current: {
-                temp: weather.current.temp,
-                humidity: weather.current.humidity,
-                weatherDesc: weather.current.weatherDesc,
-                windSpeed: weather.current.windSpeed,
-                dewPoint: weather.current.dewPoint,
-              },
-              riskLevel: weather.weatherRisk.riskLevel,
-              riskFactors: weather.weatherRisk.riskFactors,
-              forecast3Days: weather.forecast.slice(0, 3),
-            }
-          : null,
-        soilSummary: soil
-          ? {
-              district: soil.district,
-              zone: `Zone ${soil.agroClimaticZone.id} — ${soil.agroClimaticZone.name}`,
-              soilType: soil.soil.soilType,
-              avgPH: soil.soil.soilPH?.avg,
-              organicCarbon: soil.soil.organicCarbon?.avg,
-              kvkContact: soil.kvkContact,
-            }
-          : null,
-      });
-    } catch (err) {
-      cleanupFiles(uploadedFiles);
-      console.error('[CropDisease] Prediction error:', err.message);
-
-      if (err.message?.includes('AI key configured')) {
-        return sendError(res, 'AI service not configured. Set GEMINI_API_KEY in .env (free).', 503);
-      }
-      if (err.status === 429) {
-        return sendError(res, 'AI service rate limit reached. Please try again in a moment.', 429);
-      }
-
-      return sendError(res, 'Prediction failed. Please try again.', 500);
-    }
-  },
-);
 
 // Pagination guard — bounds page/limit so a caller can't request take:1000000
 // (query bloat / memory DoS) or a negative skip (Prisma error).

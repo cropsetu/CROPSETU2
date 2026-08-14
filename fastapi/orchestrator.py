@@ -362,6 +362,16 @@ async def _run_diagnosis_inner(
             )
             ensemble_results = []
         if ensemble_results:
+            # Stamp the model that produced the PRIMARY result before fusing.
+            # ensemble_agent stamps `_model` on every member it runs, but the
+            # primary pass never did, and reconciler._model_id falls back to
+            # `_prompt_meta`, which carries only name/version/hash. The primary
+            # therefore resolved to the 1.0 default weight while the frontier
+            # voters it was supposed to be checked against were weighted — the
+            # cheap model got a free promotion in exactly the fusion it was
+            # escalated out of. token_info is the only place the resolved model
+            # id survives the diagnose stage.
+            diagnosis.setdefault("_model", tok_diagnosis.get("model") or "")
             fused = reconciler.fuse([diagnosis, *ensemble_results],
                                     crop=params.get("crop_name"),
                                     accuracy_weights=_MODEL_ACCURACY_WEIGHTS)

@@ -1,25 +1,28 @@
 """
 LLM Router — CropGuard Agentic AI
 
-Picks a Gemini model chain for a (stage, tier) and dispatches the call.
-Auto-falls back to the next model in the chain (e.g. Gemini Pro → Flash) on
-transient errors (429, 5xx, timeouts) or empty/unparseable output.
+WHAT ACTUALLY RUNS IN PRODUCTION: `dispatch_one_vision`, called by
+agents/ensemble_agent.py for each parallel voter, plus `describe_chains` for
+/health and the orchestrator's startup log. That is the whole live surface.
+
+Everything else here is the older stage/tier chain-walking design. CropSetu now
+selects models per FEATURE through agents/llm_dispatch.get_feature_config
+(AI_<FEATURE>_MODEL / admin App Settings), and the diagnose stage deliberately
+has NO cross-model fallback — a provider outage returns a clear
+service_unavailable instead of a weaker model's guess. `resolve_chain` survives
+only as the ensemble's member list.
+
+Two model-selection systems with one of them live is exactly how the
+4096-vs-8192 max_tokens divergence went unnoticed for so long (see
+_VISION_MAX_TOKENS below): the dead layer had its own ceiling that nobody
+reviewed alongside the live one. `dispatch_vision` — the chain-walking vision
+entry point, which had no caller at all — has been removed. `_run_chain` and
+`_is_transient` are kept: `_is_transient`'s error classification is good and
+worth sharing, and `_run_chain` is still exercised by tests/test_router.py.
 
 The router does NOT parse JSON or interpret responses — it just returns the
 raw text + accumulated token info. Agents own their own parsing + retry
 logic (e.g. disease_diagnosis_agent re-prompts on low confidence).
-
-Usage:
-    raw, tok, model_used = await dispatch_vision(
-        stage="diagnose",
-        tier="best",
-        system_prompt=SYSTEM_PROMPT,
-        user_prompt=user_ctx,
-        images_b64=images_b64,
-    )
-
-If every model in the chain fails, the last exception is re-raised so the
-caller can decide how to recover (typically: return _uncertain_fallback).
 """
 from __future__ import annotations
 
@@ -30,13 +33,12 @@ from typing import Awaitable, Callable
 import httpx
 
 from agents.llm_utils import (
-    call_gemini_text,
     call_gemini_vision,
     call_openai_vision,
     empty_token_info,
+    is_priced,
 )
 from agents.registry import (
-    MODEL_CATALOG,
     Stage,
     Tier,
     normalize_tier,
@@ -102,19 +104,41 @@ def _is_transient(exc: BaseException) -> bool:
 
 # ── Per-provider single-call adapters ────────────────────────────────────────
 
+# Every ensemble member runs the SAME diagnose prompt that
+# disease_diagnosis_agent.py sends at max_tokens=8192 with the comment "4096
+# truncates mid-response". This adapter hardcoded 4096, so the voters silently
+# truncated mid-JSON, _parse_json returned None, and ensemble_agent dropped the
+# member — with its input tokens already billed. The reconciler then fused 2
+# instead of 3-4, fell to plurality, capped confidence at 0.55 and asked the
+# farmer to consult his KVK. Same prompt, same ceiling: this is the pre-ship
+# rule that bug broke.
+_VISION_MAX_TOKENS = 8192
+
+
 async def _call_one_vision(
     model_id: str,
     system_prompt: str,
     user_prompt: str,
     images_b64: list[dict],
     temperature: float = 0.3,
+    max_tokens: int = _VISION_MAX_TOKENS,
 ) -> tuple[str, dict]:
+    # The ensemble picks its members from the registry, not from
+    # llm_dispatch.get_feature_config, so it bypasses that function's pricing
+    # guard. Check here too: an unpriced voter would spend real money against a
+    # daily cap that cannot see it. Dropping one member is a cost the reconciler
+    # already handles (it fuses N-1); an unmetered spend path is not.
+    if not is_priced(model_id):
+        raise ValueError(
+            f"Model {model_id!r} has no pricing row in agents.llm_utils._PRICING — "
+            f"refusing to dispatch an unmeterable call. Add a row to enable it."
+        )
     provider = provider_of(model_id)
     if provider == "gemini":
         return await call_gemini_vision(
             system_prompt, user_prompt, images_b64,
             GEMINI_API_KEY, model=model_id,
-            temperature=temperature, max_tokens=4096,
+            temperature=temperature, max_tokens=max_tokens,
         )
     if provider == "openai":
         # Cross-vendor ensemble voter only (registry restricts OpenAI to the
@@ -122,33 +146,12 @@ async def _call_one_vision(
         return await call_openai_vision(
             system_prompt, user_prompt, images_b64,
             OPENAI_API_KEY, model=model_id,
-            temperature=temperature, max_tokens=4096,
+            temperature=temperature, max_tokens=max_tokens,
         )
     raise ValueError(f"Model {model_id!r} (provider={provider}) has no vision adapter")
 
 
-# ── Public dispatchers ───────────────────────────────────────────────────────
-
-async def dispatch_vision(
-    *,
-    stage: Stage,
-    tier: str | None,
-    system_prompt: str,
-    user_prompt: str,
-    images_b64: list[dict],
-    temperature: float = 0.3,
-) -> tuple[str, dict, str]:
-    """
-    Run the configured vision-model chain for (stage, tier). Returns
-    (raw_text, accumulated_token_info, model_used). Raises if all
-    chain members fail (last exception is re-raised).
-    """
-    return await _run_chain(
-        stage=stage,
-        tier=tier,
-        runner=lambda m: _call_one_vision(m, system_prompt, user_prompt, images_b64, temperature),
-    )
-
+# ── Public dispatcher (the one live entry point) ─────────────────────────────
 
 async def dispatch_one_vision(
     *,
@@ -157,6 +160,7 @@ async def dispatch_one_vision(
     user_prompt: str,
     images_b64: list[dict],
     temperature: float = 0.3,
+    max_tokens: int = _VISION_MAX_TOKENS,
 ) -> tuple[str, dict]:
     """
     Call a SINGLE vision model — no chain, no fallback. Used by the
@@ -165,11 +169,17 @@ async def dispatch_one_vision(
     layer, so we deliberately skip router-style fallback here: one
     failed ensemble member just means N-1 votes for the reconciler.
     Raises whatever the underlying provider raised.
+
+    max_tokens defaults to the diagnose prompt's real ceiling (see
+    _VISION_MAX_TOKENS) so the ensemble matches the primary pass without every
+    caller having to remember to pass it.
     """
-    return await _call_one_vision(model_id, system_prompt, user_prompt, images_b64, temperature)
+    return await _call_one_vision(
+        model_id, system_prompt, user_prompt, images_b64, temperature, max_tokens
+    )
 
 
-# ── Core fallback loop ───────────────────────────────────────────────────────
+# ── Core fallback loop (no production caller; see the module docstring) ───────
 
 async def _run_chain(
     *,
@@ -242,13 +252,35 @@ async def _run_chain(
 
 # ── Introspection helpers (used by /health and by orchestrator logs) ────────
 
+# Which stages actually consult a chain at runtime, and who consults it. Ops was
+# being shown diagnose/treatment/report — all three of which resolve their model
+# through llm_dispatch.get_feature_config, not through a chain — while the ONE
+# chain that really executes, "ensemble", was missing from the output entirely.
+# That is backwards for a diagnostic endpoint: it advertised fallback behaviour
+# that cannot happen and hid the fan-out that can.
+_CHAIN_CONSUMERS = {
+    "diagnose":  "",  # flat AI_CROP_DIAGNOSE_MODEL dispatch, no fallback by design
+    "treatment": "",  # flat AI_CROP_TREATMENT_MODEL dispatch
+    "report":    "",  # template-only, no LLM step
+    "ensemble":  "agents.ensemble_agent.select",
+}
+
+
 def describe_chains(tier: str | None = None) -> dict:
-    """Return a structured view of which chain each stage will use. For logs/diag."""
+    """Return a structured view of the model chain for each stage. For logs/diag.
+
+    Keys `tier` and `chain` are unchanged for existing consumers
+    (orchestrator startup log, /health/details). `live` and `used_by` are new:
+    `live` is False for a stage whose chain no code path walks, so an operator
+    reading /health can tell an advisory listing from a real one.
+    """
     norm = normalize_tier(tier)
     return {
         stage: {
-            "tier":  norm,
-            "chain": resolve_chain(stage, norm),  # type: ignore[arg-type]
+            "tier":    norm,
+            "chain":   resolve_chain(stage, norm),  # type: ignore[arg-type]
+            "live":    bool(consumer),
+            "used_by": consumer or "none (model selected per-feature via llm_dispatch)",
         }
-        for stage in ("diagnose", "treatment", "report")
+        for stage, consumer in _CHAIN_CONSUMERS.items()
     }

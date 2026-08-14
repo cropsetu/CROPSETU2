@@ -110,6 +110,33 @@ function SectionHeader({ color, title }) {
   );
 }
 
+// One backend-translated strip from `report.local_blocks.blocks`.
+//
+// FastAPI composes five short native-language sentences per report and pays
+// Sarvam to translate them (report_generator_agent._attach_local_blocks). Until
+// now they were read ONLY inside buildReportHTML() — the share/PDF path — so a
+// Marathi farmer with the app in मराठी saw Marathi headings over raw English LLM
+// output ("Circular brown lesions with concentric rings…", "FRAC M03") and the
+// sentences he could actually read were sitting unread in the payload unless he
+// tapped Share and opened the PDF. Same guard as the PDF path, same five keys.
+//
+// Chemical names, doses and FRAC codes are token-protected upstream and come
+// back in English by design — a translated brand name is dangerous at the
+// dealer's counter — so this strip is a companion to each section, never a
+// replacement for it.
+function LocalStrip({ text, langName, lang }) {
+  if (!text) return null;
+  return (
+    <View style={D.localStrip}>
+      <View style={D.localStripHead}>
+        <Ionicons name="language-outline" size={KICON.xs} color={KHET.primary} />
+        <Text style={D.localStripLang}>{langName || lang}</Text>
+      </View>
+      <Text style={D.localStripText}>{text}</Text>
+    </View>
+  );
+}
+
 function InfoRow({ icon, iconColor = KHET.mutedForeground, label, value }) {
   return (
     <View style={D.infoRow}>
@@ -238,6 +265,18 @@ export default function DiagnosisResultScreen({ navigation, route }) {
   const rawSoil            = fullWeather.raw_soil     || {};
   const rawForecast        = fullWeather.raw_forecast || [];
 
+  // ── Backend-translated section strips ────────────────────────────────────
+  // Hoisted out of buildReportHTML() so the PDF and the on-screen report read
+  // ONE definition of "is there a native-language version of this report" —
+  // they used to disagree, because only the PDF had the read at all.
+  // The wrapper keys (language / language_name / blocks) and the five block
+  // keys are a pinned contract with report_generator_agent.py.
+  const localBlocks   = full.local_blocks || {};
+  const localLang     = localBlocks.language || '';
+  const localLangName = localBlocks.language_name || '';
+  const localStrips   = localBlocks.blocks || {};
+  const showLocal     = !!localLang && localLang !== 'en' && Object.keys(localStrips).length > 0;
+  const localOf       = (key) => (showLocal ? (localStrips[key] || '') : '');
 
   const buildReportHTML = () => {
     const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -249,12 +288,8 @@ export default function DiagnosisResultScreen({ navigation, route }) {
     const isBilingual = language && language !== 'en';
     const langLabel = isBilingual ? `${langNative} (${langObj.name}) + English` : 'English';
 
-    // Backend-translated per-section strips (from FastAPI report_generator local_blocks)
-    const localBlocks = full.local_blocks || {};
-    const localLang = localBlocks.language || '';
-    const localLangName = localBlocks.language_name || '';
-    const localStrips = localBlocks.blocks || {};
-    const showLocal = localLang && localLang !== 'en' && Object.keys(localStrips).length > 0;
+    // Backend-translated per-section strips — derivation hoisted to the render
+    // scope above so this PDF path and the on-screen report cannot drift.
     const localStrip = (key, label) => (showLocal && localStrips[key])
       ? `<div class="local-msg" lang="${localLang}"><b>${esc(label)} — ${esc(localLangName)}</b>${esc(localStrips[key])}</div>`
       : '';
@@ -1300,6 +1335,11 @@ ${(() => {
             </View>
           </View>
 
+          {/* Native-language summary of the whole report, directly under the hero. */}
+          <View style={D.localStripHolder}>
+            <LocalStrip text={localOf('summary')} langName={localLangName} lang={localLang} />
+          </View>
+
           {/* ═══════════════════════════════════════════════════════════════════
               SCANNED IMAGE — What you submitted vs what AI detected
               ═══════════════════════════════════════════════════════════════════ */}
@@ -1370,8 +1410,20 @@ ${(() => {
                   </View>
                 </View>
               </View>
+              {/* Native-language reading of the detection itself (name + confidence
+                  + whether to start treating or confirm with a KVK first). */}
+              <LocalStrip text={localOf('diagnosis')} langName={localLangName} lang={localLang} />
             </View>
           )}
+
+          {/* When there is no submitted photo on screen the diagnosis strip has no
+              host section above, so it rides here instead — the farmer must never
+              lose it just because the report was opened from history. */}
+          {scannedImageUris.length === 0 && localOf('diagnosis') ? (
+            <View style={D.localStripHolder}>
+              <LocalStrip text={localOf('diagnosis')} langName={localLangName} lang={localLang} />
+            </View>
+          ) : null}
 
           {/* ═══════════════════════════════════════════════════════════════════
               SECTION 2 — WHAT TO DO THIS WEEK (Action Checklist)
@@ -1453,6 +1505,17 @@ ${(() => {
               </View>
             </View>
           )}
+
+          {/* Native-language treatment line. Rendered in its own holder rather
+              than inside the spray card because the block also exists when there
+              is no registered chemical for this crop/disease pair — in that case
+              it carries the PPE + pre-harvest-interval instruction, which is the
+              most safety-critical sentence on the screen. */}
+          {!isHealthy ? (
+            <View style={D.localStripHolder}>
+              <LocalStrip text={localOf('treatment')} langName={localLangName} lang={localLang} />
+            </View>
+          ) : null}
 
           {/* ═══════════════════════════════════════════════════════════════════
               SECTION 4 — ROOT CAUSES
@@ -1585,6 +1648,14 @@ ${(() => {
               </View>
             </View>
           )}
+
+          {/* Native-language "what happens next" — recovery window and when to
+              re-inspect. These two blocks belong together and sit with the
+              follow-up/prevention section they describe. */}
+          <View style={D.localStripHolder}>
+            <LocalStrip text={localOf('prognosis')} langName={localLangName} lang={localLang} />
+            <LocalStrip text={localOf('follow_up')} langName={localLangName} lang={localLang} />
+          </View>
 
           {prevention ? (
             <View style={D.section}>
@@ -1973,6 +2044,25 @@ const D = StyleSheet.create({
 
   // ── Section headers ──
   section: { marginTop: KSPACE.s16, marginHorizontal: KGUTTER.base },
+
+  // ── Native-language strips (report.local_blocks) ──
+  // The holder collapses to nothing when LocalStrip returns null, so an English
+  // report (or one where Sarvam no-opped) renders byte-identically to before.
+  localStripHolder: { marginHorizontal: KGUTTER.base, gap: KSPACE.s8 },
+  localStrip: {
+    marginTop: KSPACE.s10,
+    backgroundColor: withAlpha(KHET.primary, 0.06),
+    borderRadius: KRADIUS.r12, padding: KSPACE.s12, gap: KSPACE.s6,
+    borderWidth: KBORDER.hairline, borderColor: withAlpha(KHET.primary, 0.18),
+  },
+  localStripHead: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6 },
+  localStripLang: {
+    fontSize: 10, fontWeight: '900', letterSpacing: 0.8,
+    color: KHET.primary, textTransform: 'uppercase',
+  },
+  // Indic scripts sit taller than Latin at the same point size; the extra
+  // line-height keeps Devanagari matras and Tamil/Malayalam loops from clipping.
+  localStripText: { fontSize: 14, lineHeight: 22, color: KHET.foreground },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8, marginBottom: KSPACE.s10 },
   sectionDot: { ...circle(6) },
   sectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 1.2, color: KHET.mutedForeground, textTransform: 'uppercase' },

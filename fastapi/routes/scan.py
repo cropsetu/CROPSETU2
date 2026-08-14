@@ -26,6 +26,7 @@ from jobs.queue import (
     enqueue_diagnosis,
     get_job_status,
     get_job_owner,
+    get_job_idem_key,
     lookup_job_for_key,
     bind_idempotency,
 )
@@ -107,6 +108,22 @@ def _scan_key(request: Request) -> str:
 _scan_limiter = make_limiter(_scan_key)
 
 
+def _unwrap_replay(stored: dict) -> tuple[str | None, dict]:
+    """Split a stored done-replay entry into (job_id, report).
+
+    The stored envelope is {"job_id": ..., "data": <report>}. It has to carry
+    the job id because Express keys its "already settled this scan" Redis claim
+    on it (`scan_settled:${jobId}`) — a replay that hands back a report with no
+    job id makes that claim unreachable, so the farmer is debited 3 credits a
+    second time and a duplicate CropDiseaseReport row is written for a scan they
+    already have. Entries written before the envelope existed are bare reports;
+    tolerate them rather than 500 on a cache straddling the deploy.
+    """
+    if isinstance(stored, dict) and "job_id" in stored and isinstance(stored.get("data"), dict):
+        return (stored.get("job_id") or None), stored["data"]
+    return None, stored
+
+
 @router.post(
     "/ai/scan",
     dependencies=[Depends(verify_signed_request)],
@@ -123,6 +140,10 @@ async def ai_scan(request: Request):
     response includes status="done" + the cached `data` so the client can
     skip the polling round-trip. If it maps to an in-flight job, the
     response includes status="queued"|"running" with the existing job_id.
+
+    `job_id` is present on BOTH replay branches (null only for entries cached
+    before the envelope carried one) — the Express proxy keys its
+    already-settled claim on it and re-charges the farmer without it.
     """
     try:
         body = await request.json()
@@ -154,15 +175,27 @@ async def ai_scan(request: Request):
         #      it inline (mobile sees done immediately, no polling).
         #   2. Otherwise, if a job is already in flight for this key, return
         #      that job_id rather than spawning a new one.
+        # The key is namespaced per user: it is a replay token, and an
+        # un-namespaced one would let farmer B's identical retry be answered
+        # with farmer A's report (and let A's in-flight job suppress B's scan).
         idem_header = request.headers.get("idempotency-key")
-        cache_key = idempotency.cache_key({"params": params, "images": cleaned_images}, idem_header)
+        cache_key = idempotency.cache_key(
+            {"params": params, "images": cleaned_images},
+            idem_header,
+            user_id=user_id or None,
+        )
         cached_result = idempotency.get(cache_key)
         if cached_result is not None:
-            logger.info("[Scan] idempotent inline replay key=...%s", cache_key[-24:])
+            replay_job_id, replay_report = _unwrap_replay(cached_result)
+            logger.info(
+                "[Scan] idempotent inline replay key=...%s job_id=%s",
+                cache_key[-24:], replay_job_id,
+            )
             return JSONResponse({
                 "success": True,
+                "job_id":  replay_job_id,
                 "status":  "done",
-                "data":    cached_result,
+                "data":    replay_report,
                 "_idempotent_replay": True,
             })
 
@@ -261,14 +294,16 @@ async def ai_scan_status(request: Request, job_id: str = Path(..., min_length=4,
         # subsequent same-body POST shortcuts inline.
         if snap["status"] == "done" and isinstance(snap.get("data"), dict):
             try:
-                # The bound idempotency-key is stored job-side; we don't
-                # know it here, so just key by the result's request_id if
-                # present. Callers using idempotency-key headers will
-                # already have it cached via the worker completion path
-                # in a future refinement; this is a best-effort cache.
-                req_id = ((snap["data"].get("meta") or {}).get("request_id"))
-                if req_id:
-                    idempotency.set(f"idem:scan:hdr:{req_id}", snap["data"])
+                # Promote under the key the SUBMIT actually built, recovered
+                # from the job → key reverse binding. The previous version
+                # invented `idem:scan:hdr:{request_id}`, a shape cache_key()
+                # never produces, so nothing could ever read it back and the
+                # inline-replay branch in ai_scan() was dead code.
+                # The stored envelope carries the job id so the replay can hand
+                # it to Express, whose settle-claim is keyed on it.
+                submit_key = get_job_idem_key(job_id)
+                if submit_key:
+                    idempotency.set(submit_key, {"job_id": job_id, "data": snap["data"]})
             except Exception:
                 pass
         return JSONResponse(response)

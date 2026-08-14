@@ -39,14 +39,21 @@ import {
   submitFastAPIScan,
   getFastAPIScanStatus,
   flattenFastAPIDiagnosis,
+  scanNonResultKind,
   extractUsage as extractFastAPIUsage,
 } from '../services/ai.scan.fastapi.js';
-import { checkCredits, deductCredits, getCreditSummary, reserveCredits, settleCredits, releaseCredits } from '../services/aiCredit.service.js';
+// checkCredits is deliberately NOT imported any more: every credit gate in this
+// file now goes through the atomic reserve/settle/release triple. deductCredits
+// survives for the one path with no hold to reconcile — a scan poll that lands
+// after the submitting process lost its pendingScans entry.
+import { deductCredits, getCreditSummary, reserveCredits, settleCredits, releaseCredits } from '../services/aiCredit.service.js';
 import { buildFarmerChatContext } from '../services/chatContext.service.js';
 import { getWeatherData } from '../services/weather.service.js';
 import { aiChatLimit, aiScanLimit, aiVoiceLimit } from '../middleware/redisRateLimit.js';
 import { idempotency } from '../middleware/idempotency.js';
 import redis from '../config/redis.js';
+import { withLeaderLock } from '../utils/leaderLock.js';
+import { safetyRefusalLine } from '../constants/aiSafetyCopy.js';
 import { uploadBuffer } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
 import logger from '../utils/logger.js';
@@ -203,6 +210,49 @@ setInterval(() => {
   // (AI cooldown now lives in Redis with a TTL — no in-memory map to sweep.)
 }, MAP_CLEANUP_INTERVAL).unref();
 
+// ── farm_profile override allowlist ───────────────────────────────────────────
+// The client could override ANY key on the server-built profile, uncapped, and
+// chat_service interpolates the whole profile verbatim into the writer system
+// prompt — ABOVE the SECURITY paragraph that says "the farmer's message is user
+// data". So an un-allowlisted key was a prompt-injection channel carrying
+// system-prompt privilege on the one surface with no downstream safety
+// validator. Exactly these keys survive (a superset of what
+// chat_service._compute_profile reads); everything else is dropped silently.
+//
+// `state` and `district` are deliberately NOT on this list. They stopped being
+// personalization the moment chat_service._gate_state started keying
+// STATE_LEVEL_BANS and FULLY_ORGANIC_STATES off farm_profile.state: a client
+// sending state:"Maharashtra" for a Kerala farmer would re-enable every active
+// Kerala bans, and state:"Karnataka" for a Sikkim farmer would defeat the
+// fully-organic check. Jurisdiction is law, so it is server-derived only — read
+// from the Farm/User record in buildEnrichedProfile below, where the client
+// cannot reach it.
+const FARM_PROFILE_ALLOWED_KEYS = new Set([
+  'language', 'village', 'taluka',
+  'farmerName', 'farmName', 'experience', 'landSize',
+  'soilType', 'irrigationType', 'waterSources',
+  'crops', 'soil', 'recentCycles', 'history', 'priorIssues',
+]);
+const FARM_PROFILE_MAX_STR   = 200;  // per interpolated string
+const FARM_PROFILE_MAX_ARRAY = 5;    // crops[] and friends
+
+// Depth-limited cap so a 100 KB blob, or a newline-stuffed fake "FarmMind:" turn,
+// can't ride in on a nested field the top-level cap never sees.
+function _capProfileValue(v, depth = 0) {
+  if (typeof v === 'string') return v.slice(0, FARM_PROFILE_MAX_STR);
+  if (Array.isArray(v)) {
+    if (depth >= 2) return undefined;
+    return v.slice(0, FARM_PROFILE_MAX_ARRAY).map(x => _capProfileValue(x, depth + 1));
+  }
+  if (v && typeof v === 'object') {
+    if (depth >= 2) return undefined;
+    const out = {};
+    for (const [k, val] of Object.entries(v)) out[k] = _capProfileValue(val, depth + 1);
+    return out;
+  }
+  return v;  // number | boolean | null
+}
+
 // ── Shared farm context enrichment (used by /chat, /voice, /scan/:id/chat) ───
 async function buildEnrichedProfile(userId, frontendOverrides = {}) {
   const farmCtx = await buildFarmerChatContext(userId);
@@ -235,12 +285,15 @@ async function buildEnrichedProfile(userId, frontendOverrides = {}) {
       history: farmCtx.history,
       priorIssues: farmCtx.history?.priorIssues || [],
     };
-    // Only let frontend values override if non-empty
-    if (frontendOverrides) {
+    // Only let ALLOWLISTED, length-capped frontend values override, and only
+    // when non-empty (see FARM_PROFILE_ALLOWED_KEYS above).
+    if (frontendOverrides && typeof frontendOverrides === 'object') {
       for (const [k, v] of Object.entries(frontendOverrides)) {
-        if (v !== '' && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0)) {
-          enrichedProfile[k] = v;
-        }
+        if (!FARM_PROFILE_ALLOWED_KEYS.has(k)) continue;
+        if (v === '' || v === null || v === undefined) continue;
+        if (Array.isArray(v) && v.length === 0) continue;
+        const capped = _capProfileValue(v);
+        if (capped !== undefined) enrichedProfile[k] = capped;
       }
     }
   } else if (farmCtx.farmer) {
@@ -281,6 +334,96 @@ function setCachedEnrichedProfile(key, profile) {
   }
 }
 
+// ── Conversation history window ───────────────────────────────────────────────
+// `orderBy: asc` + `take: 20` returns the OLDEST 20 rows ever written, not the
+// latest 20: after ten exchanges the model's most recent context was still turn
+// 10, so "aur kitna dalu?" got re-answered against the opening question or an
+// invented referent — and because the FastAPI quality rules demand an exact
+// dose, it invented a dose for a guessed product. It is also the worst token
+// profile in the system, pinning the least-relevant turns into every later
+// prompt and re-billing them forever.
+//
+// Read newest-first, walk back until the turn cap OR the token budget is spent,
+// then reverse to chronological — the shape chat_service's `history[-20:]`
+// tail-slice expects (oldest first, newest last). Same idiom as the nested-
+// message loader in GET /conversations/:id below.
+// The turn cap alone bounds nothing: chat_service caps each entry at 2000 chars
+// (_CHAT_HISTORY_MAX_LEN), so 20 turns is a 40,000-char / ~13K-token worst case
+// re-sent and re-billed on EVERY turn of an extra_long conversation. The token
+// budget is the real bound; it leaves all 20 turns intact for the normal short
+// answers and keeps ~6 of the longest ones, which is well past what referent
+// resolution ("aur kitna dalu?") needs.
+const HISTORY_MAX_TURNS  = 20;
+const HISTORY_MAX_TOKENS = 3000;
+// ~3 chars/token is deliberately pessimistic: Gemini tokenises Devanagari and
+// Tamil far denser than Latin, and under-counting is exactly what let a bloated
+// window get re-billed on every turn.
+const _estTokens = (s) => Math.ceil(String(s || '').length / 3);
+
+async function loadRecentHistory(delegate, conversationId) {
+  const rows = await delegate.findMany({
+    where:   { conversationId },
+    orderBy: { createdAt: 'desc' },
+    take:    HISTORY_MAX_TURNS,
+    select:  { role: true, content: true },
+  });
+  const window = [];
+  let budget = HISTORY_MAX_TOKENS;
+  for (const row of rows) {              // newest → oldest
+    const cost = _estTokens(row.content);
+    // The newest turn always survives: one long answer must not erase the whole
+    // context, and FastAPI truncates each entry at 2000 chars regardless.
+    if (window.length > 0 && cost > budget) break;
+    budget -= cost;
+    window.push(row);
+  }
+  return window.reverse();               // back to chronological (oldest → newest)
+}
+
+// ── Safety-refusal substitution (shared by every /ai/chat consumer) ───────────
+// When safety.validator excises every sentence of a reply, FastAPI returns an
+// EMPTY reply and sets token_info.safety.replaced_with_fallback. It deliberately
+// does NOT send its own fallback sentence: that constant is hardcoded English,
+// and on the voice path Express hands the reply straight to Sarvam TTS with the
+// farmer's language tag — an English refusal spoken in a Marathi voice, on the
+// one surface built for people who cannot read. So the copy is chosen here (see
+// constants/aiSafetyCopy.js) and `safetyRefusal` rides the wire for clients that
+// would rather render their own localized line on screen.
+function applySafetyRefusal(result, lang, label, userId) {
+  const refused = result?.token_info?.safety?.replaced_with_fallback === true;
+  let reply = result?.reply;
+  if (refused && !String(reply || '').trim()) {
+    reply = safetyRefusalLine(lang);
+  }
+  logAiProvenance(result?.token_info, label, userId);
+  return { reply, safetyRefusal: refused };
+}
+
+// ── Safety + prompt provenance ───────────────────────────────────────────────
+// chat_service stamps token_info.safety (blockers, warnings, registry versions)
+// and token_info.prompts (name/version/content-hash per prompt that shaped the
+// answer) on EVERY turn, and Express destructured only total_tokens/model/
+// cost_usd — so the whole audit trail was produced and then dropped on the
+// floor. There is no metadata column on AIMessage/VoiceMessage to persist it
+// into (a schema change is its own migration), so the log is the trail: a
+// blocked chemical is a WARN with the codes and the prompt versions that
+// produced it, which is what makes "why did it say that" and "replay this answer
+// against the prompt that wrote it" answerable at all. Clean turns log nothing —
+// this must not become a per-turn line in production.
+function logAiProvenance(tokenInfo, label, userId) {
+  const safety = tokenInfo?.safety;
+  if (!safety || !(safety.blocker_count > 0)) return;
+  logger.warn(
+    '[%s] safety gate fired (user=%s blockers=%d warnings=%d replaced=%s codes=%s ' +
+    'registry=%s state_bans=%s prompts=%s)',
+    label, userId, safety.blocker_count, safety.warning_count || 0,
+    safety.replaced_with_fallback === true,
+    (safety.blockers || []).map(b => b?.code).filter(Boolean).join(','),
+    safety.registry_version, safety.state_bans_version,
+    (tokenInfo?.prompts || []).map(p => `${p?.name}@${p?.version}#${p?.hash}`).join(' '),
+  );
+}
+
 // ── Voice streaming pipeline (Socket.IO) ──────────────────────────────────────
 // Consumes the FastAPI SSE token stream, synthesises each finished sentence via
 // Sarvam TTS, and pushes audio chunks to the user's socket room as they're ready —
@@ -291,11 +434,23 @@ function setCachedEnrichedProfile(key, profile) {
 const VOICE_TTS_MIN_CHARS = 12;   // don't synthesise tiny fragments
 const VOICE_TTS_MAX_CHARS = 180;  // force a cut if one "sentence" runs long
 
-// Pull the next complete sentence from `buf`. Cuts at the first . ! ? । or newline;
-// force-cuts at a space past MAX; on flush emits whatever remains. Returns
-// [sentence|null, remainingBuf].
+// A `.` is only a sentence end when it is NOT a decimal point. Cutting inside
+// "Spray Mancozeb 2.5 g per litre" produced two separate Sarvam TTS clips — the
+// farmer heard "…at two." then "five grams per litre", each with sentence-final
+// falling intonation and an inter-clip gap, and mixed at 2 g/L (under-dose) or
+// 5 g/L (phytotoxicity + MRL breach). This fired on essentially every dosing
+// answer, because the FastAPI quality rules force an exact dose and Indian EC
+// label rates are almost always decimal.
+//   \p{Nd} (not \d) so Devanagari ०-९ in a Hindi/Marathi reply is covered too.
+//   The lookahead also keeps "Rs.500" and "No.3" whole.
+//   । and \n are never decimal separators, so they stay unguarded.
+const VOICE_SENTENCE_BOUNDARY = /(?<!\p{Nd})[.!?](?=\s|$)|[।\n]/u;
+
+// Pull the next complete sentence from `buf`. Cuts at the first sentence-final
+// . ! ? (see above), । or newline; force-cuts at a space past MAX; on flush emits
+// whatever remains. Returns [sentence|null, remainingBuf].
 function _nextVoiceSentence(buf, flush) {
-  const at = buf.search(/[.!?।\n]/);
+  const at = buf.search(VOICE_SENTENCE_BOUNDARY);
   if (at !== -1) {
     const sentence = buf.slice(0, at + 1).trim();
     const rest = buf.slice(at + 1);
@@ -333,6 +488,12 @@ async function runVoiceStreamPipeline(ctx) {
   let followUps = [];
   let tokenInfo = null;
   let settled = false;
+  // chat_service sets `partial: true` on the `final` frame when generation blew
+  // up mid-stream. Express used to read only reply/followUps/token_info, so a
+  // truncated answer ("…mix 2" and nothing else) was spoken, persisted as a
+  // completed assistant turn, and billed as complete with no voice:error to tell
+  // the client. Capture it and degrade the turn instead.
+  let partial = false;
 
   const ttsAndEmit = async (text) => {
     const t = (text || '').trim();
@@ -374,6 +535,7 @@ async function runVoiceStreamPipeline(ctx) {
         finalReply = evt.reply || fullReply;
         followUps  = Array.isArray(evt.followUps) ? evt.followUps : [];
         tokenInfo  = evt.token_info || null;
+        partial    = evt.partial === true;
       } else if (evt.type === 'error') {
         throw new Error(evt.error || 'voice stream error');
       }
@@ -391,35 +553,80 @@ async function runVoiceStreamPipeline(ctx) {
       await ttsAndEmit(tail);
     }
 
-    const reply       = (finalReply || fullReply || '').trim();
+    // The safety gate excised every sentence, so FastAPI deliberately sent back
+    // an EMPTY reply rather than its own English fallback line (that line would
+    // otherwise have been synthesised in the farmer's voice, in English, on the
+    // surface built for people who cannot read). Substitute the server-owned
+    // refusal and speak it, so the turn ends with an answer instead of silence.
+    const safetyRefusal = tokenInfo?.safety?.replaced_with_fallback === true;
+    let reply = (finalReply || fullReply || '').trim();
+    logAiProvenance(tokenInfo, 'AI Voice stream', userId);
+    if (safetyRefusal && !reply) {
+      reply = safetyRefusalLine(ttsLang);
+      await ttsAndEmit(reply);
+    }
     const voiceTokens = tokenInfo?.total_tokens || 0;
     const voiceModel  = tokenInfo?.model || voiceChatModel || 'unknown';
+    // getBudgetSummary sums totalCostUsd/monthlyCostUsd, so a voice turn that
+    // writes only totalTokens is invisible to the admin budget view.
+    const voiceCost   = Number(tokenInfo?.cost_usd || 0);
 
-    await prisma.voiceMessage.createMany({
-      data: [
-        { conversationId: convo.id, role: 'user',      content: transcription,
-          language: detectedLanguage || 'hi-IN' },
-        { conversationId: convo.id, role: 'assistant', content: reply,
-          language: detectedLanguage || 'hi-IN', modelUsed: voiceModel },
-      ],
-    });
+    // A partial reply is NOT a completed turn: persisting it as one feeds a
+    // truncated, half-a-dose answer back as authoritative context on the next
+    // turn. The farmer's question is still persisted — he did ask it.
+    const turnRows = [
+      { conversationId: convo.id, role: 'user', content: transcription,
+        language: detectedLanguage || 'hi-IN' },
+      ...(partial ? [] : [{
+        conversationId: convo.id, role: 'assistant', content: reply,
+        language: detectedLanguage || 'hi-IN', modelUsed: voiceModel,
+      }]),
+    ];
+    await prisma.voiceMessage.createMany({ data: turnRows });
     await prisma.voiceConversation.update({
       where: { id: convo.id },
-      data:  { updatedAt: new Date(), messageCount: { increment: 2 } },
+      data:  { updatedAt: new Date(), messageCount: { increment: turnRows.length } },
     });
     const vToday = new Date(); vToday.setUTCHours(0, 0, 0, 0);
     prisma.aIUsage.upsert({
       where:  { userId_date: { userId, date: vToday } },
-      create: { userId, date: vToday, chatCount: 1, totalTokens: voiceTokens, monthlyTokens: voiceTokens },
-      update: { chatCount: { increment: 1 }, totalTokens: { increment: voiceTokens }, monthlyTokens: { increment: voiceTokens } },
+      create: { userId, date: vToday, chatCount: 1, totalTokens: voiceTokens, totalCostUsd: voiceCost,
+                monthlyTokens: voiceTokens, monthlyCostUsd: voiceCost },
+      update: { chatCount: { increment: 1 },
+                totalTokens: { increment: voiceTokens }, totalCostUsd: { increment: voiceCost },
+                monthlyTokens: { increment: voiceTokens }, monthlyCostUsd: { increment: voiceCost } },
     }).catch(() => {});
-    await settleCredits(userId, 'ai_voice', {
-      reserved: hold.reserved, holdId: hold.holdId, tokensUsed: voiceTokens, model: voiceModel,
-      description: `Voice chat: ${voiceModel}`, costUsd: tokenInfo?.cost_usd,
-    });
+
+    // Is anyone still in the room? This pipeline runs AFTER the HTTP response
+    // returned, so a farmer on patchy 4G whose socket dropped mid-generation was
+    // charged in full for audio emitted into nothing — and the catch's refund
+    // only fires when !settled, i.e. never once we reached this line.
+    // fetchSockets() is adapter-aware, so it counts this user's sockets across
+    // every replica. If the lookup itself fails, treat the room as LIVE: the
+    // Gemini + Sarvam spend was real and refund-on-infra-blip is a free-call
+    // vector (same reasoning as the scan settle-claim below).
+    let roomLive = true;
+    try {
+      roomLive = (await io.in(`user:${userId}`).fetchSockets()).length > 0;
+    } catch (e) {
+      logger.warn('[AI Voice stream] occupancy check failed, settling anyway: %s', e?.message);
+    }
+
+    if (roomLive) {
+      await settleCredits(userId, 'ai_voice', {
+        reserved: hold.reserved, holdId: hold.holdId, tokensUsed: voiceTokens, model: voiceModel,
+        description: `Voice chat: ${voiceModel}`, costUsd: tokenInfo?.cost_usd,
+      });
+    } else {
+      await releaseCredits(userId, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId }).catch(() => {});
+      logger.info('[AI Voice stream] room empty at completion — hold refunded (user=%s)', userId);
+    }
+    // BOTH branches finalise the hold — the catch below must not refund again.
     settled = true;
 
-    emit('voice:done', { reply, followUps, conversationId: convo.id });
+    // `partial` is always present so the client can test a defined field on both
+    // branches; nothing to emit when the room is empty.
+    if (roomLive) emit('voice:done', { reply, followUps, conversationId: convo.id, partial, safetyRefusal });
   } catch (err) {
     // Refund the hold for any incomplete turn (cancel, partial, or total failure).
     if (!settled) {
@@ -578,13 +785,8 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
       });
     }
 
-    // ── 2. Load history from Prisma ──────────────────────────────────────────
-    const history = await prisma.aIMessage.findMany({
-      where:   { conversationId: convo.id },
-      orderBy: { createdAt: 'asc' },
-      take: 20,
-      select: { role: true, content: true },
-    });
+    // ── 2. Load history from Prisma (newest-first + reverse; see loadRecentHistory) ─
+    const history = await loadRecentHistory(prisma.aIMessage, convo.id);
 
     // ── 3. Enrich with farm context (optional — user can toggle off) ────────
     let enrichedProfile = {};
@@ -594,6 +796,20 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
         enrichedProfile = profile;
         logger.debug({ farmCtx: { farmerName: enrichedProfile.farmerName, farmName: enrichedProfile.farmName, soilType: enrichedProfile.soilType, cropsCount: enrichedProfile.crops?.length } }, '[AI Chat] Farm context sent to AI');
       } catch (ctxErr) { logger.warn('[AI Chat] Farm context failed (non-fatal): %s', ctxErr.message); }
+    } else {
+      // The "Farm context" toggle (AIChatScreen → "Farm context off") governs
+      // PERSONALIZATION — crops, soil, cycle history. It must not govern
+      // jurisdiction: chat_service's chemical gate keys the state bans and the
+      // fully-organic check off farm_profile.state, and with an empty profile
+      // is_banned() skips STATE_LEVEL_BANS entirely. That put the exact scenario
+      // the gate was built for — a Kerala farmer told to spray Chlorpyrifos,
+      // which nothing but Kerala blocks — back within one toggle's reach. So the
+      // ban key is always sent, and only the personal block is withheld.
+      try {
+        const { profile } = await buildEnrichedProfile(req.user.id);
+        if (profile.state)    enrichedProfile.state    = profile.state;
+        if (profile.district) enrichedProfile.district = profile.district;
+      } catch (ctxErr) { logger.warn('[AI Chat] jurisdiction lookup failed (non-fatal): %s', ctxErr.message); }
     }
 
     // Inject user's preferred language into farm profile for AI response localisation
@@ -613,9 +829,15 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
       ...(hasImage ? { image: { data: image.data, mime_type: image.mime_type || 'image/jpeg' } } : {}),
     }, req.user.id, 120_000, req.id);  // Indic chat models can be slow; output is capped server-side
 
-    const { reply, type, structured_data: structuredData, token_info: tokenInfo, followUps } = result;
+    const { type, structured_data: structuredData, token_info: tokenInfo, followUps } = result;
+    const { reply, safetyRefusal } =
+      applySafetyRefusal(result, enrichedProfile.language || language, 'AI Chat', req.user.id);
     const tokens = tokenInfo?.total_tokens || 0;
     const model  = tokenInfo?.model || 'unknown';
+    // settings.service.getBudgetSummary sums totalCostUsd/monthlyCostUsd. Chat
+    // wrote only totalTokens, so the admin budget view saw scan spend and
+    // nothing else. recordScanUsage() is the reference shape.
+    const cost   = Number(tokenInfo?.cost_usd || 0);
 
     // ── SETTLE FIRST ─────────────────────────────────────────────────────────
     // The LLM call above already incurred real spend, so the DB persistence
@@ -652,8 +874,11 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
       const today = new Date(); today.setUTCHours(0, 0, 0, 0);
       prisma.aIUsage.upsert({
         where:  { userId_date: { userId: req.user.id, date: today } },
-        create: { userId: req.user.id, date: today, chatCount: 1, totalTokens: tokens, monthlyTokens: tokens },
-        update: { chatCount: { increment: 1 }, totalTokens: { increment: tokens }, monthlyTokens: { increment: tokens } },
+        create: { userId: req.user.id, date: today, chatCount: 1, totalTokens: tokens, totalCostUsd: cost,
+                  monthlyTokens: tokens, monthlyCostUsd: cost },
+        update: { chatCount: { increment: 1 },
+                  totalTokens: { increment: tokens }, totalCostUsd: { increment: cost },
+                  monthlyTokens: { increment: tokens }, monthlyCostUsd: { increment: cost } },
       }).catch(() => {});
     } catch (persistErr) {
       logger.warn('[AI Chat] persist failed (reply still returned to user): %s', persistErr.message);
@@ -663,6 +888,7 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
       reply, type, card: structuredData ?? null, conversationId: convo.id,
       followUps: Array.isArray(followUps) ? followUps : [],
       tokenUsage: { totalTokens: tokens, model },
+      ...(safetyRefusal ? { safetyRefusal: true } : {}),
     });
 
   } catch (err) {
@@ -699,10 +925,12 @@ router.post('/soil-card-ocr', authenticate, aiChatLimit, async (req, res) => {
     return sendError(res, 'attached image is too large', 413);
   }
 
-  // Reject before the (pricier) vision call if the user is out of credits.
-  const creditCheck = await checkCredits(req.user.id, 'ai_soil_ocr');
-  if (!creditCheck.allowed) {
-    return sendError(res, creditCheck.message || 'Insufficient AI credits', 402);
+  // RESERVE atomically before the (pricier) vision call. checkCredits was a
+  // plain read-then-return: two concurrent OCRs both read the same balance and
+  // both passed. reserveCredits is the conditional decrement, so only one can.
+  const hold = await reserveCredits(req.user.id, 'ai_soil_ocr');
+  if (!hold.ok) {
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
   }
 
   try {
@@ -714,21 +942,31 @@ router.post('/soil-card-ocr', authenticate, aiChatLimit, async (req, res) => {
 
     const tokens = result?.token_info?.total_tokens || 0;
     const model  = result?.token_info?.model || 'gemini';
+    const cost   = Number(result?.token_info?.cost_usd || 0);
 
-    // Track usage + deduct credits (non-blocking).
+    // Track usage (non-blocking), then SETTLE the hold against actual tokens.
     const today = new Date(); today.setUTCHours(0, 0, 0, 0);
     prisma.aIUsage.upsert({
       where:  { userId_date: { userId: req.user.id, date: today } },
-      create: { userId: req.user.id, date: today, totalTokens: tokens, monthlyTokens: tokens },
-      update: { totalTokens: { increment: tokens }, monthlyTokens: { increment: tokens } },
+      create: { userId: req.user.id, date: today, totalTokens: tokens, totalCostUsd: cost,
+                monthlyTokens: tokens, monthlyCostUsd: cost },
+      update: { totalTokens: { increment: tokens }, totalCostUsd: { increment: cost },
+                monthlyTokens: { increment: tokens }, monthlyCostUsd: { increment: cost } },
     }).catch(() => {});
-    const _ocrDed = await deductCredits(req.user.id, 'ai_soil_ocr', { model, tokensUsed: tokens, description: 'Soil card OCR' });
-    if (_ocrDed?.error) logger.warn('[Soil OCR] credit deduct failed for user=%s: %s', req.user.id, _ocrDed.error);
+    const _ocrSettle = await settleCredits(req.user.id, 'ai_soil_ocr', {
+      reserved: hold.reserved, holdId: hold.holdId, tokensUsed: tokens, model,
+      description: 'Soil card OCR', costUsd: cost,
+    });
+    if (_ocrSettle?.error) logger.warn('[Soil OCR] credit settle failed for user=%s: %s', req.user.id, _ocrSettle.error);
 
     return sendSuccess(res, result);
   } catch (err) {
+    // Vision call failed → refund the hold so the user isn't charged.
+    await releaseCredits(req.user.id, 'ai_soil_ocr', { reserved: hold.reserved, holdId: hold.holdId }).catch(() => {});
     logger.error('[Soil OCR] %s', err.message);
-    if (err.name === 'AbortError')
+    // postSignedJSON rethrows an aborted fetch as a plain Error with .status=504,
+    // never name==='AbortError' — branch on status (same fix as /chat).
+    if (err.status === 504 || err.name === 'AbortError')
       return sendError(res, 'Card reading timed out. Please try again or enter values manually.', 504);
     return sendError(res, 'Could not read the card. Please enter values manually.', 500);
   }
@@ -743,6 +981,17 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
   if (!file) return sendError(res, 'audio file is required (field name: audio)', 400);
 
   const cleanUp = (p) => { try { fs.unlinkSync(p); } catch { /* ignore */ } };
+
+  // Cooldown BEFORE the pipeline, matching /chat. The check used to sit after
+  // Sarvam STT, so a double-tap paid for a transcription that was then thrown
+  // away — and it answered 200 with the excuse in `reply`, which the voice screen
+  // renders as an AI bubble ("Please wait 5s…" spoken back as advice). A 429 is
+  // what the client's error mapper already understands.
+  const wait = await checkCooldown(req.user.id);
+  if (wait > 0) {
+    cleanUp(file.path);
+    return sendError(res, `Please wait ${wait}s before sending another message.`, 429);
+  }
 
   // RESERVE credits atomically before the expensive STT/LLM pipeline (race-free).
   const hold = await reserveCredits(req.user.id, 'ai_voice');
@@ -807,16 +1056,6 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
       return sendError(res, 'Could not transcribe audio — please speak clearly and try again.', 422);
     }
 
-    const wait = await checkCooldown(req.user.id);
-    if (wait > 0) {
-      await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
-      return sendSuccess(res, {
-        transcription, detectedLanguage,
-        reply: `Please wait ${wait}s before sending another message.`,
-        type: 'text', card: null, conversationId: null,
-      });
-    }
-
     // ── Create/find voice conversation (separate from text chats) ────────────
     let farmProfile = {};
     try { farmProfile = JSON.parse(req.body.farmProfile || '{}'); } catch { /* ignore */ }
@@ -838,12 +1077,7 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
       });
     }
 
-    const history = await prisma.voiceMessage.findMany({
-      where:   { conversationId: convo.id },
-      orderBy: { createdAt: 'asc' },
-      take: 20,
-      select: { role: true, content: true },
-    });
+    const history = await loadRecentHistory(prisma.voiceMessage, convo.id);
 
     // ── Enrich with farm context (same as /chat), cached per conversation ─────
     // convo.id already exists here, so turn 1 seeds the cache and turns 2+ skip
@@ -915,9 +1149,12 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
       ...(voiceChatModel ? { model: voiceChatModel } : {}),
     }, req.user.id, 55_000, req.id);
 
-    const { reply, type, structured_data: structuredData, token_info: voiceTokenInfo, followUps } = result;
+    const { type, structured_data: structuredData, token_info: voiceTokenInfo, followUps } = result;
+    const { reply, safetyRefusal } =
+      applySafetyRefusal(result, detectedLanguage, 'AI Voice', req.user.id);
     const voiceTokens = voiceTokenInfo?.total_tokens || 0;
     const voiceModel  = voiceTokenInfo?.model || 'unknown';
+    const voiceCost   = Number(voiceTokenInfo?.cost_usd || 0);   // getBudgetSummary sums this
 
     // ── Start TTS NOW, concurrently with persistence + settle ─────────────────
     // TTS (~1–2s) is the slowest remaining step and only needs `reply`. Running it
@@ -954,8 +1191,11 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
       const vToday = new Date(); vToday.setUTCHours(0, 0, 0, 0);
       prisma.aIUsage.upsert({
         where:  { userId_date: { userId: req.user.id, date: vToday } },
-        create: { userId: req.user.id, date: vToday, chatCount: 1, totalTokens: voiceTokens, monthlyTokens: voiceTokens },
-        update: { chatCount: { increment: 1 }, totalTokens: { increment: voiceTokens }, monthlyTokens: { increment: voiceTokens } },
+        create: { userId: req.user.id, date: vToday, chatCount: 1, totalTokens: voiceTokens, totalCostUsd: voiceCost,
+                  monthlyTokens: voiceTokens, monthlyCostUsd: voiceCost },
+        update: { chatCount: { increment: 1 },
+                  totalTokens: { increment: voiceTokens }, totalCostUsd: { increment: voiceCost },
+                  monthlyTokens: { increment: voiceTokens }, monthlyCostUsd: { increment: voiceCost } },
       }).catch(() => {});
       // SETTLE the hold against actual tokens (awaited).
       await settleCredits(req.user.id, 'ai_voice', {
@@ -973,6 +1213,7 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
       card: structuredData ?? null, conversationId: convo.id,
       followUps: Array.isArray(followUps) ? followUps : [],
       ...(audioData ? { audio: audioData } : {}),
+      ...(safetyRefusal ? { safetyRefusal: true } : {}),
     });
 
   } catch (err) {
@@ -980,7 +1221,9 @@ router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpl
     await releaseCredits(req.user.id, 'ai_voice', { reserved: hold.reserved, holdId: hold.holdId });
     try { if (req.file?.path) fs.unlinkSync(req.file.path); } catch { /* ignore */ }
     logger.error('[AI Voice] %s', err.message);
-    if (err.name === 'AbortError') return sendError(res, 'AI response timed out.', 504);
+    // postSignedJSON rethrows an aborted fetch as a plain Error with .status=504,
+    // never name==='AbortError' — branch on status (same fix as /chat).
+    if (err.status === 504 || err.name === 'AbortError') return sendError(res, 'AI response timed out.', 504);
     return sendError(res, 'Voice processing failed. Please try again.', 500);
   }
 });
@@ -1171,14 +1414,184 @@ router.get('/conversations/:id', authenticate, async (req, res) => {
 // for callers that don't need this (web upload, internal tooling).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Module-scope map: jobId -> { userId, farmCtx, weatherData, t0, sessionId }.
+// Module-scope map: jobId -> { userId, farmCtx, weatherData, t0, hold, ... }.
 // Holds the context the poll endpoint needs to flatten + persist when the
 // FastAPI job completes. Cleared on success/failure or 30 min TTL sweep.
 const pendingScans = new Map();
+
+// ── Cross-process scan hold context ──────────────────────────────────────────
+// pendingScans is a MODULE-SCOPE Map, so the credit hold /scan/submit reserves
+// used to live on exactly one process. GET /scan/job/:jobId very often lands on
+// a different replica (server.js mounts the Socket.IO Redis adapter and wraps the
+// crons in withLeaderLock — this deployment is multi-instance), and there `ctx`
+// is undefined, `hold` is null, and _persistDoneScan falls through to
+// deductCredits. That charges a SECOND 3 credits while the original hold stays
+// debited on the submitting process until a sweep no redeploy survives: 6
+// credits out, 3 of them never reconciled. Before the hold existed, a lost
+// context cost exactly one charge.
+//
+// So the part of the context that is MONEY is mirrored into Redis under the job
+// id. farmCtx / weatherData / imageUrlsPromise stay in the Map on purpose — a
+// live Promise cannot be serialised, and losing them only costs the Prisma
+// persist, never a credit.
+//
+// Exactly-once handover is the whole point: settleCredits and releaseCredits both
+// mutate the balance unconditionally (neither is idempotent), so two replicas
+// must never both receive the same hold. The claim is therefore MULTI GET+DEL,
+// which Redis executes atomically — the loser gets null and does nothing.
+const SCAN_CTX_PREFIX   = 'scan_ctx:';
+// The claim deadline the sweep enforces. Matches the pendingScans TTL above.
+const SCAN_CTX_STALE_MS = 30 * 60_000;
+// The KEY deliberately outlives that deadline, so the sweep still has a window in
+// which to FIND an abandoned hold and refund it. A key that merely expired would
+// leave the 3 credits debited with nothing left pointing at them.
+const SCAN_CTX_TTL_SEC  = 45 * 60;
+const _scanCtxKey = (jobId) => `${SCAN_CTX_PREFIX}${jobId}`;
+
+async function saveScanHoldCtx(jobId, userId, hold) {
+  if (!jobId || !hold?.ok || redis?.status !== 'ready') return false;
+  try {
+    await redis.set(
+      _scanCtxKey(jobId),
+      JSON.stringify({ userId, holdId: hold.holdId, reserved: hold.reserved, t0: Date.now() }),
+      'EX', SCAN_CTX_TTL_SEC,
+    );
+    return true;
+  } catch (e) {
+    logger.warn('[Scan] hold ctx persist failed for job=%s: %s', jobId, e?.message);
+    return false;
+  }
+}
+
+/** Read WITHOUT claiming — used for the ownership pre-check and the sweep scan. */
+async function peekScanHoldCtx(jobId) {
+  if (!jobId || redis?.status !== 'ready') return null;
+  try {
+    const raw = await redis.get(_scanCtxKey(jobId));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+/**
+ * Atomically take ownership of a job's hold. Returns a `hold`-shaped object
+ * ({ ok, reserved, holdId }) or null when there is nothing to claim.
+ *
+ * A non-owner's claim is put straight back rather than dropped: evicting it would
+ * strand the real owner's 3 credits, which is the exact failure the ownership
+ * check upstream exists to prevent.
+ */
+async function claimScanHoldCtx(jobId, userId) {
+  if (!jobId || redis?.status !== 'ready') return null;
+  let raw;
+  try {
+    const res = await redis.multi().get(_scanCtxKey(jobId)).del(_scanCtxKey(jobId)).exec();
+    raw = res?.[0]?.[1];
+  } catch (e) {
+    logger.warn('[Scan] hold ctx claim failed for job=%s: %s', jobId, e?.message);
+    return null;
+  }
+  if (!raw) return null;
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return null; }
+  if (userId && parsed.userId !== userId) {
+    redis.set(_scanCtxKey(jobId), raw, 'EX', SCAN_CTX_TTL_SEC)
+      .catch(e => logger.warn('[Scan] hold ctx restore failed for job=%s: %s', jobId, e?.message));
+    return null;
+  }
+  return { ok: true, reserved: parsed.reserved, holdId: parsed.holdId, userId: parsed.userId };
+}
+
+/**
+ * Refund holds whose job was never polled to completion (app killed, permanent
+ * network loss). The in-process sweep below can only see holds THIS process still
+ * owns, so the Redis-owned ones need their own pass. Leader-locked so N replicas
+ * don't each SCAN the keyspace every 5 minutes.
+ */
+async function sweepAbandonedScanHolds() {
+  if (redis?.status !== 'ready') return;
+  await withLeaderLock('scan-hold-sweep', async () => {
+    let cursor = '0';
+    do {
+      const [next, keys] = await redis.scan(cursor, 'MATCH', `${SCAN_CTX_PREFIX}*`, 'COUNT', 200);
+      cursor = next;
+      for (const key of keys) {
+        const jobId = key.slice(SCAN_CTX_PREFIX.length);
+        const peek = await peekScanHoldCtx(jobId);
+        if (!peek || Date.now() - (peek.t0 || 0) < SCAN_CTX_STALE_MS) continue;
+        const stale = await claimScanHoldCtx(jobId, peek.userId);
+        if (!stale?.ok) continue;   // another poll claimed it between peek and claim
+        await releaseCredits(peek.userId, 'ai_scan_gemini', { reserved: stale.reserved, holdId: stale.holdId })
+          .catch(e => logger.warn('[Scan] abandoned hold release failed for job=%s: %s', jobId, e?.message));
+        logger.info('[Scan] abandoned hold refunded (job=%s user=%s)', jobId, peek.userId);
+      }
+    } while (cursor !== '0');
+  }, { ttlMs: 4 * 60_000 });
+}
+
 setInterval(() => {
-  const cutoff = Date.now() - 30 * 60_000;
-  for (const [k, v] of pendingScans) if ((v.t0 || 0) < cutoff) pendingScans.delete(k);
+  const cutoff = Date.now() - SCAN_CTX_STALE_MS;
+  for (const [k, v] of pendingScans) {
+    if ((v.t0 || 0) >= cutoff) continue;
+    pendingScans.delete(k);
+    // Only ever set when the Redis mirror failed at submit (see /scan/submit) —
+    // otherwise Redis owns the hold and sweepAbandonedScanHolds refunds it.
+    if (v.hold?.ok) {
+      releaseCredits(v.userId, 'ai_scan_gemini', { reserved: v.hold.reserved, holdId: v.hold.holdId })
+        .catch(e => logger.warn('[Scan] stale hold release failed: %s', e?.message));
+    }
+  }
+  sweepAbandonedScanHolds().catch(e => logger.warn('[Scan] abandoned-hold sweep failed: %s', e?.message));
 }, 5 * 60_000).unref?.();
+
+// ── Scan form → FastAPI params normalisation ──────────────────────────────────
+// The diagnose prompt renders `Affected Area: {affected_area_percent}%`, so a
+// string, a label, or an out-of-range number puts garbage in front of the model.
+// The client's `affectedArea` stays a translated human LABEL (flattenFastAPIDiagnosis
+// reads it for affectedAreaEstimate) — this is the separate numeric field.
+// An UNFILLED field must stay null, not become 0: Number(null) and Number('')
+// are both 0, and "Affected Area: 0%" reads to the model as "no visible damage"
+// on a photo the farmer took precisely because there is damage.
+function _scanAffectedPercent(v) {
+  if (v === null || v === undefined || String(v).trim() === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+// The two numeric CROP & FIELD fields, emitted ONLY when the farmer actually
+// filled them in.
+//
+// disease_diagnosis_agent renders `Field Area: {params.get('farm_size_acres','?')}
+// acres` and `Affected Area: {params.get('affected_area_percent','?')}%`, and a
+// dict default fires only when the key is ABSENT. Sending an explicit null — which
+// is what _scanAffectedPercent correctly returns for an unfilled band — therefore
+// printed "Affected Area: None%" and "Field Area: None acres" to the model, not
+// the intended "?". Nothing between here and the prompt strips nulls:
+// routes/scan._sanitize_params only cleans the free-text keys.
+function _scanNumericParams(farmCtx) {
+  const pct  = _scanAffectedPercent(farmCtx.affectedAreaPercent);
+  const acres = farmCtx.landSize || farmCtx.farmSizeAcres || null;
+  return {
+    ...(acres === null || acres === undefined || acres === '' ? {} : { farm_size_acres: acres }),
+    ...(pct === null ? {} : { affected_area_percent: pct }),
+  };
+}
+
+// Fast (cheap chain) vs Best (frontier chain). Anything the client sends that
+// isn't exactly 'best' is coerced to the cheap chain — matching FastAPI's own
+// normalize_tier — so a typo can never silently buy the expensive fan-out.
+function _scanTier(v) {
+  return String(v || '').trim().toLowerCase() === 'best' ? 'best' : 'fast';
+}
+
+// The scan form collects symptom CHIPS and a free-text note, and step-2
+// validation accepts either. `additionalSymptoms || symptoms.join()` threw the
+// chips away whenever the farmer also typed something — and this is the only
+// symptom channel into the vision prompt. Join both.
+function _scanSymptoms(farmCtx) {
+  const chips = Array.isArray(farmCtx.symptoms) ? farmCtx.symptoms.filter(Boolean).join(', ') : '';
+  return [chips, farmCtx.additionalSymptoms].filter(Boolean).join('. ');
+}
 
 // Branch on Content-Type so the same route accepts both shapes:
 //   • application/json     → mobile multi-image path: { images: [{data, mime_type}], farmContext }
@@ -1214,11 +1627,19 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
       }
     } catch (e) { logger.warn('[AI Scan/submit] limit check failed (non-fatal): %s', e.message); }
   }
-  const creditCheck = await checkCredits(req.user.id, 'ai_scan_gemini');
-  if (!creditCheck.allowed) {
+  // RESERVE atomically. checkCredits was a plain read-then-return, so two
+  // concurrent submits with DIFFERENT form values both read the same balance and
+  // both passed (the double-tap case is separately deduped by the job binding).
+  // The hold travels with the job: _persistDoneScan settles it, the TTL sweep
+  // above and every early return below release it.
+  const hold = await reserveCredits(req.user.id, 'ai_scan_gemini');
+  if (!hold.ok) {
     cleanupFile();
-    return sendError(res, creditCheck.message || 'Insufficient AI credits', 402);
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
   }
+  const releaseScanHold = () =>
+    releaseCredits(req.user.id, 'ai_scan_gemini', { reserved: hold.reserved, holdId: hold.holdId })
+      .catch(e => logger.warn('[AI Scan/submit] hold release failed: %s', e?.message));
 
   let farmCtx = {};
   try {
@@ -1254,12 +1675,26 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
     soil_type:           farmCtx.soilType || '',
     irrigation_system:   farmCtx.irrigationType || farmCtx.irrigation || '',
     previous_crop:       farmCtx.previousCrop || '',
-    farm_size_acres:     farmCtx.landSize || farmCtx.farmSizeAcres || null,
-    affected_area_percent: farmCtx.affectedAreaPercent || null,
-    symptom_description: farmCtx.additionalSymptoms || (Array.isArray(farmCtx.symptoms) ? farmCtx.symptoms.join(', ') : ''),
+    // OMITTED, never null: the diagnose prompt renders these with
+    // `params.get(k, '?')`, and a dict default only fires when the key is
+    // ABSENT — sending null puts the literal "Affected Area: None%" and
+    // "Field Area: None acres" in front of the model. _scanAffectedPercent
+    // returning null is exactly the "farmer left it blank" case.
+    ..._scanNumericParams(farmCtx),
+    symptom_description: _scanSymptoms(farmCtx),
     recent_pesticide_used: farmCtx.recentPesticideUsed || '',
     fertilizer_history:  farmCtx.fertilizerHistory || '',
     planting_date:       farmCtx.plantingDate || null,
+    // Collected on step 2 of the scan form and previously dropped on the floor;
+    // the diagnose prompt's CROP & FIELD block now renders all three (onset speed
+    // and the seasonal window are what separate look-alike lesions).
+    // `village` is deliberately NOT forwarded: state + district already drive
+    // zone_for(), nothing downstream reads it, and params is persisted verbatim
+    // by diagnosis_repo while security/pii._SENSITIVE_KEYS does not redact it —
+    // so it would be PII widening the surface for no diagnostic gain.
+    first_noticed:       farmCtx.firstNoticed || '',
+    season:              farmCtx.season || '',
+    month:               farmCtx.month || '',
     field_latitude:      Number.isFinite(lat) ? lat : null,
     field_longitude:     Number.isFinite(lon) ? lon : null,
     state:               farmCtx.state || '',
@@ -1272,7 +1707,7 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
     farmer_contact:      farmCtx.farmerContact || farmCtx.phone || '',
     farm_address:        farmCtx.farmAddress || '',
     language:            farmCtx.language || 'en',
-    tier:                farmCtx.tier || 'fast',
+    tier:                _scanTier(farmCtx.tier),
     ...(modelDiagnose  ? { model_diagnose: modelDiagnose }   : {}),
     ...(modelTreatment ? { model_treatment: modelTreatment } : {}),
     // Second-opinion ensemble toggle (App Settings → ai.diagnose.ensemble). Forwarded
@@ -1306,15 +1741,25 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
     if (result.status === 'done' && result.data) {
       cleanupFile();
       const flat = flattenFastAPIDiagnosis(result.data, farmCtx);
+      // result.jobId is what lets the `scan_settled:${jobId}` claim inside
+      // _persistDoneScan fire, so a replay can't re-charge; `hold` is settled or
+      // released in there, never left dangling.
       const finalised = await _persistDoneScan({
         userId: req.user.id, farmCtx, weatherData, raw: result.data, flat, imageUrlsPromise,
-        jobId: result.jobId,
+        jobId: result.jobId, hold,
       });
       logger.info('[Express/Scan/submit] idempotent inline replay — user=%s elapsed=%dms', req.user.id, Date.now() - t0);
       return sendSuccess(res, { status: 'done', ...finalised });
     }
 
-    pendingScans.set(result.jobId, { userId: req.user.id, farmCtx, weatherData, t0, imageUrlsPromise });
+    // Mirror the hold to Redis so the poll can settle it from ANY replica; the
+    // Map keeps it only when that write failed (Redis down), because two live
+    // copies of one hold is how you settle and release the same ledger row.
+    const ctxPersisted = await saveScanHoldCtx(result.jobId, req.user.id, hold);
+    pendingScans.set(result.jobId, {
+      userId: req.user.id, farmCtx, weatherData, t0, imageUrlsPromise,
+      hold: ctxPersisted ? null : hold,
+    });
     cleanupFile();
     logger.info('[Express/Scan/submit] enqueued jobId=%s user=%s images=%d',
       result.jobId, req.user.id, isJson ? req.body.images.length : 1);
@@ -1322,6 +1767,8 @@ router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
 
   } catch (err) {
     cleanupFile();
+    // Nothing was enqueued, so nothing will ever settle this hold.
+    await releaseScanHold();
     logger.error({ err }, '[Express/Scan/submit] enqueue failed');
     const st = err.status || 500;
     const msg = st === 402 ? 'You’ve used all your AI credits for this month. They refill on the 1st.'
@@ -1346,11 +1793,37 @@ router.get('/scan/job/:jobId', authenticate, async (req, res) => {
     return sendError(res, 'Could not fetch scan status. Please try again.', err.status || 502);
   }
 
+  // ── Ownership FIRST, before either terminal branch touches the context ──────
+  // The `failed` branch used to `pendingScans.delete(jobId)` unconditionally and
+  // only ownership-check the refund, so a stranger polling a known jobId evicted
+  // the owner's context — and with it the only pointer to the owner's 3-credit
+  // hold, which the sweep then never released. FastAPI's own IDOR guard fails
+  // open when the job→owner mapping is gone (Redis outage), so this is the check
+  // that has to hold.
+  const ctx = pendingScans.get(jobId);
+  if (ctx && ctx.userId !== req.user.id) {
+    return sendError(res, 'Job not owned by this user', 403);
+  }
+  if (!ctx) {
+    const peek = await peekScanHoldCtx(jobId);
+    if (peek && peek.userId !== req.user.id) {
+      return sendError(res, 'Job not owned by this user', 403);
+    }
+  }
+
   if (snap.status === 'queued' || snap.status === 'running') {
     return sendSuccess(res, { status: snap.status });
   }
   if (snap.status === 'failed') {
     pendingScans.delete(jobId);
+    // The pipeline produced nothing — refund the hold /scan/submit reserved,
+    // wherever it lives (Map when the Redis mirror failed, Redis otherwise).
+    const failedHold = ctx?.hold?.ok ? ctx.hold : await claimScanHoldCtx(jobId, req.user.id);
+    if (failedHold?.ok) {
+      await releaseCredits(req.user.id, 'ai_scan_gemini', {
+        reserved: failedHold.reserved, holdId: failedHold.holdId,
+      }).catch(e => logger.warn('[Express/Scan/job] failed-job hold release: %s', e?.message));
+    }
     return sendError(res, snap.error || `Job ${jobId} failed`, 500);
   }
   if (snap.status !== 'done' || !snap.data) {
@@ -1358,21 +1831,23 @@ router.get('/scan/job/:jobId', authenticate, async (req, res) => {
   }
 
   // status === 'done': finalize.
-  const ctx = pendingScans.get(jobId);
-  if (ctx && ctx.userId !== req.user.id) {
-    return sendError(res, 'Job not owned by this user', 403);
-  }
   // Missing ctx means the submit was on a different process or server-restart
   // dropped it — we can still flatten the diagnosis but skip Prisma persist
-  // (since farmCtx is gone). The mobile still gets the rich report.
+  // (since farmCtx is gone). The mobile still gets the rich report, and the
+  // Redis-mirrored hold still settles instead of being charged a second time.
   const farmCtx = ctx?.farmCtx || {};
   const weatherData = ctx?.weatherData || null;
+  // Hand the hold over exactly ONCE. If _persistDoneScan throws before the
+  // delete below, the TTL sweep must not refund a hold that was already settled.
+  const scanHold = ctx?.hold?.ok ? ctx.hold : await claimScanHoldCtx(jobId, req.user.id);
+  if (ctx) ctx.hold = null;
   const flat = flattenFastAPIDiagnosis(snap.data, farmCtx);
   const finalised = await _persistDoneScan({
     userId: req.user.id, farmCtx, weatherData, raw: snap.data, flat,
     imageUrlsPromise: ctx?.imageUrlsPromise,
     skipPersist: !ctx,
     jobId,
+    hold: scanHold,
   });
   pendingScans.delete(jobId);
   return sendSuccess(res, { status: 'done', ...finalised });
@@ -1383,17 +1858,27 @@ router.get('/scan/job/:jobId', authenticate, async (req, res) => {
 // /scan/job/:jobId). Records usage, deducts credits, persists the
 // CropDiseaseReport, strips _fullReport for the wire response, and returns
 // the client-facing diagnosis dict.
-async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, imageUrlsPromise, skipPersist = false, jobId = null }) {
+async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, imageUrlsPromise, skipPersist = false, jobId = null, hold = null }) {
+  const releaseScanHold = () => (hold?.ok
+    ? releaseCredits(userId, 'ai_scan_gemini', { reserved: hold.reserved, holdId: hold.holdId })
+        .catch(e => logger.warn('[Scan] hold release failed: %s', e?.message))
+    : Promise.resolve());
+
   // Non-results must NOT be charged or persisted: a "retake the photo"
   // (needs_rescan) ran no diagnosis LLM, and a service_unavailable is the
   // graceful response when Gemini 503'd — the farmer got no analysis, so
   // charging 3 credits for it is wrong. Still return the report so the UI can
   // show the retry/rescan message.
-  const isNonResult = raw?.needs_rescan === true
-    || raw?.service_unavailable === true
-    || raw?.meta?.service_unavailable === true;
+  //
+  // The old test here was `raw?.needs_rescan === true`, a key the orchestrator
+  // never emits — it emits `report_id: "needs_rescan"` — so the rescan branch
+  // fell through and billed the 3-credit floor on zero token usage. Ask
+  // scanNonResultKind, which is keyed off what FastAPI actually sends; `flat`
+  // carries the same answer on to the client as `nonResult`.
+  const isNonResult = scanNonResultKind(raw) !== null;
   if (isNonResult) {
     logger.info('[Scan] non-result (rescan/service-unavailable) — not charging or persisting (user=%s job=%s)', userId, jobId || '-');
+    await releaseScanHold();
     const { _fullReport, ...diagnosisForClient } = flat;
     return { ...diagnosisForClient, _fullReport, reportId: null, weatherUsed: !!weatherData };
   }
@@ -1409,6 +1894,8 @@ async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, image
       const claimed = await redis.set(`scan_settled:${jobId}`, '1', 'EX', 86400, 'NX');
       if (!claimed) {
         logger.info('[Scan] job=%s already settled — returning report without re-charge/re-persist', jobId);
+        // Someone else already charged this job; this request's hold must go back.
+        await releaseScanHold();
         const { _fullReport, ...diagnosisForClient } = flat;
         return { ...diagnosisForClient, _fullReport, reportId: null, weatherUsed: !!weatherData, alreadySettled: true };
       }
@@ -1417,15 +1904,28 @@ async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, image
 
   const tokenUsage = (() => { const u = extractFastAPIUsage(raw); return { total_tokens: u.tokens, total_cost_usd: u.costUsd }; })();
   recordScanUsage(userId, tokenUsage).catch(() => {});
-  // Awaited so the credit debit is reliably recorded (was fire-and-forget — a
-  // failed write silently gave a free scan). deductCredits handles its own
+  // Awaited so the credit charge is reliably recorded (was fire-and-forget — a
+  // failed write silently gave a free scan). Both helpers handle their own
   // errors internally, so this never throws the scan away.
-  const _ded = await deductCredits(userId, 'ai_scan_gemini', {
-    model: raw?.meta?.model_diagnose || 'fastapi-agentic',
-    tokensUsed: tokenUsage.total_tokens,
-    description: `Crop scan: ${flat?.disease || 'analysis'}`,
-  });
-  if (_ded?.error) logger.warn('[Scan] credit deduct failed for user=%s: %s', userId, _ded.error);
+  //
+  // SETTLE when /scan/submit reserved a hold for this job; DEDUCT when it did
+  // not. A poll landing on another replica now still SETTLES — the hold is
+  // mirrored to `scan_ctx:${jobId}` and claimed atomically by the caller — so the
+  // deduct branch is left only for the case where Redis was down at BOTH submit
+  // and poll, i.e. no hold was ever recoverable. The settle-claim above
+  // guarantees exactly one of the two runs per jobId.
+  const scanModel = raw?.meta?.model_diagnose || 'fastapi-agentic';
+  const scanDesc  = `Crop scan: ${flat?.disease || 'analysis'}`;
+  const _charge = hold?.ok
+    ? await settleCredits(userId, 'ai_scan_gemini', {
+        reserved: hold.reserved, holdId: hold.holdId, tokensUsed: tokenUsage.total_tokens,
+        model: scanModel, description: scanDesc, costUsd: tokenUsage.total_cost_usd,
+      })
+    : await deductCredits(userId, 'ai_scan_gemini', {
+        model: scanModel, tokensUsed: tokenUsage.total_tokens,
+        description: scanDesc, costUsd: tokenUsage.total_cost_usd,
+      });
+  if (_charge?.error) logger.warn('[Scan] credit charge failed for user=%s: %s', userId, _charge.error);
 
   // Wait briefly for the parallel Cloudinary uploads to finish so the
   // report row carries the image URLs. Cap the wait so a slow CDN doesn't
@@ -1522,17 +2022,27 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
     }
   }
 
-  // Reject before expensive Gemini vision call if user is out of credits
-  const creditCheck = await checkCredits(req.user.id, 'ai_scan_gemini');
-  if (!creditCheck.allowed) {
+  // RESERVE atomically before the expensive Gemini vision call. checkCredits was
+  // a plain read-then-return, so two concurrent scans with different form values
+  // both read the same balance and both passed. Every early return below — and
+  // the outer catch — must release this hold.
+  const hold = await reserveCredits(req.user.id, 'ai_scan_gemini');
+  if (!hold.ok) {
     try { if (file?.path) fs.unlinkSync(file.path); } catch { /* ignore */ }
-    return sendError(res, creditCheck.message || 'Insufficient AI credits', 402);
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
   }
+  let scanSettled = false;
+  const releaseScanHold = () =>
+    releaseCredits(req.user.id, 'ai_scan_gemini', { reserved: hold.reserved, holdId: hold.holdId })
+      .catch(e => logger.warn('[Express/Scan] hold release failed: %s', e?.message));
 
   // ── Deduplication: if a scan is already in-flight for this user, reuse it ──
+  // The in-flight scan owns its own hold and will settle it; this request's hold
+  // buys nothing, so give it back before returning the shared result.
   if (inflightScans.has(req.user.id)) {
     logger.debug('[Express/Scan] Dedup — reusing in-flight scan for user=%s', req.user.id);
     try { if (file?.path) fs.unlinkSync(file.path); } catch { /* ignore */ }
+    await releaseScanHold();
     try {
       const cached = await inflightScans.get(req.user.id);
       return sendSuccess(res, cached);
@@ -1610,12 +2120,18 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
         soil_type:           farmCtx.soilType || '',
         irrigation_system:   farmCtx.irrigationType || farmCtx.irrigation || '',
         previous_crop:       farmCtx.previousCrop || '',
-        farm_size_acres:     farmCtx.landSize || farmCtx.farmSizeAcres || null,
-        affected_area_percent: farmCtx.affectedAreaPercent || null,
-        symptom_description: farmCtx.additionalSymptoms || (Array.isArray(farmCtx.symptoms) ? farmCtx.symptoms.join(', ') : ''),
+        // See the /scan/submit builder: omitted rather than null, so the prompt's
+        // `params.get(k, '?')` default is the one that renders.
+        ..._scanNumericParams(farmCtx),
+        symptom_description: _scanSymptoms(farmCtx),
         recent_pesticide_used: farmCtx.recentPesticideUsed || '',
         fertilizer_history:  farmCtx.fertilizerHistory || '',
         planting_date:       farmCtx.plantingDate || null,
+        // See the /scan/submit builder — same three fields, same reason `village`
+        // is absent.
+        first_noticed:       farmCtx.firstNoticed || '',
+        season:              farmCtx.season || '',
+        month:               farmCtx.month || '',
         field_latitude:      Number.isFinite(lat) ? lat : null,
         field_longitude:     Number.isFinite(lon) ? lon : null,
         state:               farmCtx.state || '',
@@ -1625,7 +2141,7 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
         // Farmer-chosen quality tier — Fast (default) or Best. The
         // CropScanScreen sends this via farmContext; AsyncStorage persists
         // the last choice. FastAPI maps it to per-stage model chains.
-        tier:                farmCtx.tier || 'fast',
+        tier:                _scanTier(farmCtx.tier),
         ...(modelDiagnose  ? { model_diagnose: modelDiagnose }   : {}),
         ...(modelTreatment ? { model_treatment: modelTreatment } : {}),
         ...(ensembleEnabled !== undefined ? { ensemble: ensembleEnabled } : {}),
@@ -1684,61 +2200,43 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
       needsRescan = rawDiagnosis?.needs_rescan === true;
     }
 
-    // ── Record usage + deduct credits — usage is analytics (non-blocking),
-    //    the credit debit is AWAITED so spend is never silently lost. ──
+    // ── Record usage + settle credits — usage is analytics (non-blocking),
+    //    the credit charge is AWAITED so spend is never silently lost. ──
     //    A needs_rescan ("retake photo") or service_unavailable (Gemini 503)
     //    ran no real diagnosis, so it must NOT be charged. ──
     recordScanUsage(req.user.id, tokenUsage).catch(() => {});
-    const _scanNonResult = needsRescan
-      || rawDiagnosis?.service_unavailable === true
-      || rawDiagnosis?.meta?.service_unavailable === true;
+    // scanNonResultKind reads the FastAPI envelope (report_id / service_unavailable);
+    // `needsRescan` additionally covers the legacy in-Express Gemini path, whose
+    // predictor emits a top-level `needs_rescan: true` instead of a report_id.
+    const _scanNonResult = scanNonResultKind(rawDiagnosis) !== null || needsRescan;
     if (!_scanNonResult) {
-      const _scanDed = await deductCredits(req.user.id, 'ai_scan_gemini', {
+      const _scanSettle = await settleCredits(req.user.id, 'ai_scan_gemini', {
+        reserved: hold.reserved, holdId: hold.holdId,
         model: diagnosisMethod === 'fastapi-agentic'
           ? (rawDiagnosis?.meta?.model_diagnose || 'fastapi-agentic')
           : 'gemini-2.5-flash',
         tokensUsed: tokenUsage.total_tokens,
+        costUsd: tokenUsage.total_cost_usd,
         description: `Crop scan: ${diagnosis?.disease || 'analysis'}`,
       });
-      if (_scanDed?.error) logger.warn('[Scan] credit deduct failed for user=%s: %s', req.user.id, _scanDed.error);
+      scanSettled = true;
+      if (_scanSettle?.error) logger.warn('[Scan] credit settle failed for user=%s: %s', req.user.id, _scanSettle.error);
     }
 
     logger.debug('[Express/Scan] disease=%s conf=%s severity=%s treatments=%d',
       diagnosis.disease, diagnosis.confidence, diagnosis.severity, diagnosis.treatment?.length);
 
-    if (needsRescan) {
-      logger.info('[Express/Scan] needs_rescan — returning early');
-      // Still persist the (uncertain) diagnosis so the farmer can share it
-      // with a Krushi Kendra seller for a second opinion.
-      let rescanReportId = null;
-      try {
-        const riskLevel = (rawDiagnosis?.risk_level || diagnosis.severity || 'low').toUpperCase();
-        const riskScore = riskLevel === 'CRITICAL' ? 95 : riskLevel === 'HIGH' ? 75
-          : riskLevel === 'MODERATE' ? 45 : 15;
-        const saved = await prisma.cropDiseaseReport.create({
-          data: {
-            userId:          req.user.id,
-            pincode:         req.user.pincode || farmCtx.pincode || '000000',
-            cropType:        farmCtx.cropName || diagnosis.crop || 'Unknown',
-            growthStage:     farmCtx.cropAge != null ? String(farmCtx.cropAge) : 'unknown',
-            variety:         farmCtx.variety || null,
-            fieldArea:       farmCtx.landSize || null,
-            symptoms:        Array.isArray(farmCtx.symptoms) ? farmCtx.symptoms : [],
-            imageCount:      1,
-            overallRisk:     riskScore,
-            riskLevel,
-            primaryDisease:  diagnosis.disease || 'Needs rescan',
-            confidenceScore: (diagnosis.confidence || 0) / 100,
-            diagnosisMethod,
-            fullReport:      rawDiagnosis,
-            weatherSnapshot: weatherData || null,
-          },
-        });
-        rescanReportId = saved.id;
-      } catch (e) {
-        logger.warn('[AI Scan] needs_rescan report save failed: %s', e.message);
-      }
-      return { ...diagnosis, sessionId: null, reportId: rescanReportId, weatherUsed: false };
+    if (_scanNonResult) {
+      logger.info('[Express/Scan] non-result (rescan/service-unavailable) — not charging or persisting');
+      // This used to persist a CropDiseaseReport "so the farmer can share it with
+      // a Krushi Kendra seller" — but a non-result has no diagnosis to share: it
+      // wrote a junk "Needs rescan" row into Scan History at 0% confidence and
+      // handed back a reportId that made the failure look like a real report.
+      // Return it unpersisted; `diagnosis.nonResult` tells the client to show the
+      // retake/retry affordance instead of navigating to the report screen.
+      await releaseScanHold();
+      scanSettled = true;   // hold finalised (refunded) — the outer catch must not refund again
+      return { ...diagnosis, sessionId: null, reportId: null, weatherUsed: false };
     }
 
     // ── Create scan chat session for follow-up Q&A (non-blocking — DB failures must not kill response) ──
@@ -1822,6 +2320,9 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
     return sendSuccess(res, result);
   } catch (err) {
     try { if (file?.path) fs.unlinkSync(file.path); } catch { /* ignore */ }
+    // Refund unless the promise already finalised the hold (settle or non-result
+    // release) — double-handling one hold would mint the user free credits.
+    if (!scanSettled) await releaseScanHold();
     const elapsed = Date.now() - t0;
     logger.error({ err, elapsed }, '[Express/Scan] ERROR after %dms', elapsed);
 
@@ -1873,21 +2374,40 @@ router.post('/scan/:sessionId/chat', authenticate, aiChatLimit, async (req, res)
       return sendError(res, 'You do not have access to this scan session', 403);
     }
 
-    const history = await prisma.aIMessage.findMany({
-      where:   { conversationId: convo.id },
-      orderBy: { createdAt: 'asc' },
-      take: 20,
-      select: { role: true, content: true },
-    });
+    const history = await loadRecentHistory(prisma.aIMessage, convo.id);
 
     const report = await prisma.cropDiseaseReport.findFirst({
       where:  { conversationId: convo.id },
       select: { cropType: true, growthStage: true },
     });
 
+    // The chat safety gate keys jurisdiction off `farm_profile.state` (state
+    // pesticide bans, fully-organic states). This route sent only crops +
+    // language, so a Kerala farmer asking a follow-up about his scan was
+    // evaluated with no jurisdiction at all — the one scan-adjacent surface
+    // where the FastAPI safety package could not see where he farms.
+    // Reuse the per-conversation enriched-profile cache so turns 2+ skip the
+    // multi-query rebuild.
+    let farmerState = null, farmerDistrict = null;
+    try {
+      const enrichKey = `${req.user.id}:${convo.id}`;
+      let cached = getCachedEnrichedProfile(enrichKey);
+      if (!cached) {
+        const { profile } = await buildEnrichedProfile(req.user.id);
+        cached = profile || {};
+        setCachedEnrichedProfile(enrichKey, cached);
+      }
+      farmerState    = cached.state    || null;
+      farmerDistrict = cached.district || null;
+    } catch (ctxErr) {
+      logger.warn('[Scan Chat] state lookup failed (non-fatal): %s', ctxErr.message);
+    }
+
     const farmProfile = {
       crops: report ? [{ name: report.cropType, ageInDays: parseInt(report.growthStage) || null }] : [],
       language: convo.language || 'en',
+      ...(farmerState    ? { state:    farmerState }    : {}),
+      ...(farmerDistrict ? { district: farmerDistrict } : {}),
     };
 
     const followupChatModel = await getSetting('ai.model.chat').catch(() => undefined);
@@ -1898,8 +2418,11 @@ router.post('/scan/:sessionId/chat', authenticate, aiChatLimit, async (req, res)
       ...(followupChatModel ? { model: followupChatModel } : {}),
     }, req.user.id);
 
-    const { reply, type, structured_data: structuredData, token_info: tokenInfo } = result;
+    const { type, structured_data: structuredData, token_info: tokenInfo } = result;
+    const { reply, safetyRefusal } =
+      applySafetyRefusal(result, farmProfile.language, 'Scan Chat', req.user.id);
     const tokens = tokenInfo?.total_tokens || 0;
+    const followupCost = Number(tokenInfo?.cost_usd || 0);
 
     await prisma.aIMessage.createMany({
       data: [
@@ -1913,13 +2436,29 @@ router.post('/scan/:sessionId/chat', authenticate, aiChatLimit, async (req, res)
       data:  { updatedAt: new Date(), messageCount: { increment: 2 } },
     });
 
+    // This path settled credits but wrote no AIUsage row at all, so scan
+    // follow-ups were invisible to both the daily-limit check and
+    // getBudgetSummary. Mirror recordScanUsage's column set.
+    const fToday = new Date(); fToday.setUTCHours(0, 0, 0, 0);
+    prisma.aIUsage.upsert({
+      where:  { userId_date: { userId: req.user.id, date: fToday } },
+      create: { userId: req.user.id, date: fToday, chatCount: 1, totalTokens: tokens, totalCostUsd: followupCost,
+                monthlyTokens: tokens, monthlyCostUsd: followupCost },
+      update: { chatCount: { increment: 1 },
+                totalTokens: { increment: tokens }, totalCostUsd: { increment: followupCost },
+                monthlyTokens: { increment: tokens }, monthlyCostUsd: { increment: followupCost } },
+    }).catch(() => {});
+
     // Settle the hold against actual tokens (awaited — spend is never lost).
     await settleCredits(req.user.id, 'ai_chat_gemini', {
       reserved: hold.reserved, holdId: hold.holdId, tokensUsed: tokens,
       model: tokenInfo?.model, description: 'Scan follow-up chat', costUsd: tokenInfo?.cost_usd,
     });
 
-    return sendSuccess(res, { reply, type, card: structuredData ?? null, sessionId: convo.id });
+    return sendSuccess(res, {
+      reply, type, card: structuredData ?? null, sessionId: convo.id,
+      ...(safetyRefusal ? { safetyRefusal: true } : {}),
+    });
   } catch (err) {
     // Refund the hold — the user shouldn't pay for a failed request.
     await releaseCredits(req.user.id, 'ai_chat_gemini', { reserved: hold.reserved, holdId: hold.holdId });
@@ -1991,7 +2530,7 @@ router.get('/scan/sessions/:id', authenticate, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/alerts  — proxy to FastAPI, cache in Express
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/alerts', authenticate, async (req, res) => {
+router.post('/alerts', authenticate, aiChatLimit, async (req, res) => {
   const cached = alertCacheGet(req.user.id);
   if (cached) return sendSuccess(res, cached);
 
@@ -2007,11 +2546,43 @@ router.post('/alerts', authenticate, async (req, res) => {
     irrigationType, soilType, previousCrop, landSize, currentCrops,
   };
 
+  // This route invoked an LLM with no rate limiter and no ledger interaction at
+  // all. Reserve/settle it like every other AI route (see the §6 checklist:
+  // "no new LLM endpoint without a ledger interaction").
+  const hold = await reserveCredits(req.user.id, 'ai_chat_gemini');
+  if (!hold.ok) {
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
+  }
+
   try {
-    const alerts = await callFastAPI('/ai/alerts', farmContext, req.user.id, 30_000);
-    if (alerts?.length) alertCacheSet(req.user.id, alerts);
-    return sendSuccess(res, alerts || []);
+    // NESTING: routes/alerts.py reads `body["farm_profile"]`, and Express sent the
+    // context as the raw body — so farm_profile was always {} and alert_service
+    // fell back to every hardcoded default (Tomato / Maharashtra / Nashik / day
+    // 45 / Drip / Black) for every farmer in the country.
+    const payload = await callFastAPI('/ai/alerts', { farm_profile: farmContext }, req.user.id, 30_000);
+    // ENVELOPE: the response is `{ alerts: [...] }`, an object — so the old
+    // `alerts?.length` test was always falsy and the 30-min cache never
+    // populated, re-billing a full LLM call on every request.
+    const alerts = Array.isArray(payload?.alerts) ? payload.alerts
+                 : Array.isArray(payload)         ? payload
+                 : [];
+    // generate_smart_alerts returns [] for a model failure, a parse miss AND a
+    // fully-malformed batch, and this route has no token_info to settle against.
+    // An empty batch is a blank dashboard, so refund rather than charge the floor
+    // for it — same rule the scan non-result branch applies.
+    if (alerts.length) {
+      alertCacheSet(req.user.id, alerts);
+      await settleCredits(req.user.id, 'ai_chat_gemini', {
+        reserved: hold.reserved, holdId: hold.holdId,
+        description: 'Smart alerts',
+      });
+    } else {
+      await releaseCredits(req.user.id, 'ai_chat_gemini', { reserved: hold.reserved, holdId: hold.holdId }).catch(() => {});
+      logger.info('[AI Alerts] empty batch — hold refunded (user=%s)', req.user.id);
+    }
+    return sendSuccess(res, alerts);
   } catch (err) {
+    await releaseCredits(req.user.id, 'ai_chat_gemini', { reserved: hold.reserved, holdId: hold.holdId }).catch(() => {});
     logger.error('[AI Alerts] %s', err.message);
     return sendSuccess(res, []);  // alerts are non-critical
   }
