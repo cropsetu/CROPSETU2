@@ -14,6 +14,7 @@
  * Values are cached in-process for SETTINGS_CACHE_TTL_MS; setSetting() invalidates.
  */
 import prisma from '../config/db.js';
+import { ANIMAL_MASTER_DATA } from '../constants/animalMaster.js';
 
 export const SETTINGS_CACHE_TTL_MS = 60_000;
 
@@ -127,6 +128,12 @@ export const SETTINGS_MANIFEST = [
   // ── Seller metrics job ──────────────────────────────────────────────────────
   { key: 'sellerMetrics.windowDays', type: 'NUMBER', category: 'Marketplace', label: 'Seller metrics window (days)', description: 'Rolling window for cancellation / dispatch / return rates. Older history is ignored so a seller can recover from a bad month.', min: 1, max: 3650, integer: true, default: 180 },
   { key: 'sellerMetrics.defaultDispatchSlaDays', type: 'NUMBER', category: 'Marketplace', label: 'Assumed dispatch SLA when unknown (days)', description: 'Used to judge on-time dispatch for an order item whose listing has since been deleted.', min: 1, max: 365, integer: true, default: 2 },
+
+  // Animal-trade master data (types, breeds, per-type form fields). Served by
+  // GET /animals/meta. Lives here so adding a breed is an admin edit rather than
+  // a Play Store release — see constants/animalMaster.js for the shape.
+  { key: 'animals.masterData', type: 'JSON', category: 'Marketplace', label: 'Animal types & breeds', description: 'Master list of animal types, their breeds, and which fields the post-ad form asks for. Overrides the built-in defaults; clear the value to fall back to them.', default: ANIMAL_MASTER_DATA },
+  { key: 'animals.listingTtlDays', type: 'NUMBER', category: 'Marketplace', label: 'Animal listing lifetime (days)', description: 'How long a new animal listing stays live before it expires and needs renewing.', min: 1, max: 365, integer: true, default: 45 },
 
   // ── Broadcast ───────────────────────────────────────────────────────────────
   { key: 'broadcast.maxRecipients', type: 'NUMBER', category: 'Broadcast', label: 'Max recipients / broadcast', description: 'Per-broadcast fan-out cap. Can be lowered from the 5000 safety ceiling, never raised above it.', min: 1, max: 5000, integer: true, default: 5000 },

@@ -80,11 +80,14 @@ export function attachDistance(items, userLat, userLng, radiusKm) {
  * @param {number|null} radiusKm  km ceiling, or null for "no ceiling"
  * @param {number} offset, limit
  * @param {boolean} [strict=false]        exclude rows with no coordinates
- * @param {'distance'|'price'|'rating'} [sort='distance']  result ordering
- * @param {object} [priceColSql]  Prisma.sql column used by sort:'price' — TRUSTED
+ * @param {'distance'|'price'|'price_desc'|'rating'|'recent'} [sort='distance']  result ordering
+ * @param {object} [priceColSql]  Prisma.sql column used by the price sorts — TRUSTED
  *                                constant, never user input. Only referenced when
- *                                sort === 'price', so tables without the column
+ *                                sort is a price sort, so tables without the column
  *                                are unaffected.
+ * @param {object} [ratingColSql] Prisma.sql expression for the rating tiebreaker —
+ *                                TRUSTED constant. Pass `Prisma.sql\`0\`` for tables
+ *                                that have no rating column (e.g. animal_listings).
  * @returns {Promise<{ ids: string[], distById: Map<string, number|null>, total: number }>}
  */
 export async function geoPageIds(prisma, {
@@ -92,6 +95,7 @@ export async function geoPageIds(prisma, {
   strict = false,
   sort = 'distance',
   priceColSql = Prisma.sql`"pricePerDay"`,
+  ratingColSql = Prisma.sql`rating`,
 }) {
   // `null` radius = no ceiling. Anything non-finite (e.g. a junk ?radius=) is
   // treated the same way rather than poisoning the bounding box with NaN, which
@@ -128,17 +132,26 @@ export async function geoPageIds(prisma, {
 
   // Only select the price column when it is actually ordered on, so tables
   // without a pricePerDay column keep working with the other sorts.
-  const wantPrice = sort === 'price';
+  const wantPrice = sort === 'price' || sort === 'price_desc';
   const priceSelect = wantPrice ? Prisma.sql`, ${priceColSql} AS sortprice` : Prisma.empty;
 
   const byDist = Prisma.sql`ROUND(dist::numeric, 1) ASC NULLS LAST`;
+  // `id` is the final tiebreaker on every ordering. Rows sharing a distance (or
+  // a price, or a createdAt) otherwise came back in whatever order the executor
+  // felt like, so an offset page could repeat a row page 1 already showed and
+  // skip another entirely — the duplicate-listing bug during pagination.
   const orderBy =
-    sort === 'price'  ? Prisma.sql`sortprice ASC NULLS LAST, ${byDist}, rating DESC` :
-    sort === 'rating' ? Prisma.sql`rating DESC, ${byDist}, "createdAt" DESC` :
-                        Prisma.sql`${byDist}, rating DESC, "createdAt" DESC`;
+    sort === 'price'      ? Prisma.sql`sortprice ASC NULLS LAST, ${byDist}, rating DESC, id DESC` :
+    sort === 'price_desc' ? Prisma.sql`sortprice DESC NULLS LAST, ${byDist}, rating DESC, id DESC` :
+    sort === 'rating'     ? Prisma.sql`rating DESC, ${byDist}, "createdAt" DESC, id DESC` :
+    // 'recent': radius still filters, but the page is ordered newest-first.
+    // Sorting the already-selected page in JS would be wrong — it would order
+    // the 20 NEAREST rows by date, not the 20 newest within the radius.
+    sort === 'recent'     ? Prisma.sql`"createdAt" DESC, id DESC` :
+                            Prisma.sql`${byDist}, rating DESC, "createdAt" DESC, id DESC`;
 
   const inner = Prisma.sql`
-    SELECT id, ${distExpr} AS dist, rating, "createdAt"${priceSelect}
+    SELECT id, ${distExpr} AS dist, ${ratingColSql} AS rating, "createdAt"${priceSelect}
     FROM ${tableSql}
     WHERE ${whereSql} AND ${geoFilter}`;
 

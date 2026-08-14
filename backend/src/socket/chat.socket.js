@@ -96,7 +96,7 @@ export function registerChatSocket(io) {
       socket.emit('chat_history', messages);
     });
 
-    onLimited(socket, allow, 'send_message', 'message', async ({ chatId, text }) => {
+    onLimited(socket, allow, 'send_message', 'message', async ({ chatId, text, clientMsgId }) => {
       if (!chatId || !text?.trim()) return;
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, OR: [{ sellerId: userId }, { buyerId: userId }] },
@@ -104,9 +104,26 @@ export function registerChatSocket(io) {
       if (!chat) return;
       // [FIX] Sanitize chat message text to prevent stored XSS
       const safeText = text.trim().replace(/<[^>]*>/g, '').substring(0, 2000);
-      const message = await prisma.chatMessage.create({
-        data: { chatId, senderId: userId, text: safeText },
-      });
+      // A socket that drops mid-send is resent by the client on reconnect. The
+      // client stamps each send attempt with a clientMsgId, so the retry lands
+      // on the unique (chatId, clientMsgId) index instead of duplicating the
+      // message — we then re-broadcast the row that already exists so the
+      // sender's optimistic bubble still resolves.
+      const cmid = clientMsgId ? String(clientMsgId).slice(0, 64) : null;
+      let message;
+      try {
+        message = await prisma.chatMessage.create({
+          data: { chatId, senderId: userId, text: safeText, clientMsgId: cmid },
+        });
+      } catch (err) {
+        if (err?.code !== 'P2002' || !cmid) throw err;
+        message = await prisma.chatMessage.findUnique({
+          where: { chatId_clientMsgId: { chatId, clientMsgId: cmid } },
+        });
+        if (!message) return;
+        socket.emit('new_message', { ...message, chatId });
+        return; // already broadcast when it was first stored
+      }
       await prisma.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } }).catch(() => {});
       const payload = { ...message, chatId };
       io.to(chatId).emit('new_message', payload);

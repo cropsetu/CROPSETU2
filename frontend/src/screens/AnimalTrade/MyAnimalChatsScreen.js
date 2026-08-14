@@ -33,14 +33,16 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
-// Best available label for the counterpart: real name → phone → role label.
+// Best available label for the counterpart: real name, else the role.
+//
+// The inbox used to fall back to the person's PHONE NUMBER here, which meant
+// simply opening this screen handed the client every chat partner's number —
+// no deliberate action, no rate limit, no audit trail. The API stopped sending
+// it; a number is now released only through /animals/:id/contact, when a buyer
+// actually taps Call.
 function peerLabel(row) {
   const cp = row.counterpart;
   if (cp?.name && String(cp.name).trim()) return String(cp.name).trim();
-  if (cp?.phone) {
-    const d = String(cp.phone).replace(/\D/g, '').slice(-10);
-    return d.length === 10 ? `+91 ${d.slice(0, 5)} ${d.slice(5)}` : String(cp.phone);
-  }
   return row.role === 'buyer' ? 'Seller' : 'Buyer';
 }
 
@@ -165,7 +167,8 @@ export default function MyAnimalChatsScreen({ navigation }) {
       peerName: row.counterpart?.name || null,
       peerAvatar: row.counterpart?.avatar || null,
       peerId: row.counterpart?.id || null,
-      peerPhone: row.counterpart?.phone || null,
+      // No peerPhone: chat does not need one, and the inbox no longer receives
+      // it. ChatScreen falls back to the role label.
       peerRole,
       listingTitle,
       // Legacy param — keeps older code paths working.
