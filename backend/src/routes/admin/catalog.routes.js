@@ -20,6 +20,7 @@ import { ADMIN_ACTIONS } from '../../services/audit.service.js';
 import { bumpListingVersion } from '../../utils/listingCache.js';
 import { invalidateBuyBox } from '../../services/buyBox.service.js';
 import { findCatalogDuplicate, normalizeProductKey } from '../../services/catalogMatch.service.js';
+import { requireScope, ADMIN_SCOPES } from '../../middleware/admin.js';
 
 // Admin product mutations never invalidated the storefront cache —
 // bumpListingVersion('agristore:products') was only ever called from
@@ -104,6 +105,13 @@ categoriesRouter.delete('/:id', [param('id').isUUID()], validate, async (req, re
 
 // ── Products ──────────────────────────────────────────────────────────────────
 export const productsRouter = Router();
+
+// Scope gate lives HERE, not on the parent's `/products` mount. Four routers share
+// that prefix, and requireScope answers with 403 rather than next('router'), so a
+// gate at the mount runs for every /products/* URL and the first one wins — which
+// made Catalog QC unreachable for CONTENT_MODERATOR and this router unreachable for
+// CMS_EDITOR. Gating inside each router keeps every check scoped to its own paths.
+productsRouter.use(requireScope(ADMIN_SCOPES.CMS_EDITOR));
 
 // Express-validator chain for the shared product filters (list + export reuse it).
 export const productFilterValidators = [

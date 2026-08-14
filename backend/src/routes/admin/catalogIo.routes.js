@@ -31,6 +31,7 @@ import { productFilterValidators, buildProductWhere } from './catalog.routes.js'
 import { normalizeProductKey, normalizeProductName } from '../../services/catalogMatch.service.js';
 import { bumpListingVersion } from '../../utils/listingCache.js';
 import { invalidateBuyBox } from '../../services/buyBox.service.js';
+import { requireScope, ADMIN_SCOPES } from '../../middleware/admin.js';
 
 // Hard ceiling on a single export so a crafted filter can't stream the whole DB.
 const EXPORT_ROW_CAP = 50_000;
@@ -124,6 +125,12 @@ function toBool(v) {
 
 // ── Export ───────────────────────────────────────────────────────────────────────
 export const productsCsvRouter = Router();
+
+// CMS_EDITOR gate applied here, not on the shared `/products` mount — see the note
+// in catalog.routes.js productsRouter. It must be PATH-SCOPED: this router is
+// mounted at /products, so an unscoped .use() would still fire for /products/qc/*
+// and re-create the cross-blocking bug one level down.
+productsCsvRouter.use('/export', requireScope(ADMIN_SCOPES.CMS_EDITOR));
 
 productsCsvRouter.get(
   '/export',
@@ -318,6 +325,9 @@ function normaliseRow(row, { categoriesById, categoriesByName }) {
 }
 
 export const productsImportRouter = Router();
+
+// CMS_EDITOR gate, path-scoped for the same reason as productsCsvRouter above.
+productsImportRouter.use('/import', requireScope(ADMIN_SCOPES.CMS_EDITOR));
 
 productsImportRouter.post(
   '/import',

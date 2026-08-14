@@ -24,6 +24,7 @@ import { ModerationPage, FraudPage, IncidentsPage } from './pages/TrustSafety';
 import DisputesPage from './pages/Disputes';
 import { ConsentsPage, ErasurePage, AuditPage } from './pages/Compliance';
 import { FlagsPage, HealthPage, QueuesPage, JobsPage, ErrorLogsPage } from './pages/Ops';
+import { SystemStatusPage } from './pages/SystemStatus';
 import SettingsPage from './pages/Settings';
 import TeamPage from './pages/Team';
 
@@ -86,6 +87,7 @@ export default function App() {
             <Route path="/consents" element={<ConsentsPage />} />
             <Route path="/erasure" element={<ErasurePage />} />
             <Route path="/audit" element={<AuditPage />} />
+            <Route path="/status" element={<SystemStatusPage />} />
             <Route path="/flags" element={<FlagsPage />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/queues" element={<QueuesPage />} />

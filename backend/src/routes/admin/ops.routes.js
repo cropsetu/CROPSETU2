@@ -20,6 +20,9 @@ import { invalidateCache } from '../../services/featureFlag.service.js';
 import { auditAction, AUDIT_ACTIONS, ADMIN_ACTIONS } from '../../services/audit.service.js';
 import { apiHealthSummary } from '../../services/adminMetrics.service.js';
 import { getQueueStats, getRecentJobs, retryJob, isKnownQueue } from '../../queue/jobQueue.js';
+import redis from '../../config/redis.js';
+import { getSigned } from '../../utils/fastapi-signed.js';
+import { getBudgetSummary } from '../../services/settings.service.js';
 import { keysetList } from '../../utils/adminList.js';
 import { adminAudit, listParams, sendList } from './_helpers.js';
 
@@ -28,6 +31,78 @@ const healthRouter = Router();
 const queuesRouter = Router();
 const jobsRouter = Router();
 const errorLogsRouter = Router();
+const statusRouter = Router();
+
+// ── GET /admin/ops/status — live "is the system healthy RIGHT NOW" ────────────
+// Every other admin surface is historical (30-day dashboard, 24h health table,
+// 7/30/90-day usage). Nothing answered "is it up right now", and in particular
+// nothing in this repo called FastAPI's /health/details — which already returns
+// exactly the right payload (DB connectivity, prompt versions, model chains,
+// invariant count) behind the signed-request guard.
+//
+// Every probe is independently wrapped: one dead dependency must render as a red
+// light, never as a 500 that blanks the whole page. Each returns { ok, ...detail }
+// plus the latency we measured, so a slow-but-alive dependency is visible too.
+async function probe(name, fn, timeoutMs = 4000) {
+  const started = Date.now();
+  try {
+    const value = await Promise.race([
+      fn(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`${name} probe timed out`)), timeoutMs)),
+    ]);
+    return { name, ok: true, latencyMs: Date.now() - started, ...value };
+  } catch (err) {
+    return { name, ok: false, latencyMs: Date.now() - started, error: String(err?.message || err).slice(0, 300) };
+  }
+}
+
+statusRouter.get('/status', async (_req, res) => {
+  try {
+    const DAY = 24 * 60 * 60 * 1000;
+    const [database, redisStatus, aiService, queues, budget, recentErrors, disabledFlags] = await Promise.all([
+      probe('database', async () => {
+        await prisma.$queryRaw`SELECT 1`;
+        return {};
+      }),
+      probe('redis', async () => {
+        const status = redis?.status ?? 'unavailable';
+        if (status !== 'ready') throw new Error(`redis status: ${status}`);
+        return { status };
+      }),
+      probe('aiService', async () => {
+        const detail = await getSigned('/health/details', { timeoutMs: 4000 });
+        return { detail };
+      }),
+      probe('queues', async () => ({ queues: await getQueueStats() })),
+      probe('budget', async () => await getBudgetSummary()),
+      // 5xx in the last 15 minutes — the fastest signal that something just broke.
+      probe('errors', async () => ({
+        last15m: await prisma.errorLog.count({ where: { createdAt: { gte: new Date(Date.now() - 15 * 60 * 1000) } } }),
+        last24h: await prisma.errorLog.count({ where: { createdAt: { gte: new Date(Date.now() - DAY) } } }),
+      })),
+      probe('flags', async () => {
+        const off = await prisma.featureFlag.findMany({ where: { isEnabled: false }, select: { featureKey: true, disabledReason: true } });
+        return { disabled: off };
+      }),
+    ]);
+
+    // One overall light. `degraded` rather than `down` when only the AI service is
+    // out: the marketplace keeps working without it, and an operator needs to tell
+    // "the whole app is down" apart from "AI is down" at a glance.
+    const core = [database, redisStatus];
+    const overall = core.every((c) => c.ok)
+      ? (aiService.ok && queues.ok ? 'healthy' : 'degraded')
+      : 'down';
+
+    return sendSuccess(res, {
+      overall,
+      checkedAt: new Date().toISOString(),
+      checks: { database, redis: redisStatus, aiService, queues, budget, errors: recentErrors, flags: disabledFlags },
+    });
+  } catch (err) {
+    return sendServerError(res, err, 'Failed to load system status');
+  }
+});
 
 // ── Feature flags ─────────────────────────────────────────────────────────────
 flagsRouter.get('/', async (_req, res) => {
@@ -144,4 +219,4 @@ errorLogsRouter.get(
   },
 );
 
-export { flagsRouter, healthRouter, queuesRouter, jobsRouter, errorLogsRouter };
+export { flagsRouter, healthRouter, queuesRouter, jobsRouter, errorLogsRouter, statusRouter };

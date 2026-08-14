@@ -10,6 +10,8 @@ import { fileURLToPath } from 'url';
 
 import { ENV } from './config/env.js';
 import { sendError } from './utils/response.js';
+import { persistErrorLog } from './utils/errorLog.js';
+import { maintenanceMode } from './middleware/maintenance.js';
 import logger from './utils/logger.js';
 import prisma from './config/db.js';
 import redis, { getRedisHealth, getRedisMemoryMetrics } from './config/redis.js';
@@ -86,7 +88,21 @@ app.use((req, res, _next) => {
 });
 
 // ── Security headers ──────────────────────────────────────────────────────────
-app.use(helmet());
+// helmet's default CSP sets `img-src 'self' data:`, which blocks EVERY remote image
+// in the admin SPA served same-origin at /admin — product photos, KYC documents and
+// avatars all live on Cloudinary, so the panel renders broken images everywhere.
+// `https:` (not a Cloudinary literal) because seller-supplied and seed image URLs are
+// not restricted to one CDN host; for an internal, ADMIN-gated panel that trade is
+// worth the working UI. Everything else stays at helmet's defaults — the Vite build
+// emits no inline script, so `script-src 'self'` needs no loosening.
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+    },
+  },
+}));
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 // [H1] Never reflect arbitrary origins in production.
@@ -303,6 +319,12 @@ if (ENV.RATE_LIMIT_ENABLED) {
 // Bearer / mobile / pre-auth requests. See middleware/csrf.js.
 app.use(csrfProtection);
 
+// ── Maintenance mode ──────────────────────────────────────────────────────────
+// Mounted immediately before the route table so it covers every API route, while
+// leaving healthchecks, /auth and the whole admin surface reachable — an operator
+// must still be able to log in and switch it back off. See middleware/maintenance.js.
+app.use(maintenanceMode);
+
 // ── API Routes ────────────────────────────────────────────────────────────────
 app.use(`${API}/auth`,         authRoutes);
 app.use(`${API}/users`,        userRoutes);
@@ -360,24 +382,11 @@ app.use((err, req, res, _next) => {
   const safeMessage = err.expose ? err.message : 'Internal server error';
   sendError(res, safeMessage, err.status || 500);
 
-  // BEST-EFFORT: persist the error to ErrorLog for the admin Ops viewer. This runs
-  // AFTER the response is sent and is fully wrapped — a failed insert (table
-  // missing, DB down, bad payload) must never throw or block the response.
-  try {
-    prisma.errorLog
-      .create({
-        data: {
-          source: req.path || 'unknown',
-          severity: (err.status || 500) >= 500 ? 'error' : 'warn',
-          message: String(err?.message || 'Internal server error').slice(0, 2000),
-          stack: err?.stack ? String(err.stack).slice(0, 8000) : null,
-          context: { method: req.method, status: err.status || 500, requestId: req.id ?? null },
-        },
-      })
-      .catch(() => {});
-  } catch {
-    /* never throw from the error handler */
-  }
+  // BEST-EFFORT: persist to ErrorLog for the admin Ops viewer. Shared with
+  // sendServerError via utils/errorLog.js so both error paths — thrown errors that
+  // land here, and the far more common handled ones that return directly — produce
+  // identical rows. Runs after the response is sent and never throws.
+  persistErrorLog({ err, req, status: err.status || 500 });
 });
 
 export default app;

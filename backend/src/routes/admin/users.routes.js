@@ -17,7 +17,7 @@ import { Router } from 'express';
 import { body, param, query } from 'express-validator';
 import prisma from '../../config/db.js';
 import { validate } from '../../middleware/validate.js';
-import { sendSuccess, sendServerError, sendNotFound } from '../../utils/response.js';
+import { sendSuccess, sendServerError, sendNotFound, sendForbidden } from '../../utils/response.js';
 import { sanitizeSearch } from '../../utils/sanitizeSearch.js';
 import { keysetList } from '../../utils/adminList.js';
 import { shapeUser, auditReveal } from '../../utils/adminPii.js';
@@ -158,6 +158,19 @@ router.patch(
       const current = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, isActive: true } });
       if (!current) return sendNotFound(res, 'User');
 
+      // ── ADMIN accounts are SUPER_ADMIN-only territory ────────────────────────
+      // This router is mounted at requireScope(SUPPORT), so without this guard the
+      // LOWEST-privilege admin could PATCH any account to role ADMIN. That account
+      // is created with adminScopes = [] (schema default), and loadAdminContext
+      // treats an empty scope array as SUPER_ADMIN — so a help-desk admin could
+      // mint themselves a super admin and unlock /team, /settings and the DPDP
+      // surfaces. Promoting INTO admin, demoting OUT of it, and deactivating an
+      // existing admin are therefore all gated on the acting admin being SUPER_ADMIN.
+      const targetsAdmin = current.role === 'ADMIN' || req.body.role === 'ADMIN';
+      if (targetsAdmin && !req.admin?.isSuperAdmin) {
+        return sendForbidden(res, 'Only a SUPER_ADMIN may change an administrator account');
+      }
+
       const data = {};
       const roleChanged = req.body.role !== undefined && req.body.role !== current.role;
       if (roleChanged) {
@@ -196,8 +209,14 @@ router.post(
   async (req, res) => {
     try {
       const { id } = req.params;
-      const current = await prisma.user.findUnique({ where: { id }, select: { id: true } });
+      const current = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true } });
       if (!current) return sendNotFound(res, 'User');
+
+      // Same SUPER_ADMIN-only rule as PATCH: otherwise a SUPPORT admin could evict
+      // every super admin on a loop and hold the panel hostage.
+      if (current.role === 'ADMIN' && !req.admin?.isSuperAdmin) {
+        return sendForbidden(res, 'Only a SUPER_ADMIN may force-logout an administrator');
+      }
 
       // Bump tokenVersion (invalidates outstanding access tokens at next auth) AND
       // delete refresh tokens (no silent re-auth) → a true full logout everywhere.

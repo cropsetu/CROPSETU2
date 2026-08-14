@@ -13,6 +13,8 @@ import { authenticate } from '../middleware/auth.js';
 import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { askSchemeQuestion } from '../services/schemeGemini.service.js';
+import { reserveCredits, settleCredits, releaseCredits } from '../services/aiCredit.service.js';
+import { requireFeature } from '../middleware/requireFeature.js';
 import { BoundedMap } from '../utils/boundedMap.js';
 import { equalsIgnoreCase } from '../utils/strMatch.js';
 import prisma from '../config/db.js';
@@ -128,7 +130,7 @@ router.get('/:id', authenticate, async (req, res) => {
 
 // ── POST /api/v1/schemes/ask ──────────────────────────────────────────────────
 // Claude AI answers a natural-language question about government schemes.
-router.post('/ask', authenticate, async (req, res) => {
+router.post('/ask', authenticate, requireFeature('ai_schemes'), async (req, res) => {
   const { question, language } = req.body;
   if (!question?.trim()) return sendError(res, 'question is required', 400);
   if (question.length > 500) return sendError(res, 'question too long (max 500 chars)', 400);
@@ -176,15 +178,42 @@ ${schemeContext}
 Respond in ${language === 'hi' ? 'Hindi' : language === 'mr' ? 'Marathi' : 'English'}.
 If the question is not about government schemes or farming, say you can only help with government agricultural schemes.`;
 
+  // RESERVE before the Gemini call. This route previously reached the LLM with no
+  // credit key, no balance check and no debit — unmetered spend that never appeared
+  // in the admin Usage & Cost roll-up either.
+  const hold = await reserveCredits(req.user.id, 'ai_schemes');
+  if (!hold.ok) {
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
+  }
+  // releaseCredits is not idempotent, so the catch must skip a finalised hold.
+  let holdFinalised = false;
+
   try {
-    const answer = await askSchemeQuestion({
+    const { answer, tokensUsed, model } = await askSchemeQuestion({
       systemPrompt,
       userMessage: question.trim(),
       maxTokens: 600,
     });
 
+    // Feed the admin usage roll-up (non-blocking), then settle against real tokens.
+    const usageDay = new Date(); usageDay.setUTCHours(0, 0, 0, 0);
+    prisma.aIUsage.upsert({
+      where:  { userId_date: { userId: req.user.id, date: usageDay } },
+      create: { userId: req.user.id, date: usageDay, totalTokens: tokensUsed, monthlyTokens: tokensUsed },
+      update: { totalTokens: { increment: tokensUsed }, monthlyTokens: { increment: tokensUsed } },
+    }).catch(() => {});
+    holdFinalised = true;
+    await settleCredits(req.user.id, 'ai_schemes', {
+      reserved: hold.reserved, holdId: hold.holdId, tokensUsed, model,
+      description: 'Government scheme Q&A',
+    });
+
     return sendSuccess(res, { answer, question: question.trim() });
   } catch (err) {
+    // Only refund an open hold — a throw after settle must not re-credit.
+    if (!holdFinalised) {
+      await releaseCredits(req.user.id, 'ai_schemes', { reserved: hold.reserved, holdId: hold.holdId }).catch(() => {});
+    }
     console.error('[Schemes AI]', err.message);
     return sendError(res, 'AI service unavailable. Please try again.', 503);
   }

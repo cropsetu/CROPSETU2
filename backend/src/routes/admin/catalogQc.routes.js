@@ -39,8 +39,19 @@ import { bumpListingVersion } from '../../utils/listingCache.js';
 import { invalidateBuyBox } from '../../services/buyBox.service.js';
 import { normalizeProductName } from '../../services/catalogMatch.service.js';
 import logger from '../../utils/logger.js';
+import { requireScope, ADMIN_SCOPES } from '../../middleware/admin.js';
 
 export const productsQcRouter = Router();
+
+// CONTENT_MODERATOR gate applied here rather than on the shared `/products` mount —
+// see the note in catalog.routes.js productsRouter for why the mount-level gate
+// cross-blocked this router. Scoped to this router's three path prefixes: an
+// unscoped .use() would fire for every /products/* URL (this router is mounted at
+// /products) and 403 the CMS_EDITOR-owned list/create/edit routes all over again.
+// Keep this list in sync when adding a QC path.
+productsQcRouter.use('/qc', requireScope(ADMIN_SCOPES.CONTENT_MODERATOR));
+productsQcRouter.use('/duplicates', requireScope(ADMIN_SCOPES.CONTENT_MODERATOR));
+productsQcRouter.use('/merge', requireScope(ADMIN_SCOPES.CONTENT_MODERATOR));
 
 const NS_PRODUCTS = 'agristore:products';
 

@@ -5,7 +5,8 @@ import react from '@vitejs/plugin-react';
 // same origin (no CORS, cookies flow) — set VITE_API_PROXY to the backend URL.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', 'VITE_');
-  const proxyTarget = env.VITE_API_PROXY || 'http://localhost:3000';
+  // 3001 is the backend's default PORT (backend/.env.example) — not 3000.
+  const proxyTarget = env.VITE_API_PROXY || 'http://localhost:3001';
   return {
     // Served under /admin so the backend can host the built SPA same-origin
     // (backend serves admin/dist at /admin; the API stays at /api/v1). In dev

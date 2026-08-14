@@ -14,7 +14,10 @@ import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 import { generatePlannerTasks, getCurrentSeason } from '../services/ai.chat.service.js';
+import { reserveCredits, settleCredits, releaseCredits } from '../services/aiCredit.service.js';
+import { requireFeature } from '../middleware/requireFeature.js';
 import { BoundedMap } from '../utils/boundedMap.js';
+import logger from '../utils/logger.js';
 import prisma from '../config/db.js';
 
 // Per-user cooldown for planner generate (min 60s between AI calls).
@@ -132,7 +135,7 @@ router.delete('/tasks/:id', authenticate, async (req, res) => {
 
 // ── POST /api/v1/planner/generate ─────────────────────────────────────────────
 // AI generates tasks for today based on farm context
-router.post('/generate', authenticate, generateTasksRules, validate, async (req, res) => {
+router.post('/generate', authenticate, requireFeature('ai_planner'), generateTasksRules, validate, async (req, res) => {
   // Enforce per-user cooldown to avoid hammering Gemini
   const last = lastPlannerGen.get(req.user.id) || 0;
   const diff = Date.now() - last;
@@ -155,10 +158,45 @@ router.post('/generate', authenticate, generateTasksRules, validate, async (req,
     farmerName:  req.user.name || 'Farmer',
   };
 
-  try {
-    const aiTasks = await generatePlannerTasks(farmContext);
+  // RESERVE before the Gemini call. This route used to reach the LLM with no
+  // balance check, no debit and no AIUsage row — free, unmetered spend that also
+  // never showed up in the admin Usage & Cost page. Same atomic reserve/settle/
+  // release triple every other AI route uses, so concurrent calls can't overspend.
+  const hold = await reserveCredits(req.user.id, 'ai_planner');
+  if (!hold.ok) {
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
+  }
+  // releaseCredits is NOT idempotent — it unconditionally re-credits `reserved`. Once
+  // the hold is finalised (settled OR released) the catch must not touch it again, or
+  // a failure while persisting the tasks would hand back credits that were already
+  // refunded. Same guard the scan path uses.
+  let holdFinalised = false;
 
-    if (!aiTasks.length) return sendError(res, 'AI could not generate tasks. Try again.', 500);
+  try {
+    const { tasks: aiTasks, tokensUsed, model } = await generatePlannerTasks(farmContext);
+
+    if (!aiTasks.length) {
+      // The tokens were still spent, but a planner that produced nothing is not
+      // worth charging for — refund and surface the failure.
+      holdFinalised = true;
+      await releaseCredits(req.user.id, 'ai_planner', { reserved: hold.reserved, holdId: hold.holdId }).catch(() => {});
+      return sendError(res, 'AI could not generate tasks. Try again.', 500);
+    }
+
+    // Track usage for the admin roll-up (non-blocking), then settle the hold
+    // against the real token count.
+    const usageDay = new Date(); usageDay.setUTCHours(0, 0, 0, 0);
+    prisma.aIUsage.upsert({
+      where:  { userId_date: { userId: req.user.id, date: usageDay } },
+      create: { userId: req.user.id, date: usageDay, totalTokens: tokensUsed, monthlyTokens: tokensUsed },
+      update: { totalTokens: { increment: tokensUsed }, monthlyTokens: { increment: tokensUsed } },
+    }).catch(() => {});
+    holdFinalised = true;   // from here on the catch must NOT refund
+    const settled = await settleCredits(req.user.id, 'ai_planner', {
+      reserved: hold.reserved, holdId: hold.holdId, tokensUsed, model,
+      description: 'Daily planner generation',
+    });
+    if (settled?.error) logger.warn('[Planner] credit settle failed for user=%s: %s', req.user.id, settled.error);
 
     // Delete existing AI-generated tasks for today (replace with fresh ones)
     const today   = new Date(); today.setHours(0, 0, 0, 0);
@@ -212,6 +250,12 @@ router.post('/generate', authenticate, generateTasksRules, validate, async (req,
 
     return sendSuccess(res, tasks);
   } catch (err) {
+    // Refund only if the hold is still open — i.e. the failure was at or before the
+    // LLM call. A throw AFTER settle (persisting the tasks) leaves the charge in
+    // place: the Gemini spend was real, and re-crediting here would double-refund.
+    if (!holdFinalised) {
+      await releaseCredits(req.user.id, 'ai_planner', { reserved: hold.reserved, holdId: hold.holdId }).catch(() => {});
+    }
     console.error('[Planner Generate]', err.message);
     if (err.status === 429) return sendError(res, 'AI rate limit. Try again in 30 seconds.', 429);
     return sendError(res, 'AI task generation failed. Please try again.', 500);

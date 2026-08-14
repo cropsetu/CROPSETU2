@@ -59,6 +59,7 @@ export const CREDIT_COSTS = {
   ai_tts:             1,   // Sarvam text-to-speech
   ai_translate:       1,
   ai_planner:         1,
+  ai_schemes:         1,   // government-scheme Q&A (Gemini text, parity with chat)
   ai_soil:            1,
   ai_soil_ocr:        3,   // Soil Health Card OCR (vision call — parity with scan)
   ai_calendar:        2,

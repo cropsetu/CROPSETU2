@@ -16,6 +16,11 @@ interface SettingItem {
   value: unknown;
   isDefault: boolean;
   options?: EnumOption[] | null;
+  // Server-supplied bounds (settings.service.js SETTINGS_MANIFEST). The server
+  // still validates in coerce() — these only stop a bad value before the round-trip.
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
   updatedAt?: string | null;
   updatedBy?: string | null;
 }
@@ -203,6 +208,13 @@ function SettingRow({ item }: { item: SettingItem }) {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               className="w-44"
+              {...(item.type === 'NUMBER'
+                ? {
+                    min: item.min ?? undefined,
+                    max: item.max ?? undefined,
+                    step: item.step ?? undefined,
+                  }
+                : {})}
             />
             <Button
               variant="primary"

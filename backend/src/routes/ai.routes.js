@@ -58,6 +58,7 @@ import { uploadBuffer } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
 import logger from '../utils/logger.js';
 import { getSetting } from '../services/settings.service.js';
+import { requireFeature } from '../middleware/requireFeature.js';
 
 /**
  * Kick off Cloudinary uploads for the base64 image array sent with a scan.
@@ -694,8 +695,17 @@ async function recordScanUsage(userId, tokenUsage) {
 async function checkScanLimits(userId) {
   const usage = await getTodayUsage(userId);
   if (!usage) return null; // no usage yet — allow
-  const scanLimit  = Number(await getSetting('ai.freeScanDailyLimit').catch(() => FREE_SCAN_DAILY_LIMIT)) || FREE_SCAN_DAILY_LIMIT;
-  const tokenLimit = Number(await getSetting('ai.freeTokenDailyLimit').catch(() => FREE_TOKEN_DAILY_LIMIT)) || FREE_TOKEN_DAILY_LIMIT;
+  // `|| FALLBACK` is NOT a sufficient guard here: it only catches 0/NaN, so a
+  // negative limit sailed through and made `scanCount >= limit` true for everyone.
+  // The manifest now rejects negatives at write time; this is the defence in depth
+  // for rows written before that existed. Note 0 is a LEGITIMATE value (feature off
+  // for free users), so it must survive — hence >= 0 rather than a truthy check.
+  const asLimit = (v, fallback) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  };
+  const scanLimit  = asLimit(await getSetting('ai.freeScanDailyLimit').catch(() => undefined), FREE_SCAN_DAILY_LIMIT);
+  const tokenLimit = asLimit(await getSetting('ai.freeTokenDailyLimit').catch(() => undefined), FREE_TOKEN_DAILY_LIMIT);
   if (usage.scanCount >= scanLimit)
     return `Daily limit reached — free users can run ${scanLimit} crop scans per day. Try again tomorrow.`;
   if (usage.totalTokens >= tokenLimit)
@@ -728,7 +738,7 @@ const audioUpload = multer({
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/chat  — proxy to FastAPI, save to Prisma
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req, res) => {
+router.post('/chat', authenticate, requireFeature('ai_chat'), aiChatLimit, idempotency('chat'), async (req, res) => {
   const { message, conversationId, farmProfile, includeFarmContext = true, language, responseLength, image } = req.body;
 
   // An attached photo routes to the (pricier) vision model for a conversational
@@ -913,7 +923,7 @@ router.post('/chat', authenticate, aiChatLimit, idempotency('chat'), async (req,
 // Soil Health Card photo → FastAPI vision → structured 12-parameter JSON.
 // The farmer reviews/edits the extracted values before saving (never auto-saved).
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/soil-card-ocr', authenticate, aiChatLimit, async (req, res) => {
+router.post('/soil-card-ocr', authenticate, requireFeature('ai_soil_ocr'), aiChatLimit, async (req, res) => {
   const { image } = req.body;
 
   const hasImage = !!(image && typeof image === 'object' && image.data);
@@ -976,7 +986,7 @@ router.post('/soil-card-ocr', authenticate, aiChatLimit, async (req, res) => {
 // POST /api/v1/ai/voice
 // Sarvam STT → FastAPI /ai/chat → (opt) Sarvam TTS
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/voice', authenticate, aiVoiceLimit, idempotency('voice'), audioUpload.single('audio'), async (req, res) => {
+router.post('/voice', authenticate, requireFeature('ai_voice'), aiVoiceLimit, idempotency('voice'), audioUpload.single('audio'), async (req, res) => {
   const file = req.file;
   if (!file) return sendError(res, 'audio file is required (field name: audio)', 400);
 
@@ -1597,7 +1607,7 @@ function _scanSymptoms(farmCtx) {
 //   • application/json     → mobile multi-image path: { images: [{data, mime_type}], farmContext }
 //                            (skip multer; the 50 MB JSON parser is mounted in app.js)
 //   • multipart/form-data  → legacy single-image path used by web + older clients
-router.post('/scan/submit', authenticate, aiScanLimit, (req, res, next) => {
+router.post('/scan/submit', authenticate, requireFeature('ai_scan'), aiScanLimit, (req, res, next) => {
   const ct = String(req.headers['content-type'] || '');
   if (ct.startsWith('application/json')) return next();
   upload.single('image')(req, res, (err) => {
@@ -1996,7 +2006,7 @@ async function _persistDoneScan({ userId, farmCtx, weatherData, raw, flat, image
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/scan  — proxy to FastAPI 5-agent pipeline, save to Prisma
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
+router.post('/scan', authenticate, requireFeature('ai_scan'), aiScanLimit, (req, res, next) => {
   upload.single('image')(req, res, (err) => {
     if (err) return sendError(res, err.message || 'Image upload failed', 400);
     next();
@@ -2093,7 +2103,10 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
     }
 
     // ── BRANCH: FastAPI agentic pipeline vs in-Express Gemini ───────────────
-    // Toggle via ENV.USE_FASTAPI_FOR_SCAN. The FastAPI path runs the full
+    // Toggle via the ai.useFastapiForScan App Setting (admin panel, no redeploy),
+    // which falls back to the USE_FASTAPI_FOR_SCAN env var via its manifest
+    // envKey — so existing deploys keep their current behaviour until an admin
+    // overrides it. The FastAPI path runs the full
     // agentic pipeline (image-quality CV, weather correlation, vision
     // diagnosis with router fallback, chemical-registry-validated treatment,
     // confidence-gated chemicals, structured report). Both paths produce
@@ -2104,7 +2117,8 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
     let needsRescan = false;
     let tokenUsage  = { total_tokens: 0, total_cost_usd: 0 };
 
-    if (ENV.USE_FASTAPI_FOR_SCAN) {
+    const useFastapiScan = await getSetting('ai.useFastapiForScan').catch(() => ENV.USE_FASTAPI_FOR_SCAN);
+    if (useFastapiScan === true || useFastapiScan === 'true') {
       diagnosisMethod = 'fastapi-agentic';
       // Translate the existing Node-side params shape into the FastAPI
       // shape (snake_case keys that orchestrator.run_diagnosis expects).
@@ -2344,7 +2358,7 @@ router.post('/scan', authenticate, aiScanLimit, (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/scan/:sessionId/chat  — follow-up Q&A on a scan
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/scan/:sessionId/chat', authenticate, aiChatLimit, async (req, res) => {
+router.post('/scan/:sessionId/chat', authenticate, requireFeature('ai_chat'), aiChatLimit, async (req, res) => {
   const { message } = req.body;
   if (!message?.trim())      return sendError(res, 'message is required', 400);
   if (message.length > 1000) return sendError(res, 'message too long (max 1000 chars)', 400);
@@ -2530,7 +2544,7 @@ router.get('/scan/sessions/:id', authenticate, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/ai/alerts  — proxy to FastAPI, cache in Express
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/alerts', authenticate, aiChatLimit, async (req, res) => {
+router.post('/alerts', authenticate, requireFeature('ai_alerts'), aiChatLimit, async (req, res) => {
   const cached = alertCacheGet(req.user.id);
   if (cached) return sendSuccess(res, cached);
 

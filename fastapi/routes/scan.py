@@ -17,7 +17,7 @@ Endpoints
 from __future__ import annotations
 import base64
 import logging
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse
 from slowapi.util import get_remote_address
 
@@ -235,6 +235,16 @@ async def ai_scan(request: Request):
             "status":  "queued",
         })
 
+    # Deliberate HTTP responses raised inside the try — above all the 402 from
+    # check_under_cap — must reach FastAPI's own handler with their real status.
+    # Without this they fall into the `except Exception` below and go out as 500,
+    # which Express reads as a DEPENDENCY FAILURE (fastapi-signed.js sets
+    # err.status, breakers.js counts >= 500): ~5 over-cap scans trip the SHARED
+    # fastapi breaker and 503 chat, soil-OCR and alerts for every user. The
+    # fail-closed spend_cap_unavailable 402 makes that worse — a Redis blip would
+    # convert every scan into breaker-opening 500s.
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("[Scan] enqueue error: %s", exc, exc_info=True)
         return JSONResponse(

@@ -94,26 +94,36 @@ Color guide: urgent/pest=#E74C3C, water=#3498DB, crop growth=#2ECC71, soil/ferti
 };
 
 // ── Helper: single Gemini text call ──────────────────────────────────────────
+// Returns the text AND the usage block: callers debit the credit ledger against
+// real token counts, and settling with 0 would silently charge only the per-feature
+// floor no matter how large the response.
 async function callGeminiChat(params) {
   if (!ENV.GEMINI_API_KEY) throw new Error('No AI provider configured — set GEMINI_API_KEY in .env');
   const res = await gemini().chat.completions.create({ ...params, model: GEMINI_MODEL });
-  return res.choices[0]?.message?.content || '';
+  return {
+    text: res.choices[0]?.message?.content || '',
+    tokensUsed: res.usage?.total_tokens || 0,
+    model: GEMINI_MODEL,
+  };
 }
 
 // ── Planner task generation ────────────────────────────────────────────────────
 export async function generatePlannerTasks(farmContext) {
   const messages = [{ role: 'user', content: PLANNER_PROMPT(farmContext) }];
 
-  const rawText = await callGeminiChat({
+  const { text: rawText, tokensUsed, model } = await callGeminiChat({
     messages, temperature: 0.6, max_tokens: 900,
     response_format: { type: 'json_object' },
   });
 
+  // Returns { tasks, tokensUsed, model } — the caller debits the credit ledger
+  // against tokensUsed. A parse failure still reports usage: the tokens were spent
+  // whether or not the JSON came back well-formed.
   try {
     const parsed = JSON.parse(rawText);
-    return Array.isArray(parsed.tasks) ? parsed.tasks : [];
+    return { tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [], tokensUsed, model };
   } catch (err) {
     logger.warn('[PlannerTasks] Failed to parse AI response as JSON: %s — raw: %s', err.message, rawText?.slice(0, 120));
-    return [];
+    return { tasks: [], tokensUsed, model };
   }
 }

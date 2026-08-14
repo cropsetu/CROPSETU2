@@ -516,24 +516,48 @@ function ImportModal({ onClose, onCommitted }: { onClose: () => void; onCommitte
 }
 
 // ── Low-stock alerts ───────────────────────────────────────────────────────────
-interface LowStockProduct { id: string; name: string; stock: number; isActive: boolean; category?: { name: string } | null; seller?: { id: string; name: string | null } | null }
+// Rows are SELLER LISTINGS, not products: since the catalog split, stock belongs to
+// an offer, not to the catalog row (three Kendras stock the same product
+// independently). The shape below mirrors the include tree in
+// backend/src/routes/admin/catalogIo.routes.js inventoryRouter.get('/alerts') —
+// name/category live under variant.product, stock is stockQty, and there is no
+// isActive (listings carry a status enum).
+interface LowStockListing {
+  id: string;
+  stockQty: number;
+  status: string;
+  seller?: { id: string; name: string | null } | null;
+  variant?: {
+    id: string;
+    unit?: string | null;
+    product?: { id: string; name: string; brand?: string | null; category?: { id: string; name: string } | null } | null;
+  } | null;
+}
+
+const lsProduct  = (l: LowStockListing) => l.variant?.product?.name ?? '—';
+const lsCategory = (l: LowStockListing) => l.variant?.product?.category?.name ?? '—';
 
 export function LowStockPage() {
   const [threshold, setThreshold] = useState('');
   const params = useMemo(() => { const p: Record<string, unknown> = {}; if (threshold !== '') p.threshold = threshold; return p; }, [threshold]);
-  const list = useKeyset<LowStockProduct>('/admin/inventory/alerts', params);
+  const list = useKeyset<LowStockListing>('/admin/inventory/alerts', params);
 
-  const columns: Column<LowStockProduct>[] = [
-    { key: 'name', header: 'Product', render: (p) => <span className="font-medium">{p.name}</span>, csv: (p) => p.name },
-    { key: 'category', header: 'Category', render: (p) => p.category?.name || '—', csv: (p) => p.category?.name || '' },
-    { key: 'seller', header: 'Seller', render: (p) => p.seller?.name || '—', csv: (p) => p.seller?.name || '' },
-    { key: 'stock', header: 'Stock', render: (p) => <Badge tone={p.stock <= 0 ? 'red' : 'amber'}>{p.stock}</Badge>, csv: (p) => String(p.stock) },
-    { key: 'isActive', header: 'Active', render: (p) => <BoolBadge value={p.isActive} />, csv: (p) => String(p.isActive) },
+  const columns: Column<LowStockListing>[] = [
+    { key: 'product', header: 'Product', render: (l) => <span className="font-medium">{lsProduct(l)}</span>, csv: lsProduct },
+    { key: 'category', header: 'Category', render: (l) => lsCategory(l), csv: lsCategory },
+    { key: 'seller', header: 'Seller', render: (l) => l.seller?.name || '—', csv: (l) => l.seller?.name || '' },
+    {
+      key: 'stockQty',
+      header: 'Stock',
+      render: (l) => <Badge tone={l.stockQty <= 0 ? 'red' : 'amber'}>{l.stockQty}{l.variant?.unit ? ` ${l.variant.unit}` : ''}</Badge>,
+      csv: (l) => String(l.stockQty),
+    },
+    { key: 'status', header: 'Status', render: (l) => <Badge tone={l.status === 'ACTIVE' ? 'green' : 'slate'}>{l.status}</Badge>, csv: (l) => l.status },
   ];
 
   return (
     <div>
-      <PageHeader title="Low-stock alerts" subtitle="Active products at or below the low-stock threshold." />
+      <PageHeader title="Low-stock alerts" subtitle="Seller listings at or below the low-stock threshold." />
       <Toolbar>
         <Field label="Threshold (override)">
           <Input type="number" min={0} value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder="default" className="w-32" />

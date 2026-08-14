@@ -44,9 +44,14 @@ const VISION_MODEL_OPTIONS = LLM_MODEL_OPTIONS.filter(
 // value convention: '<provider>:<modelId>' (split on the FIRST colon). The route
 // forwards the modelId to the Sarvam STT call; non-sarvam providers (e.g. Whisper)
 // are not yet implemented and safely fall back to the Sarvam default with a warning.
+// Whisper was listed here but selecting it changed NOTHING: ai.routes.js only
+// assigns sttModel when the provider is 'sarvam', so the openai value left it
+// undefined and sarvam.service.js fell back to saaras:v3 anyway. A dropdown option
+// that silently does nothing is worse than no option — it reads as a working
+// control. Re-add it in the same breath as implementing the Whisper branch.
 const VOICE_STT_OPTIONS = [
   { value: 'sarvam:saaras:v3', label: 'Sarvam Saaras v3 (Indic STT)' },
-  { value: 'openai:whisper-1', label: 'OpenAI Whisper (falls back to Sarvam until enabled)' },
+  { value: 'sarvam:saarika:v2', label: 'Sarvam Saarika v2 (Indic STT, faster)' },
 ];
 
 // type: 'STRING' | 'NUMBER' | 'BOOL' | 'JSON' | 'ENUM'
@@ -55,12 +60,12 @@ const VOICE_STT_OPTIONS = [
 // Optional `options` (ENUM): array of { value, label }.
 export const SETTINGS_MANIFEST = [
   // ── AI budget & token limits ────────────────────────────────────────────────
-  { key: 'ai.monthlyBudgetUsdCap', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Monthly AI budget cap (USD)', description: 'Company-wide AI spend ceiling for the calendar month. 0 = no cap (dashboard tracks usage either way).', default: 0 },
-  { key: 'ai.tokensPerCredit', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Tokens per credit', description: 'How many model tokens one AI credit buys.', envKey: 'AI_TOKENS_PER_CREDIT', default: 1000 },
-  { key: 'ai.freeMonthlyCredits', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Free monthly credits', description: 'Auto-refill grant for free-tier users on the 1st of each month.', envKey: 'AI_FREE_MONTHLY_CREDITS', default: 100 },
-  { key: 'ai.freeScanDailyLimit', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Free disease scans / day', description: 'Daily disease-scan cap for free-tier users.', default: 500 },
-  { key: 'ai.freeChatDailyLimit', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Free AI chats / day', description: 'Daily AI-chat cap for free-tier users.', default: 200 },
-  { key: 'ai.freeTokenDailyLimit', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Free tokens / day', description: 'Daily token cap for free-tier users.', default: 1_000_000 },
+  { key: 'ai.monthlyBudgetUsdCap', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Monthly AI budget cap (USD)', description: 'Company-wide AI spend ceiling for the calendar month. 0 = no cap (dashboard tracks usage either way).', min: 0, max: 1000000, default: 0 },
+  { key: 'ai.tokensPerCredit', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Tokens per credit', description: 'How many model tokens one AI credit buys.', envKey: 'AI_TOKENS_PER_CREDIT', min: 1, max: 10000000, integer: true, default: 1000 },
+  { key: 'ai.freeMonthlyCredits', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Free monthly credits', description: 'Auto-refill grant for free-tier users on the 1st of each month.', envKey: 'AI_FREE_MONTHLY_CREDITS', min: 0, max: 1000000, integer: true, default: 100 },
+  { key: 'ai.freeScanDailyLimit', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Free disease scans / day', description: 'Daily disease-scan cap for free-tier users.', min: 0, max: 100000, integer: true, default: 500 },
+  { key: 'ai.freeChatDailyLimit', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Free AI chats / day', description: 'Daily AI-chat cap for free-tier users.', min: 0, max: 100000, integer: true, default: 200 },
+  { key: 'ai.freeTokenDailyLimit', type: 'NUMBER', category: 'AI Budget & Limits', label: 'Free tokens / day', description: 'Daily token cap for free-tier users.', min: 0, max: 1000000000, integer: true, default: 1_000_000 },
 
   // ── AI model routing (per service) ──────────────────────────────────────────
   // The FastAPI pipeline honours these per-request (multi-provider dispatch). Vision
@@ -94,8 +99,8 @@ export const SETTINGS_MANIFEST = [
   { key: 'ai.diagnose.ensemble', type: 'BOOL', category: 'AI Models', label: 'Second-opinion ensemble (diagnosis)', description: 'When the first diagnosis is unsure (confidence < 0.80) or ambiguous, re-check the photo with extra models in parallel (Gemini Pro + Flash, plus the GPT-4o voter when the OpenAI key is set) and vote for the most reliable answer. Improves accuracy on hard scans; it only fires on those — easy, confident scans skip it. Costs roughly 2–4× on a scan when it triggers, and near-budget users are skipped automatically. OFF by default — turn on deliberately once you can measure the accuracy gain.', default: false },
 
   // ── Marketplace ─────────────────────────────────────────────────────────────
-  { key: 'marketplace.commissionRatePct', type: 'NUMBER', category: 'Marketplace', label: 'Seller commission (%)', description: 'Platform commission deducted from seller sales when computing settlement balances.', default: 5 },
-  { key: 'catalog.lowStockThreshold', type: 'NUMBER', category: 'Marketplace', label: 'Low-stock threshold', description: 'Products at or below this stock count appear in low-stock alerts.', default: 10 },
+  { key: 'marketplace.commissionRatePct', type: 'NUMBER', category: 'Marketplace', label: 'Seller commission (%)', description: 'Platform commission deducted from seller sales when computing settlement balances.', min: 0, max: 100, default: 5 },
+  { key: 'catalog.lowStockThreshold', type: 'NUMBER', category: 'Marketplace', label: 'Low-stock threshold', description: 'Products at or below this stock count appear in low-stock alerts.', min: 0, max: 1000000, integer: true, default: 10 },
 
   // ── Buy Box (CATALOG-SPLIT §4) ──────────────────────────────────────────────
   // score = w1·norm(price) + w2·sellerRating + w3·norm(dispatchSla) + w4·fulfillment.
@@ -104,30 +109,36 @@ export const SETTINGS_MANIFEST = [
   // 6/1.5/1.5/1 gives exactly the same ranking as 0.6/0.15/0.15/0.1.
   // Price-heavy by default: for agri-inputs the packs are identical, so price is
   // what a farmer is actually choosing on.
-  { key: 'buybox.weight.price', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — price weight (w1)', description: 'How much the cheapest eligible offer is favoured. Highest weight by default.', default: 0.6 },
-  { key: 'buybox.weight.sellerRating', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — seller rating weight (w2)', description: 'Weight on the seller’s average rating. Automatically dropped to 0 for a variant when no competing seller has any metrics yet.', default: 0.15 },
-  { key: 'buybox.weight.dispatchSla', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — dispatch speed weight (w3)', description: 'Weight on the seller’s promised dispatch time (fewer days is better).', default: 0.15 },
-  { key: 'buybox.weight.fulfillment', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — fulfillment weight (w4)', description: 'Weight on on-time dispatch, cancellation and return rates. Dropped to 0 until seller metrics exist, so a fresh marketplace ranks on price rather than on noise.', default: 0.1 },
-  { key: 'buybox.neutralSellerRating', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — neutral rating for unrated sellers', description: 'Stand-in rating (out of 5) for a seller with no reviews yet, used only when OTHER sellers on the same variant do have metrics. 0 would rank an unrated Kendra below a badly-rated one.', default: 3.5 },
-  { key: 'buybox.maxDispatchSlaDays', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — dispatch SLA ceiling (days)', description: 'Dispatch promises above this are all treated as equally slow, so one outlier cannot flatten the normalised scale for everyone else.', default: 14 },
+  { key: 'buybox.weight.price', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — price weight (w1)', description: 'How much the cheapest eligible offer is favoured. Highest weight by default.', min: 0, max: 100, default: 0.6 },
+  { key: 'buybox.weight.sellerRating', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — seller rating weight (w2)', description: 'Weight on the seller’s average rating. Automatically dropped to 0 for a variant when no competing seller has any metrics yet.', min: 0, max: 100, default: 0.15 },
+  { key: 'buybox.weight.dispatchSla', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — dispatch speed weight (w3)', description: 'Weight on the seller’s promised dispatch time (fewer days is better).', min: 0, max: 100, default: 0.15 },
+  { key: 'buybox.weight.fulfillment', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — fulfillment weight (w4)', description: 'Weight on on-time dispatch, cancellation and return rates. Dropped to 0 until seller metrics exist, so a fresh marketplace ranks on price rather than on noise.', min: 0, max: 100, default: 0.1 },
+  { key: 'buybox.neutralSellerRating', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — neutral rating for unrated sellers', description: 'Stand-in rating (out of 5) for a seller with no reviews yet, used only when OTHER sellers on the same variant do have metrics. 0 would rank an unrated Kendra below a badly-rated one.', min: 0, max: 5, default: 3.5 },
+  { key: 'buybox.maxDispatchSlaDays', type: 'NUMBER', category: 'Marketplace', label: 'Buy box — dispatch SLA ceiling (days)', description: 'Dispatch promises above this are all treated as equally slow, so one outlier cannot flatten the normalised scale for everyone else.', min: 1, max: 365, integer: true, default: 14 },
 
   // ── Catalog dedup gate (CATALOG-SPLIT §3) ───────────────────────────────────
   // Trigram similarity() on the product name, 0–1. Between suggest and block the
   // seller is SHOWN the matches but still allowed to create: a false block on a
   // genuinely new product leaves them with no way forward.
-  { key: 'catalog.dedupBlockSimilarity', type: 'NUMBER', category: 'Marketplace', label: 'Duplicate block threshold', description: 'Name similarity (0–1) at or above which a new catalog product is REJECTED as a duplicate and the seller is told to attach an offer instead. Raise it if legitimate products are being blocked.', default: 0.72 },
-  { key: 'catalog.dedupSuggestSimilarity', type: 'NUMBER', category: 'Marketplace', label: 'Duplicate suggest threshold', description: 'Name similarity (0–1) at or above which existing products are SUGGESTED to the seller. Values below 0.3 have no effect — pg_trgm’s % operator floors the candidate set there.', default: 0.45 },
+  { key: 'catalog.dedupBlockSimilarity', type: 'NUMBER', category: 'Marketplace', label: 'Duplicate block threshold', description: 'Name similarity (0–1) at or above which a new catalog product is REJECTED as a duplicate and the seller is told to attach an offer instead. Raise it if legitimate products are being blocked.', min: 0, max: 1, default: 0.72 },
+  { key: 'catalog.dedupSuggestSimilarity', type: 'NUMBER', category: 'Marketplace', label: 'Duplicate suggest threshold', description: 'Name similarity (0–1) at or above which existing products are SUGGESTED to the seller. Values below 0.3 have no effect — pg_trgm’s % operator floors the candidate set there.', min: 0, max: 1, default: 0.45 },
   { key: 'catalog.requireQcForNewProducts', type: 'BOOL', category: 'Marketplace', label: 'Require admin QC for new catalog products', description: 'New CATALOG entries land in PENDING_QC and stay invisible until approved. Attaching an offer to an already-approved product is never gated — there is nothing new to review.', default: true },
 
   // ── Seller metrics job ──────────────────────────────────────────────────────
-  { key: 'sellerMetrics.windowDays', type: 'NUMBER', category: 'Marketplace', label: 'Seller metrics window (days)', description: 'Rolling window for cancellation / dispatch / return rates. Older history is ignored so a seller can recover from a bad month.', default: 180 },
-  { key: 'sellerMetrics.defaultDispatchSlaDays', type: 'NUMBER', category: 'Marketplace', label: 'Assumed dispatch SLA when unknown (days)', description: 'Used to judge on-time dispatch for an order item whose listing has since been deleted.', default: 2 },
+  { key: 'sellerMetrics.windowDays', type: 'NUMBER', category: 'Marketplace', label: 'Seller metrics window (days)', description: 'Rolling window for cancellation / dispatch / return rates. Older history is ignored so a seller can recover from a bad month.', min: 1, max: 3650, integer: true, default: 180 },
+  { key: 'sellerMetrics.defaultDispatchSlaDays', type: 'NUMBER', category: 'Marketplace', label: 'Assumed dispatch SLA when unknown (days)', description: 'Used to judge on-time dispatch for an order item whose listing has since been deleted.', min: 1, max: 365, integer: true, default: 2 },
 
   // ── Broadcast ───────────────────────────────────────────────────────────────
-  { key: 'broadcast.maxRecipients', type: 'NUMBER', category: 'Broadcast', label: 'Max recipients / broadcast', description: 'Per-broadcast fan-out cap. Can be lowered from the 5000 safety ceiling, never raised above it.', default: 5000 },
+  { key: 'broadcast.maxRecipients', type: 'NUMBER', category: 'Broadcast', label: 'Max recipients / broadcast', description: 'Per-broadcast fan-out cap. Can be lowered from the 5000 safety ceiling, never raised above it.', min: 1, max: 5000, integer: true, default: 5000 },
 
   // ── App ─────────────────────────────────────────────────────────────────────
-  { key: 'app.maintenanceMode', type: 'BOOL', category: 'General', label: 'Maintenance mode', description: 'Surface a maintenance banner / pause non-essential traffic.', default: false },
+  { key: 'app.maintenanceMode', type: 'BOOL', category: 'General', label: 'Maintenance mode', description: 'Return 503 to all app traffic. Healthchecks, /auth and the whole admin panel stay reachable so you can still sign in and switch this back off. Takes effect within 5 seconds.', default: false },
+  // Routes every crop scan through either the FastAPI agentic pipeline (safety-
+  // validated treatment, RAG-grounded) or the deprecated in-process Express
+  // scanner. Promoted out of env-only so rolling back a bad AI deploy is a click
+  // instead of a Railway edit + full redeploy. envKey keeps existing deploys on
+  // whatever USE_FASTAPI_FOR_SCAN already says until an admin overrides it.
+  { key: 'ai.useFastapiForScan', type: 'BOOL', category: 'AI Models', label: 'Use FastAPI scan pipeline', description: 'ON routes crop scans through the FastAPI agentic pipeline (5-agent, RAG-grounded, safety-validated treatment). OFF falls back to the deprecated in-process Express scanner, which has no treatment validation — use only as an emergency rollback.', envKey: 'USE_FASTAPI_FOR_SCAN', default: false },
   { key: 'app.maintenanceMessage', type: 'STRING', category: 'General', label: 'Maintenance message', description: 'Message shown to users while maintenance mode is on.', default: '' },
 ];
 
@@ -180,6 +191,23 @@ function coerce(def, value) {
     case 'NUMBER': {
       const n = typeof value === 'number' ? value : Number(value);
       if (!Number.isFinite(n)) throw new SettingError(`${def.key} must be a number`);
+      // Range enforcement. Without it a single correct-looking save could break the
+      // product: ai.tokensPerCredit = 0 divides by zero in the credit meter, a
+      // negative ai.freeScanDailyLimit blocks every farmer who already scanned
+      // today (ai.routes.js gates on `usage.scanCount >= limit`, and its
+      // `|| FALLBACK` guard does not fire for a truthy -1), and
+      // broadcast.maxRecipients above its ceiling widens the fan-out blast radius.
+      // `integer` is separate from min/max so counts can reject 2.5 while weights
+      // stay fractional.
+      if (def.integer && !Number.isInteger(n)) {
+        throw new SettingError(`${def.key} must be a whole number`);
+      }
+      if (def.min != null && n < def.min) {
+        throw new SettingError(`${def.key} must be at least ${def.min}`);
+      }
+      if (def.max != null && n > def.max) {
+        throw new SettingError(`${def.key} must be at most ${def.max}`);
+      }
       return n;
     }
     case 'BOOL': {
@@ -273,6 +301,11 @@ export async function listSettings() {
       value: def.isSecret ? '••••' : value,
       isDefault: !row,
       options: def.options ?? null,
+      // Bounds travel to the client so the number input can enforce them BEFORE a
+      // round-trip (the server still validates in coerce() — this is UX, not the gate).
+      min: def.min ?? null,
+      max: def.max ?? null,
+      step: def.integer ? 1 : null,
       updatedAt: row?.updatedAt ?? null,
       updatedBy: row?.updatedBy ?? null,
     });
