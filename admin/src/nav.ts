@@ -76,7 +76,8 @@ export const NAV: NavGroup[] = [
     { label: 'Audit Log', to: '/audit', icon: History },
   ]},
   { title: 'Ops', items: [
-    { label: 'Feature Flags', to: '/flags', icon: ToggleRight },
+    { label: 'System Status', to: '/status', icon: Activity, keywords: 'health live realtime uptime up down status now incident' },
+    { label: 'Feature Flags', to: '/flags', icon: ToggleRight, keywords: 'kill switch disable ai pause' },
     { label: 'API Health', to: '/health', icon: HeartPulse },
     { label: 'Queues', to: '/queues', icon: ListChecks },
     { label: 'Jobs', to: '/jobs', icon: ListTodo, keywords: 'bullmq retry failed background' },

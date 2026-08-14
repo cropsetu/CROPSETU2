@@ -28,7 +28,10 @@ const MODEL = ENV.GEMINI_MODEL || 'gemini-2.5-flash';
  * @param {string} opts.systemPrompt
  * @param {string} opts.userMessage
  * @param {number} [opts.maxTokens=800]
- * @returns {Promise<string>} response text
+ * @returns {Promise<{answer: string, tokensUsed: number, model: string}>}
+ *   The usage block rides along so the caller can debit the credit ledger against
+ *   real token counts — settling with 0 would charge only the per-feature floor
+ *   regardless of how long the answer ran.
  */
 export async function askSchemeQuestion({ systemPrompt, userMessage, maxTokens = 800 }) {
   const response = await client().chat.completions.create({
@@ -39,5 +42,9 @@ export async function askSchemeQuestion({ systemPrompt, userMessage, maxTokens =
       { role: 'user',   content: userMessage },
     ],
   });
-  return response.choices[0]?.message?.content || '';
+  return {
+    answer: response.choices[0]?.message?.content || '',
+    tokensUsed: response.usage?.total_tokens || 0,
+    model: MODEL,
+  };
 }

@@ -14,10 +14,23 @@ import prisma from '../config/db.js';
 import redis from '../config/redis.js';
 import logger from '../utils/logger.js';
 
+// ── AI kill switches ──────────────────────────────────────────────────────────
+// Every LLM-backed route is gated by one of these. They exist so a spend spike,
+// a provider outage or a bad model choice can be contained in seconds from the
+// admin Ops → Feature Flags page, instead of requiring an env edit + redeploy.
+// Disabling returns 503 with the admin's `disabledReason` so the mobile app can
+// tell the farmer why. Flags propagate across instances in milliseconds via the
+// Redis pub/sub below, and fail OPEN (isEnabled returns true when the DB is
+// unreachable) so a database blip never silently disables the product.
+export const AI_FEATURE_FLAGS = [
+  'ai_chat', 'ai_scan', 'ai_voice', 'ai_soil_ocr', 'ai_alerts', 'ai_planner', 'ai_schemes',
+];
+
 const DEFAULT_FLAGS = [
   'mandi_bhav', 'msp_tracker', 'soil_health', 'pest_alerts',
   'scheme_finder', 'loan_calculator', 'crop_calendar', 'irrigation',
   'input_calculator', 'crop_master',
+  ...AI_FEATURE_FLAGS,
 ];
 
 // ── In-memory cache (refreshed every 5 min) ───────────────────────────────────
@@ -44,7 +57,10 @@ async function loadFlags() {
   if (_cache && (now - _lastFetched) < CACHE_TTL) return _cache;
 
   const rows = await prisma.featureFlag.findMany();
-  _cache = Object.fromEntries(rows.map(r => [r.featureKey, r.isEnabled]));
+  // Cache the DISABLED REASON alongside the boolean: a kill switch that cannot
+  // tell the user why it fired just looks like an outage. Callers that only need
+  // the boolean keep using isEnabled().
+  _cache = Object.fromEntries(rows.map(r => [r.featureKey, { enabled: r.isEnabled, reason: r.disabledReason || null }]));
   _lastFetched = now;
   return _cache;
 }
@@ -54,9 +70,25 @@ export async function isEnabled(featureKey) {
   try {
     const flags = await loadFlags();
     // If the flag doesn't exist yet, default to enabled
-    return flags[featureKey] !== false;
+    return flags[featureKey]?.enabled !== false;
   } catch {
     return true; // fail-open: don't block the service if DB is down
+  }
+}
+
+/**
+ * Flag state + the admin's reason for disabling it.
+ * Fails OPEN (enabled) exactly like isEnabled — a DB blip must never take a
+ * feature down on its own.
+ */
+export async function getFlag(featureKey) {
+  try {
+    const flags = await loadFlags();
+    const f = flags[featureKey];
+    if (!f) return { enabled: true, reason: null };
+    return { enabled: f.enabled !== false, reason: f.reason };
+  } catch {
+    return { enabled: true, reason: null };
   }
 }
 

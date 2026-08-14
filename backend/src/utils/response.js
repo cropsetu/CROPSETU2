@@ -6,6 +6,7 @@
  */
 import { Prisma } from '@prisma/client';
 import logger from './logger.js';
+import { persistErrorLog } from './errorLog.js';
 
 /**
  * Money columns are stored as DECIMAL, which Prisma returns as Prisma.Decimal
@@ -69,6 +70,11 @@ export function sendError(res, message, statusCode = 500, details, extra) {
 export function sendServerError(res, err, fallback = 'Something went wrong. Please try again.', statusCode) {
   const status = statusCode ?? err?.statusCode ?? err?.status ?? 500;
   logger.error({ err, requestId: res.req?.id, path: res.req?.path }, '[Route Error]');
+  // Persist 5xx for the admin Ops → Error Logs page. Routes here return a response
+  // directly instead of calling next(err), so WITHOUT this they never reached the
+  // global handler in app.js and the admin's error viewer stayed near-empty while
+  // the API was failing. Fire-and-forget; persistErrorLog never throws.
+  persistErrorLog({ err, req: res.req, status });
   const message = err?.expose === true && err?.message ? err.message : fallback;
   return sendError(res, message, status);
 }

@@ -30,7 +30,7 @@ import aiRoutes from './ai.routes.js';
 import { schemesRouter, mspRouter, cropMasterRouter, pestAlertsRouter, mandiRouter } from './cms.routes.js';
 import broadcastRoutes from './broadcast.routes.js';
 import notificationTemplatesRoutes from './notificationTemplates.routes.js';
-import { flagsRouter, healthRouter, queuesRouter, jobsRouter, errorLogsRouter } from './ops.routes.js';
+import { flagsRouter, healthRouter, queuesRouter, jobsRouter, errorLogsRouter, statusRouter } from './ops.routes.js';
 import { consentsRouter, erasureRouter, auditRouter } from './compliance.routes.js';
 import settingsRoutes from './settings.routes.js';
 import { teamRouter, meRouter } from './team.routes.js';
@@ -62,17 +62,23 @@ router.use('/kyc', requireScope(S.KYC_REVIEWER), kycRoutes);
 router.use('/activity', requireScope(S.SUPPORT), activityRoutes);
 // Commerce
 router.use('/categories', requireScope(S.CMS_EDITOR), categoriesRouter);
-// Bulk catalog I/O — mounted on /products BEFORE productsRouter so /products/export
-// and /products/import resolve here (and not to productsRouter's GET /:id).
-router.use('/products', requireScope(S.CMS_EDITOR), productsCsvRouter);
-router.use('/products', requireScope(S.CMS_EDITOR), productsImportRouter);
-// Catalog QC + duplicate merge. CONTENT_MODERATOR, not CMS_EDITOR: approving,
+// Four routers share the `/products` prefix, so their scope gates CANNOT live here.
+// router.use(path, mw, sub) pushes one layer per handler at that path: every
+// /products/* URL runs EVERY gate in mount order, and requireScope terminates with
+// 403 instead of next('router') — so the first gate decides for all four routers.
+// That made Catalog QC 403 for CONTENT_MODERATOR and the Products page 403 for
+// CMS_EDITOR (only a SUPER_ADMIN could use any of it). Each router now applies its
+// own requireScope internally; the mount order below still matters for PATH
+// resolution (/products/export, /products/import and /products/qc/* must resolve
+// before productsRouter's GET /:id swallows them).
+router.use('/products', productsCsvRouter);
+router.use('/products', productsImportRouter);
+// Catalog QC + duplicate merge is CONTENT_MODERATOR, not CMS_EDITOR: approving,
 // rejecting and merging seller-submitted catalog entries is the same kind of
 // judgement as the review queue and the fraud-flag queue, whereas CMS_EDITOR
-// covers editorial authoring (create / edit / CSV). Mounted before productsRouter
-// so /products/qc/* and /products/merge do not fall into its GET /:id.
-router.use('/products', requireScope(S.CONTENT_MODERATOR), productsQcRouter);
-router.use('/products', requireScope(S.CMS_EDITOR), productsRouter);
+// covers editorial authoring (create / edit / CSV).
+router.use('/products', productsQcRouter);
+router.use('/products', productsRouter);
 router.use('/inventory', requireScope(S.CMS_EDITOR), inventoryRouter);
 router.use('/reviews', requireScope(S.CONTENT_MODERATOR), reviewsRouter);
 router.use('/orders', requireScope(S.SUPPORT), ordersRoutes);
@@ -104,6 +110,9 @@ router.use('/mandi', requireScope(S.CMS_EDITOR), mandiRouter);
 router.use('/notifications', requireScope(S.CONTENT_MODERATOR), broadcastRoutes);
 router.use('/notification-templates', requireScope(S.CONTENT_MODERATOR), notificationTemplatesRoutes);
 // Ops
+// Live system status (traffic lights + today's spend). OPS scope, same as the
+// rest of this group; mounted at /ops so the path reads /admin/ops/status.
+router.use('/ops', requireScope(S.OPS), statusRouter);
 router.use('/flags', requireScope(S.OPS), flagsRouter);
 router.use('/health', requireScope(S.OPS), healthRouter);
 router.use('/queues', requireScope(S.OPS), queuesRouter);

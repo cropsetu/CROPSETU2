@@ -18,7 +18,7 @@ export function FlagsPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ['flags'], queryFn: () => apiGet<{ items: Flag[] }>('/admin/flags').then((r) => r.data.items) });
+  const q = useQuery({ queryKey: ['flags'], queryFn: () => apiGet<{ items: Flag[] }>('/admin/flags').then((r) => r.data.items), refetchInterval: 30_000, refetchIntervalInBackground: true });
   const toggle = useMutation({
     mutationFn: (vars: { key: string; isEnabled: boolean; reason?: string }) => apiPatch(`/admin/flags/${vars.key}`, { isEnabled: vars.isEnabled, disabledReason: vars.reason }),
     onSuccess: () => { toast.success('Flag updated'); qc.invalidateQueries({ queryKey: ['flags'] }); },
@@ -64,7 +64,7 @@ export function FlagsPage() {
 interface HealthData { hours: number; summary: Record<string, { total: number; successRate: number; avgMs: number; failure?: number; timeout?: number }>; recentLogs: { id: string; source: string; endpoint: string; status: string; responseTimeMs: number | null; timestamp: string }[] }
 
 export function HealthPage() {
-  const q = useQuery({ queryKey: ['health'], queryFn: () => apiGet<HealthData>('/admin/health', { hours: 24 }).then((r) => r.data) });
+  const q = useQuery({ queryKey: ['health'], queryFn: () => apiGet<HealthData>('/admin/health', { hours: 24 }).then((r) => r.data), refetchInterval: 30_000, refetchIntervalInBackground: true });
   const d = q.data;
   return (
     <div>
@@ -109,7 +109,7 @@ export function HealthPage() {
 type QueueStat = { available: boolean; waiting?: number; active?: number; completed?: number; failed?: number; delayed?: number; paused?: number };
 
 export function QueuesPage() {
-  const q = useQuery({ queryKey: ['queues'], queryFn: () => apiGet<{ queues: Record<string, QueueStat> }>('/admin/queues').then((r) => r.data.queues), refetchInterval: 10_000 });
+  const q = useQuery({ queryKey: ['queues'], queryFn: () => apiGet<{ queues: Record<string, QueueStat> }>('/admin/queues').then((r) => r.data.queues), refetchInterval: 10_000, refetchIntervalInBackground: true });
   return (
     <div>
       <PageHeader title="Queues" subtitle="BullMQ background-job counts (auto-refreshing)." />
@@ -152,6 +152,7 @@ export function JobsPage() {
     queryKey: ['jobs', queue],
     queryFn: () => apiGet<{ queue: string; available: boolean; jobs: Job[] }>(`/admin/jobs/${queue}`, { limit: 50 }).then((r) => r.data),
     refetchInterval: 10_000,
+    refetchIntervalInBackground: true,
   });
 
   const retry = useMutation({

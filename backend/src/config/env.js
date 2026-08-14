@@ -215,7 +215,11 @@ export const ENV = {
   })(),
   // Short-lived access token — a stolen token is only usable briefly. Clients
   // transparently mint a new one via refresh-token rotation (see utils/jwt.js).
-  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
+  // The fallback used to be '7d', which contradicted this comment, .env.example and
+  // the docs (all '15m'): an unset deploy issued SEVEN-DAY admin access tokens, far
+  // past the admin SPA's 20-minute idle logout, revocable only via the fail-open
+  // Redis denylist. '15m' matches what every other source of truth already claims.
+  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '15m',
   REFRESH_TOKEN_EXPIRES_DAYS: parseInt(process.env.REFRESH_TOKEN_EXPIRES_DAYS || '30', 10),
   // Server-side session timeouts (enforced on refresh):
   //  - idle: max time between refreshes; slides forward on each use, so a session
@@ -376,10 +380,21 @@ export const ENV = {
   // scale, so bulk automated sends become costly. Pairs with the AUTH-1 limits.
   // Disabled automatically when OTP_POW_SECRET is unset (fail-safe — never blocks
   // login if misconfigured). Secret signs challenges so verification is stateless.
-  // Defaults ON in dev/prod (reuses the JWT secret) but OFF under the test runner
-  // so the existing OTP/rate-limit suites aren't forced through a PoW challenge.
-  OTP_POW_SECRET: process.env.OTP_POW_SECRET
-    || (process.env.NODE_ENV === 'test' ? '' : process.env.JWT_ACCESS_SECRET || ''),
+  // OPT-IN: set OTP_POW_SECRET to enable. It does NOT default on.
+  //
+  // This previously fell back to `process.env.JWT_ACCESS_SECRET` — a variable that
+  // exists nowhere in this repo (the JWT secret is JWT_SECRET) — so it always
+  // resolved to '' and the gate has never once been active, despite the comment
+  // here claiming it "defaults ON". The dead reference is removed rather than
+  // repointed at JWT_SECRET, because switching it on is not a config change:
+  // the challenge is answered with an `x-otp-pow` header after a 428, and only the
+  // MOBILE clients implement that (shared/utils/proofOfWork.js, wired up in
+  // shared/context/AuthContext.js:137-142). The admin SPA has no solver, so turning
+  // this on would 428 admin logins past OTP_POW_SUSPICION_THRESHOLD sends per IP
+  // with no way to answer — a live lockout risk traded for a dormant defense.
+  // To enable: add a solver to the admin SPA (difficulty 18 ⇒ ~262k sync SHA-256
+  // rounds, so it belongs in a Web Worker), THEN set OTP_POW_SECRET.
+  OTP_POW_SECRET: process.env.OTP_POW_SECRET || '',
   OTP_POW_DIFFICULTY: parseInt(process.env.OTP_POW_DIFFICULTY || '18', 10), // leading zero BITS
   OTP_POW_SUSPICION_THRESHOLD: parseInt(process.env.OTP_POW_SUSPICION_THRESHOLD || '3', 10),
   OTP_POW_CHALLENGE_TTL_MS: parseInt(process.env.OTP_POW_CHALLENGE_TTL_MS || '180000', 10), // 3 min
