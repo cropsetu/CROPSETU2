@@ -1,6 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
-import { LoggerScaffold, SectionHeader, TileGrid, BigNumberInput, NotesField, Card } from './_loggerKit';
+import {
+  LoggerScaffold, SectionHeader, TileGrid, BigNumberInput, NotesField, Card, useLoggerSave,
+} from './_loggerKit';
 import * as farmApi from '../../../services/farmApi';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useMultiFarm } from '../../../context/MultiFarmContext';
@@ -21,21 +23,21 @@ export default function IncomeLogScreen({ navigation, route }) {
   const [source, setSource] = useState('other');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [celebrate, setCelebrate] = useState(false);
   const canSave = !!amount && parseFloat(amount) > 0;
-  const handleSave = useCallback(async () => {
+  // The required write decides success; the follow-ups are best effort, so a
+  // failure there no longer pushes the farmer into a retry that double-logs.
+  const { saving, save, celebrate, setCelebrate } = useLoggerSave({
+    t,
+    failMessage: t('incomeLog.saveFailed'),
+    primary: useCallback(() => farmApi.addIncomeLog(cycleId, { source, amountInr: parseFloat(amount), notes: notes || null }), [cycleId, source, amount, notes]),
+    secondary: useCallback(() => farmApi.addActivity(cycleId, { type: 'INCOME', title: `${source} ₹${amount}`, notes: notes || null, fields: { source, amountInr: parseFloat(amount) } }), [cycleId, source, amount, notes]),
+  });
+
+  const handleSave = useCallback(() => {
     if (!canSave) { Haptics.error?.(); Alert.alert(t('incomeLog.missingInfoTitle'), t('incomeLog.missingInfoMsg')); return; }
     if (!cycleId) { Alert.alert(t('incomeLog.noCycleTitle'), t('incomeLog.noCycleMsg')); return; }
-    setSaving(true);
-    try {
-      const amt = parseFloat(amount);
-      await farmApi.addIncomeLog(cycleId, { source, amountInr: amt, notes: notes||null });
-      await farmApi.addActivity(cycleId, { type:'INCOME', title: `${source} ₹${amount}`, notes: notes||null, fields:{ source, amountInr: amt } });
-      Haptics.success?.(); setCelebrate(true);
-    } catch (e) { Haptics.error?.(); Alert.alert(t('login.error')||'Error', e.message||t('incomeLog.saveFailed')); }
-    finally { setSaving(false); }
-  }, [canSave, cycleId, source, amount, notes, t]);
+    save();
+  }, [canSave, cycleId, save, t]);
   const subtitle = activeFarm ? `${activeFarm.farmName || activeFarm.farmAlias || t('nav.farm')}${cycleId ? t('incomeLog.activeCycleSuffix') : ''}` : undefined;
   return (
     <LoggerScaffold title={t('incomeLog.title')} subtitle={subtitle} footerLabel={t('incomeLog.title')} footerIcon="cash-outline"

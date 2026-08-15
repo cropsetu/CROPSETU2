@@ -46,13 +46,15 @@ describe('Machinery listing', () => {
     expect(res.body.data.ownerId).toBe(owner.user.id);
   });
 
-  test('422 — missing required fields', async () => {
+  test('400 — missing required fields', async () => {
     const res = await request(app)
       .post('/api/v1/rent/machinery')
       .set(owner.headers)
       .send({ name: 'Incomplete' });
 
-    expect(res.status).toBe(422);
+    // The shared `validate` middleware answers 400 for a failed body check;
+    // this test asserted 422 and had never passed.
+    expect(res.status).toBe(400);
   });
 
   test('401 — unauthenticated create rejected', async () => {
@@ -192,9 +194,26 @@ describe('Machinery distance filtering', () => {
     // coordinate-less one is still kept and still sorted last.
     expect(res.body.meta.total).toBe(4);
     expect(ids(res)).toEqual([near0.id, near3.id, far40.id, noCoords.id]);
-    expect(res.body.data[0].distanceKm).toBeCloseTo(0, 1);
-    expect(res.body.data[1].distanceKm).toBeCloseTo(3, 0);
-    expect(res.body.data[2].distanceKm).toBeCloseTo(40, 0);
+    // Distances are published in whole kilometres and floored at 1. Metre-level
+    // precision from a few origins pins an owner's yard, and "how far is it?"
+    // does not need it — so a listing at the exact origin reads "1 km", not "0".
+    expect(res.body.data[0].distanceKm).toBe(1);
+    expect(res.body.data[1].distanceKm).toBe(3);
+    expect(res.body.data[2].distanceKm).toBe(40);
+    expect(res.body.data.every(r => Number.isInteger(r.distanceKm) || r.distanceKm === null)).toBe(true);
+  });
+
+  test('never publishes the listing\'s own coordinates', async () => {
+    const res = await request(app)
+      .get(`/api/v1/rent/machinery?lat=${ORIGIN.lat}&lng=${ORIGIN.lng}&${GEO}`);
+
+    for (const row of res.body.data) {
+      expect(row.lat).toBeUndefined();
+      expect(row.lng).toBeUndefined();
+    }
+    // The flag the UI needs is a boolean, not the coordinates themselves.
+    expect(res.body.data[0].hasCoords).toBe(true);
+    expect(res.body.data[3].hasCoords).toBe(false);
   });
 
   test('radius=all — no ceiling, but distances and distance sort are kept', async () => {
@@ -372,8 +391,10 @@ describe('Labour distance filtering', () => {
     const res = await request(app).get(`/api/v1/rent/labour?${DIST}`);
     expect(res.status).toBe(200);
     expect(res.body.meta.total).toBe(3);
-    // No origin → no distance claims anywhere.
-    expect(res.body.data.every(r => r.distanceKm === undefined)).toBe(true);
+    // No origin → no distance claims anywhere. The field is present and null
+    // (matching the animal marketplace) rather than absent, so a client can
+    // tell "we don't know" from "the key isn't in this API version".
+    expect(res.body.data.every(r => r.distanceKm === null)).toBe(true);
   });
 });
 
@@ -495,15 +516,35 @@ describe('Booking flow', () => {
         startDate: start.toISOString(),
         endDate: end.toISOString(),
         days: 5,
-        totalAmount: 0.01, // Should be 5 * 2500 = 12500
+        totalAmount: 0.01, // ignored — the server prices the booking itself
       });
 
-    // BUG: This succeeds with totalAmount=0.01
-    // FIX: Server should calculate: days * listing.pricePerDay
-    if (res.status === 201) {
-      expect(res.body.data.totalAmount).toBe(0.01);
-      // This is wrong — document the bug
-    }
+    // The client's totalAmount is not trusted: the server multiplies the
+    // listing's own pricePerDay by the day count it derives from the dates.
+    // 6 inclusive days (start .. start+5) × ₹2500.
+    expect(res.status).toBe(201);
+    expect(res.body.data.totalAmount).toBe(15000);
+  });
+
+  test('prices from the DATE RANGE, not the client\'s day count', async () => {
+    const start = new Date();
+    start.setDate(start.getDate() + 120);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 29); // 30 inclusive days
+
+    const res = await request(app)
+      .post('/api/v1/rent/bookings')
+      .set(renter.headers)
+      .send({
+        machineryListingId: listing.id,
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+        days: 1, // "block it for a month, charge me for a day"
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.days).toBe(30);
+    expect(res.body.data.totalAmount).toBe(30 * 2500);
   });
 
   test('RACE CONDITION: concurrent bookings for same slot', async () => {

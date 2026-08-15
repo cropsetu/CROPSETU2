@@ -7,7 +7,7 @@
 import React, { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
 import {
-  LoggerScaffold, SectionHeader, TileGrid, ChipRow, BigNumberInput, NotesField, Card,
+  LoggerScaffold, SectionHeader, TileGrid, ChipRow, BigNumberInput, NotesField, Card, useLoggerSave,
 } from './_loggerKit';
 import * as farmApi from '../../../services/farmApi';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
@@ -39,35 +39,29 @@ export default function LandPrepLogScreen({ navigation, route }) {
   const [labour, setLabour]         = useState('');
   const [machinery, setMachinery]   = useState('');
   const [notes, setNotes]           = useState('');
-  const [saving, setSaving]         = useState(false);
-  const [celebrate, setCelebrate]   = useState(false);
 
   const canSave = !!operation;
 
   const operations = OPERATIONS.map((o) => ({ ...o, label: t(`landPrepLog.op_${o.key}`) }));
   const implements_ = IMPLEMENTS.map((i) => ({ ...i, label: t(`landPrepLog.impl_${i.key}`) }));
 
-  const handleSave = useCallback(async () => {
+  // The required write decides success; the follow-ups are best effort, so a
+  // failure there no longer pushes the farmer into a retry that double-logs.
+  const { saving, save, celebrate, setCelebrate } = useLoggerSave({
+    t,
+    failMessage: t('landPrepLog.couldNotSave'),
+    primary: useCallback(() => farmApi.addActivity(cycleId, { type: 'LAND_PREP', title: operation, notes: notes || null, fields: { operation, implement } }), [cycleId, operation, implement, labour, machinery, notes]),
+    secondary: useCallback(async () => {
+      if (labour && parseFloat(labour) > 0) await farmApi.addLaborLog(cycleId, { task: 'Land prep', amountInr: parseFloat(labour) });
+      if (machinery && parseFloat(machinery) > 0) await farmApi.addExpenseLog(cycleId, { category: 'machinery', amountInr: parseFloat(machinery) });
+    }, [cycleId, operation, implement, labour, machinery, notes]),
+  });
+
+  const handleSave = useCallback(() => {
     if (!canSave) { Haptics.error?.(); Alert.alert(t('landPrepLog.missingInfoTitle'), t('landPrepLog.missingInfoBody')); return; }
     if (!cycleId) { Alert.alert(t('landPrepLog.pickCycleTitle'), t('landPrepLog.pickCycleBody')); return; }
-    setSaving(true);
-    try {
-      await farmApi.addActivity(cycleId, { type: 'LAND_PREP', title: operation, notes: notes || null, fields: { operation, implement } });
-      if (labour && parseFloat(labour) > 0) {
-        await farmApi.addLaborLog(cycleId, { task: 'Land prep', amountInr: parseFloat(labour) });
-      }
-      if (machinery && parseFloat(machinery) > 0) {
-        await farmApi.addExpenseLog(cycleId, { category: 'machinery', amountInr: parseFloat(machinery) });
-      }
-      Haptics.success?.();
-      setCelebrate(true);
-    } catch (e) {
-      Haptics.error?.();
-      Alert.alert(t('login.error') || t('landPrepLog.errorTitle'), e.message || t('landPrepLog.couldNotSave'));
-    } finally {
-      setSaving(false);
-    }
-  }, [canSave, cycleId, operation, implement, labour, machinery, notes, t]);
+    save();
+  }, [canSave, cycleId, save, t]);
 
   const subtitle = activeFarm
     ? `${activeFarm.farmName || activeFarm.farmAlias || t('landPrepLog.farmFallback')}${cycleId ? ` · ${t('landPrepLog.activeCycle')}` : ''}`

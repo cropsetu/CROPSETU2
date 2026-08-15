@@ -9,6 +9,7 @@ import {
   Image, ActivityIndicator, Dimensions, StatusBar,
 } from 'react-native';
 import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
+import useContactReveal from '../../hooks/useContactReveal';
 import { fs } from '../../utils/responsive';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
@@ -82,6 +83,14 @@ export default function LabourDetail({ route, navigation }) {
   const { user } = useAuth();
   const { id, labour: passedData } = route.params;
 
+  // Reveal-then-dial: the provider's number is fetched from an authenticated,
+  // rate-limited, audited endpoint at the moment the farmer taps Call, rather
+  // than being shipped to every browser of the listing.
+  const { call: callProvider, revealing, phone: revealedPhone } = useContactReveal(
+    id ? `/rent/labour/${id}/contact` : null,
+    { t, signedIn: !!user },
+  );
+
   const [data,        setData]        = useState(passedData || null);
   const [galIdx,      setGalIdx]      = useState(0);
   const [loadingData, setLoadingData] = useState(!passedData);
@@ -111,7 +120,10 @@ export default function LabourDetail({ route, navigation }) {
   // A provider viewing their own worker listing can't hire themselves — show
   // owner controls (Edit) instead of the Call/Hire actions.
   const isOwner = !!user && (user.id === l.provider?.id || user.id === l.providerId);
-  const phone    = l.phone || l.provider?.phone || null;
+  // The number is fetched on demand rather than shipped with the listing —
+  // see useContactReveal. `phone` is null until the farmer actually taps Call,
+  // so the button no longer advertises a stranger's number on screen.
+  const phone = revealedPhone;
   const allMedia = [
     ...(l.image  ? [l.image]    : []),
     ...(l.images || []),
@@ -155,10 +167,8 @@ export default function LabourDetail({ route, navigation }) {
     return `${String(x.getDate()).padStart(2, '0')}/${String(x.getMonth() + 1).padStart(2, '0')}/${x.getFullYear()}`;
   };
 
-  const handleCall = () => {
-    if (!phone) { return; }
-    safeOpenURL(`tel:${sanitizePhone(phone)}`);
-  };
+  // reveal-then-dial; the hook alerts on failure and caches the number.
+  const handleCall = callProvider;
 
   return (
     <AnimatedScreen>
@@ -292,7 +302,7 @@ export default function LabourDetail({ route, navigation }) {
             <TouchableOpacity
               style={[D.callCard, !phone && { opacity: 0.4 }]}
               onPress={handleCall}
-              disabled={!phone}
+              disabled={revealing}
               activeOpacity={0.85}
             >
               <View style={D.callCardIcon}>
@@ -300,7 +310,9 @@ export default function LabourDetail({ route, navigation }) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={D.callCardTitle}>{t('rent.callToHire')}</Text>
-                <Text style={D.callCardSub}>{phone ? phone : t('rent.phoneNotListed')}</Text>
+                <Text style={D.callCardSub}>
+                  {revealing ? t('loading') : phone || t('rent.tapToSeeNumber', 'Tap to see the number')}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={COLORS.primary} />
             </TouchableOpacity>
@@ -393,13 +405,16 @@ export default function LabourDetail({ route, navigation }) {
           </View>
         ) : (
           <TouchableOpacity
-            style={[D.bottomCallBtn, !phone && { opacity: 0.4 }]}
+            style={[D.bottomCallBtn, revealing && { opacity: 0.6 }]}
             onPress={handleCall}
-            disabled={!phone}
+            disabled={revealing}
+            accessibilityRole="button"
           >
-            <Ionicons name="call" size={22} color={COLORS.white} />
+            {revealing
+              ? <ActivityIndicator size="small" color={COLORS.white} />
+              : <Ionicons name="call" size={22} color={COLORS.white} />}
             <Text style={D.bottomCallTxt} numberOfLines={1}>
-              {phone ? `${t('rent.callNow')}  •  ${phone}` : t('rent.phoneNotListed')}
+              {phone ? `${t('rent.callNow')}  •  ${phone}` : t('rent.callNow')}
             </Text>
           </TouchableOpacity>
         )}

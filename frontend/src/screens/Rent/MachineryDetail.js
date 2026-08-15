@@ -25,6 +25,8 @@ import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import { MachineryIcon } from '../../components/MachineryIcons';
 import { invalidateFocusData } from '../../hooks/useFocusRefresh';
+import useContactReveal from '../../hooks/useContactReveal';
+import { classifyError, ERROR_CODES } from '../../utils/apiError';
 
 // Machinery icon registry keys — fall back to 'tractor' so the hero is never blank.
 const MACH_ICON_KEYS = ['tractor','harvester','sprayer','rotavator','thresher','transplanter','truck','tempo'];
@@ -230,6 +232,18 @@ export default function MachineryDetail({ route, navigation }) {
   // Owners can't book their own listing — bookings are blocked client- and server-side.
   const isOwner = !!user && (user.id === m?.owner?.id || user.id === m?.ownerId);
 
+  // The owner's number is no longer part of the listing payload — it is fetched
+  // on demand from an authenticated, rate-limited, audited endpoint. `call`
+  // does the fetch and the dial; the result is cached for this screen so
+  // tapping Call twice does not spend two of the hourly reveals.
+  // Double-submit guard for the Book button — see handleBook.
+  const bookingRef = useRef(false);
+
+  const { call: callOwner, revealing } = useContactReveal(
+    id ? `/rent/machinery/${id}/contact` : null,
+    { t, signedIn: !!user },
+  );
+
   // ── Availability window (YYYY-MM-DD keys; either bound may be null = open-ended) ──
   const availFrom = m?.availableFrom ? String(m.availableFrom).slice(0, 10) : null;
   const availTo   = m?.availableTo   ? String(m.availableTo).slice(0, 10)   : null;
@@ -329,6 +343,13 @@ export default function MachineryDetail({ route, navigation }) {
       );
       return;
     }
+    // A ref, not the `booking` state: setState lags a fast double tap by a
+    // render, so both presses see booking===false and both fire. Two identical
+    // requests would collide on the server's date-conflict check and the second
+    // would come back as a confusing 409 on a booking the farmer just made.
+    if (bookingRef.current) return;
+    bookingRef.current = true;
+
     // Capture details for the confirmation popup before we clear the selection.
     const bStart = selStart, bEnd = selEnd, bAmount = totalCost();
     setBooking(true);
@@ -337,6 +358,9 @@ export default function MachineryDetail({ route, navigation }) {
         machineryListingId: m.id,
         startDate:          bStart,
         endDate:            bEnd,
+        // `days` and `totalAmount` are sent for older servers; the current API
+        // derives both from the date range and the listing's own price, so
+        // whatever the client says here is ignored.
         days,
         totalAmount:        bAmount,
         notes:              notes.trim() || null,
@@ -352,9 +376,19 @@ export default function MachineryDetail({ route, navigation }) {
       // reload instead of showing the card as un-booked.
       invalidateFocusData('rent');
     } catch (err) {
-      const msg = err.response?.data?.error?.message || t('rent.bookingFailed');
-      Alert.alert(t('rent.bookingFailed'), msg);
+      // Typed so the message matches the cause: no signal, session expired and
+      // "those dates just went" need different words and different next steps.
+      const e = classifyError(err, t('rent.bookingFailed'));
+      const title = e.code === ERROR_CODES.OFFLINE
+        ? t('rent.offlineTitle', 'No internet connection')
+        : t('rent.bookingFailed');
+      // A 409 is the useful case: someone booked the same slot first.
+      const msg = e.status === 409
+        ? (err.response?.data?.error?.message || t('rent.slotTakenMsg', 'Those dates were just booked by someone else. Please pick another range.'))
+        : e.message;
+      Alert.alert(title, msg);
     } finally {
+      bookingRef.current = false;
       setBooking(false);
     }
   };
@@ -446,7 +480,7 @@ export default function MachineryDetail({ route, navigation }) {
             <TouchableOpacity onPress={() => navigation.goBack()} style={D.navBtn}>
               <Ionicons name="arrow-back" size={22} color={COLORS.white} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => m.ownerPhone && safeOpenURL(`tel:${sanitizePhone(m.ownerPhone)}`)} style={D.navBtn}>
+            <TouchableOpacity onPress={callOwner} disabled={revealing} style={D.navBtn} accessibilityRole="button" accessibilityLabel={t('rent.callOwner')}>
               <Ionicons name="call-outline" size={22} color={COLORS.white} />
             </TouchableOpacity>
           </View>
@@ -656,9 +690,14 @@ export default function MachineryDetail({ route, navigation }) {
                 </View>
                 <TouchableOpacity
                   style={D.callSmall}
-                  onPress={() => m.ownerPhone && safeOpenURL(`tel:${sanitizePhone(m.ownerPhone)}`)}
+                  onPress={callOwner}
+                  disabled={revealing}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('rent.callOwner')}
                 >
-                  <Ionicons name="call" size={18} color={COLORS.primary} />
+                  {revealing
+                    ? <ActivityIndicator size="small" color={COLORS.primary} />
+                    : <Ionicons name="call" size={18} color={COLORS.primary} />}
                 </TouchableOpacity>
               </View>
             </>
@@ -680,9 +719,13 @@ export default function MachineryDetail({ route, navigation }) {
           <>
             <TouchableOpacity
               style={D.callBtn}
-              onPress={() => m.ownerPhone && safeOpenURL(`tel:${sanitizePhone(m.ownerPhone)}`)}
+              onPress={callOwner}
+              disabled={revealing}
+              accessibilityRole="button"
             >
-              <Ionicons name="call" size={20} color={COLORS.primary} />
+              {revealing
+                ? <ActivityIndicator size="small" color={COLORS.primary} />
+                : <Ionicons name="call" size={20} color={COLORS.primary} />}
               <Text style={D.callBtnTxt} numberOfLines={1}>{t('rent.callOwner')}</Text>
             </TouchableOpacity>
             {(!selStart || !selEnd) && myBooking ? (

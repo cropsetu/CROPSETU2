@@ -10,12 +10,13 @@
  *     <ChipRow .../>  <BigNumberInput .../>  <LabeledInput .../>  <NotesField .../>
  *   </LoggerScaffold>
  */
-import React from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, TextInput, Pressable, ScrollView, StyleSheet,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { classifyError, ERROR_CODES } from '../../../utils/apiError';
 
 import CosmicScreen from '../ui/CosmicScreen';
 import CosmicHeader from '../ui/CosmicHeader';
@@ -44,6 +45,75 @@ const fillIcon = (name) => {
   if (!name) return 'ellipse';
   return name.endsWith('-outline') ? name.replace(/-outline$/, '') : name;
 };
+
+/**
+ * useLoggerSave — the save path every logger screen shares.
+ *
+ * Each logger used to hand-roll `setSaving(true) / try / catch / finally`, which
+ * left three problems repeated nine times:
+ *
+ *  1. DOUBLE SUBMIT. The guard was the `saving` STATE, which lags a fast second
+ *     tap by a render — so both presses fired and the farmer logged the same
+ *     ₹4,000 diesel bill twice. The guard here is a ref, set synchronously.
+ *
+ *  2. RAW ERROR TEXT. `Alert.alert(..., e.message)` shows the farmer
+ *     "Request failed with status code 429". classifyError turns that into the
+ *     cause and the action that resolves it.
+ *
+ *  3. PARTIAL SUCCESS REPORTED AS FAILURE. Most loggers write twice — the
+ *     money entry, then a matching activity entry for the timeline. When the
+ *     second call failed the screen showed an error, so the farmer retried and
+ *     logged the expense a second time. The `primary` write is the one that
+ *     decides success; a failed `secondary` is logged and swallowed, because a
+ *     missing timeline row is not worth risking a duplicate payment record.
+ *
+ * @param {object} p
+ * @param {() => Promise<any>} p.primary    the write that must succeed
+ * @param {() => Promise<any>} [p.secondary] best-effort follow-up (timeline entry)
+ * @param {Function} p.t
+ * @param {string} [p.failMessage]          fallback message for an unclassified error
+ * @returns {{ saving: boolean, save: Function, celebrate: boolean, setCelebrate: Function }}
+ */
+export function useLoggerSave({ primary, secondary, t, failMessage }) {
+  const [saving, setSaving] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
+  const inFlight = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
+  const save = useCallback(async () => {
+    if (inFlight.current) return false;
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      await primary();
+      // Best-effort. A failure here means the timeline is missing one row —
+      // never a reason to make the farmer re-enter (and re-post) the money.
+      if (secondary) {
+        try { await secondary(); } catch { /* timeline entry only */ }
+      }
+      Haptics.success?.();
+      if (alive.current) setCelebrate(true);
+      return true;
+    } catch (e) {
+      Haptics.error?.();
+      const c = classifyError(e, failMessage || t('logger.saveFailed', 'Could not save. Please try again.'));
+      const title = c.code === ERROR_CODES.OFFLINE
+        ? t('logger.offlineTitle', 'No internet connection')
+        : c.code === ERROR_CODES.AUTH
+          ? t('logger.sessionExpired', 'Session expired')
+          : t('login.error', 'Error');
+      // A 409 here is the log-full case the server now reports explicitly.
+      Alert.alert(title, c.status === 409 ? (c.message || failMessage) : c.message);
+      return false;
+    } finally {
+      inFlight.current = false;
+      if (alive.current) setSaving(false);
+    }
+  }, [primary, secondary, t, failMessage]);
+
+  return { saving, save, celebrate, setCelebrate };
+}
 
 export function SectionHeader({ icon, tint = COSMIC.PRIMARY, title, optional }) {
   const { t } = useLanguage();
