@@ -4,6 +4,20 @@
 import prisma from "../config/db.js";
 import { generateForCycle } from "./farmPrediction.service.js";
 import { D, sumD } from "../utils/money.js";
+import {
+  appendJsonLog, readJsonLogPage, cleanText, cleanFields, cleanDate, cleanAmount,
+} from "../utils/jsonLog.js";
+
+/**
+ * Only accept an http(s) media URL. `photoUrl` / `voiceUrl` were stored
+ * verbatim, so a `javascript:` or `data:` value could be written into the farm
+ * log and then handed to whatever renders it.
+ */
+function cleanUrl(value) {
+  if (typeof value !== "string") return null;
+  const s = value.trim().slice(0, 500);
+  return /^https?:\/\//i.test(s) ? s : null;
+}
 
 // Fire-and-forget AI insight refresh — never blocks the write response.
 function refreshInsights(cycleId, farmerId) {
@@ -125,15 +139,45 @@ export async function createCropCycle(farmerId, farmId, data) {
   });
 }
 
-export async function listCropCycles(farmId, filters = {}) {
+/**
+ * Cycles for a farm, newest first.
+ *
+ * Two things this does that it did not before. It PAGINATES — a farm with ten
+ * years of history returned every cycle, and each cycle carries four log arrays,
+ * so the response grew without bound. And it omits those arrays from the LIST
+ * shape entirely: the cards render a crop name, a season and a stage, so
+ * shipping every irrigation entry ever logged was pure weight. The detail route
+ * and /cycles/:id/logs/:column serve them.
+ *
+ * @returns {Promise<{rows: object[], total: number}>}
+ */
+export async function listCropCycles(farmId, filters = {}, { page = 1, limit = 20 } = {}) {
   const where = { farmId };
   if (filters.season) where.season = filters.season;
   if (filters.year) where.year = parseInt(filters.year);
   if (filters.status) where.status = filters.status;
-  return prisma.farmCropCycle.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-  });
+
+  const [rows, total] = await Promise.all([
+    prisma.farmCropCycle.findMany({
+      where,
+      // `id` tiebreaker — cycles created in the same import share a createdAt
+      // and would otherwise reorder between pages.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * limit,
+      take: limit,
+      select: {
+        id: true, farmId: true, season: true, year: true, seasonLabel: true,
+        cropName: true, cropNameMr: true, cropNameHi: true, cropCategory: true,
+        variety: true, isHybrid: true, isOrganic: true, areaAllocatedAcres: true,
+        sowingDate: true, expectedHarvestDate: true, actualHarvestDate: true,
+        growthStage: true, currentStageUpdatedAt: true, status: true,
+        harvestYieldKg: true, saleTotalRevenueInr: true,
+        createdAt: true, updatedAt: true,
+      },
+    }),
+    prisma.farmCropCycle.count({ where }),
+  ]);
+  return { rows, total };
 }
 
 export async function getCropCycleDetail(cycleId) {
@@ -294,98 +338,100 @@ export async function addObservedEvent(cycleId, farmerId, entry) {
   return updated;
 }
 
+/**
+ * The four log appenders below all go through appendJsonLog, which does the
+ * insert as ONE atomic `jsonb ||` UPDATE.
+ *
+ * They used to read the array, push onto it in JS, and write the whole thing
+ * back. Two entries logged at the same moment — a double tap, an offline queue
+ * flushing, the phone and the tablet both syncing — both read the same array
+ * and both wrote their own version, so one silently vanished. Nothing errored;
+ * the farmer just found their costs short at the end of the season.
+ *
+ * Each returns the refreshed cycle on success, `null` when the cycle is not the
+ * caller's, or `{ error: 'full' }` when the log has hit its ceiling — the route
+ * maps that to a 409 so the farmer is told, rather than the entry disappearing.
+ */
+
+/** Fetch the cycle to return after a successful append. */
+async function cycleAfterAppend(cycleId, farmerId) {
+  return prisma.farmCropCycle.findFirst({ where: { id: cycleId, farmerId } });
+}
+
 /** Generic activity log (land-prep, sowing, scout, weeding, pruning, …). */
 export async function addActivity(cycleId, farmerId, entry) {
   const type = String(entry.type || "").toUpperCase();
   if (!ACTIVITY_TYPES.includes(type))
     throw new Error(`Unknown activity type: ${entry.type}`);
-  const cycle = await prisma.farmCropCycle.findFirst({
-    where: { id: cycleId, farmerId },
-    select: { activities: true },
-  });
-  if (!cycle) return null;
-  const existing = arr(cycle.activities);
+
   const newEntry = {
     id: crypto.randomUUID(),
     type,
-    date: entry.date || new Date().toISOString(),
-    title: entry.title || null,
-    notes: entry.notes || null,
-    photoUrl: entry.photoUrl || null,
-    voiceUrl: entry.voiceUrl || null,
-    fields:
-      entry.fields && typeof entry.fields === "object" ? entry.fields : {},
+    date: cleanDate(entry.date),
+    title: cleanText(entry.title, 200),
+    notes: cleanText(entry.notes),
+    photoUrl: cleanUrl(entry.photoUrl),
+    voiceUrl: cleanUrl(entry.voiceUrl),
+    fields: cleanFields(entry.fields),
   };
-  return prisma.farmCropCycle.update({
-    where: { id: cycleId, farmerId },
-    data: { activities: [...existing, newEntry] },
-  });
+
+  const r = await appendJsonLog(cycleId, farmerId, "activities", newEntry);
+  if (!r.ok) return r.reason === "full" ? { error: "full" } : null;
+  return cycleAfterAppend(cycleId, farmerId);
 }
 
 /** Append a labour-cost log entry. */
 export async function addLaborLog(cycleId, farmerId, entry) {
-  const cycle = await prisma.farmCropCycle.findFirst({
-    where: { id: cycleId, farmerId },
-    select: { laborLogs: true },
-  });
-  if (!cycle) return null;
-  const existing = arr(cycle.laborLogs);
+  const workers = entry.workers != null ? parseInt(entry.workers, 10) : null;
   const newEntry = {
     id: crypto.randomUUID(),
-    date: entry.date || new Date().toISOString(),
-    task: entry.task || null,
-    workers: entry.workers != null ? parseInt(entry.workers, 10) : null,
-    wageInr: entry.wageInr != null ? parseFloat(entry.wageInr) : null,
-    amountInr: entry.amountInr != null ? parseFloat(entry.amountInr) : null,
-    notes: entry.notes || null,
+    date: cleanDate(entry.date),
+    task: cleanText(entry.task, 200),
+    workers: Number.isFinite(workers) && workers > 0 && workers <= 10000 ? workers : null,
+    wageInr: cleanAmount(entry.wageInr),
+    amountInr: cleanAmount(entry.amountInr),
+    notes: cleanText(entry.notes),
   };
-  return prisma.farmCropCycle.update({
-    where: { id: cycleId, farmerId },
-    data: { laborLogs: [...existing, newEntry] },
-  });
+
+  const r = await appendJsonLog(cycleId, farmerId, "laborLogs", newEntry);
+  if (!r.ok) return r.reason === "full" ? { error: "full" } : null;
+  return cycleAfterAppend(cycleId, farmerId);
 }
 
 /** Append a miscellaneous expense log entry (diesel, machinery hire, etc.). */
 export async function addExpenseLog(cycleId, farmerId, entry) {
-  const cycle = await prisma.farmCropCycle.findFirst({
-    where: { id: cycleId, farmerId },
-    select: { expenseLogs: true },
-  });
-  if (!cycle) return null;
-  const existing = arr(cycle.expenseLogs);
   const newEntry = {
     id: crypto.randomUUID(),
-    date: entry.date || new Date().toISOString(),
-    category: entry.category || "other",
-    amountInr: entry.amountInr != null ? parseFloat(entry.amountInr) : null,
-    vendor: entry.vendor || null,
-    notes: entry.notes || null,
+    date: cleanDate(entry.date),
+    category: cleanText(entry.category, 60) || "other",
+    amountInr: cleanAmount(entry.amountInr),
+    vendor: cleanText(entry.vendor, 150),
+    notes: cleanText(entry.notes),
   };
-  return prisma.farmCropCycle.update({
-    where: { id: cycleId, farmerId },
-    data: { expenseLogs: [...existing, newEntry] },
-  });
+
+  const r = await appendJsonLog(cycleId, farmerId, "expenseLogs", newEntry);
+  if (!r.ok) return r.reason === "full" ? { error: "full" } : null;
+  return cycleAfterAppend(cycleId, farmerId);
 }
 
 /** Append a non-sale income log entry (intercrop, subsidy, residue sale, …). */
 export async function addIncomeLog(cycleId, farmerId, entry) {
-  const cycle = await prisma.farmCropCycle.findFirst({
-    where: { id: cycleId, farmerId },
-    select: { incomeLogs: true },
-  });
-  if (!cycle) return null;
-  const existing = arr(cycle.incomeLogs);
   const newEntry = {
     id: crypto.randomUUID(),
-    date: entry.date || new Date().toISOString(),
-    source: entry.source || "other",
-    amountInr: entry.amountInr != null ? parseFloat(entry.amountInr) : null,
-    notes: entry.notes || null,
+    date: cleanDate(entry.date),
+    source: cleanText(entry.source, 60) || "other",
+    amountInr: cleanAmount(entry.amountInr),
+    notes: cleanText(entry.notes),
   };
-  return prisma.farmCropCycle.update({
-    where: { id: cycleId, farmerId },
-    data: { incomeLogs: [...existing, newEntry] },
-  });
+
+  const r = await appendJsonLog(cycleId, farmerId, "incomeLogs", newEntry);
+  if (!r.ok) return r.reason === "full" ? { error: "full" } : null;
+  return cycleAfterAppend(cycleId, farmerId);
+}
+
+/** One page of a cycle's log, newest first — see utils/jsonLog.js. */
+export async function getCycleLogPage(cycleId, farmerId, column, opts) {
+  return readJsonLogPage(cycleId, farmerId, column, opts);
 }
 
 export async function recordHarvest(cycleId, farmerId, data) {

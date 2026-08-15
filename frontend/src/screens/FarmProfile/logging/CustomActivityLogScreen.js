@@ -7,7 +7,7 @@
 import React, { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
 import {
-  LoggerScaffold, SectionHeader, ChipRow, BigNumberInput, LabeledInput, NotesField, Card,
+  LoggerScaffold, SectionHeader, ChipRow, BigNumberInput, LabeledInput, NotesField, Card, useLoggerSave,
 } from './_loggerKit';
 import * as farmApi from '../../../services/farmApi';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
@@ -33,34 +33,25 @@ export default function CustomActivityLogScreen({ navigation, route }) {
   const [name, setName]       = useState('');
   const [cost, setCost]       = useState('');
   const [notes, setNotes]     = useState('');
-  const [saving, setSaving]   = useState(false);
-  const [celebrate, setCelebrate] = useState(false);
 
   const canSave = name.trim().length > 0;
 
-  const handleSave = useCallback(async () => {
+  // The required write decides success; the follow-ups are best effort, so a
+  // failure there no longer pushes the farmer into a retry that double-logs.
+  const { saving, save, celebrate, setCelebrate } = useLoggerSave({
+    t,
+    failMessage: t('customActivity.couldNotSave'),
+    primary: useCallback(() => farmApi.addActivity(cycleId, { type: 'OTHER', title: name.trim(), notes: notes || null, fields: { custom: true } }), [cycleId, name, cost, notes]),
+    secondary: useCallback(() => (cost && parseFloat(cost) > 0
+      ? farmApi.addExpenseLog(cycleId, { category: name.trim(), amountInr: parseFloat(cost) })
+      : Promise.resolve()), [cycleId, name, cost, notes]),
+  });
+
+  const handleSave = useCallback(() => {
     if (!canSave) { Haptics.error?.(); Alert.alert(t('customActivity.nameItTitle'), t('customActivity.nameItMsg')); return; }
     if (!cycleId) { Alert.alert(t('customActivity.pickCycleTitle'), t('customActivity.pickCycleMsg')); return; }
-    setSaving(true);
-    try {
-      await farmApi.addActivity(cycleId, {
-        type: 'OTHER',
-        title: name.trim(),
-        notes: notes || null,
-        fields: { custom: true },
-      });
-      if (cost && parseFloat(cost) > 0) {
-        await farmApi.addExpenseLog(cycleId, { category: name.trim(), amountInr: parseFloat(cost) });
-      }
-      Haptics.success?.();
-      setCelebrate(true);
-    } catch (e) {
-      Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || t('customActivity.couldNotSave'));
-    } finally {
-      setSaving(false);
-    }
-  }, [canSave, cycleId, name, cost, notes, t]);
+    save();
+  }, [canSave, cycleId, save, t]);
 
   const subtitle = activeFarm
     ? `${activeFarm.farmName || activeFarm.farmAlias || t('customActivity.farmFallback')}${cycleId ? t('customActivity.activeCycleSuffix') : ''}`

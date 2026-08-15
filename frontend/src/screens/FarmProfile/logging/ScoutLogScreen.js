@@ -7,7 +7,7 @@
 import React, { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
 import {
-  LoggerScaffold, SectionHeader, TileGrid, BigNumberInput, LabeledInput, NotesField, Card,
+  LoggerScaffold, SectionHeader, TileGrid, BigNumberInput, LabeledInput, NotesField, Card, useLoggerSave,
 } from './_loggerKit';
 import * as farmApi from '../../../services/farmApi';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
@@ -40,43 +40,28 @@ export default function ScoutLogScreen({ navigation, route }) {
   const [severity, setSeverity]   = useState('moderate');
   const [affected, setAffected]   = useState('');
   const [notes, setNotes]         = useState('');
-  const [saving, setSaving]       = useState(false);
-  const [celebrate, setCelebrate] = useState(false);
 
   const canSave = !!issueType;
 
   const issueTypes = ISSUE_TYPES.map((it) => ({ ...it, label: t(`scoutLog.issue_${it.key}`) }));
   const severities = SEVERITIES.map((s) => ({ ...s, label: t(`scoutLog.sev_${s.key}`) }));
 
-  const handleSave = useCallback(async () => {
+  // The required write decides success; the follow-ups are best effort, so a
+  // failure there no longer pushes the farmer into a retry that double-logs.
+  const { saving, save, celebrate, setCelebrate } = useLoggerSave({
+    t,
+    failMessage: t('scoutLog.couldNotSave'),
+    primary: useCallback(() => (issueType !== 'healthy'
+      ? farmApi.addObservedEvent(cycleId, { type: target || issueType, severity, damageEstimatePct: affected ? parseFloat(affected) : null, notes: notes || null })
+      : Promise.resolve()), [cycleId, issueType, target, severity, affected, notes]),
+    secondary: useCallback(() => farmApi.addActivity(cycleId, { type: 'SCOUT', title: target || issueType, notes: notes || null, fields: { issueType, target, severity, affectedPct: affected ? parseFloat(affected) : null } }), [cycleId, issueType, target, severity, affected, notes]),
+  });
+
+  const handleSave = useCallback(() => {
     if (!canSave) { Haptics.error?.(); Alert.alert(t('scoutLog.missingInfoTitle'), t('scoutLog.missingInfoBody')); return; }
     if (!cycleId) { Alert.alert(t('scoutLog.pickCycleTitle'), t('scoutLog.pickCycleBody')); return; }
-    setSaving(true);
-    try {
-      const affectedPct = affected ? parseFloat(affected) : null;
-      if (issueType !== 'healthy') {
-        await farmApi.addObservedEvent(cycleId, {
-          type: target || issueType,
-          severity,
-          damageEstimatePct: affectedPct,
-          notes: notes || null,
-        });
-      }
-      await farmApi.addActivity(cycleId, {
-        type: 'SCOUT',
-        title: target || issueType,
-        notes: notes || null,
-        fields: { issueType, target, severity, affectedPct },
-      });
-      Haptics.success?.();
-      setCelebrate(true);
-    } catch (e) {
-      Haptics.error?.();
-      Alert.alert(t('login.error') || t('scoutLog.errorTitle'), e.message || t('scoutLog.couldNotSave'));
-    } finally {
-      setSaving(false);
-    }
-  }, [canSave, cycleId, issueType, target, severity, affected, notes, t]);
+    save();
+  }, [canSave, cycleId, save, t]);
 
   const subtitle = activeFarm
     ? `${activeFarm.farmName || activeFarm.farmAlias || t('scoutLog.farmFallback')}${cycleId ? ` · ${t('scoutLog.activeCycle')}` : ''}`

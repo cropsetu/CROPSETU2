@@ -7,7 +7,7 @@
 import React, { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
 import {
-  LoggerScaffold, SectionHeader, TileGrid, BigNumberInput, LabeledInput, NotesField, Card,
+  LoggerScaffold, SectionHeader, TileGrid, BigNumberInput, LabeledInput, NotesField, Card, useLoggerSave,
 } from './_loggerKit';
 import * as farmApi from '../../../services/farmApi';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
@@ -30,31 +30,27 @@ export default function PruningLogScreen({ navigation, route }) {
   const [part, setPart]     = useState(null);
   const [labour, setLabour] = useState('');
   const [notes, setNotes]   = useState('');
-  const [saving, setSaving] = useState(false);
-  const [celebrate, setCelebrate] = useState(false);
 
   const partItems = PARTS.map((p) => ({ ...p, label: t(p.labelKey) }));
 
   const canSave = !!part;
 
-  const handleSave = useCallback(async () => {
+  // The required write decides success; the follow-ups are best effort, so a
+  // failure there no longer pushes the farmer into a retry that double-logs.
+  const { saving, save, celebrate, setCelebrate } = useLoggerSave({
+    t,
+    failMessage: t('pruningLog.couldNotSave'),
+    primary: useCallback(() => farmApi.addActivity(cycleId, { type: 'PRUNING', title: part, notes: notes || null, fields: { part } }), [cycleId, part, labour, notes]),
+    secondary: useCallback(() => (labour && parseFloat(labour) > 0
+      ? farmApi.addLaborLog(cycleId, { task: 'Pruning', amountInr: parseFloat(labour) })
+      : Promise.resolve()), [cycleId, part, labour, notes]),
+  });
+
+  const handleSave = useCallback(() => {
     if (!canSave) { Haptics.error?.(); Alert.alert(t('pruningLog.missingInfoTitle'), t('pruningLog.missingInfoMsg')); return; }
     if (!cycleId) { Alert.alert(t('pruningLog.pickCycleTitle'), t('pruningLog.pickCycleMsg')); return; }
-    setSaving(true);
-    try {
-      await farmApi.addActivity(cycleId, { type: 'PRUNING', title: part, notes: notes || null, fields: { part } });
-      if (labour && parseFloat(labour) > 0) {
-        await farmApi.addLaborLog(cycleId, { task: 'Pruning', amountInr: parseFloat(labour) });
-      }
-      Haptics.success?.();
-      setCelebrate(true);
-    } catch (e) {
-      Haptics.error?.();
-      Alert.alert(t('login.error') || 'Error', e.message || t('pruningLog.couldNotSave'));
-    } finally {
-      setSaving(false);
-    }
-  }, [canSave, cycleId, part, labour, notes, t]);
+    save();
+  }, [canSave, cycleId, save, t]);
 
   const subtitle = activeFarm
     ? `${activeFarm.farmName || activeFarm.farmAlias || t('pruningLog.farmFallback')}${cycleId ? t('pruningLog.activeCycleSuffix') : ''}`

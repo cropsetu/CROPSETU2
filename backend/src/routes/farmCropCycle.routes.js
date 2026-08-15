@@ -7,15 +7,35 @@ import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { rateLimiter, clientIp } from '../middleware/rateLimit.js';
 import { idempotency } from '../middleware/idempotency.js';
-import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError } from '../utils/response.js';
+import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta, parsePageSize } from '../utils/response.js';
 import logger from '../utils/logger.js';
 import prisma from '../config/db.js';
 import {
   createCropCycle, listCropCycles, getCropCycleDetail, updateCropCycle, deleteCropCycle,
   advanceGrowthStage, addFertilizer, addPesticide, addIrrigationLog,
   addObservedEvent, recordHarvest, recordSale, completeCycle, getCycleFinancials,
-  addActivity, addLaborLog, addExpenseLog, addIncomeLog,
+  addActivity, addLaborLog, addExpenseLog, addIncomeLog, getCycleLogPage,
 } from '../services/cropCycle.service.js';
+import { LOG_COLUMNS } from '../utils/jsonLog.js';
+
+/**
+ * Shared reply for the four log-append routes.
+ *
+ * `null`            → the cycle is not this farmer's (or is gone)      → 404
+ * `{ error:'full' }`→ the log hit its ceiling                          → 409
+ * anything else     → the refreshed cycle                              → 200
+ *
+ * The 409 matters: before the cap existed the array grew without limit, and the
+ * alternative to telling the farmer is silently dropping the entry they just
+ * typed — which is exactly the failure mode the atomic append was added to end.
+ */
+function replyLogAppend(res, result, label) {
+  if (!result) return sendNotFound(res, 'Crop cycle');
+  if (result.error === 'full') {
+    return sendError(res, `This crop cycle already has the maximum number of ${label} entries. Start a new cycle or remove some entries.`, 409);
+  }
+  return sendSuccess(res, result);
+}
 
 const router = Router();
 
@@ -71,9 +91,43 @@ export async function requireCycleOwner(req, res, next) {
 router.use('/cycles/:cycleId', requireCycleOwner);
 
 // List cycles for a farm
-router.get('/farms/:farmId/cycles', [param('farmId').isUUID(), query('season').optional(), query('year').optional().isInt(), query('status').optional()], validate, async (req, res) => {
-  try { return sendSuccess(res, await listCropCycles(req.params.farmId, req.query)); }
+router.get('/farms/:farmId/cycles', [
+  param('farmId').isUUID(),
+  query('season').optional(), query('year').optional().isInt(), query('status').optional(),
+  query('page').optional().isInt({ min: 1 }), query('limit').optional().isInt({ min: 1, max: 50 }),
+], validate, async (req, res) => {
+  try {
+    const page  = Math.max(parseInt(req.query.page || '1', 10) || 1, 1);
+    const limit = parsePageSize(req.query.limit, 20, 50);
+    const { rows, total } = await listCropCycles(req.params.farmId, req.query, { page, limit });
+    return sendSuccess(res, rows, 200, paginationMeta(total, page, limit));
+  }
   catch (e) { logger.error({ err: e }, '[CropCycle] list'); return sendError(res, 'Failed', 500); }
+});
+
+/**
+ * One page of a cycle's activity / labour / expense / income log, newest first.
+ *
+ * The cycle detail response carries these arrays in full, which is fine for a
+ * young cycle and increasingly not fine for a perennial one logged daily. This
+ * slices in the database so a long-running cycle costs the same to open as a
+ * new one. Ownership is enforced by requireCycleOwner above AND again inside
+ * the query.
+ */
+router.get('/cycles/:cycleId/logs/:column', [
+  param('cycleId').isUUID(),
+  param('column').isIn(Object.keys(LOG_COLUMNS)),
+  query('page').optional().isInt({ min: 1 }), query('limit').optional().isInt({ min: 1, max: 100 }),
+], validate, async (req, res) => {
+  try {
+    const page  = Math.max(parseInt(req.query.page || '1', 10) || 1, 1);
+    const limit = parsePageSize(req.query.limit, 30, 100);
+    const r = await getCycleLogPage(req.params.cycleId, req.user.id, req.params.column, {
+      offset: (page - 1) * limit, limit,
+    });
+    if (!r) return sendNotFound(res, 'Crop cycle');
+    return sendSuccess(res, r.items, 200, paginationMeta(r.total, page, limit));
+  } catch (e) { return sendServerError(res, e, 'Could not load the log.'); }
 });
 
 // Create cycle
@@ -148,7 +202,7 @@ router.post('/cycles/:cycleId/event', wl, idemCycle, [param('cycleId').isUUID(),
 router.post('/cycles/:cycleId/activity', wl, idemCycle, [param('cycleId').isUUID(), body('type').notEmpty()], validate, async (req, res) => {
   try {
     const c = await addActivity(req.params.cycleId, req.user.id, req.body);
-    return c ? sendSuccess(res, c) : sendNotFound(res, 'Crop cycle');
+    return replyLogAppend(res, c, 'activity');
   } catch (e) { return sendServerError(res, e, 'Could not add activity.', 400); }
 });
 
@@ -156,7 +210,7 @@ router.post('/cycles/:cycleId/activity', wl, idemCycle, [param('cycleId').isUUID
 router.post('/cycles/:cycleId/labor', wl, idemCycle, [param('cycleId').isUUID()], validate, async (req, res) => {
   try {
     const c = await addLaborLog(req.params.cycleId, req.user.id, req.body);
-    return c ? sendSuccess(res, c) : sendNotFound(res, 'Crop cycle');
+    return replyLogAppend(res, c, 'labour');
   } catch (e) { return sendError(res, 'Failed', 500); }
 });
 
@@ -164,7 +218,7 @@ router.post('/cycles/:cycleId/labor', wl, idemCycle, [param('cycleId').isUUID()]
 router.post('/cycles/:cycleId/expense', wl, idemCycle, [param('cycleId').isUUID(), body('amountInr').notEmpty().isFloat({ min: 0 })], validate, async (req, res) => {
   try {
     const c = await addExpenseLog(req.params.cycleId, req.user.id, req.body);
-    return c ? sendSuccess(res, c) : sendNotFound(res, 'Crop cycle');
+    return replyLogAppend(res, c, 'expense');
   } catch (e) { return sendError(res, 'Failed', 500); }
 });
 
@@ -172,7 +226,7 @@ router.post('/cycles/:cycleId/expense', wl, idemCycle, [param('cycleId').isUUID(
 router.post('/cycles/:cycleId/income', wl, idemCycle, [param('cycleId').isUUID(), body('amountInr').notEmpty().isFloat({ min: 0 })], validate, async (req, res) => {
   try {
     const c = await addIncomeLog(req.params.cycleId, req.user.id, req.body);
-    return c ? sendSuccess(res, c) : sendNotFound(res, 'Crop cycle');
+    return replyLogAppend(res, c, 'income');
   } catch (e) { return sendError(res, 'Failed', 500); }
 });
 
