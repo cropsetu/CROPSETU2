@@ -81,10 +81,20 @@ export function LanguageProvider({ children }) {
       // Second arg can be:
       //   - string → fallback value if key not found
       //   - object → interpolation vars (e.g. { phone: '9876543210' } replaces {{phone}})
+      //             plus an optional `defaultValue` used when the key is missing
+      //
+      // `defaultValue` inside the vars object was already being passed at ~28 call
+      // sites (AgriStore, the offers sheet, product detail) and was SILENTLY
+      // IGNORED: with an object second argument `fallback` was hard-coded to
+      // undefined, so a missing key fell through to `key` and the farmer was shown
+      // the literal string "store.fromSellers". None of those keys exist in
+      // translations.js, so it was showing on the live Shop screens.
       const isVarsObject =
         fallbackOrVars && typeof fallbackOrVars === 'object' && !Array.isArray(fallbackOrVars);
       const vars = isVarsObject ? fallbackOrVars : null;
-      const fallback = isVarsObject ? undefined : fallbackOrVars;
+      const fallback = isVarsObject
+        ? (typeof fallbackOrVars.defaultValue === 'string' ? fallbackOrVars.defaultValue : undefined)
+        : fallbackOrVars;
 
       // Resolve dot-notation paths: 'login.enterPhone' -> dict.login.enterPhone.
       // Fall back to flat-key lookup first for back-compat.

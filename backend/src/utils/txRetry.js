@@ -29,6 +29,19 @@ function isRetryable(err) {
   return /could not serialize access|deadlock detected|write conflict/i.test(err?.message || '');
 }
 
+/**
+ * Optional observer, invoked once per retried serialization conflict.
+ *
+ * Injected rather than imported so this stays a pure utility with no service
+ * dependency — importing the metrics service here would put a cycle between
+ * utils and services, and this function is used on paths that must not acquire
+ * new failure modes. server.js wires it once at boot.
+ */
+let _onConflict = null;
+export function setSerializableConflictObserver(fn) {
+  _onConflict = typeof fn === 'function' ? fn : null;
+}
+
 export async function withSerializableRetry(run, { attempts = 3, baseDelayMs = 25 } = {}) {
   let lastErr;
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -37,6 +50,10 @@ export async function withSerializableRetry(run, { attempts = 3, baseDelayMs = 2
     } catch (err) {
       lastErr = err;
       if (attempt === attempts || !isRetryable(err)) throw err;
+      // Two buyers racing for the last unit. Normal, and retried — but the RATE
+      // is a real operational signal: a sustained rise means genuine contention
+      // on hot stock, and it is invisible without counting it here.
+      try { _onConflict?.(); } catch { /* never let telemetry break a checkout */ }
       const jitter = Math.random() * baseDelayMs;
       await new Promise((r) => setTimeout(r, baseDelayMs * attempt + jitter));
     }

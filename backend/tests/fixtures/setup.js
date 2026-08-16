@@ -247,12 +247,29 @@ export async function cleanupTestData() {
     prisma.animalListing.deleteMany(),
     prisma.labourListing.deleteMany(),
     prisma.machineryListing.deleteMany(),
+    // SHOP HARDENING: payment + compliance rows. Most cascade from their parent,
+    // but they are listed explicitly so a leaked row can never make the NEXT
+    // suite's compliance gate refuse a sale for no visible reason — a sale block
+    // or a recall left behind is invisible in a product fixture and would look
+    // like a flaky test.
+    prisma.paymentWebhookEvent.deleteMany(),
+    prisma.paymentIntent.deleteMany(),
+    // Held stock leaked between suites would silently reduce availability in
+    // the next one — an out-of-stock failure with no visible cause.
+    prisma.stockReservation.deleteMany(),
+    prisma.saleBlock.deleteMany(),
+    prisma.productRecall.deleteMany(),
+    prisma.productBatch.deleteMany(),
+    prisma.productCompliance.deleteMany(),
+    prisma.sellerLicence.deleteMany(),
+    prisma.sellerServiceArea.deleteMany(),
     // CATALOG SPLIT: offers → variants → catalog. seller_listings FKs the variant
     // (cascade) and the user (RESTRICT), so it must clear before users, and
     // variants before products.
     prisma.sellerListing.deleteMany(),
     prisma.productVariant.deleteMany(),
     prisma.product.deleteMany(),
+    prisma.subcategory.deleteMany(),
     prisma.category.deleteMany(),
     prisma.otpSession.deleteMany(),
     prisma.refreshToken.deleteMany(),

@@ -235,15 +235,29 @@ describe('Order operations', () => {
     flat: '1A', street: 'Main St', city: 'Pune', state: 'MH', pincode: '411001',
   };
 
-  test('201 — checkout when client expectedTotal matches server total', async () => {
-    // Seeded cart: 1 product @ 199.99 × qty 2 = 399.98 (server-authoritative).
+  test('201 — checkout records the FULL payable, not just the goods subtotal', async () => {
+    // Seeded cart: 1 product @ 199.99 × qty 2 = 399.98 goods (server-authoritative).
+    //
+    // `expectedTotal` keeps its original meaning — the GOODS SUBTOTAL — so an
+    // un-upgraded app build still validates. What changed is `totalAmount`: it is
+    // now the amount actually payable (goods + delivery + tax), because the
+    // delivery fee used to be a client-side constant the order never recorded.
+    // The farmer was shown ₹448.98 and charged ₹399.98.
     const res = await request(app)
       .post('/api/v1/agristore/orders')
       .set(farmer.headers)
       .send({ deliveryAddress: inlineAddress, paymentMethod: 'cod', expectedTotal: 399.98 });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.totalAmount).toBeCloseTo(399.98, 2);
+    expect(res.body.data.subtotal).toBeCloseTo(399.98, 2);
+    // Default shop.delivery.feePerShipment = 49, below the 999 free threshold.
+    expect(res.body.data.deliveryFee).toBeCloseTo(49, 2);
+    expect(res.body.data.totalAmount).toBeCloseTo(448.98, 2);
+    // subtotal + delivery + tax − discount, exactly.
+    expect(res.body.data.totalAmount).toBeCloseTo(
+      res.body.data.subtotal + res.body.data.deliveryFee + res.body.data.taxAmount - res.body.data.discountAmount,
+      2,
+    );
   });
 
   test('400 — checkout rejected when client total understates the server total', async () => {
@@ -277,7 +291,11 @@ describe('Order operations', () => {
       });
 
     expect(res.status).toBe(400);
-    expect(res.body.error.message).toContain('Cart is empty');
+    // Wording now comes from the quote's EMPTY_CART issue, and the structured
+    // code is what the app switches on — matching the code rather than the prose
+    // is what keeps this test from breaking on a copy edit.
+    expect(res.body.error.message).toMatch(/cart is empty/i);
+    expect(res.body.error.details?.issues?.[0]?.code).toBe('EMPTY_CART');
   });
 
   test('400 — checkout without address', async () => {

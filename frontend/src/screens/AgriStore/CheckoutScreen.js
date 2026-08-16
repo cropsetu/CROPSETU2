@@ -17,10 +17,45 @@ import api from '@cropsetu/shared/services/api';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { isValidPhone, isValidPincode, normalizePhone } from '@cropsetu/shared/utils/validators';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import {
+  fetchCartQuote, fetchPaymentConfig, fetchPaymentStatus, initiatePayment, confirmPayment,
+  classifyError, inr, thumbUrl,
+} from './shopClient';
+import RazorpayCheckout from './RazorpayCheckout';
 
+/**
+ * A fresh idempotency key per order ATTEMPT.
+ *
+ * Order creation had no idempotency protection at all: a double-tap on "Place
+ * Order", or the axios 401-refresh replay, or a retry after a timeout on a
+ * village connection, each created a SECOND order and decremented stock twice.
+ * The online path was accidentally covered by the unique index on `paymentRef`;
+ * cash on delivery — which is what most farmers use — was not.
+ */
+function newIdempotencyKey() {
+  try { if (global.crypto?.randomUUID) return global.crypto.randomUUID(); } catch { /* RN without WebCrypto */ }
+  return `order-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
+// A translucent tint, for surfaces that are drawn FLAT (chips, icon circles,
+// selected rows). Safe there because nothing casts a shadow underneath them.
 const GREEN_BG = 'rgba(23,107,67,0.08)';
 const GREEN_B  = 'rgba(23,107,67,0.15)';
+
+/**
+ * The same mint, OPAQUE — for anything that also has elevation.
+ *
+ * `CW.card` carries `elevation: 2`. On Android the elevation shadow is painted
+ * BEHIND the view, so an 8%-opaque background lets it show straight through:
+ * the card renders muddy grey instead of pale green, and the shadow under the
+ * padding box separates out as a second, lighter rectangle inside it. That
+ * double-box is what it looked like on the Total Payable card and on
+ * "Add New Address".
+ *
+ * Fixed by making the fill opaque rather than by removing the elevation — the
+ * card is meant to sit above the page, and every other card here does.
+ */
+const GREEN_CARD_BG = COLORS.primaryPale;   // #DFF3EA
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const addrLine  = a => a ? [a.flat, a.street, a.city, a.state, a.pincode].filter(Boolean).join(', ') : '';
@@ -358,9 +393,37 @@ const PO = StyleSheet.create({
 export default function CheckoutScreen({ route, navigation }) {
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
-  const { total = 0, delivery = 0, grandTotal = 0 } = route.params || {};
+  // Route params are the FIRST PAINT only, so the numbers do not flash on the
+  // way in from the cart. Everything below re-reads them from `quote`, which is
+  // the server's own computation and the only thing the order is written from.
+  const params = route.params || {};
 
   const [step,          setStep]          = useState(1);
+  // The authoritative quote. Re-fetched when the payment method or the delivery
+  // PIN code changes, because both can move the payable (COD fee, per-area
+  // surcharge, per-seller serviceability).
+  const [quote,         setQuote]         = useState(params.quote || null);
+  const [quoteError,    setQuoteError]    = useState(null);
+  const idemKeyRef = useRef(newIdempotencyKey());
+
+  // ── Online payment ─────────────────────────────────────────────────────────
+  // `payCfg` decides which methods are even OFFERED. Until it loads, and
+  // whenever the gateway is unconfigured, only cash on delivery is shown — the
+  // app must never present a payment method the server cannot collect with.
+  const [payCfg,   setPayCfg]   = useState({ onlineEnabled: false, methods: ['cod'], keyId: null });
+  const [rzp,      setRzp]      = useState(null);   // { orderId, amountPaise } while the sheet is open
+  const [verifying, setVerifying] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    fetchPaymentConfig().then((cfg) => {
+      if (!alive) return;
+      setPayCfg(cfg);
+      // If the farmer had somehow selected an unavailable method, fall back.
+      if (!cfg.onlineEnabled) setPayMethod('cod');
+    });
+    return () => { alive = false; };
+  }, []);
   const [addresses,     setAddresses]     = useState([]);
   const [selectedAddr,  setSelectedAddr]  = useState(null);
   const [showForm,      setShowForm]      = useState(false);
@@ -397,6 +460,34 @@ export default function CheckoutScreen({ route, navigation }) {
   }, []);
 
   const selectedAddrObj = addresses.find(a => a.id === selectedAddr);
+
+  // Derived from the quote, never computed here. The COD fee, any per-area
+  // delivery surcharge and the tax split all change with the payment method and
+  // the delivery PIN code, so the summary has to follow both.
+  const total      = quote ? Number(quote.subtotal)    : Number(params.total || 0);
+  const delivery   = quote ? Number(quote.deliveryFee) : Number(params.delivery || 0);
+  const taxAmount  = quote ? Number(quote.taxAmount)   : 0;
+  const grandTotal = quote ? Number(quote.total)       : Number(params.grandTotal || 0);
+
+  // Re-quote whenever an input to the price changes.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const fresh = await fetchCartQuote({
+          paymentMethod: payMethod,
+          pincode: selectedAddrObj?.pincode,
+        });
+        if (alive) { setQuote(fresh); setQuoteError(null); }
+      } catch (err) {
+        const info = classifyError(err);
+        // Keep the previous quote on screen — a failed re-quote must not blank
+        // the order summary the farmer is reading.
+        if (alive && info) setQuoteError(info);
+      }
+    })();
+    return () => { alive = false; };
+  }, [payMethod, selectedAddrObj?.pincode]);
 
   async function saveAddress() {
     const phone = normalizePhone(form.phone);
@@ -444,30 +535,210 @@ export default function CheckoutScreen({ route, navigation }) {
 
   async function placeOrder() {
     if (!selectedAddr) { Alert.alert(t('checkout.selectAddress'), t('checkout.selectAddressMsg')); return; }
+    // A double-tap must not become two orders. The key is generated ONCE per
+    // attempt and reused across the retry below, so the server's idempotency
+    // middleware can recognise the second call as the same order.
+    if (placing) return;
     setPlacing(true);
-    try {
-      // Send the items subtotal we displayed so the server can reject if its
-      // authoritative recomputation disagrees (matches server's totalAmount =
-      // sum(price × qty); delivery is not part of the server total). Only sent
-      // when the cart actually loaded, so a failed cart fetch can't force 0.
-      const expectedTotal = cartItems.length
-        ? cartItems.reduce((s, i) => s + i.product.price * i.quantity, 0)
-        : undefined;
 
-      const { data } = await api.post('/agristore/orders', {
-        deliveryAddressId: selectedAddr,
+    try {
+      // ── Re-quote immediately before ordering ────────────────────────────
+      // This screen used to compute what it thought the total was:
+      //
+      //     cartItems.reduce((s, i) => s + i.product.price * i.quantity, 0)
+      //
+      // `product.price` is the DEPRECATED pre-split catalog column and is NULL
+      // for any product that has been through the catalog split — the price
+      // lives on the seller's listing. So that sum was NaN for split products,
+      // and the server (correctly) rejected the checkout as a total mismatch.
+      // The client no longer computes a total at all: it asks for the quote and
+      // echoes it back, which is also what lets the server detect tampering.
+      const fresh = await fetchCartQuote({
         paymentMethod: payMethod,
-        note: note.trim() || undefined,
-        expectedTotal,
+        pincode: selectedAddrObj?.pincode,
       });
+      setQuote(fresh);
+
+      if (fresh?.issues?.length) {
+        const first = fresh.issues[0];
+        Alert.alert(t('checkout.orderFailed'), first.message, [{ text: t('ok', 'OK') }]);
+        setPlacing(false);
+        return;
+      }
+
+      // ── ONLINE: raise a gateway order and open checkout ──────────────────
+      // This branch did not exist. Every method — including UPI and Card — was
+      // posted to /orders, which creates an order and never asks for money: the
+      // farmer saw "Order Placed!" with a UPI badge and was charged nothing.
+      if (payMethod !== 'cod') {
+        if (!payCfg.onlineEnabled) {
+          Alert.alert(
+            t('checkout.onlineUnavailableTitle', 'Online payment unavailable'),
+            t('checkout.onlineUnavailableMsg', 'Online payment is not available right now. Please choose Cash on Delivery.'),
+          );
+          setPayMethod('cod');
+          setPlacing(false);
+          return;
+        }
+
+        const intent = await initiatePayment({
+          paymentMethod: payMethod,
+          deliveryAddressId: selectedAddr,
+          pincode: selectedAddrObj?.pincode,
+          expectedTotal: Number(fresh.subtotal),
+          expectedPayable: Number(fresh.total),
+        });
+
+        // Hand off to the sheet. `placing` stays true so the button cannot be
+        // pressed again behind the modal.
+        setRzp({
+          orderId: intent.razorpayOrderId,
+          amountPaise: intent.amountInPaise,
+        });
+        return;
+      }
+
+      // ── CASH ON DELIVERY ────────────────────────────────────────────────
+      const { data } = await api.post(
+        '/agristore/orders',
+        {
+          deliveryAddressId: selectedAddr,
+          paymentMethod: payMethod,
+          note: note.trim() || undefined,
+          // Both are echoed from the quote: the goods subtotal (the field older
+          // builds send) and the amount actually payable.
+          expectedTotal: Number(fresh.subtotal),
+          expectedPayable: Number(fresh.total),
+        },
+        { headers: { 'Idempotency-Key': idemKeyRef.current } },
+      );
+
       navigation.replace('OrderConfirmed', {
-        order: data.data, paymentMethod: payMethod, grandTotal,
+        order: data.data,
+        paymentMethod: payMethod,
+        grandTotal: Number(data.data?.totalAmount ?? fresh.total),
       });
     } catch (err) {
-      Alert.alert(t('checkout.orderFailed'), err?.response?.data?.error?.message || t('checkout.orderFailedMsg'));
+      const info = classifyError(err);
+      // A cancelled request is not a failure and must not raise an alert.
+      if (!info) { setPlacing(false); return; }
+
+      // The server returns the structured reason for a refused checkout — an
+      // out-of-stock line, a price change, a blocked chemical, an unserviceable
+      // PIN code. Showing that beats "order failed", which tells the farmer
+      // nothing about what to change.
+      const issues = info.issues;
+      Alert.alert(
+        t('checkout.orderFailed'),
+        issues?.length ? issues.map((i) => i.message).join('\n\n') : info.message,
+        [{ text: t('ok', 'OK') }],
+      );
+      // A new attempt is a new order, so it gets a new key. Without this, a
+      // legitimate retry after fixing the cart would be swallowed as a duplicate.
+      idemKeyRef.current = newIdempotencyKey();
     } finally {
       setPlacing(false);
     }
+  }
+
+  /** Razorpay verified the payment — turn it into an order. */
+  async function handlePaymentSuccess(result) {
+    setRzp(null);
+    setVerifying(true);
+    try {
+      const order = await confirmPayment({
+        razorpayOrderId: result.razorpayOrderId,
+        razorpayPaymentId: result.razorpayPaymentId,
+        razorpaySignature: result.razorpaySignature,
+        deliveryAddressId: selectedAddr,
+        expectedTotal: quote ? Number(quote.subtotal) : undefined,
+        expectedPayable: quote ? Number(quote.total) : undefined,
+      });
+      navigation.replace('OrderConfirmed', {
+        order,
+        paymentMethod: payMethod,
+        grandTotal: Number(order?.totalAmount ?? grandTotal),
+      });
+    } catch (err) {
+      const info = classifyError(err);
+      // The money has moved. Whatever went wrong now, the farmer must NOT be
+      // told to pay again — the server keeps the payment intent and the
+      // reconciler surfaces it for refund or fulfilment.
+      Alert.alert(
+        t('checkout.paymentTakenTitle', 'Payment received'),
+        info?.message || t('checkout.paymentTakenMsg',
+          'Your payment went through but we could not finish the order. Our team will contact you — please do not pay again.'),
+        [{ text: t('ok', 'OK'), onPress: () => navigation.replace('Main') }],
+      );
+    } finally {
+      setVerifying(false);
+      setPlacing(false);
+    }
+  }
+
+  /**
+   * The farmer closed the sheet. THE PAYMENT MAY HAVE SUCCEEDED.
+   *
+   * This is the case that makes people pay twice: a UPI approval completes, the
+   * app is backgrounded, the sheet closes without firing the handler. Treating
+   * that as "cancelled" is how a farmer is charged and then charged again. Ask
+   * the server what actually happened instead of guessing.
+   */
+  async function handlePaymentDismiss() {
+    const providerOrderId = rzp?.orderId;
+    setRzp(null);
+    if (!providerOrderId) { setPlacing(false); return; }
+
+    setVerifying(true);
+    try {
+      const status = await fetchPaymentStatus(providerOrderId);
+
+      if (status?.orderId || status?.state === 'ORDER_CREATED') {
+        navigation.replace('OrderConfirmed', {
+          order: status.order, paymentMethod: payMethod, grandTotal,
+        });
+        return;
+      }
+      if (status?.state === 'CONFIRMING' || status?.state === 'PAID') {
+        Alert.alert(
+          t('checkout.paymentConfirmingTitle', 'Payment is being confirmed'),
+          status.message || t('checkout.paymentConfirmingMsg',
+            'Your payment has gone through and we are creating your order. Do not pay again — check My Orders in a few minutes.'),
+          [{ text: t('ok', 'OK') }],
+        );
+        return;
+      }
+      // Genuinely not paid — safe to let them try again.
+      Alert.alert(
+        t('checkout.paymentCancelled', 'Payment cancelled'),
+        t('checkout.paymentCancelledMsg', 'No money was taken. You can try again or choose Cash on Delivery.'),
+      );
+    } catch {
+      // Could not reach the server to find out. Say exactly that rather than
+      // claiming either outcome.
+      Alert.alert(
+        t('checkout.paymentUnknownTitle', 'We could not confirm your payment'),
+        t('checkout.paymentUnknownMsg',
+          'Please check My Orders before trying again, so you are not charged twice.'),
+      );
+    } finally {
+      setVerifying(false);
+      setPlacing(false);
+    }
+  }
+
+  /** The gateway explicitly reported a failure — nothing was captured. */
+  function handlePaymentFailure({ code, reason } = {}) {
+    setRzp(null);
+    setPlacing(false);
+    // A new attempt is a new order, so it needs a new idempotency key.
+    idemKeyRef.current = newIdempotencyKey();
+    Alert.alert(
+      t('checkout.paymentFailed', 'Payment failed'),
+      code === 'SCRIPT_LOAD'
+        ? t('checkout.paymentNoNetwork', 'Could not open the payment page. Check your internet connection and try again.')
+        : (reason || t('checkout.paymentFailedMsg', 'No money was taken. Please try again or choose Cash on Delivery.')),
+    );
   }
 
   function handleBack() {
@@ -488,15 +759,20 @@ export default function CheckoutScreen({ route, navigation }) {
   }
 
   const TYPE_OPTS = ['HOME', 'OFFICE', 'OTHER'];
-  const PAY_OPTS = [
+  const ALL_PAY_OPTS = [
     { id: 'cod',  name: 'Cash on Delivery',    nameHi: 'कॅश ऑन डिलिव्हरी',  desc: 'Pay when you receive',     icon: 'cash-outline',          iconBg: COLORS.successLight, iconColor: COLORS.greenBright },
     { id: 'upi',  name: 'UPI Payment',          nameHi: 'UPI पेमेंट',           desc: 'GPay, PhonePe, Paytm',    icon: 'phone-portrait-outline', iconBg: COLORS.blueBg, iconColor: COLORS.blue },
     { id: 'card', name: 'Credit / Debit Card',  nameHi: 'क्रेडिट / डेबिट कार्ड', desc: 'Visa, Mastercard, RuPay', icon: 'card-outline',           iconBg: COLORS.orangeBg, iconColor: COLORS.cta },
   ];
+  // Only what the SERVER says it can collect with. UPI and Card were previously
+  // shown unconditionally and posted to an endpoint that takes no money.
+  const PAY_OPTS = ALL_PAY_OPTS.filter((o) => payCfg.methods?.includes(o.id));
 
   const ctaLabel = step === 1 ? (showForm ? (savingAddr ? 'Saving...' : 'Save & Continue') : 'Continue') :
                    step === 2 ? 'Proceed to Payment' :
-                   (placing ? 'Placing Order...' : 'Place Order');
+                   (placing || verifying)
+                     ? (verifying ? 'Confirming payment...' : (payMethod === 'cod' ? 'Placing Order...' : 'Opening payment...'))
+                     : (payMethod === 'cod' ? 'Place Order' : `Pay ${inr(grandTotal)}`);
 
   return (
     <AnimatedScreen>
@@ -541,7 +817,7 @@ export default function CheckoutScreen({ route, navigation }) {
 
               {/* Add new address card (dashed) */}
               {!showForm && (
-                <SlideCard delay={addresses.length * 80} style={{ borderStyle: 'dashed', borderWidth: 2, borderColor: COLORS.primary + '50', backgroundColor: GREEN_BG }}>
+                <SlideCard delay={addresses.length * 80} style={{ borderStyle: 'dashed', borderWidth: 2, borderColor: COLORS.primary + '50', backgroundColor: GREEN_CARD_BG }}>
                   <TouchableOpacity onPress={() => setShowForm(true)} activeOpacity={0.85}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                       <IconCircle name="add" size={20} color={COLORS.primary} bg={GREEN_B} />
@@ -627,7 +903,12 @@ export default function CheckoutScreen({ route, navigation }) {
                       <Text style={{ fontSize: 10, fontWeight: '700', color: COLORS.primary }}>{selectedAddrObj?.type}</Text>
                     </View>
                   </View>
-                  <Text style={{ fontSize: 13, color: COLORS.textMedium, lineHeight: 18 }}>{addrLine(selectedAddrObj)} — {selectedAddrObj?.pincode}</Text>
+                  {/* `addrLine` already ends with the pincode, so appending it
+                      again rendered "Pune, Maharashtra, 411005 — 411005" on the
+                      order summary. Fixed here rather than in `addrLine`, whose
+                      three other callers render it standalone and DO need the
+                      pincode in the string. */}
+                  <Text style={{ fontSize: 13, color: COLORS.textMedium, lineHeight: 18 }}>{addrLine(selectedAddrObj)}</Text>
                   <Text style={{ fontSize: 13, color: COLORS.textMedium, marginTop: 2 }}>{selectedAddrObj?.phone}</Text>
                 </View>
               </SlideCard>
@@ -636,22 +917,33 @@ export default function CheckoutScreen({ route, navigation }) {
               <SlideCard delay={100}>
                 <CardHead icon="cube-outline" title={`Order Items (${cartItems.length})`} />
                 {cartItems.map((item, i) => {
-                  const p = item.product;
+                  // Post-split, the PRICE and the seller's own photographs live
+                  // on the listing; `item.product` is the shared catalog row and
+                  // its `price` column is deprecated and NULL for any migrated
+                  // product. Reading it here rendered "₹" with nothing after it,
+                  // and `p.price * qty` rendered NaN.
+                  const listing = item.listing || null;
+                  const p = listing?.variant?.product || item.product || {};
+                  const unitPrice = Number(listing?.sellingPrice ?? item.unitPrice ?? item.product?.price ?? 0);
+                  const image = thumbUrl(listing?.images?.[0] || p.images?.[0], 160);
                   return (
                     <View key={item.id}
                       style={[{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
                         i < cartItems.length - 1 && { borderBottomWidth: 1, borderBottomColor: COLORS.border }]}>
                       <View style={{ width: 60, height: 60, borderRadius: 12, backgroundColor: COLORS.background, overflow: 'hidden' }}>
-                        {p.images?.[0]
-                          ? <Image source={{ uri: p.images[0] }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                        {image
+                          ? <Image source={{ uri: image }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                           : <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="leaf" size={24} color={COLORS.primary} /></View>
                         }
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 14, fontWeight: '700', color: COLORS.textDark }} numberOfLines={1}>{p.name}</Text>
-                        <Text style={{ fontSize: 12, color: COLORS.textMedium, marginTop: 2 }}>{item.quantity} × ₹{p.price.toLocaleString()}</Text>
+                        <Text style={{ fontSize: 12, color: COLORS.textMedium, marginTop: 2 }}>
+                          {item.quantity} × {inr(unitPrice)}
+                          {listing?.seller?.name ? ` · ${listing.seller.name}` : ''}
+                        </Text>
                       </View>
-                      <Text style={{ fontSize: 15, fontWeight: '800', color: COLORS.textDark }}>₹{(p.price * item.quantity).toLocaleString()}</Text>
+                      <Text style={{ fontSize: 15, fontWeight: '800', color: COLORS.textDark }}>{inr(unitPrice * item.quantity)}</Text>
                     </View>
                   );
                 })}
@@ -660,11 +952,46 @@ export default function CheckoutScreen({ route, navigation }) {
               {/* Price details */}
               <SlideCard delay={200}>
                 <CardHead icon="receipt-outline" title={t('checkout.priceDetails')} />
-                <PRow label={`Items (${cartItems.reduce((s, i) => s + i.quantity, 0)})`} value={`₹${total.toLocaleString()}`} />
-                <PRow label={t('checkout.delivery')} value={delivery === 0 ? t('free') : `₹${delivery}`} green={delivery === 0} />
+                {/* Every row below is the SERVER's number. This block used to
+                    show a client-computed subtotal plus a hard-coded ₹49 that
+                    the order never recorded. */}
+                <PRow label={`Items (${quote?.unitCount ?? cartItems.reduce((s, i) => s + i.quantity, 0)})`} value={inr(total)} />
+                <PRow
+                  label={
+                    quote?.shipmentCount > 1
+                      ? t('checkout.deliveryShipments', { count: quote.shipmentCount, defaultValue: `Delivery (${quote.shipmentCount} shipments)` })
+                      : t('checkout.delivery')
+                  }
+                  value={delivery === 0 ? t('free') : inr(delivery)}
+                  green={delivery === 0}
+                />
+                {taxAmount > 0 && (
+                  <PRow
+                    label={quote?.taxIncludedInPrice ? t('cart.taxIncluded', 'GST (included)') : t('cart.tax', 'GST')}
+                    value={inr(taxAmount)}
+                  />
+                )}
                 <View style={{ borderTopWidth: 1, borderTopColor: COLORS.border, marginTop: 4, paddingTop: 12 }}>
-                  <PRow label={t('cart.totalPayable')} value={`₹${grandTotal.toLocaleString()}`} bold />
+                  <PRow label={t('cart.totalPayable')} value={inr(grandTotal)} bold />
                 </View>
+
+                {/* The delivery promise recorded on the order, so the farmer and
+                    the platform are looking at the same commitment. */}
+                {quote?.promisedEtaMaxDays ? (
+                  <Text style={{ fontSize: 12, color: COLORS.textMedium, marginTop: 10 }}>
+                    <Ionicons name="time-outline" size={12} color={COLORS.textMedium} />{' '}
+                    {t('checkout.etaNote', {
+                      count: quote.promisedEtaMaxDays,
+                      defaultValue: `Expected delivery within ${quote.promisedEtaMaxDays} days`,
+                    })}
+                  </Text>
+                ) : null}
+
+                {quoteError ? (
+                  <Text style={{ fontSize: 12, color: COLORS.error, marginTop: 8 }}>
+                    {t('checkout.quoteStale', 'Could not refresh the total. It will be confirmed when you place the order.')}
+                  </Text>
+                ) : null}
               </SlideCard>
             </>
           )}
@@ -693,6 +1020,14 @@ export default function CheckoutScreen({ route, navigation }) {
                 {PAY_OPTS.map((opt, i) => (
                   <PayOption key={opt.id} {...opt} selected={payMethod === opt.id} onSelect={setPayMethod} delay={i * 60} />
                 ))}
+                {/* Said plainly rather than silently showing one option, so the
+                    farmer knows online payment is unavailable right now — not
+                    that this shop never accepts it. */}
+                {!payCfg.onlineEnabled ? (
+                  <Text style={{ fontSize: 12, color: COLORS.textMedium, marginTop: 10, lineHeight: 17 }}>
+                    {t('checkout.onlineComingSoon', 'Online payment is not available right now. You can pay cash on delivery.')}
+                  </Text>
+                ) : null}
               </SlideCard>
 
               {/* Order notes */}
@@ -714,10 +1049,10 @@ export default function CheckoutScreen({ route, navigation }) {
               </SlideCard>
 
               {/* Total payable card */}
-              <SlideCard delay={300} style={{ backgroundColor: GREEN_BG, borderColor: COLORS.primary + '40' }}>
+              <SlideCard delay={300} style={{ backgroundColor: GREEN_CARD_BG, borderColor: COLORS.primary + '40' }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ fontSize: 15, fontWeight: '700', color: COLORS.textDark }}>{t('cart.totalPayable')}</Text>
-                  <Text style={{ fontSize: 24, fontWeight: '900', color: COLORS.primary }}>₹{grandTotal.toLocaleString()}</Text>
+                  <Text style={{ fontSize: 24, fontWeight: '900', color: COLORS.primary }}>{inr(grandTotal)}</Text>
                 </View>
               </SlideCard>
             </>
@@ -737,7 +1072,7 @@ export default function CheckoutScreen({ route, navigation }) {
         )}
         {(step === 2 || step === 3) && (
           <View>
-            <Text style={{ fontSize: 20, fontWeight: '900', color: COLORS.primary }}>₹{grandTotal.toLocaleString()}</Text>
+            <Text style={{ fontSize: 20, fontWeight: '900', color: COLORS.primary }}>{inr(grandTotal)}</Text>
             <Text style={{ fontSize: 11, color: COLORS.textMedium, marginTop: 1 }}>
               {step === 3 ? (payMethod === 'cod' ? 'Cash on Delivery' : payMethod === 'upi' ? 'UPI' : 'Card') : `${cartItems.reduce((s, i) => s + i.quantity, 0)} items`}
             </Text>
@@ -758,6 +1093,41 @@ export default function CheckoutScreen({ route, navigation }) {
           </View>
         </PressScale>
       </View>
+      {/* ── Razorpay checkout ──────────────────────────────────────────────
+          Only ever opened with a gateway ORDER ID minted server-side, so the
+          amount cannot be set from here. The signature it returns is re-verified
+          against the secret key on /orders/confirm. */}
+      <RazorpayCheckout
+        visible={!!rzp}
+        keyId={payCfg.keyId}
+        orderId={rzp?.orderId}
+        amountPaise={rzp?.amountPaise}
+        buyerName={selectedAddrObj?.name}
+        buyerPhone={selectedAddrObj?.phone}
+        description={`${quote?.itemCount ?? cartItems.length} item(s) · CropSetu`}
+        onSuccess={handlePaymentSuccess}
+        onDismiss={handlePaymentDismiss}
+        onFailure={handlePaymentFailure}
+      />
+
+      {/* Blocking overlay while the server verifies — the farmer must not be
+          able to start a second payment during this window. */}
+      {verifying ? (
+        <Modal visible transparent animationType="fade">
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ backgroundColor: COLORS.surface, borderRadius: 16, padding: 28, alignItems: 'center', gap: 14, marginHorizontal: 40 }}>
+              <ActivityIndicator size="large" color={COLORS.primary} />
+              <Text style={{ fontSize: 15, fontWeight: '700', color: COLORS.textDark, textAlign: 'center' }}>
+                {t('checkout.confirmingPayment', 'Confirming your payment')}
+              </Text>
+              <Text style={{ fontSize: 13, color: COLORS.textMedium, textAlign: 'center', lineHeight: 19 }}>
+                {t('checkout.doNotClose', 'Please do not close the app or pay again.')}
+              </Text>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+
       {/* ── Address Picker Bottom Sheet ── */}
       <Modal
         visible={addrSheet}

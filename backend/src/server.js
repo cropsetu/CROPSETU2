@@ -16,6 +16,11 @@ import { checkCacheAlerts } from './utils/cacheMetrics.js';
 import { runRetentionSweep } from './services/retention.service.js';
 import { refreshActiveSellerStats } from './services/sellerStats.service.js';
 import { refreshAllSellerMetrics } from './services/sellerMetrics.service.js';
+import { reconcilePendingPayments } from './services/shopPayment.service.js';
+import { sweepBatchExpiry } from './services/shopCompliance.service.js';
+import { sweepExpiredReservations } from './services/stockReservation.service.js';
+import { checkShopAlerts, recordEvent, SHOP_EVENTS } from './services/shopMetrics.service.js';
+import { setSerializableConflictObserver } from './utils/txRetry.js';
 import { expireStaleAnimalListings } from './services/animalListing.service.js';
 import { withLeaderLock } from './utils/leaderLock.js';
 import { startWorkers, stopWorkers } from './queue/worker.js';
@@ -285,6 +290,72 @@ async function start() {
         const result = await refreshAllSellerMetrics();
         if (result.refreshed) logger.info({ ...result }, '[SellerMetrics] refresh complete');
       } catch (err) { logger.warn('[SellerMetrics] refresh failed: %s', err.message); }
+    }));
+
+    // Count serialization conflicts (two buyers racing for the same stock).
+    // Injected rather than imported inside txRetry so that utility keeps no
+    // service dependency — see the note there.
+    setSerializableConflictObserver(() => recordEvent(SHOP_EVENTS.INVENTORY_CONFLICT));
+
+    // ── Stock-reservation expiry sweep ──────────────────────────────────────
+    // Every 2 minutes. An abandoned payment sheet produces NO signal — no
+    // webhook, no client call — so without this the units a buyer reserved and
+    // walked away from stay off the shelf indefinitely. The other three release
+    // paths (confirm-failure, webhook, reconciler) handle the cases that do
+    // signal; this is the backstop for the case that does not, and it runs often
+    // because held stock is stock nobody else can buy.
+    cron.schedule('*/2 * * * *', () => withLeaderLock('shop-reservation-sweep', async () => {
+      try {
+        const r = await sweepExpiredReservations();
+        if (r.released || r.orphaned) logger.info({ ...r }, '[Reservation] expiry sweep released held stock');
+      } catch (err) { logger.warn('[Reservation] expiry sweep failed: %s', err.message); }
+    }));
+
+    // ── Shop health alerting ────────────────────────────────────────────────
+    // Every 5 minutes, on the same windowed-delta contract as the cache alerts:
+    // checkout failure rate, product-list p95, and any captured payment with no
+    // order (which alerts on a single occurrence — there is no acceptable rate
+    // for money held against nothing). NOT leader-locked: these are per-process
+    // in-memory counters, so every instance must evaluate its own.
+    cron.schedule('*/5 * * * *', () => {
+      try { checkShopAlerts(); }
+      catch (err) { logger.warn('[Shop] alert check failed: %s', err.message); }
+    });
+
+    // ── Payment reconciliation (SHOP-HARDENING) ─────────────────────────────
+    // Every 10 minutes. A payment can be captured while the app is being killed,
+    // losing signal, or backgrounded on a village connection — the /confirm call
+    // that would have told us never happens. This sweeps PaymentIntents that
+    // never reached a terminal state and ASKS RAZORPAY what actually happened,
+    // because the client that would have told us is gone.
+    //
+    // It deliberately does NOT auto-create orders for orphaned captures: the cart
+    // is long gone and stock may have sold, so an invented order would ship
+    // something nobody chose. Those are logged at ERROR for a human to refund.
+    // Leader-locked — N instances hitting the gateway with the same intents
+    // would be both wasteful and rate-limited.
+    cron.schedule('*/10 * * * *', () => withLeaderLock('shop-payment-reconcile', async () => {
+      try {
+        const stats = await reconcilePendingPayments({ olderThanMinutes: 10 });
+        if (stats.scanned) logger.info({ ...stats }, '[ShopPayment] reconciliation complete');
+        if (stats.orphanedPaid) {
+          logger.error({ count: stats.orphanedPaid }, '[ShopPayment] ALERT: captured payments with no order — manual refund needed');
+        }
+      } catch (err) { logger.warn('[ShopPayment] reconciliation failed: %s', err.message); }
+    }));
+
+    // ── Agri-chemical batch expiry sweep ────────────────────────────────────
+    // Daily at 3:10 AM UTC. Marks lots EXPIRING_SOON inside the alert window and
+    // EXPIRED past their date, which is what takes expired stock out of the sale
+    // gate. Selling an expired pesticide is a regulatory failure, not a stale
+    // cache — so this runs on a schedule rather than lazily on read.
+    cron.schedule('10 3 * * *', () => withLeaderLock('shop-batch-expiry-sweep', async () => {
+      try {
+        const result = await sweepBatchExpiry();
+        if (result.expired || result.expiringSoon) {
+          logger.info({ ...result }, '[Compliance] batch expiry sweep complete');
+        }
+      } catch (err) { logger.warn('[Compliance] batch expiry sweep failed: %s', err.message); }
     }));
 
     // ── Data-retention sweep (DPDP minimisation) ────────────────────────────

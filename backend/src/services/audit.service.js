@@ -92,6 +92,11 @@ export const AUDIT_ACTIONS = {
   PRODUCT_QC_REJECT:  "PRODUCT_QC_REJECT",
   PRODUCT_MERGE:      "PRODUCT_MERGE",      // duplicate folded into a surviving catalog row
   CATALOG_EDIT:       "CATALOG_EDIT",       // shared catalog fields changed
+  // Agri-chemical compliance, seller side. A submission is audited as well as a
+  // decision: "the seller claimed this registration number on this date" is the
+  // half of the record that shows what a reviewer was shown.
+  SELLER_LICENCE_SUBMIT:     "SELLER_LICENCE_SUBMIT",
+  PRODUCT_COMPLIANCE_SUBMIT: "PRODUCT_COMPLIANCE_SUBMIT",
   FEATURE_FLAG_CHANGE: "FEATURE_FLAG_CHANGE", // admin toggles a feature flag (config change)
   KYC_ACCESS: "KYC_ACCESS", // admin views another user's KYC documents (PII access)
   GROUP_MEMBER_REMOVE: "GROUP_MEMBER_REMOVE", // group admin removes a member
@@ -179,6 +184,26 @@ export const ADMIN_ACTIONS = {
   LEDGER_ADJUST:        'ADMIN_LEDGER_ADJUST',       // manual signed ADJUSTMENT entry on a seller's ledger
   DISPUTE_CREATE:       'ADMIN_DISPUTE_CREATE',      // admin/support opens a dispute case
   DISPUTE_UPDATE:       'ADMIN_DISPUTE_UPDATE',      // assign / status change / resolution
+  // ── Agri-chemical compliance (SHOP-HARDENING) ──────────────────────────────
+  // These are the decisions a regulator would ask to see: who approved a
+  // pesticide for sale, who licensed a seller for it, who stopped a sale and why.
+  // Every one is audited; none is reversible without another audited action.
+  SUBCATEGORY_CREATE:   'ADMIN_SUBCATEGORY_CREATE',
+  SUBCATEGORY_UPDATE:   'ADMIN_SUBCATEGORY_UPDATE',
+  SUBCATEGORY_DELETE:   'ADMIN_SUBCATEGORY_DELETE',
+  COMPLIANCE_APPROVE:   'ADMIN_COMPLIANCE_APPROVE',  // regulated product cleared for sale
+  COMPLIANCE_REJECT:    'ADMIN_COMPLIANCE_REJECT',
+  COMPLIANCE_SUSPEND:   'ADMIN_COMPLIANCE_SUSPEND',
+  COMPLIANCE_UPDATE:    'ADMIN_COMPLIANCE_UPDATE',   // label / registration fields edited
+  LICENCE_APPROVE:      'ADMIN_LICENCE_APPROVE',     // seller licensed for a regulated class
+  LICENCE_REJECT:       'ADMIN_LICENCE_REJECT',
+  LICENCE_SUSPEND:      'ADMIN_LICENCE_SUSPEND',
+  RECALL_CREATE:        'ADMIN_RECALL_CREATE',
+  RECALL_CLOSE:         'ADMIN_RECALL_CLOSE',
+  RECALL_NOTIFY:        'ADMIN_RECALL_NOTIFY',       // affected buyers messaged
+  SALE_BLOCK_CREATE:    'ADMIN_SALE_BLOCK_CREATE',
+  SALE_BLOCK_LIFT:      'ADMIN_SALE_BLOCK_LIFT',
+  BATCH_QUARANTINE:     'ADMIN_BATCH_QUARANTINE',
 };
 
 /**

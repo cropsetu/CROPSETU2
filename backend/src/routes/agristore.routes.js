@@ -51,6 +51,7 @@ import { validate } from '../middleware/validate.js';
 import { maxLen } from '../middleware/textLength.js';
 import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
+import logger from '../utils/logger.js';
 import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
 import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta, parsePageSize } from '../utils/response.js';
 import { keysetPage } from '../utils/keyset.js';
@@ -58,7 +59,9 @@ import { applyListingStockDeltas } from '../utils/stockBatch.js';
 import { withSerializableRetry } from '../utils/txRetry.js';
 import { D, toMinorUnits } from '../utils/money.js';
 import { stripHtml, deepStripHtml } from '../utils/encrypt.js';
-import { createPaymentOrder, verifyPaymentSignature, fetchPaymentOrder } from '../services/payment.service.js';
+import {
+  createPaymentOrder, verifyPaymentSignature, fetchPaymentOrder, isMockPayments,
+} from '../services/payment.service.js';
 import { auditOrderStatusChange, auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
 import { getSellerStats } from '../services/sellerStats.service.js';
 import { velocityGuard } from '../middleware/velocityLimit.js';
@@ -76,6 +79,22 @@ import {
 } from '../services/buyBox.service.js';
 import { transitionTimestampFor } from '../services/sellerMetrics.service.js';
 import { getSetting } from '../services/settings.service.js';
+import { idempotency } from '../middleware/idempotency.js';
+import {
+  buildQuote, isQuoteCheckoutable, orderTotalsFromQuote, orderItemExtrasFromQuote, QUOTE_ISSUES,
+} from '../services/shopPricing.service.js';
+import {
+  evaluateSaleEligibility, complianceIssuesFrom, getProductSafetyPanel,
+} from '../services/shopCompliance.service.js';
+import { checkProductServiceability, normalizePincode } from '../services/serviceability.service.js';
+import {
+  createIntent, findIntent, markIntentPaid, markIntentFailed, attachOrderToIntent,
+  receiptFor, intentPublicStatus,
+} from '../services/shopPayment.service.js';
+import {
+  holdStock, heldFor, consumeReservations, releaseReservations, reservationConfig,
+} from '../services/stockReservation.service.js';
+import { recordEvent, SHOP_EVENTS } from '../services/shopMetrics.service.js';
 import { ENV } from '../config/env.js';
 
 const router = Router();
@@ -104,29 +123,12 @@ const toPaise = (amount) => toMinorUnits(amount, 100);
 const cartTotal = (cartItems) =>
   cartItems.reduce((sum, i) => sum.plus(D(i.listing?.sellingPrice ?? i.product?.price).times(i.quantity)), D(0));
 
-/**
- * Aggregate the cart total in ONE query, for paths that need only the number.
- *
- * THIS IS THE ONLY TOTAL THAT AUTHORISES THE RAZORPAY AMOUNT at /orders/initiate.
- * A wrong join here charges the wrong amount, so it is spelled out rather than
- * shared with the in-memory path — but it must mirror cartTotal() exactly.
- *
- * DUAL-READ: the LEFT JOIN onto products, and COALESCE onto p.price, exist only
- * so a cart row written before the backfill still contributes its real price
- * instead of silently dropping out of the SUM (which would UNDERCHARGE). Delete
- * both at CONTRACT, when cart_items.productId is gone.
- */
-async function cartTotalFromDB(userId) {
-  const [row] = await prisma.$queryRaw`
-    SELECT COUNT(*)::int AS count,
-           COALESCE(SUM(COALESCE(l."sellingPrice", p."price") * c."quantity"), 0) AS total
-    FROM cart_items c
-    LEFT JOIN seller_listings l ON l."id" = c."listingId"
-    LEFT JOIN products p        ON p."id" = c."productId"
-    WHERE c."userId" = ${userId}
-  `;
-  return { count: row?.count ?? 0, total: D(row?.total ?? 0) };
-}
+// REMOVED: cartTotalFromDB().
+// It aggregated the goods subtotal in one query and was the amount /orders/initiate
+// raised the Razorpay order for — which is precisely the bug: the app displayed
+// subtotal + a client-side ₹49 delivery fee and the gateway charged the subtotal.
+// The payable is now the QUOTE's total (shopPricing.service.js), so a second,
+// parallel definition of "the amount" is exactly what must not exist here.
 
 function assertClientTotalMatches(expectedTotal, authoritativeTotal) {
   if (expectedTotal === undefined || expectedTotal === null) return;
@@ -226,11 +228,30 @@ async function decorateWithOffers(products, buyer) {
 }
 
 // ── Categories (public, cached) ───────────────────────────────────────────────
+/**
+ * Category master data, now with SUBCATEGORIES.
+ *
+ * `products.subcategory` was a free-text string typed by whichever seller created
+ * the row, so the app had no list to filter by and an admin could not rename,
+ * reorder or retire one. Subcategories are rows now; the string column stays
+ * dual-written so existing filters keep working.
+ *
+ * `attributeSchema` tells the app which dynamic form / detail sections to render
+ * for the category — so adding "Sprayers" with its own fields is an admin edit
+ * rather than an app release.
+ */
 router.get('/categories', async (_req, res) => {
-  const { data, cached } = await cachedListing(NS_CATEGORIES, 'all', CATEGORIES_TTL, async () => ({
+  const { data, cached } = await cachedListing(NS_CATEGORIES, 'v2:all', CATEGORIES_TTL, async () => ({
     data: await prisma.category.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: 'asc' },
+      include: {
+        subcategories: {
+          where: { isActive: true },
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+          select: { id: true, name: true, nameHi: true, nameMr: true, icon: true, attributeSchema: true },
+        },
+      },
     }),
   }));
   res.setHeader('X-Cache', cached ? 'HIT' : 'MISS');
@@ -238,31 +259,90 @@ router.get('/categories', async (_req, res) => {
 });
 
 // ── Storefront product list (public) ──────────────────────────────────────────
+/**
+ * CARD FIELDS ONLY.
+ *
+ * The list used to return the full `products` row — description, specifications,
+ * highlights, tags, normalizedKey, every QC column — for 40 rows at a time, when
+ * a grid card renders six of them. The detail screen refetches by id anyway, so
+ * every one of those bytes was paid for on a 2G connection and discarded.
+ */
+const PRODUCT_CARD_SELECT = {
+  id: true, name: true, nameHi: true, nameMr: true,
+  images: true, brand: true, rating: true, ratingCount: true,
+  categoryId: true, subcategory: true, subcategoryId: true,
+  // DUAL-READ: legacy offer columns, still the price source for a product with
+  // no listings yet. decorateWithOffers overwrites them when offers exist.
+  price: true, mrp: true, stock: true, unit: true, sellerId: true,
+  createdAt: true,
+  category: { select: { id: true, name: true, icon: true, color: true } },
+};
+
+/**
+ * Sort options. Each maps to an orderBy the schema has an index for — a sort the
+ * database cannot serve is a filesort over the whole result set on every page.
+ *
+ * `popularity` deliberately uses viewCount, the only real engagement signal that
+ * exists. There is no sales counter, so there is no "best seller" sort: inventing
+ * one from a rating order would be a fabricated claim about what other farmers
+ * bought. `relevance` is rating-ordered for a browse, and similarity-ordered when
+ * there is a search term.
+ */
+const SORTS = {
+  relevance:  [{ rating: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+  latest:     [{ createdAt: 'desc' }, { id: 'desc' }],
+  rating:     [{ rating: 'desc' }, { ratingCount: 'desc' }, { id: 'desc' }],
+  popularity: [{ viewCount: 'desc' }, { rating: 'desc' }, { id: 'desc' }],
+};
+/** Sorts that depend on OFFER data, so they are applied after decoration. */
+const OFFER_SORTS = new Set(['price_asc', 'price_desc', 'discount']);
+
 router.get(
   '/products',
   optionalAuth,
   [
     query('page').optional().isInt({ min: 1 }),
     query('limit').optional().isInt({ min: 1, max: 50 }),
+    query('sort').optional().isIn([...Object.keys(SORTS), ...OFFER_SORTS]),
+    query('minPrice').optional().isFloat({ min: 0 }),
+    query('maxPrice').optional().isFloat({ min: 0 }),
+    query('minRating').optional().isFloat({ min: 0, max: 5 }),
+    query('inStock').optional().isBoolean(),
+    query('verifiedSeller').optional().isBoolean(),
+    query('brand').optional().isString().isLength({ max: 100 }),
+    query('subcategoryId').optional().isUUID(),
   ],
   validate,
   async (req, res) => {
     const page  = parseInt(req.query.page  || '1', 10);
     const limit = parseInt(req.query.limit || '20', 10);
-    const { category, featured, subcategory } = req.query;
+    const { category, featured, subcategory, subcategoryId } = req.query;
     const search = sanitizeSearch(req.query.search);
     const buyer  = buyerScope(req);
+    const sort   = SORTS[req.query.sort] ? req.query.sort : (OFFER_SORTS.has(req.query.sort) ? req.query.sort : 'relevance');
+    const brand  = sanitizeSearch(req.query.brand, 100);
+    const minRating = req.query.minRating != null ? Number(req.query.minRating) : null;
 
     // Catalog-side predicates.
     const and = [{ status: 'APPROVED' }];
-    if (category)    and.push({ categoryId: category });
-    if (subcategory) and.push({ subcategory });
+    if (category)      and.push({ categoryId: category });
+    if (subcategoryId) and.push({ subcategoryId });
+    else if (subcategory) and.push({ subcategory });
+    if (brand)         and.push({ brand: { contains: brand, mode: 'insensitive' } });
+    if (minRating)     and.push({ rating: { gte: minRating } });
     if (search) {
       and.push({
         OR: [
-          { name:        { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
-          { tags:        { has: search.toLowerCase() } },
+          { name:         { contains: search, mode: 'insensitive' } },
+          // Marathi and Hindi names were NOT searchable — a farmer typing
+          // "बियाणे" matched nothing, on an app whose whole point is that they
+          // can use their own language. Both are indexed columns on the same row.
+          { nameMr:       { contains: search, mode: 'insensitive' } },
+          { nameHi:       { contains: search, mode: 'insensitive' } },
+          { brand:        { contains: search, mode: 'insensitive' } },
+          { manufacturer: { contains: search, mode: 'insensitive' } },
+          { description:  { contains: search, mode: 'insensitive' } },
+          { tags:         { has: search.toLowerCase() } },
         ],
       });
     }
@@ -270,54 +350,155 @@ router.get(
     // Offer-side predicates. Geography now gates at the LISTING level, which is
     // where sellScope/district actually live; the pre-split filter compared them
     // on the fused product row.
+    const priceFilter = {};
+    if (req.query.minPrice != null) priceFilter.gte = Number(req.query.minPrice);
+    if (req.query.maxPrice != null) priceFilter.lte = Number(req.query.maxPrice);
+
     const listingWhere = {
       status: 'ACTIVE',
       stockQty: { gt: 0 },
       ...(featured ? { isFeatured: true } : {}),
+      ...(Object.keys(priceFilter).length ? { sellingPrice: priceFilter } : {}),
+      // A "verified seller" badge must come from a platform-controlled field, so
+      // the filter reads the seller's KYC state — never a seller-settable flag.
+      ...(req.query.verifiedSeller === 'true' ? { seller: { kycStatus: 'VERIFIED' } } : {}),
       ...listingGeoWhere(buyer),
     };
     and.push({
       OR: [
         { variants: { some: { listings: { some: listingWhere } } } },
         // DUAL-READ: not yet migrated — judge it on the legacy columns so it does
-        // not vanish from the storefront mid-migration.
-        {
+        // not vanish from the storefront mid-migration. Price and verified-seller
+        // filters cannot be applied to a legacy row's offer, so an explicitly
+        // filtered request excludes them rather than returning unfiltered results.
+        ...(Object.keys(priceFilter).length || req.query.verifiedSeller === 'true' ? [] : [{
           variants: { none: {} },
           isActive: true,
           ...(featured ? { isFeatured: true } : {}),
           ...(buyer.district ? { OR: [{ district: { equals: buyer.district, mode: 'insensitive' } }, { district: null }] } : {}),
-        },
+        }]),
       ],
     });
 
     const where = { AND: and };
 
     const identity = JSON.stringify([
-      category || '', subcategory || '', featured ? 1 : 0,
+      category || '', subcategory || '', subcategoryId || '', featured ? 1 : 0,
       buyer.district || '', buyer.taluka || '', buyer.village || '', buyer.state || '',
-      search || '', page, limit,
+      search || '', brand || '', minRating || '', req.query.minPrice || '', req.query.maxPrice || '',
+      req.query.inStock || '', req.query.verifiedSeller || '', sort, page, limit,
     ]);
     const { data, meta, cached } = await cachedListing(NS_PRODUCTS, identity, PRODUCTS_TTL, async () => {
+      // An offer-ordered sort has to see more than one page of candidates before
+      // it can order them, because the price lives on a different table. Bounded
+      // at 5 pages so a "price low to high" on a broad category cannot turn into
+      // an unbounded scan.
+      const offerSorted = OFFER_SORTS.has(sort);
+      const take = offerSorted ? Math.min(limit * 5, 200) : limit;
+      const skip = offerSorted ? 0 : (page - 1) * limit;
+
       const [products, total] = await Promise.all([
         prisma.product.findMany({
           where,
-          include: { category: { select: { id: true, name: true, icon: true, color: true } } },
-          skip: (page - 1) * limit,
-          take: limit,
+          select: PRODUCT_CARD_SELECT,
+          skip,
+          take,
           // `id` is the unique tiebreaker. Without it, rows sharing a rating
           // ordered arbitrarily between queries, so offset pages duplicated and
           // skipped rows. isFeatured is no longer a product column post-split —
           // featuring is per-offer and is applied as a FILTER above instead.
-          orderBy: [{ rating: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+          orderBy: SORTS[offerSorted ? 'relevance' : sort],
         }),
         prisma.product.count({ where }),
       ]);
-      return { data: await decorateWithOffers(products, buyer), meta: paginationMeta(total, page, limit) };
+
+      let decorated = await decorateWithOffers(products, buyer);
+
+      if (req.query.inStock === 'true') decorated = decorated.filter((p) => (p.stock ?? 0) > 0);
+
+      if (offerSorted) {
+        const num = (v) => (v == null ? null : Number(v));
+        const discountPct = (p) => {
+          const mrp = num(p.mrp); const price = num(p.price);
+          return mrp && price && mrp > price ? ((mrp - price) / mrp) * 100 : 0;
+        };
+        decorated.sort((a, b) => {
+          if (sort === 'price_asc')  return (num(a.lowestPrice) ?? Infinity) - (num(b.lowestPrice) ?? Infinity);
+          if (sort === 'price_desc') return (num(b.lowestPrice) ?? -Infinity) - (num(a.lowestPrice) ?? -Infinity);
+          return discountPct(b) - discountPct(a);
+        });
+        decorated = decorated.slice((page - 1) * limit, page * limit);
+      }
+
+      return {
+        data: decorated,
+        meta: {
+          ...paginationMeta(total, page, limit),
+          sort,
+          // Honest about the bound above, rather than presenting a truncated
+          // price sort as if it had ranked the whole catalogue.
+          sortScope: offerSorted ? `top ${take} by relevance` : 'full',
+        },
+      };
     });
 
     res.setHeader('X-Cache', cached ? 'HIT' : 'MISS');
     return sendSuccess(res, data, 200, meta);
   }
+);
+
+/**
+ * Facets for the filter sheet: the brands and price range that actually exist
+ * inside the current category, so the sheet offers real choices instead of a
+ * static list that filters to zero results.
+ */
+router.get(
+  '/products/facets',
+  [query('category').optional().isUUID()],
+  validate,
+  async (req, res) => {
+    const { category } = req.query;
+    const { data, cached } = await cachedListing(NS_PRODUCTS, `facets:${category || 'all'}`, PRODUCTS_TTL, async () => {
+      const where = { status: 'APPROVED', ...(category ? { categoryId: category } : {}) };
+      const [brands, subcategories, priceRange] = await Promise.all([
+        prisma.product.groupBy({
+          by: ['brand'],
+          where: { ...where, brand: { not: null } },
+          _count: { brand: true },
+          orderBy: { _count: { brand: 'desc' } },
+          take: 40,
+        }),
+        category
+          ? prisma.subcategory.findMany({
+              where: { categoryId: category, isActive: true },
+              select: { id: true, name: true, nameMr: true, nameHi: true, icon: true },
+              orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+            })
+          : [],
+        prisma.sellerListing.aggregate({
+          where: {
+            status: 'ACTIVE',
+            ...(category ? { variant: { product: { categoryId: category } } } : {}),
+          },
+          _min: { sellingPrice: true },
+          _max: { sellingPrice: true },
+        }),
+      ]);
+
+      return {
+        data: {
+          brands: brands.filter((b) => b.brand).map((b) => ({ value: b.brand, count: b._count.brand })),
+          subcategories,
+          priceMin: priceRange._min.sellingPrice != null ? Number(priceRange._min.sellingPrice) : null,
+          priceMax: priceRange._max.sellingPrice != null ? Number(priceRange._max.sellingPrice) : null,
+          sorts: [...Object.keys(SORTS), ...OFFER_SORTS],
+        },
+      };
+    });
+
+    res.setHeader('X-Cache', cached ? 'HIT' : 'MISS');
+    return sendSuccess(res, data);
+  },
 );
 
 // ── Single product: catalog + winning offer ───────────────────────────────────
@@ -356,13 +537,32 @@ router.get('/products/:id', optionalAuth, async (req, res) => {
     return sendNotFound(res, 'Product'); // DUAL-READ: legacy soft-delete flag
   }
 
-  const buyBox = await getProductBuyBox(product.id, buyer);
+  // Two independent extras, fetched together with the buy box.
+  //   safety   — the approved-label panel for a regulated product. NULL for
+  //              everything else, so a hand tool renders no chemical sections.
+  //   recalls  — an active recall must be visible ON the page, not only enforced
+  //              at add-to-cart.
+  const [buyBox, safety, activeRecall] = await Promise.all([
+    getProductBuyBox(product.id, buyer),
+    getProductSafetyPanel(product.id),
+    prisma.productRecall.findFirst({
+      where: { productId: product.id, isActive: true },
+      select: { reason: true, advice: true, severity: true, batchNumber: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ]);
 
   return sendSuccess(res, {
     ...product,
     variants: buyBox.variants,
     offerCount: buyBox.offerCount,
     lowestPrice: buyBox.lowestPrice,
+    // Everything here is transcribed from the approved manufacturer label and
+    // reviewed. The platform authors none of it — see shopCompliance.service.js.
+    safety,
+    recall: activeRecall
+      ? { active: true, severity: activeRecall.severity, reason: activeRecall.reason, advice: activeRecall.advice, batchNumber: activeRecall.batchNumber }
+      : null,
     // The winning offer. Everything price-shaped on the buyer's product page —
     // the ₹ headline, the struck MRP, "You save", the qty cap — reads off THIS,
     // never off the catalog row.
@@ -374,6 +574,97 @@ router.get('/products/:id', optionalAuth, async (req, res) => {
     },
   });
 });
+
+/**
+ * "Will it reach my PIN code, and by when?"
+ *
+ * The product page rendered a "Delivery — coming soon" placeholder because there
+ * was nothing to ask. Public: a delivery estimate for a public catalogue entry
+ * is not private, and requiring login to see one would push farmers into an
+ * account before they know whether the shop serves their village at all.
+ */
+router.get(
+  '/products/:id/serviceability',
+  [query('pincode').isString().isLength({ min: 6, max: 6 })],
+  validate,
+  async (req, res) => {
+    const pincode = normalizePincode(req.query.pincode);
+    if (!pincode) {
+      return sendError(res, 'Enter a valid 6-digit PIN code.', 400, { reason: 'INVALID_PINCODE' });
+    }
+    const productId = await resolveCanonicalProductId(req.params.id);
+    if (!productId) return sendNotFound(res, 'Product');
+
+    const result = await checkProductServiceability({ productId, pincode });
+    return sendSuccess(res, { pincode, ...result });
+  },
+);
+
+/**
+ * Paginated reviews for a product.
+ *
+ * GET /products/:id returned the 10 most recent reviews inline on EVERY product
+ * fetch — joined to users, on a payload the detail screen re-requests on each
+ * open — and there was no way to see the eleventh. Reviews move to their own
+ * keyset-paginated endpoint and the inline block shrinks to a summary.
+ */
+router.get(
+  '/products/:id/reviews',
+  [query('limit').optional().isInt({ min: 1, max: 50 })],
+  validate,
+  async (req, res) => {
+    const productId = await resolveCanonicalProductId(req.params.id);
+    if (!productId) return sendNotFound(res, 'Product');
+
+    const limit = parsePageSize(req.query.limit, 10, 50);
+    const { items, nextCursor, hasMore } = await keysetPage(prisma, {
+      table: 'reviews', filterColumn: 'productId', filterValue: productId,
+      cursor: req.query.cursor, limit,
+      hydrate: (ids) => prisma.review.findMany({
+        where: { id: { in: ids } },
+        // `avatar` and first name only — a review must never expose the reviewer's
+        // phone number, district or anything else the User row carries.
+        include: { user: { select: { id: true, name: true, avatar: true } } },
+      }),
+    });
+
+    // The star distribution, computed in ONE grouped query rather than by
+    // counting five separate filters.
+    const buckets = await prisma.review.groupBy({
+      by: ['rating'],
+      where: { productId },
+      _count: { rating: true },
+    });
+    const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    let total = 0; let weighted = 0;
+    for (const b of buckets) {
+      distribution[b.rating] = b._count.rating;
+      total += b._count.rating;
+      weighted += b.rating * b._count.rating;
+    }
+
+    return sendSuccess(
+      res,
+      {
+        reviews: items.map((r) => ({
+          id: r.id, rating: r.rating, comment: r.comment, createdAt: r.createdAt,
+          // Verified-purchase is a fact about the review, and the review can only
+          // exist against a DELIVERED order item — so it is always true here.
+          // Stated explicitly rather than implied.
+          verifiedPurchase: !!r.orderItemId,
+          user: { id: r.user?.id, name: r.user?.name || null, avatar: r.user?.avatar || null },
+        })),
+        summary: {
+          average: total ? Number((weighted / total).toFixed(2)) : 0,
+          count: total,
+          distribution,
+        },
+      },
+      200,
+      { limit, nextCursor, hasMore },
+    );
+  },
+);
 
 // ── Every eligible offer for a product, buy-box order ─────────────────────────
 router.get('/products/:id/offers', optionalAuth, async (req, res) => {
@@ -408,7 +699,41 @@ router.get('/products/:id/offers', optionalAuth, async (req, res) => {
   });
 });
 
+/**
+ * Can this build actually take an online payment?
+ *
+ * The app used to render UPI and Card tiles unconditionally, then post the
+ * chosen method to POST /orders — which creates an order and never asks for
+ * money. A farmer picked UPI, saw "Order Placed!" with a UPI badge, and nothing
+ * was ever charged. Offering a payment method the server cannot collect with is
+ * the worst kind of broken: it looks like it worked.
+ *
+ * The app now asks first and only shows what can actually be collected.
+ *
+ * `keyId` is Razorpay's PUBLISHABLE key — it is designed to sit in a client and
+ * identifies the merchant when opening checkout. The SECRET never leaves the
+ * server, and the payment signature is verified server-side, so a tampered
+ * client cannot manufacture a paid order.
+ */
+router.get('/payment-config', authenticate, async (_req, res) => {
+  const mock = isMockPayments();
+  return sendSuccess(res, {
+    // False whenever the gateway is unconfigured (no keys) — in that state the
+    // app must fall back to cash on delivery rather than opening a checkout
+    // sheet that cannot complete.
+    onlineEnabled: !mock,
+    provider: 'razorpay',
+    keyId: mock ? null : ENV.RAZORPAY_KEY_ID,
+    methods: mock ? ['cod'] : ['cod', 'upi', 'card'],
+  });
+});
+
 // ── Cart ──────────────────────────────────────────────────────────────────────
+// The variant's product select carries the four columns the QUOTE needs
+// (categoryId for the return rules, taxRatePct for the tax split, shippingClass
+// and weightKg for the delivery band). Without them the pricing service silently
+// falls back to defaults and quotes a fee for a rotavator as if it were a seed
+// packet.
 const CART_INCLUDE = {
   // DUAL-READ: `product` is still included so pre-backfill rows render.
   product: { include: { category: { select: { name: true } } } },
@@ -418,7 +743,10 @@ const CART_INCLUDE = {
       variant: {
         include: {
           product: {
-            select: { id: true, name: true, nameHi: true, nameMr: true, images: true, brand: true },
+            select: {
+              id: true, name: true, nameHi: true, nameMr: true, images: true, brand: true,
+              categoryId: true, taxRatePct: true, shippingClass: true, weightKg: true,
+            },
           },
         },
       },
@@ -426,11 +754,60 @@ const CART_INCLUDE = {
   },
 };
 
-router.get('/cart', authenticate, async (req, res) => {
+/**
+ * Load the cart and price it authoritatively.
+ *
+ * Every screen that shows a number — cart, checkout, the payment sheet — reads
+ * THIS. The app no longer computes a delivery fee, a tax, or a grand total; it
+ * had a hard-coded `total >= 999 ? 0 : 49` that the server never saw, so the
+ * amount the farmer approved and the amount recorded on the order were different
+ * numbers.
+ */
+async function loadPricedCart(userId, { paymentMethod = 'cod', pincode = null, buyer = {}, reservedByListing = null } = {}) {
   const items = await prisma.cartItem.findMany({
-    where: { userId: req.user.id },
+    where: { userId },
     include: CART_INCLUDE,
     orderBy: { createdAt: 'asc' },
+  });
+
+  // Compliance is evaluated for the whole cart in one batched pass — five
+  // queries regardless of cart size — and its refusals become quote issues, so a
+  // blocked chemical is visible on the cart screen rather than at the payment
+  // sheet.
+  const complianceLines = items
+    .filter((i) => i.listingId && i.listing)
+    .map((i) => ({
+      listingId: i.listingId,
+      sellerId: i.listing.sellerId,
+      productId: i.listing.variant?.productId || i.productId,
+      categoryId: i.listing.variant?.product?.categoryId || null,
+      quantity: i.quantity,
+    }));
+
+  const eligibility = complianceLines.length
+    ? await evaluateSaleEligibility({ lines: complianceLines, buyer })
+    : new Map();
+
+  const namesByListing = new Map(
+    items.filter((i) => i.listingId).map((i) => [i.listingId, { name: i.listing?.variant?.product?.name || i.product?.name }]),
+  );
+
+  const quote = await buildQuote({
+    cartItems: items,
+    paymentMethod,
+    pincode,
+    complianceIssues: complianceIssuesFrom(eligibility, namesByListing),
+    reservedByListing,
+  });
+
+  return { items, quote, eligibility };
+}
+
+router.get('/cart', authenticate, async (req, res) => {
+  const { items, quote } = await loadPricedCart(req.user.id, {
+    paymentMethod: req.query.paymentMethod === 'online' ? 'online' : 'cod',
+    pincode: normalizePincode(req.query.pincode),
+    buyer: buyerScope(req),
   });
 
   // Surface price drift since the line was added, rather than silently
@@ -446,8 +823,36 @@ router.get('/cart', authenticate, async (req, res) => {
     };
   });
 
-  return sendSuccess(res, { items: withDrift, total: cartTotal(items) });
+  // `total` keeps its old meaning (goods subtotal) so an un-upgraded app build
+  // renders exactly what it does today; `quote` is the new, complete answer.
+  return sendSuccess(res, { items: withDrift, total: cartTotal(items), quote });
 });
+
+/**
+ * The authoritative quote for the current cart.
+ *
+ * Separate from GET /cart because checkout needs to re-price as the buyer changes
+ * payment method and delivery PIN code, without re-fetching every cart row's
+ * images and specs on each keystroke.
+ */
+router.get(
+  '/cart/quote',
+  authenticate,
+  [
+    query('paymentMethod').optional().isIn(['cod', 'upi', 'card', 'online']),
+    query('pincode').optional().isString().isLength({ max: 10 }),
+  ],
+  validate,
+  async (req, res) => {
+    const { quote } = await loadPricedCart(req.user.id, {
+      paymentMethod: req.query.paymentMethod || 'cod',
+      pincode: normalizePincode(req.query.pincode),
+      buyer: buyerScope(req),
+    });
+    recordEvent(SHOP_EVENTS.QUOTE_OK);
+    return sendSuccess(res, quote);
+  },
+);
 
 /**
  * Resolve what the client asked to add.
@@ -542,6 +947,30 @@ router.post(
     if (!target) return sendNotFound(res, 'Offer');
     if (target.status !== 'ACTIVE') return sendError(res, 'This offer is no longer available', 400);
 
+    // Compliance gate, at the FIRST point the buyer commits to an item. Refusing
+    // an expired, recalled, unlicensed or region-blocked chemical here — rather
+    // than at the payment sheet — is the difference between a clear "choose
+    // another seller" and a farmer discovering it after entering their address.
+    {
+      const productId2 = target.variant?.productId ?? productId;
+      const category = productId2
+        ? await prisma.product.findUnique({ where: { id: productId2 }, select: { categoryId: true } })
+        : null;
+      const verdicts = await evaluateSaleEligibility({
+        lines: [{
+          listingId: target.id, sellerId: target.sellerId,
+          productId: productId2, categoryId: category?.categoryId || null, quantity,
+        }],
+        buyer: buyerScope(req),
+      });
+      const verdict = verdicts.get(target.id);
+      if (verdict && !verdict.allowed) {
+        recordEvent(SHOP_EVENTS.CART_ADD_BLOCKED_COMPLIANCE);
+        recordEvent(SHOP_EVENTS.CART_ADD_FAIL);
+        return sendError(res, verdict.message, 409, { reason: verdict.code });
+      }
+    }
+
     try {
       // The add used to be check-then-upsert across two statements, so two
       // concurrent adds could both pass the stock check and over-fill the cart.
@@ -567,6 +996,9 @@ router.post(
           );
         }
         if (fresh.stockQty < totalAfter) {
+          // The out-of-stock RATE the brief asks for: a rising value means the
+          // catalogue is advertising stock it does not have.
+          recordEvent(SHOP_EVENTS.OUT_OF_STOCK_HIT);
           throw Object.assign(new Error(`Only ${fresh.stockQty} in stock`), { statusCode: 400, expose: true });
         }
 
@@ -585,8 +1017,10 @@ router.post(
         });
       }, { isolationLevel: 'Serializable' }));
 
+      recordEvent(SHOP_EVENTS.CART_ADD_OK);
       return sendCreated(res, item);
     } catch (err) {
+      recordEvent(SHOP_EVENTS.CART_ADD_FAIL);
       return sendServerError(res, err, 'Could not add to cart. Please try again.');
     }
   }
@@ -644,7 +1078,42 @@ router.delete('/cart/:listingId', authenticate, async (req, res) => {
  * Returns the rows plus the OrderItem payloads, so both checkout paths build the
  * order identically.
  */
-async function validateCartForCheckout(tx, userId) {
+/**
+ * The cart the order is written from must be the cart the quote priced.
+ *
+ * Compliance and pricing run BEFORE the Serializable transaction opens, to keep
+ * the lock window short. That leaves a gap in which the buyer could add a line
+ * from another device — and the order would then contain an item the quote never
+ * charged for. Comparing the two baskets closes it: same lines, same quantities,
+ * same unit prices, or the checkout refuses and re-quotes.
+ *
+ * Compared on (listing|product, qty, price) rather than on the quote fingerprint
+ * so the error can name what changed.
+ */
+function assertCartMatchesQuote(orderItems, quote) {
+  const key = (listingId, productId, qty, price) => `${listingId || productId}:${qty}:${D(price).toFixed(2)}`;
+  const quoted = new Set(
+    (quote.shipments || []).flatMap((s) => s.items).map((i) => key(i.listingId, i.productId, i.quantity, i.unitPrice)),
+  );
+  const actual = orderItems.map((i) => key(i.listingId, i.productId, i.quantity, i.unitPrice));
+
+  if (actual.length !== quoted.size || actual.some((k) => !quoted.has(k))) {
+    throw Object.assign(
+      new Error('Your cart changed while you were checking out. Please review it and try again.'),
+      { statusCode: 409, expose: true, code: 'CART_CHANGED' },
+    );
+  }
+}
+
+/**
+ * @param {Map<string,number>} [reservedByListing]
+ *   Units this checkout is ALREADY holding for each listing. They have been
+ *   decremented from `stockQty` at /orders/initiate, so the availability check
+ *   below has to add them back — otherwise the buyer who reserved the last unit
+ *   is told at confirm that the last unit is gone, which is exactly the failure
+ *   the reservation exists to prevent.
+ */
+async function validateCartForCheckout(tx, userId, { reservedByListing = null } = {}) {
   const cartItems = await tx.cartItem.findMany({
     where: { userId },
     include: {
@@ -670,10 +1139,18 @@ async function validateCartForCheckout(tx, userId) {
 
     if (item.listingId) {
       const l = freshById.get(item.listingId);
-      if (!l || l.status !== 'ACTIVE') {
+      // Units this checkout already holds count as available TO THIS CHECKOUT.
+      const alreadyHeld = (l && reservedByListing?.get(l.id)) || 0;
+      // OUT_OF_STOCK is DERIVED from stockQty hitting zero, so a buyer who
+      // reserved the last unit puts the listing into it themselves. Their own
+      // hold has to be allowed through, or the reservation locks them out of the
+      // purchase it exists to protect. INACTIVE and BLOCKED never pass — those
+      // are seller and trust-and-safety decisions, not stock arithmetic.
+      const passableForHolder = alreadyHeld > 0 && l?.status === 'OUT_OF_STOCK';
+      if (!l || (l.status !== 'ACTIVE' && !passableForHolder)) {
         throw Object.assign(new Error(`"${label}" is no longer available from this seller`), { statusCode: 400, expose: true });
       }
-      if (l.stockQty < item.quantity) {
+      if (l.stockQty + alreadyHeld < item.quantity) {
         throw Object.assign(new Error(`Insufficient stock for ${label}`), { statusCode: 400, expose: true });
       }
       if (item.quantity < l.minOrderQty) {
@@ -688,6 +1165,7 @@ async function validateCartForCheckout(tx, userId) {
         );
       }
       orderItems.push({
+        cartItemId: item.id,   // join key for the quote's snapshot fields; stripped before create
         productId:  item.listing.variant.productId,
         listingId:  l.id,
         variantId:  l.variantId,
@@ -707,6 +1185,7 @@ async function validateCartForCheckout(tx, userId) {
         throw Object.assign(new Error(`Insufficient stock for ${p.name}`), { statusCode: 400, expose: true });
       }
       orderItems.push({
+        cartItemId: item.id,
         productId: p.id, listingId: null, variantId: null, sellerId: p.sellerId || null,
         quantity: item.quantity, unitPrice: p.price, totalPrice: D(p.price).times(item.quantity),
       });
@@ -714,6 +1193,32 @@ async function validateCartForCheckout(tx, userId) {
   }
 
   return { cartItems, orderItems, deltas, total: cartTotal(cartItems) };
+}
+
+/**
+ * Merge the quote's frozen snapshot onto each order item and drop the join key.
+ *
+ * The snapshot is why an order from 2024 still renders correctly after the
+ * catalog row was renamed, re-photographed or merged — order history used to
+ * JOIN products for the name and image, so an admin edit silently rewrote what a
+ * farmer's past order said they had bought.
+ */
+function withOrderItemSnapshots(orderItems, quote, eligibility) {
+  const extras = orderItemExtrasFromQuote(quote);
+  return orderItems.map(({ cartItemId, ...item }) => {
+    const extra = extras.get(cartItemId) || {};
+    const verdict = item.listingId ? eligibility?.get(item.listingId) : null;
+    return {
+      ...item,
+      ...extra,
+      // Which physical lot was allocated, and which label revision was in force.
+      // Without these a recall cannot identify its buyers and the safety text
+      // shown at purchase is unreproducible.
+      batchNumber: verdict?.batch?.batchNumber ?? null,
+      batchExpiry: verdict?.batch?.expiryDate ?? null,
+      labelVersion: verdict?.labelVersion ?? null,
+    };
+  });
 }
 
 async function resolveDeliveryAddress(req) {
@@ -733,44 +1238,120 @@ async function resolveDeliveryAddress(req) {
   if (!deliveryAddress || typeof deliveryAddress !== 'object') {
     throw Object.assign(new Error('deliveryAddress or deliveryAddressId is required'), { statusCode: 400, expose: true });
   }
+
+  // An INLINE address (as opposed to a saved one) used to be checked for
+  // PRESENCE only. POST /addresses validates properly — 6-digit pincode, length
+  // caps — but that validation was bypassed entirely by posting the object
+  // straight to checkout. A pincode of "abc" or a 10 KB city string was accepted,
+  // landed in the order JSON, and silently nulled `deliveryPincode`, which made
+  // serviceability skip without saying why.
+  //
+  // Same rules as the saved-address route, so an address is validated the same
+  // way whichever door it comes through.
+  const FIELD_MAX = { name: 100, phone: 20, flat: 100, street: 200, city: 100, state: 100, landmark: 200 };
+  const bad = (msg) => Object.assign(new Error(msg), { statusCode: 400, expose: true });
+
   const { name, phone, city, state, pincode } = deliveryAddress;
   if (!name || !phone || !city || !state || !pincode) {
-    throw Object.assign(new Error('Delivery address must include name, phone, city, state, and pincode'), { statusCode: 400, expose: true });
+    throw bad('Delivery address must include name, phone, city, state, and pincode');
   }
-  return deepStripHtml(deliveryAddress);
+  for (const [field, max] of Object.entries(FIELD_MAX)) {
+    const v = deliveryAddress[field];
+    if (v != null && String(v).length > max) {
+      throw bad(`Delivery address ${field} is too long (maximum ${max} characters).`);
+    }
+  }
+  if (!/^[1-9][0-9]{5}$/.test(String(pincode).trim())) {
+    throw bad('Enter a valid 6-digit PIN code for delivery.');
+  }
+  // 10 digits, starting 6–9 — the same shape the app's own validator enforces.
+  if (!/^[6-9][0-9]{9}$/.test(String(phone).replace(/\D/g, '').slice(-10))) {
+    throw bad('Enter a valid 10-digit mobile number for delivery.');
+  }
+
+  return deepStripHtml({ ...deliveryAddress, pincode: String(pincode).trim() });
 }
+
+/**
+ * Idempotency for order creation.
+ *
+ * COD checkout had NO protection at all: the client attached an Idempotency-Key
+ * only to /farms, /cycles and /animals, and this route never looked for one. A
+ * double-tap on "Place Order" — or the axios 401-refresh replay, or a retry after
+ * a timeout on a village connection — created a SECOND order and decremented
+ * stock twice. The online path was accidentally covered by the unique on
+ * `paymentRef`; the cash path, which is the one most farmers use, was not.
+ */
+const idemOrder = idempotency('shop_order');
 
 router.post(
   '/orders',
   authenticate,
   velocityGuard(VELOCITY_ACTIONS.ORDER),
+  idemOrder,
   [
     body('paymentMethod').optional().isIn(['cod', 'upi', 'card']),
     body('deliveryAddressId').optional().isString(),
     body('deliveryAddress').optional().isObject(),
     body('expectedTotal').optional().isFloat({ min: 0 }),
+    body('expectedPayable').optional().isFloat({ min: 0 }),
   ],
   validate,
   async (req, res) => {
-    const { paymentMethod = 'cod', notes, expectedTotal } = req.body;
+    const { paymentMethod = 'cod', notes, expectedTotal, expectedPayable } = req.body;
 
     try {
       const deliveryAddress = await resolveDeliveryAddress(req);
 
+      // Price and compliance-check BEFORE opening the transaction: both are read
+      // paths, and holding a Serializable lock across five compliance queries
+      // would widen the window every concurrent checkout contends over.
+      const { quote, eligibility } = await loadPricedCart(req.user.id, {
+        paymentMethod,
+        pincode: normalizePincode(deliveryAddress.pincode),
+        buyer: { state: deliveryAddress.state, district: deliveryAddress.city },
+      });
+
+      if (!isQuoteCheckoutable(quote)) {
+        const first = quote.issues[0];
+        recordEvent(SHOP_EVENTS.CHECKOUT_BLOCKED_ISSUES);
+        return sendError(res, first.message, first.code === QUOTE_ISSUES.EMPTY_CART ? 400 : 409, {
+          issues: quote.issues,
+          quote: { total: quote.total, subtotal: quote.subtotal },
+        });
+      }
+
+      const totals = orderTotalsFromQuote(quote);
+
+      // `expectedTotal` keeps its existing meaning — the GOODS subtotal — so an
+      // un-upgraded app build still validates correctly. `expectedPayable` is the
+      // new field for the amount actually charged. Both are checked when sent.
+      assertClientTotalMatches(expectedTotal, quote.subtotal);
+      assertClientTotalMatches(expectedPayable, quote.total);
+
       // Two buyers racing for the last unit is a NORMAL marketplace event, not a
       // server error — a 40001 abort is replayed instead of surfacing as a 500.
       const { order, crossedZero } = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
-        const { orderItems, deltas, total } = await validateCartForCheckout(tx, req.user.id);
-        assertClientTotalMatches(expectedTotal, total);
+        const { orderItems, deltas } = await validateCartForCheckout(tx, req.user.id);
+        assertCartMatchesQuote(orderItems, quote);
 
         const o = await tx.order.create({
           data: {
             userId: req.user.id,
-            totalAmount: total,
+            // Every money column comes from the QUOTE, never from a sum computed
+            // here and never from anything the client sent.
+            totalAmount: totals.totalAmount,
+            subtotal: totals.subtotal,
+            deliveryFee: totals.deliveryFee,
+            taxAmount: totals.taxAmount,
+            discountAmount: totals.discountAmount,
+            pricingSnapshot: totals.pricingSnapshot,
+            deliveryPincode: totals.deliveryPincode,
+            promisedEtaDays: totals.promisedEtaDays,
             deliveryAddress,
             paymentMethod,
             notes,
-            items: { create: orderItems },
+            items: { create: withOrderItemSnapshots(orderItems, quote, eligibility) },
           },
           include: { items: { include: { product: true } } },
         });
@@ -790,8 +1371,11 @@ router.post(
         recordDeviceLink({ userId: req.user.id, fingerprint: strongDeviceId(req), ip: req.ip, context: 'order' }).catch(() => {});
       }
 
+      recordEvent(SHOP_EVENTS.CHECKOUT_OK);
       return sendCreated(res, order);
     } catch (err) {
+      recordEvent(SHOP_EVENTS.CHECKOUT_FAIL);
+      recordEvent(SHOP_EVENTS.ORDER_CREATE_FAIL);
       return sendServerError(res, err, 'Checkout failed. Please try again.');
     }
   }
@@ -874,79 +1458,282 @@ router.put('/orders/:id/cancel', authenticate, velocityGuard(VELOCITY_ACTIONS.RE
 router.post(
   '/orders/initiate',
   authenticate,
+  idempotency('shop_payment_initiate'),
   [
     body('paymentMethod').isIn(['upi', 'card']).withMessage('paymentMethod must be upi or card'),
     body('deliveryAddressId').optional().isString(),
     body('deliveryAddress').optional().isObject(),
     body('expectedTotal').optional().isFloat({ min: 0 }),
+    body('expectedPayable').optional().isFloat({ min: 0 }),
+    body('pincode').optional().isString().isLength({ max: 10 }),
   ],
   validate,
   async (req, res) => {
     try {
-      const { expectedTotal } = req.body;
-      const { count, total: totalAmount } = await cartTotalFromDB(req.user.id);
-      if (!count) return sendError(res, 'Cart is empty', 400);
+      const { expectedTotal, expectedPayable } = req.body;
 
-      if (expectedTotal !== undefined && toPaise(expectedTotal) !== toPaise(totalAmount)) {
-        return sendError(res, 'Cart total has changed. Please review your cart and try again.', 400);
+      // The Razorpay order used to be raised for the GOODS SUBTOTAL, while the
+      // app displayed subtotal + ₹49. The delivery fee was shown and never
+      // charged. The gateway amount is now the quote's payable, full stop.
+      const pincode = normalizePincode(req.body.pincode)
+        || (req.body.deliveryAddressId
+          ? normalizePincode((await prisma.savedAddress.findFirst({
+              where: { id: req.body.deliveryAddressId, userId: req.user.id },
+              select: { pincode: true },
+            }))?.pincode)
+          : normalizePincode(req.body.deliveryAddress?.pincode));
+
+      const { quote } = await loadPricedCart(req.user.id, {
+        paymentMethod: 'online',
+        pincode,
+        buyer: buyerScope(req),
+      });
+
+      if (!isQuoteCheckoutable(quote)) {
+        const first = quote.issues[0];
+        return sendError(res, first.message, first.code === QUOTE_ISSUES.EMPTY_CART ? 400 : 409, { issues: quote.issues });
       }
 
-      const amountInPaise = toPaise(totalAmount);
-      const razorpayOrder = await createPaymentOrder(amountInPaise, 'INR', `cart_${req.user.id}`);
+      if (expectedTotal !== undefined && toPaise(expectedTotal) !== toPaise(quote.subtotal)) {
+        return sendError(res, 'Cart total has changed. Please review your cart and try again.', 409, { quote });
+      }
+      if (expectedPayable !== undefined && toPaise(expectedPayable) !== toPaise(quote.total)) {
+        return sendError(res, 'The amount payable has changed. Please review your cart and try again.', 409, { quote });
+      }
 
+      const amountInPaise = quote.totalPaise;
+      // Unique per checkout. The old receipt was `cart_${userId}` — identical for
+      // every payment that user ever made — so /confirm's receipt check proved
+      // only that the gateway order belonged to this user, never that it belonged
+      // to THIS checkout.
+      const receipt = receiptFor(req.user.id);
+      const razorpayOrder = await createPaymentOrder(amountInPaise, 'INR', receipt);
+
+      // Recorded BEFORE we hand the id to the app. If the phone dies on the next
+      // screen, this row is what the reconciler and the webhook converge on.
+      await createIntent({
+        userId: req.user.id,
+        providerOrderId: razorpayOrder.id,
+        amount: quote.total,
+        receipt,
+        quote,
+      }).catch((err) => {
+        // Never fail a checkout because telemetry could not be written — but log
+        // it loudly, because an unrecorded intent is an unreconcilable payment.
+        logger.error({ err, providerOrderId: razorpayOrder.id }, '[Shop] failed to record payment intent');
+      });
+
+      // ── Hold the stock for the payment window ───────────────────────────────
+      // Stock used to be decremented only at /orders/confirm — AFTER the money
+      // had moved — so two buyers could both pay for the last bag of seed and the
+      // second was told "insufficient stock" having already been charged. The
+      // units are taken now and returned automatically if the payment is
+      // abandoned, fails or times out.
+      let reservation = null;
+      const resCfg = await reservationConfig();
+      if (resCfg.enabled) {
+        const lines = quote.shipments
+          .flatMap((s) => s.items)
+          .filter((i) => i.listingId)
+          .map((i) => ({ listingId: i.listingId, quantity: i.quantity }));
+
+        if (lines.length) {
+          try {
+            reservation = await withSerializableRetry(() => prisma.$transaction(
+              (tx) => holdStock(tx, {
+                userId: req.user.id,
+                providerOrderId: razorpayOrder.id,
+                lines,
+                ttlMs: resCfg.ttlMs,
+              }),
+              { isolationLevel: 'Serializable' },
+            ));
+            if (reservation.crossedZero?.length) await invalidateCatalogCaches();
+          } catch (err) {
+            // Someone took the last unit between the quote and the hold. The
+            // gateway order is already created but NOTHING has been charged, so
+            // refusing here is clean — and far better than letting the buyer pay
+            // for stock we cannot supply. The orphan gateway order expires.
+            await markIntentFailed({ providerOrderId: razorpayOrder.id, reason: 'stock unavailable at reservation' })
+              .catch(() => {});
+            recordEvent(SHOP_EVENTS.INVENTORY_OVERSELL_BLOCKED);
+            recordEvent(SHOP_EVENTS.PAYMENT_INITIATE_FAIL);
+            return sendServerError(res, err, 'An item in your cart just sold out. Please review your cart and try again.', 409);
+          }
+        }
+      }
+
+      recordEvent(SHOP_EVENTS.PAYMENT_INITIATE_OK);
       return sendSuccess(res, {
+        // How long the buyer has to complete payment before the units go back on
+        // the shelf. The app shows this so a hold is never a silent deadline.
+        reservedUntil: reservation?.expiresAt ?? null,
         razorpayOrderId: razorpayOrder.id,
-        amount: totalAmount,
+        // `amount` stays the payable for older clients that render it directly.
+        amount: quote.total,
         amountInPaise,
         currency: 'INR',
+        receipt,
+        quote,
         mock: razorpayOrder.mock || false,
       });
-    } catch {
-      return sendError(res, 'Payment initiation failed', 500);
+    } catch (err) {
+      return sendServerError(res, err, 'Payment initiation failed. Please try again.');
     }
   }
 );
+
+/**
+ * "Did my payment go through?"
+ *
+ * The app calls this after any interrupted payment instead of guessing. Without
+ * it, a farmer whose connection dropped between paying and confirming saw a
+ * generic failure and paid again — the single worst outcome this module can
+ * produce.
+ */
+router.get('/orders/payment-status/:providerOrderId', authenticate, async (req, res) => {
+  const { providerOrderId } = req.params;
+  if (typeof providerOrderId !== 'string' || providerOrderId.length > 64) {
+    return sendError(res, 'Invalid payment reference', 400);
+  }
+
+  const intent = await findIntent(providerOrderId);
+  // Object-level authorization: an intent id is guessable enough that it must not
+  // reveal another buyer's payment state.
+  if (!intent || intent.userId !== req.user.id) return sendNotFound(res, 'Payment');
+
+  const status = intentPublicStatus(intent);
+  let order = null;
+  if (intent.orderId) {
+    order = await prisma.order.findFirst({
+      where: { id: intent.orderId, userId: req.user.id },
+      select: { id: true, status: true, paymentStatus: true, totalAmount: true, createdAt: true },
+    });
+  }
+
+  return sendSuccess(res, { ...status, amount: String(intent.amount), order });
+});
 
 // ── Payment: confirm ──────────────────────────────────────────────────────────
 router.post(
   '/orders/confirm',
   authenticate,
   velocityGuard(VELOCITY_ACTIONS.ORDER),
+  idempotency('shop_payment_confirm'),
   [
-    body('razorpayOrderId').notEmpty(),
-    body('razorpayPaymentId').notEmpty(),
-    body('razorpaySignature').notEmpty(),
+    body('razorpayOrderId').notEmpty().isString().isLength({ max: 64 }),
+    body('razorpayPaymentId').notEmpty().isString().isLength({ max: 64 }),
+    body('razorpaySignature').notEmpty().isString().isLength({ max: 128 }),
     body('deliveryAddressId').optional().isString(),
     body('deliveryAddress').optional().isObject(),
     body('expectedTotal').optional().isFloat({ min: 0 }),
+    body('expectedPayable').optional().isFloat({ min: 0 }),
   ],
   validate,
   async (req, res) => {
-    const { razorpayOrderId, razorpayPaymentId, razorpaySignature, expectedTotal } = req.body;
+    const { razorpayOrderId, razorpayPaymentId, razorpaySignature, expectedTotal, expectedPayable } = req.body;
 
     if (!verifyPaymentSignature(razorpayOrderId, razorpayPaymentId, razorpaySignature)) {
       return sendError(res, 'Payment verification failed — signature mismatch', 400);
+    }
+
+    // The webhook may already have created this order while the app was
+    // reconnecting. Return it rather than racing to make a second one.
+    const already = await prisma.order.findUnique({ where: { paymentRef: razorpayPaymentId } });
+    if (already) {
+      if (already.userId !== req.user.id) return sendError(res, 'Payment verification failed', 400);
+      return sendSuccess(res, already, 200);
     }
 
     try {
       const deliveryAddress = await resolveDeliveryAddress(req);
       const paymentOrder = await fetchPaymentOrder(razorpayOrderId);
 
+      // The intent is what /initiate priced this payment for. It is also the
+      // object-level authorization check: a signature proves Razorpay signed the
+      // pair, not that the pair belongs to THIS buyer.
+      const intent = await findIntent(razorpayOrderId);
+      if (intent && intent.userId !== req.user.id) {
+        return sendError(res, 'Payment verification failed', 400);
+      }
+
+      // ── What is being held for this payment ─────────────────────────────────
+      // /orders/initiate took these units off the shelf. Resolved BEFORE the
+      // quote, because the quote's own availability check has to count this
+      // buyer's hold as available TO THEM — reserving the last unit drops the
+      // listing to OUT_OF_STOCK, and without this the hold would lock the buyer
+      // out of the purchase it was protecting.
+      const held = await heldFor(razorpayOrderId);
+      const reservedByListing = new Map();
+      for (const h of held) {
+        reservedByListing.set(h.listingId, (reservedByListing.get(h.listingId) || 0) + h.quantity);
+      }
+
+      const { quote, eligibility } = await loadPricedCart(req.user.id, {
+        paymentMethod: 'online',
+        pincode: normalizePincode(deliveryAddress.pincode),
+        buyer: { state: deliveryAddress.state, district: deliveryAddress.city },
+        reservedByListing,
+      });
+
+      if (!isQuoteCheckoutable(quote)) {
+        const first = quote.issues[0];
+        // The money has already moved, so this is NOT a plain rejection: the
+        // intent stays PAID and the reconciler will surface it for refund.
+        // The hold is released either way — no order is coming, so those units
+        // belong back on the shelf immediately rather than at TTL.
+        await releaseReservations(razorpayOrderId, 'checkout blocked after payment').catch(() => {});
+        await markIntentPaid({ providerOrderId: razorpayOrderId, providerPaymentId: razorpayPaymentId }).catch(() => {});
+        recordEvent(SHOP_EVENTS.PAYMENT_CONFIRM_FAIL);
+        recordEvent(SHOP_EVENTS.CHECKOUT_BLOCKED_ISSUES);
+        return sendError(
+          res,
+          `Your payment went through, but your order could not be completed: ${first.message} Our team will contact you about a refund — please do not pay again.`,
+          409,
+          { issues: quote.issues, paymentCaptured: true, providerOrderId: razorpayOrderId },
+        );
+      }
+
+      // The payment was raised for a specific basket. A same-total basket with
+      // different items would pass the amount check, so the quote fingerprint is
+      // compared too. On a mismatch the hold is wrong for this cart, so release
+      // it and refuse — the money is already captured, which the reconciler and
+      // the message below both account for.
+      if (held.length && intent?.cartHash && quote.fingerprint !== intent.cartHash) {
+        await releaseReservations(razorpayOrderId, 'cart changed between payment and confirmation').catch(() => {});
+        await markIntentPaid({ providerOrderId: razorpayOrderId, providerPaymentId: razorpayPaymentId }).catch(() => {});
+        recordEvent(SHOP_EVENTS.PAYMENT_CONFIRM_FAIL);
+        return sendError(
+          res,
+          'Your payment went through, but your cart changed while you were paying, so the order could not be completed. Our team will contact you about a refund — please do not pay again.',
+          409,
+          { paymentCaptured: true, providerOrderId: razorpayOrderId, code: 'CART_CHANGED' },
+        );
+      }
+
+      const totals = orderTotalsFromQuote(quote);
+
       const { order, crossedZero } = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
-        const { orderItems, deltas, total } = await validateCartForCheckout(tx, req.user.id);
-        assertClientTotalMatches(expectedTotal, total);
+        const { orderItems, deltas } = await validateCartForCheckout(tx, req.user.id, { reservedByListing });
+        assertCartMatchesQuote(orderItems, quote);
+        assertClientTotalMatches(expectedTotal, quote.subtotal);
+        assertClientTotalMatches(expectedPayable, quote.total);
 
         if (!paymentOrder.mock) {
-          if (paymentOrder.receipt !== `cart_${req.user.id}`) {
+          // Bind the gateway order to THIS checkout by its unique receipt. The
+          // previous check compared against `cart_${userId}`, a constant per user,
+          // so any of that user's past gateway orders satisfied it.
+          const expectedReceipt = intent?.receipt || null;
+          if (expectedReceipt && paymentOrder.receipt !== expectedReceipt) {
             throw Object.assign(
               new Error('This payment does not match your cart.'),
-              { statusCode: 400, expose: true, tamper: { kind: 'receipt_mismatch', expectedPaise: toPaise(total), actualPaise: Number(paymentOrder.amount) } },
+              { statusCode: 400, expose: true, tamper: { kind: 'receipt_mismatch', expectedPaise: toPaise(quote.total), actualPaise: Number(paymentOrder.amount) } },
             );
           }
-          if (toPaise(total) !== Number(paymentOrder.amount)) {
+          if (toPaise(quote.total) !== Number(paymentOrder.amount)) {
             throw Object.assign(
-              new Error('Paid amount does not match your cart total. Your cart may have changed — no order was created.'),
-              { statusCode: 400, expose: true, tamper: { kind: 'paid_amount_mismatch', expectedPaise: toPaise(total), actualPaise: Number(paymentOrder.amount) } },
+              new Error('Paid amount does not match your order total. Your cart may have changed — no order was created.'),
+              { statusCode: 400, expose: true, tamper: { kind: 'paid_amount_mismatch', expectedPaise: toPaise(quote.total), actualPaise: Number(paymentOrder.amount) } },
             );
           }
         }
@@ -954,7 +1741,14 @@ router.post(
         const o = await tx.order.create({
           data: {
             userId: req.user.id,
-            totalAmount: total,
+            totalAmount: totals.totalAmount,
+            subtotal: totals.subtotal,
+            deliveryFee: totals.deliveryFee,
+            taxAmount: totals.taxAmount,
+            discountAmount: totals.discountAmount,
+            pricingSnapshot: totals.pricingSnapshot,
+            deliveryPincode: totals.deliveryPincode,
+            promisedEtaDays: totals.promisedEtaDays,
             deliveryAddress,
             paymentMethod: 'online',
             paymentStatus: 'paid',
@@ -963,16 +1757,37 @@ router.post(
             // the cart now fails at the DB (P2002) instead of creating a second
             // fully-paid order — the payment id used to live only in `notes`.
             paymentRef: razorpayPaymentId,
-            items: { create: orderItems },
+            items: { create: withOrderItemSnapshots(orderItems, quote, eligibility) },
           },
           include: { items: { include: { product: true } } },
         });
 
-        const { crossedZero } = await applyListingStockDeltas(tx, deltas);
-        await syncListingStockStatus(tx, crossedZero);
+        // Consume the hold rather than decrementing again. `consumeReservations`
+        // is guarded on `status: 'HELD'`, so a replayed confirm transitions
+        // nothing and cannot free stock twice.
+        const consumed = await consumeReservations(tx, razorpayOrderId);
+
+        // No hold (reservations disabled, or the TTL expired and the sweeper
+        // released it) → fall back to the original behaviour and decrement now.
+        // Stock may genuinely have gone in the meantime, in which case this
+        // throws and the buyer lands on the paid-but-no-order path.
+        let crossedZero = [];
+        if (!consumed) {
+          ({ crossedZero } = await applyListingStockDeltas(tx, deltas));
+          await syncListingStockStatus(tx, crossedZero);
+        }
+
         await tx.cartItem.deleteMany({ where: { userId: req.user.id } });
         return { order: o, crossedZero };
       }, { isolationLevel: 'Serializable' }));
+
+      recordEvent(SHOP_EVENTS.PAYMENT_CONFIRM_OK);
+      recordEvent(SHOP_EVENTS.CHECKOUT_OK);
+
+      // Bind the intent to the order it produced. UNIQUE orderId means the
+      // webhook and the reconciler can never produce a second one.
+      await markIntentPaid({ providerOrderId: razorpayOrderId, providerPaymentId: razorpayPaymentId }).catch(() => {});
+      await attachOrderToIntent({ providerOrderId: razorpayOrderId, orderId: order.id }).catch(() => {});
 
       if (crossedZero.length) await invalidateCatalogCaches();
 
@@ -994,6 +1809,12 @@ router.post(
           ip: req.ip, requestId: req.id,
         }).catch(() => {});
       }
+      // The order was not created, so nothing will consume the hold. Release it
+      // now rather than leaving stock off the shelf until the TTL — the sweeper
+      // is the backstop, not the primary path.
+      await releaseReservations(razorpayOrderId, 'order confirmation failed').catch(() => {});
+      recordEvent(SHOP_EVENTS.PAYMENT_CONFIRM_FAIL);
+      recordEvent(SHOP_EVENTS.ORDER_CREATE_FAIL);
       return sendServerError(res, err, 'Order confirmation failed. Please try again.');
     }
   }
@@ -1321,8 +2142,23 @@ router.get('/listings', authenticate, requireRole(...SELLER_ROLES), async (req, 
 
   // Buy-box standing per offer — the answer to "am I the featured seller here,
   // and if not, what am I competing against".
-  const decorated = await Promise.all(listings.map(async (l) => {
-    const { offers } = await rankOffersForVariant(l.variantId, {});
+  //
+  // This was `Promise.all(listings.map(… rankOffersForVariant …))` — one full
+  // ranking pass per row, so a 50-row page of a seller's own offers issued 50
+  // scoring passes, each of which reads settings and every competing listing for
+  // that variant. Deduplicating by variantId first collapses that to one pass per
+  // DISTINCT variant, which for a seller who lists several pack sizes of the same
+  // product is a large reduction and for the common case is simply correct.
+  const distinctVariantIds = [...new Set(listings.map((l) => l.variantId))];
+  const rankings = new Map(
+    await Promise.all(distinctVariantIds.map(async (variantId) => {
+      const { offers } = await rankOffersForVariant(variantId, {});
+      return [variantId, offers];
+    })),
+  );
+
+  const decorated = listings.map((l) => {
+    const offers = rankings.get(l.variantId) || [];
     const winner = offers[0];
     const lowest = offers.length ? Math.min(...offers.map((o) => Number(o.sellingPrice))) : null;
     return {
@@ -1334,7 +2170,7 @@ router.get('/listings', authenticate, requireRole(...SELLER_ROLES), async (req, 
         winningPrice: winner ? Number(winner.sellingPrice) : null,
       },
     };
-  }));
+  });
 
   return sendSuccess(res, decorated, 200, meta);
 });

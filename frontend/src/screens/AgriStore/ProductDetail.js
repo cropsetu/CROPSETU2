@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   Alert, Image, ActivityIndicator, Dimensions, Animated,
-  FlatList,
+  FlatList, TextInput, Share,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +15,9 @@ import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 import OfferListSheet from './OfferListSheet';
 import { fs } from '../../utils/responsive';
+import {
+  checkServiceability, classifyError, inr, discountPct, thumbUrl, detailImageUrl,
+} from './shopClient';
 
 
 // ── Spring press wrapper ──────────────────────────────────────────────────────
@@ -103,10 +106,248 @@ function ComingSoonCard({ icon, title, subtitle }) {
   );
 }
 
+// ── Chemical safety panel ─────────────────────────────────────────────────────
+/**
+ * Approved-label information for a regulated agricultural chemical.
+ *
+ * Every string rendered here was transcribed from the manufacturer's approved
+ * label and checked by a reviewer before the product could be published. This
+ * component does not derive, summarise, complete or generate ANY of it:
+ *
+ *   - a missing section renders as "not supplied", never as generic advice;
+ *   - approved crops and target pests are the label's list, shown as the label's
+ *     list, and are explicitly NOT a recommendation for this farmer's field;
+ *   - there is no mixing guidance of any kind, because no combination here has
+ *     been verified as permitted;
+ *   - the standing notice pointing at the label and at a qualified agriculture
+ *     professional is always shown, not just when a section is missing.
+ */
+function SafetyPanel({ safety, recall }) {
+  const { t } = useLanguage();
+  if (!safety) return null;
+
+  const Section = ({ icon, title, children }) => (
+    <View style={S.safetySection}>
+      <View style={S.safetyHeadRow}>
+        <Ionicons name={icon} size={15} color={COLORS.error} />
+        <Text style={S.safetyHeadTxt}>{title}</Text>
+      </View>
+      {children}
+    </View>
+  );
+
+  const Missing = () => (
+    <Text style={S.safetyMissing}>
+      {t('safety.notSupplied', 'Not supplied by the manufacturer. Read the printed label on the pack.')}
+    </Text>
+  );
+
+  return (
+    <View style={S.safetyCard}>
+      {/* An active recall is the first thing on the page, above the label. */}
+      {recall?.active ? (
+        <View style={S.recallBox}>
+          <Ionicons name="alert-circle" size={18} color={COLORS.white} />
+          <View style={{ flex: 1 }}>
+            <Text style={S.recallTitle}>{t('safety.recalled', 'This product has been recalled')}</Text>
+            <Text style={S.recallTxt}>{recall.reason}</Text>
+            {recall.advice ? <Text style={S.recallTxt}>{recall.advice}</Text> : null}
+          </View>
+        </View>
+      ) : null}
+
+      <View style={S.safetyTitleRow}>
+        <Ionicons name="shield-checkmark-outline" size={18} color={COLORS.error} />
+        <Text style={S.safetyTitle}>{t('safety.title', 'Safety and label information')}</Text>
+      </View>
+
+      {/* Provenance, stated up front. The farmer should know this is the label
+          talking, not the app. */}
+      <Text style={S.safetyProvenance}>
+        {t('safety.fromLabel', 'Taken from the approved manufacturer label.')}
+        {safety.labelVersion ? ` (${safety.labelVersion})` : ''}
+      </Text>
+
+      <View style={S.safetyGrid}>
+        {safety.activeIngredient ? (
+          <View style={S.safetyCell}>
+            <Text style={S.safetyCellLabel}>{t('safety.activeIngredient', 'Active ingredient')}</Text>
+            <Text style={S.safetyCellValue}>{safety.activeIngredient}</Text>
+          </View>
+        ) : null}
+        {safety.concentration ? (
+          <View style={S.safetyCell}>
+            <Text style={S.safetyCellLabel}>{t('safety.concentration', 'Concentration')}</Text>
+            <Text style={S.safetyCellValue}>{safety.concentration}</Text>
+          </View>
+        ) : null}
+        {safety.formulation ? (
+          <View style={S.safetyCell}>
+            <Text style={S.safetyCellLabel}>{t('safety.formulation', 'Formulation')}</Text>
+            <Text style={S.safetyCellValue}>{safety.formulation}</Text>
+          </View>
+        ) : null}
+        {safety.registrationNumber ? (
+          <View style={S.safetyCell}>
+            <Text style={S.safetyCellLabel}>
+              {t('safety.registration', 'Registration no.')}
+              {safety.registrationAuthority ? ` (${safety.registrationAuthority})` : ''}
+            </Text>
+            <Text style={S.safetyCellValue}>{safety.registrationNumber}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <Section icon="shirt-outline" title={t('safety.equipment', 'Protective equipment required')}>
+        {safety.safetyEquipment?.length
+          ? safety.safetyEquipment.map((e, i) => (
+              <View key={i} style={S.safetyBullet}>
+                <View style={S.safetyDot} />
+                <Text style={S.safetyBulletTxt}>{e}</Text>
+              </View>
+            ))
+          : <Missing />}
+      </Section>
+
+      {/* The label's approved list — NOT a prescription for this farm. Said
+          plainly, because a list of crops under a photo reads as advice. */}
+      <Section icon="leaf-outline" title={t('safety.approvedFor', 'Approved on the label for')}>
+        {safety.approvedCrops?.length ? (
+          <>
+            <Text style={S.safetyBody}>{safety.approvedCrops.join(', ')}</Text>
+            {safety.targetPests?.length ? (
+              <Text style={S.safetyBody}>
+                {t('safety.targetPests', 'Target pests')}: {safety.targetPests.join(', ')}
+              </Text>
+            ) : null}
+            <Text style={S.safetyCaveat}>
+              {t('safety.notPrescription', 'This is what the label lists — not a recommendation for your crop. Ask a qualified agriculture officer before using it.')}
+            </Text>
+          </>
+        ) : <Missing />}
+      </Section>
+
+      <Section icon="water-outline" title={t('safety.dosage', 'Dosage on the label')}>
+        {safety.dosageText ? <Text style={S.safetyBody}>{safety.dosageText}</Text> : <Missing />}
+      </Section>
+
+      <Section icon="cube-outline" title={t('safety.storage', 'Storage')}>
+        {safety.storageInstructions ? <Text style={S.safetyBody}>{safety.storageInstructions}</Text> : <Missing />}
+      </Section>
+
+      <Section icon="medkit-outline" title={t('safety.firstAid', 'First aid')}>
+        {safety.firstAidText ? <Text style={S.safetyBody}>{safety.firstAidText}</Text> : <Missing />}
+      </Section>
+
+      {safety.precautionText ? (
+        <Section icon="warning-outline" title={t('safety.precautions', 'Precautions')}>
+          <Text style={S.safetyBody}>{safety.precautionText}</Text>
+        </Section>
+      ) : null}
+
+      {/* The standing notice, from settings, always shown. */}
+      {safety.safetyNotice ? (
+        <View style={S.safetyNoticeBox}>
+          <Ionicons name="information-circle-outline" size={16} color={COLORS.textBody} />
+          <Text style={S.safetyNoticeTxt}>{safety.safetyNotice}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// ── Delivery / PIN-code check ─────────────────────────────────────────────────
+/**
+ * "Will it reach my village, and when?"
+ *
+ * This card replaces a "Delivery — coming soon" placeholder. The answer comes
+ * from the seller's declared service areas via the backend; the app never
+ * guesses a delivery date.
+ */
+function DeliveryCheck({ productId, defaultPincode }) {
+  const { t } = useLanguage();
+  const [pin, setPin] = useState(defaultPincode || '');
+  const [result, setResult] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const check = useCallback(async () => {
+    if (!/^[1-9][0-9]{5}$/.test(pin)) {
+      setErr(t('shop.invalidPincode', 'Enter a valid 6-digit PIN code.'));
+      setResult(null);
+      return;
+    }
+    setErr(null); setChecking(true);
+    try {
+      const data = await checkServiceability(productId, pin);
+      setResult(data);
+    } catch (e) {
+      const info = classifyError(e);
+      if (info) setErr(info.message);
+    } finally {
+      setChecking(false);
+    }
+  }, [pin, productId, t]);
+
+  return (
+    <View style={S.sectionCard}>
+      <View style={S.deliveryHeadRow}>
+        <Ionicons name="location-outline" size={18} color={COLORS.primary} />
+        <Text style={S.sectionTitle}>{t('product.deliveryCheck', 'Check delivery')}</Text>
+      </View>
+      <View style={S.pinRow}>
+        <TextInput
+          style={S.pinInput}
+          value={pin}
+          onChangeText={(v) => setPin(v.replace(/\D/g, '').slice(0, 6))}
+          placeholder={t('product.enterPincode', 'Enter PIN code')}
+          placeholderTextColor={COLORS.textMedium}
+          keyboardType="number-pad"
+          maxLength={6}
+          accessibilityLabel={t('product.enterPincode', 'Enter PIN code')}
+          returnKeyType="done"
+          onSubmitEditing={check}
+        />
+        <TouchableOpacity style={S.pinBtn} onPress={check} disabled={checking} accessibilityRole="button">
+          {checking
+            ? <ActivityIndicator size="small" color={COLORS.white} />
+            : <Text style={S.pinBtnTxt}>{t('product.check', 'Check')}</Text>}
+        </TouchableOpacity>
+      </View>
+
+      {err ? <Text style={S.pinError}>{err}</Text> : null}
+
+      {result?.serviceable ? (
+        <View style={S.pinResultOk}>
+          <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} />
+          <Text style={S.pinResultTxt}>
+            {t('product.deliversIn', {
+              min: result.etaMinDays, max: result.etaMaxDays,
+              defaultValue: `Delivery in ${result.etaMinDays}–${result.etaMaxDays} days`,
+            })}
+            {result.codAvailable ? ` · ${t('product.codAvailable', 'Cash on delivery available')}` : ''}
+          </Text>
+        </View>
+      ) : null}
+
+      {result && result.serviceable === false ? (
+        <View style={S.pinResultBad}>
+          <Ionicons name="close-circle" size={16} color={COLORS.error} />
+          <Text style={[S.pinResultTxt, { color: COLORS.error }]}>
+            {result.reason === 'NO_SELLERS'
+              ? t('product.noSellersHere', 'No seller has this product in stock right now.')
+              : t('product.notDeliverable', 'No seller delivers to this PIN code yet. Try another PIN code.')}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 // ── Similar product card ──────────────────────────────────────────────────────
 function SimilarCard({ item, onPress }) {
   const sc   = useRef(new Animated.Value(1)).current;
-  const disc = item.mrp > item.price ? Math.round(((item.mrp - item.price) / item.mrp) * 100) : 0;
+  const disc = discountPct(item.mrp, item.price);
   return (
     <Animated.View style={[S.simCard, { transform: [{ scale: sc }] }]}>
       <TouchableOpacity
@@ -117,7 +358,7 @@ function SimilarCard({ item, onPress }) {
       >
         <View style={S.simImgBox}>
           {item.images?.[0]
-            ? <Image source={{ uri: item.images[0] }} style={S.simImg} resizeMode="cover" />
+            ? <Image source={{ uri: thumbUrl(item.images[0], 320) }} style={S.simImg} resizeMode="cover" />
             : <View style={[S.simImg, S.simImgPlaceholder]}><MockImagePlaceholder category={item.category || item.categoryId} size={130} /></View>
           }
           {disc > 0 && (
@@ -128,9 +369,9 @@ function SimilarCard({ item, onPress }) {
         </View>
         <View style={S.simInfo}>
           <Text style={S.simName} numberOfLines={2}>{item.name}</Text>
-          <Text style={S.simPrice}>₹{item.price.toLocaleString()}</Text>
+          <Text style={S.simPrice}>{inr(item.price)}</Text>
           {item.mrp > item.price && (
-            <Text style={S.simMrp}>₹{item.mrp.toLocaleString()}</Text>
+            <Text style={S.simMrp}>{inr(item.mrp)}</Text>
           )}
           {item.rating > 0 && (
             <View style={S.simRating}>
@@ -168,7 +409,6 @@ export default function ProductDetail({ route, navigation }) {
   const [addingId,    setAddingId]    = useState(null);
 
   const [quantity,    setQuantity]    = useState(1);
-  const [wishlist,    setWishlist]    = useState(false);
   const [imgIdx,      setImgIdx]      = useState(0);
   const [adding,      setAdding]      = useState(false);
   const [similar,     setSimilar]     = useState([]);
@@ -181,7 +421,6 @@ export default function ProductDetail({ route, navigation }) {
 
   const fadeIn   = useRef(new Animated.Value(0)).current;
   const slideUp  = useRef(new Animated.Value(24)).current;
-  const heartSc  = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -191,9 +430,20 @@ export default function ProductDetail({ route, navigation }) {
 
     const catId = product.category?.id || product.categoryId;
     if (catId) {
-      api.get(`/agristore/products?categoryId=${catId}&limit=10`)
+      // The parameter is `category`, not `categoryId`.
+      //
+      // /agristore/products reads `req.query.category`; `categoryId` was silently
+      // ignored by express-validator and by the handler, so "Similar Products"
+      // was fetching the FIRST 10 ROWS OF THE WHOLE CATALOGUE — a paddy seed
+      // page recommending a sprayer — and paying for the payload to do it.
+      // `district` matters for the same reason it does everywhere else: a
+      // recommendation from a seller who cannot deliver here is not a
+      // recommendation.
+      api.get('/agristore/products', {
+        params: { category: catId, limit: 10, ...(buyerDistrict ? { district: buyerDistrict } : {}) },
+      })
         .then(res => {
-          const list = (res.data?.data || res.data || []).filter(p => p.id !== productId);
+          const list = (res.data?.data || []).filter(p => p.id !== productId);
           setSimilar(list.slice(0, 8));
         })
         .catch(() => {});
@@ -257,7 +507,7 @@ export default function ProductDetail({ route, navigation }) {
                 || variants.find(v => v.id === variantId)?.unit
                 || legacy?.unit || product.unit;
 
-  const discount   = mrp > price ? Math.round(((mrp - price) / mrp) * 100) : 0;
+  const discount   = discountPct(mrp, price);
   const saving     = mrp > price ? mrp - price : 0;
   const inStock    = stock > 0;
   const reviews    = product.ratingCount ?? product.reviews ?? 0;
@@ -316,12 +566,21 @@ export default function ProductDetail({ route, navigation }) {
     }
   }
 
-  function toggleWishlist() {
-    Animated.sequence([
-      Animated.spring(heartSc, { toValue: 1.4, useNativeDriver: true, tension: 300, friction: 8 }),
-      Animated.spring(heartSc, { toValue: 1,   useNativeDriver: true, tension: 300, friction: 8 }),
-    ]).start();
-    setWishlist(v => !v);
+  /**
+   * Share the product.
+   *
+   * The share button previously had NO onPress at all — it animated on tap and
+   * did nothing. React Native's Share API needs no dependency, so it is wired up
+   * rather than removed. Nothing private is shared: a product name, the current
+   * price, and a deep link.
+   */
+  async function handleShare() {
+    try {
+      await Share.share({
+        message: `${product.name}${price ? ` — ${inr(price)}` : ''}\ncropsetu://product/${productId}`,
+        title: product.name,
+      });
+    } catch { /* the user dismissed the sheet — not an error */ }
   }
 
   // ── Spec data — prefer real DB fields, fallback to derived ─────────────────
@@ -366,13 +625,28 @@ export default function ProductDetail({ route, navigation }) {
         { label: t('product.stockLabel'),    value: inStock ? t('product.unitsCount', { count: stock }) : t('product.outOfStock') },
       ];
 
+  // Manufacturer rows.
+  //
+  // REMOVED three rows that were asserted for EVERY product regardless of the
+  // data behind it:
+  //   "Product code: FE-XXXXXXXX"  — a UUID prefix dressed up as a manufacturer
+  //                                   SKU. Not a real code for anything.
+  //   "Quality check: CropSetu Verified" — a trust claim the platform had not
+  //                                   made. Nothing verified these products.
+  //   "Customer support: <hours>"  — support hours hard-coded in the app.
+  // Verification is a platform decision, and it must come from a
+  // platform-controlled backend field, never from a string constant in the
+  // client. `countryOfOrigin` no longer defaults to "India" either — an unknown
+  // origin is shown as unknown.
   const mfrRows = [
-    { label: t('product.manufacturerLabel'),     value: mfrLabel },
-    { label: t('rent.brandLabel'),            value: brandLabel },
-    { label: t('product.countryOfOrigin'), value: product.countryOfOrigin || t('product.india') },
-    { label: t('product.productCode'),     value: `FE-${(product.id || '').slice(0, 8).toUpperCase()}` },
-    { label: t('product.qualityCheck'),    value: t('product.cropSetuVerified') },
-    { label: t('product.customerSupport'), value: t('product.supportHours') },
+    { label: t('product.manufacturerLabel'), value: mfrLabel },
+    { label: t('rent.brandLabel'),           value: brandLabel },
+    ...(product.countryOfOrigin
+      ? [{ label: t('product.countryOfOrigin'), value: product.countryOfOrigin }]
+      : []),
+    ...(product.modelNumber
+      ? [{ label: t('product.modelNumber', 'Model number'), value: product.modelNumber }]
+      : []),
   ];
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -412,7 +686,7 @@ export default function ProductDetail({ route, navigation }) {
           {/* Main image — fixed height, overlays inside */}
           <View style={S.imgBox}>
             {product.images?.[imgIdx]
-              ? <Image source={{ uri: product.images[imgIdx] }} style={S.mainImg} resizeMode="contain" />
+              ? <Image source={{ uri: detailImageUrl(product.images[imgIdx]) }} style={S.mainImg} resizeMode="contain" />
               : (
                 <View style={S.imgPlaceholder}>
                   <MockImagePlaceholder category={product.category || product.categoryId} size={160} />
@@ -420,18 +694,19 @@ export default function ProductDetail({ route, navigation }) {
               )
             }
 
-            {/* Top-right: wishlist + share */}
+            {/* Top-right: share.
+                The wishlist heart is GONE. It was `useState(false)` with no API
+                call and no persistence — tapping it animated, and the "saved"
+                state was thrown away the moment the screen unmounted. A control
+                that silently discards the farmer's action is worse than no
+                control; it comes back when there is a wishlist table behind it. */}
             <View style={S.imgTopRight}>
-              <Animated.View style={{ transform: [{ scale: heartSc }] }}>
-                <TouchableOpacity style={S.imgActionBtn} onPress={toggleWishlist}>
-                  <Ionicons
-                    name={wishlist ? 'heart' : 'heart-outline'}
-                    size={22}
-                    color={wishlist ? COLORS.error : COLORS.textBody}
-                  />
-                </TouchableOpacity>
-              </Animated.View>
-              <TouchableOpacity style={S.imgActionBtn}>
+              <TouchableOpacity
+                style={S.imgActionBtn}
+                onPress={handleShare}
+                accessibilityRole="button"
+                accessibilityLabel={t('product.share', 'Share this product')}
+              >
                 <Ionicons name="share-social-outline" size={22} color={COLORS.textBody} />
               </TouchableOpacity>
             </View>
@@ -465,7 +740,7 @@ export default function ProductDetail({ route, navigation }) {
                   {product.images.map((url, i) => (
                     <TouchableOpacity key={i} onPress={() => setImgIdx(i)} activeOpacity={0.8}>
                       <Image
-                        source={{ uri: url }}
+                        source={{ uri: thumbUrl(url, 120) }}
                         style={[S.thumb, i === imgIdx && S.thumbActive]}
                         resizeMode="cover"
                       />
@@ -550,15 +825,15 @@ export default function ProductDetail({ route, navigation }) {
 
           {/* Price — the SELECTED OFFER's price */}
           <View style={S.priceRow}>
-            <Text style={S.price}>₹{price.toLocaleString()}</Text>
+            <Text style={S.price}>{inr(price)}</Text>
             {mrp > price && (
               <View style={S.priceMeta}>
                 <View style={S.discRow}>
                   <Text style={S.discPct}>↓{discount}%</Text>
-                  <Text style={S.mrpTxt}>₹{mrp.toLocaleString()}</Text>
+                  <Text style={S.mrpTxt}>{inr(mrp)}</Text>
                 </View>
                 <View style={S.savePill}>
-                  <Text style={S.savePillTxt}>{t('product.youSave', { amount: saving.toLocaleString() })}</Text>
+                  <Text style={S.savePillTxt}>{t('product.youSave', { amount: saving.toLocaleString('en-IN') })}</Text>
                 </View>
               </View>
             )}
@@ -572,7 +847,7 @@ export default function ProductDetail({ route, navigation }) {
               <Text style={S.qtyTotal}>
                 {t('product.totalLabel')}:{' '}
                 <Text style={{ color: COLORS.greenDeep, fontWeight: '800' }}>
-                  ₹{(price * quantity).toLocaleString()}
+                  {inr(price * quantity)}
                 </Text>
               </Text>
             </View>
@@ -603,12 +878,17 @@ export default function ProductDetail({ route, navigation }) {
           </View>
         </Animated.View>
 
-        {/* ── Delivery & address — coming soon ─────────────────────────────── */}
-        <ComingSoonCard
-          icon="cube-outline"
-          title={t('product.deliveryAddressTitle')}
-          subtitle={t('product.deliveryAddressSub')}
-        />
+        {/* ── Chemical safety — approved-label information only ─────────────
+            Rendered only for a regulated product (the API returns `safety: null`
+            for everything else), and placed ABOVE the seller and the buy
+            buttons: a farmer must see the protective equipment a product needs
+            before they see the button that buys it. */}
+        <SafetyPanel safety={product.safety} recall={product.recall} />
+
+        {/* ── Delivery & PIN-code check ──────────────────────────────────────
+            Replaces a "coming soon" placeholder. Real serviceability, from the
+            seller's declared areas. */}
+        <DeliveryCheck productId={productId} defaultPincode={null} />
 
         {/* ── Seller + other offers ────────────────────────────────────────
             This whole surface is new. Before the split there was no seller in the
@@ -709,7 +989,13 @@ export default function ProductDetail({ route, navigation }) {
               renderItem={({ item }) => (
                 <SimilarCard
                   item={item}
-                  onPress={(p) => navigation.push('ProductDetail', { product: p })}
+                  // `productId` and `district` were both dropped here, so tapping
+                  // a similar product landed on a screen that could only render
+                  // whatever the card happened to carry, and lost the buyer's
+                  // geography — which decides which offers exist at all.
+                  onPress={(p) => navigation.push('ProductDetail', {
+                    productId: p.id, product: p, district: buyerDistrict,
+                  })}
                 />
               )}
             />
@@ -822,7 +1108,7 @@ export default function ProductDetail({ route, navigation }) {
             : (
               <>
                 <Ionicons name="flash" size={18} color={COLORS.yellowDark} />
-                <Text style={S.buyNowTxt} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{t('product.buyAt', { price: price.toLocaleString() })}</Text>
+                <Text style={S.buyNowTxt} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{t('product.buyAt', { price: price.toLocaleString('en-IN') })}</Text>
               </>
             )
           }
@@ -925,6 +1211,64 @@ const S = StyleSheet.create({
   // Section card
   sectionCard:    { backgroundColor: COLORS.surface, marginTop: 8, padding: 16 },
   sectionTitle:   { fontSize: 15, fontWeight: '700', color: COLORS.textDark },
+
+  // ── Chemical safety panel ──
+  // Visually distinct from every other card on the page (red hairline, tinted
+  // ground) so it does not read as one more marketing block. It carries the only
+  // information on this screen that can hurt someone.
+  safetyCard: {
+    backgroundColor: COLORS.surface, marginTop: 8, padding: 16,
+    borderTopWidth: 3, borderTopColor: COLORS.error,
+  },
+  safetyTitleRow:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  safetyTitle:      { fontSize: 15, fontWeight: '800', color: COLORS.textDark },
+  safetyProvenance: { fontSize: 11.5, color: COLORS.textMedium, marginTop: 4, fontStyle: 'italic' },
+  safetyGrid:       { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, gap: 10 },
+  safetyCell:       { minWidth: '46%', flexGrow: 1, backgroundColor: COLORS.paperGray, borderRadius: 10, padding: 10 },
+  safetyCellLabel:  { fontSize: 10.5, color: COLORS.textMedium, fontWeight: '600' },
+  safetyCellValue:  { fontSize: 13, color: COLORS.textDark, fontWeight: '700', marginTop: 2 },
+  safetySection:    { marginTop: 14, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border },
+  safetyHeadRow:    { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 6 },
+  safetyHeadTxt:    { fontSize: 13, fontWeight: '800', color: COLORS.textDark },
+  safetyBody:       { fontSize: 13.5, lineHeight: 21, color: COLORS.textBody },
+  // A missing label section is stated as missing, in the same weight as the
+  // present ones — never quietly hidden and never filled in with generic advice.
+  safetyMissing:    { fontSize: 13, lineHeight: 20, color: COLORS.textMedium, fontStyle: 'italic' },
+  safetyCaveat:     { fontSize: 12, lineHeight: 18, color: COLORS.error, marginTop: 6, fontWeight: '600' },
+  safetyBullet:     { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 4 },
+  safetyDot:        { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.error, marginTop: 7 },
+  safetyBulletTxt:  { flex: 1, fontSize: 13.5, lineHeight: 20, color: COLORS.textDark },
+  safetyNoticeBox:  {
+    flexDirection: 'row', gap: 8, marginTop: 14, padding: 12,
+    backgroundColor: COLORS.paperGray, borderRadius: 10,
+  },
+  safetyNoticeTxt:  { flex: 1, fontSize: 12.5, lineHeight: 19, color: COLORS.textBody },
+
+  // ── Recall banner ──
+  recallBox: {
+    flexDirection: 'row', gap: 10, padding: 12, borderRadius: 10,
+    backgroundColor: COLORS.error, marginBottom: 14,
+  },
+  recallTitle: { color: COLORS.white, fontSize: 13.5, fontWeight: '800' },
+  recallTxt:   { color: COLORS.white, fontSize: 12.5, lineHeight: 18, marginTop: 3 },
+
+  // ── Delivery / PIN check ──
+  deliveryHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  pinRow:      { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  // 48dp tall: this is a numeric entry a farmer may be doing outdoors.
+  pinInput: {
+    flex: 1, minHeight: 48, borderWidth: 1.4, borderColor: COLORS.border, borderRadius: 12,
+    paddingHorizontal: 14, fontSize: 15, color: COLORS.textDark, letterSpacing: 1,
+  },
+  pinBtn: {
+    minHeight: 48, minWidth: 92, paddingHorizontal: 18, borderRadius: 12,
+    backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center',
+  },
+  pinBtnTxt:   { color: COLORS.white, fontSize: 14, fontWeight: '800' },
+  pinError:    { fontSize: 12.5, color: COLORS.error, marginTop: 8 },
+  pinResultOk: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  pinResultBad:{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  pinResultTxt:{ flex: 1, fontSize: 13, lineHeight: 19, color: COLORS.textDark, fontWeight: '600' },
 
   // Coming-soon placeholder card (replaces fake delivery + trust badges)
   comingRow:       { flexDirection: 'row', alignItems: 'center' },

@@ -157,7 +157,20 @@ function attachInterceptors(instance) {
     // up with the same buffalo listed twice.
     if (MUTATING.has((config.method || 'get').toUpperCase())) {
       const url = config.url || '';
-      const needsIdem = url.includes('/farms') || url.includes('/cycles') || url.includes('/animals');
+      const needsIdem = url.includes('/farms')
+        || url.includes('/cycles')
+        || url.includes('/animals')
+        // Shop orders and payments. These were NOT covered, which is the single
+        // most expensive omission in the list: a double-tap on "Place Order", or
+        // the 401-refresh replay above, created a SECOND order and decremented
+        // stock twice. The online path was accidentally protected by the unique
+        // index on `paymentRef`; cash on delivery — what most farmers use — was
+        // not protected at all.
+        //
+        // NOTE: the checkout screen sets its OWN key so it survives a user-driven
+        // retry as the same order. This generated key is the safety net for any
+        // other caller, and for the replay path, which reuses this same config.
+        || url.includes('/agristore/orders');
       if (needsIdem && !config.headers['Idempotency-Key']) {
         config.headers['Idempotency-Key'] = genIdemKey();
       }

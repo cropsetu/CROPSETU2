@@ -16,6 +16,7 @@ import logger from './utils/logger.js';
 import prisma from './config/db.js';
 import redis, { getRedisHealth, getRedisMemoryMetrics } from './config/redis.js';
 import { getCacheMetrics } from './utils/cacheMetrics.js';
+import { getShopMetricsFlat, getShopMetrics, shopMetricsMiddleware } from './services/shopMetrics.service.js';
 import { rateLimiter, clientIp } from './middleware/rateLimit.js';
 import { csrfProtection } from './middleware/csrf.js';
 
@@ -23,6 +24,8 @@ import { csrfProtection } from './middleware/csrf.js';
 import authRoutes          from './routes/auth.routes.js';
 import userRoutes          from './routes/user.routes.js';
 import agriStoreRoutes     from './routes/agristore.routes.js';
+import shopWebhookRoutes   from './routes/shopWebhooks.routes.js';
+import sellerComplianceRoutes from './routes/sellerCompliance.routes.js';
 import animalTradeRoutes   from './routes/animaltrade.routes.js';
 import communityRoutes     from './routes/community.routes.js';
 import cropDiseaseRoutes   from './routes/cropdisease.routes.js';
@@ -194,6 +197,13 @@ app.use(`${API}/ai/chat`, skipMultipart(express.json({ limit: '12mb' })));
 // Soil Health Card OCR: a single compressed base64 card photo (~<1 MB). 12mb
 // headroom so the image doesn't 413 against the tight global cap below.
 app.use(`${API}/ai/soil-card-ocr`, skipMultipart(express.json({ limit: '12mb' })));
+// Payment webhooks need the RAW bytes: the HMAC is over exactly what Razorpay
+// sent, and JSON.parse → JSON.stringify does not reproduce it (key order, escape
+// sequences, whitespace). Mounted BEFORE the global JSON parser so req.body is
+// the untouched Buffer, and mounted here rather than inside the router because
+// by the time a router runs, body-parser has already consumed the stream.
+app.use(`${API}/shop-webhooks`, express.raw({ type: '*/*', limit: '256kb' }), shopWebhookRoutes);
+
 app.use(skipMultipart(express.json({ limit: '100kb' })));
 app.use(skipMultipart(express.urlencoded({ extended: true, limit: '100kb' })));
 
@@ -262,9 +272,18 @@ app.get('/readyz', async (_req, res) => {
     cache_hits:                  cache.hits,
     cache_misses:                cache.misses,
     cache_hit_rate:              cache.hitRate ?? 0,
+    // Shop latency percentiles + failure counters. Route TEMPLATES only, never
+    // ids — see the note in shopMetrics.service.js on why that matters here:
+    // a per-product-id metric label is an itemised browsing history, and for
+    // crop-protection products a sensitive one.
+    ...getShopMetricsFlat(),
   };
 
-  res.status(ready ? 200 : 503).json({ ready, checks, metrics, cacheBySource: cache.bySource });
+  res.status(ready ? 200 : 503).json({
+    ready, checks, metrics,
+    cacheBySource: cache.bySource,
+    shop: getShopMetrics(),
+  });
 });
 
 // ── Admin SPA (same-origin) ───────────────────────────────────────────────────
@@ -328,7 +347,18 @@ app.use(maintenanceMode);
 // ── API Routes ────────────────────────────────────────────────────────────────
 app.use(`${API}/auth`,         authRoutes);
 app.use(`${API}/users`,        userRoutes);
-app.use(`${API}/agristore`,    agriStoreRoutes);
+// Seller compliance submission (licences, label data, batches, delivery areas).
+// A separate router, mounted alongside rather than inside agristore.routes.js,
+// so the "a seller may submit, only an admin may approve" boundary is one file
+// you can read end to end rather than a rule scattered through the catalog API.
+// Mounted BEFORE the agristore router — the more specific prefix goes first, so
+// a future /agristore route can never shadow it.
+app.use(`${API}/agristore/seller-compliance`, sellerComplianceRoutes);
+// Latency + failure metrics for every Shop route. Mounted as a wrapper rather
+// than inside the router so it also times validation rejections and 404s — the
+// requests a handler-level timer never sees, and the ones a farmer on a bad
+// connection is most likely to be generating.
+app.use(`${API}/agristore`,    shopMetricsMiddleware('shop'), agriStoreRoutes);
 app.use(`${API}/animals`,      animalTradeRoutes);
 app.use(`${API}/community`,    communityRoutes);
 app.use(`${API}/crop-disease`, cropDiseaseRoutes);
