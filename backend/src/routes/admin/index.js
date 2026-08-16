@@ -36,6 +36,10 @@ import settingsRoutes from './settings.routes.js';
 import { teamRouter, meRouter } from './team.routes.js';
 import { sellersRouter, payoutsRouter } from './finance.routes.js';
 import disputesRoutes from './disputes.routes.js';
+import {
+  productComplianceRouter, sellerLicencesRouter, productBatchesRouter,
+  recallsRouter, saleBlocksRouter, subcategoriesRouter, paymentIntentsRouter,
+} from './shopCompliance.routes.js';
 
 const router = Router();
 
@@ -80,7 +84,22 @@ router.use('/products', productsImportRouter);
 router.use('/products', productsQcRouter);
 router.use('/products', productsRouter);
 router.use('/inventory', requireScope(S.CMS_EDITOR), inventoryRouter);
+router.use('/subcategories', requireScope(S.CMS_EDITOR), subcategoriesRouter);
 router.use('/reviews', requireScope(S.CONTENT_MODERATOR), reviewsRouter);
+// ── Agri-chemical compliance ────────────────────────────────────────────────
+// KYC_REVIEWER, not CMS_EDITOR: clearing a pesticide for sale and licensing a
+// seller to sell it are identity/document verification decisions of exactly the
+// kind the KYC queue already carries, and they carry legal consequence. An
+// editorial scope must not be able to publish a regulated chemical.
+router.use('/product-compliance', requireScope(S.KYC_REVIEWER), productComplianceRouter);
+router.use('/seller-licences', requireScope(S.KYC_REVIEWER), sellerLicencesRouter);
+router.use('/product-batches', requireScope(S.KYC_REVIEWER), productBatchesRouter);
+// A recall and a stop-sale are trust-and-safety actions with immediate customer
+// impact, so they sit with the moderation queues.
+router.use('/recalls', requireScope(S.CONTENT_MODERATOR), recallsRouter);
+router.use('/sale-blocks', requireScope(S.CONTENT_MODERATOR), saleBlocksRouter);
+// Reconciliation queue — captured payments with no order are a money problem.
+router.use('/payment-intents', requireScope(S.FINANCE), paymentIntentsRouter);
 router.use('/orders', requireScope(S.SUPPORT), ordersRoutes);
 // Returns / RMA + richer order ops (SUPPORT scope)
 router.use('/returns', requireScope(S.SUPPORT), returnsRoutes);

@@ -182,11 +182,27 @@ export default function OrderConfirmedScreen({ route, navigation }) {
   const items     = order?.items || [];
   const totalAmt  = grandTotal || order?.totalAmount || 0;
 
+  // ── Delivery estimate: the PROMISE RECORDED ON THE ORDER ──────────────────
+  // This was hard-coded `today + 2` to `today + 4`, which contradicted the
+  // checkout summary — that showed the server's ETA ("within 7 days"), the
+  // order stored 7, and then this screen told the farmer 2–4 days. Three
+  // numbers for one delivery. `promisedEtaDays` is the one the platform
+  // actually committed to and the one a dispute would be judged against.
   const today = new Date();
-  const from  = new Date(today); from.setDate(today.getDate() + 2);
-  const to    = new Date(today); to.setDate(today.getDate() + 4);
-  const fmt   = d => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-  const delivEst = `${fmt(from)} – ${fmt(to)}`;
+  const etaMax = Number(order?.promisedEtaDays) || null;
+  const fmt = d => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  let delivEst;
+  if (etaMax) {
+    // A range reads better than a single date, so show a short window ending on
+    // the promise — never one that ends LATER than what was committed.
+    const from = new Date(today); from.setDate(today.getDate() + Math.max(1, etaMax - 2));
+    const to   = new Date(today); to.setDate(today.getDate() + etaMax);
+    delivEst = `${fmt(from)} – ${fmt(to)}`;
+  } else {
+    // No promise on the order (older orders, or serviceability unknown). Say so
+    // rather than inventing a date.
+    delivEst = t('orderConfirmed.estDeliveryUnknown', 'We will confirm the date');
+  }
 
   const PAY_LABEL = { cod: 'Cash on Delivery', upi: 'UPI Payment', card: 'Card' };
   const PAY_BADGE_BG = { cod: COLORS.successLight, upi: COLORS.blueBg, card: COLORS.orangeBg };

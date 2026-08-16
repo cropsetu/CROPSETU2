@@ -3,13 +3,13 @@
  * Header → Search → Banner → Best Sellers → All Products grid
  * Left slide drawer (flat category list) + animated language bottom sheet
  */
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, memo } from 'react';
 import useFocusRefresh from '../../hooks/useFocusRefresh';
 import { useCart } from '../../context/CartContext';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable,
   FlatList, TextInput, StatusBar, Image, Easing, Keyboard,
-  Modal, TouchableWithoutFeedback, Dimensions,
+  Modal, TouchableWithoutFeedback, Dimensions, RefreshControl, ActivityIndicator,
   Animated as RNAnimated,
 } from 'react-native';
 import Animated, {
@@ -31,6 +31,11 @@ import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 import { StoreCategoryIcon } from '@cropsetu/shared/components/StoreCategoryIcons';
+import {
+  createRequestLane, fetchProducts as apiFetchProducts, fetchCategories as apiFetchCategories,
+  readCache, writeCache, formatCacheAge, thumbUrl, inr, discountPct,
+  pushRecentSearch, readRecentSearches, SHOP_ERRORS,
+} from './shopClient';
 
 const { width: W, height: H } = Dimensions.get('window');
 const GREEN    = COLORS.primary;
@@ -259,8 +264,9 @@ function StockBadge({ stock }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function BestSellerCard({ item, onPress }) {
   const { t } = useLanguage();
-  const discount = item.mrp > item.price ? Math.round(((item.mrp - item.price) / item.mrp) * 100) : 0;
-  const imageUrl = item.images?.[0];
+  const discount = discountPct(item.mrp, item.price);
+  // A card-sized thumbnail, not the full-resolution original — see thumbUrl().
+  const imageUrl = thumbUrl(item.images?.[0], 320);
 
   return (
     <AnimatedCard style={S.bsCard} onPress={() => onPress(item)} scaleValue={0.96}>
@@ -284,8 +290,14 @@ function BestSellerCard({ item, onPress }) {
             <Text style={S.bsRatingTxt}>{item.rating} ({item.ratingCount})</Text>
           </View>
           <View style={S.bsFooter}>
-            <Text style={S.bsPrice}>₹{item.price?.toLocaleString()}</Text>
-            <TouchableOpacity style={S.bsAddBtn} onPress={() => onPress(item)} activeOpacity={0.8}>
+            <Text style={S.bsPrice}>{inr(item.price)}</Text>
+            <TouchableOpacity
+              style={S.bsAddBtn}
+              onPress={() => onPress(item)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={t('product.viewDetails', { name: item.name, defaultValue: `View ${item.name}` })}
+            >
               <Ionicons name="add" size={18} color={COLORS.white} />
             </TouchableOpacity>
           </View>
@@ -298,23 +310,18 @@ function BestSellerCard({ item, onPress }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Product grid card — web prototype: heart top-left, discount top-right, full-width add btn
 // ─────────────────────────────────────────────────────────────────────────────
-function ProductCard({ item, onPress, t, index }) {
-  const discount    = item.mrp > item.price ? Math.round(((item.mrp - item.price) / item.mrp) * 100) : 0;
-  const imageUrl    = item.images?.[0];
-  const [liked, setLiked] = useState(false);
-  const heartSc     = useSharedValue(1);
-  const heartStyle  = useAnimatedStyle(() => ({ transform: [{ scale: heartSc.value }] }));
+const ProductCard = memo(function ProductCard({ item, onPress, t, index }) {
+  const discount = discountPct(item.mrp, item.price);
+  // Thumbnail, not the original: a 20-card grid was downloading and decoding 20
+  // full-resolution images into a 130px box.
+  const imageUrl = thumbUrl(item.images?.[0], 320);
 
-  const toggleLike = () => {
-    setLiked(v => !v);
-    Haptics.light();
-    // Heart pop: 1 → 0.8 → 1.3 → 1 (physics chain)
-    heartSc.value = withSequence(
-      withSpring(0.8, { ...SPRINGS.snappy, stiffness: 400 }),
-      withSpring(1.3, SPRINGS.bouncy),
-      withSpring(1, SPRINGS.snappy),
-    );
-  };
+  // REMOVED: the local `liked` heart.
+  // It was `useState(false)` and nothing else — no API, no persistence. Tapping
+  // it animated, then the value was discarded the moment the card scrolled out
+  // of the render window, so the farmer's "saved" item silently un-saved itself.
+  // A control that does nothing is worse than no control; wishlist needs a
+  // backend table before the heart comes back.
 
   return (
     <AnimatedCard
@@ -337,12 +344,6 @@ function ProductCard({ item, onPress, t, index }) {
             style={S.gridImgGrad}
             pointerEvents="none"
           />
-          {/* Heart top-LEFT */}
-          <Pressable style={S.wishBtn} onPress={toggleLike} hitSlop={8}>
-            <Animated.View style={heartStyle}>
-              <Ionicons name={liked ? 'heart' : 'heart-outline'} size={16} color={liked ? COLORS.error : COLORS.grayLight2} />
-            </Animated.View>
-          </Pressable>
           {/* Discount top-RIGHT */}
           {discount > 0 && (
             <View style={S.gridDiscRight}><Text style={S.gridDiscTxt}>{t('store.percentOff', { discount })}</Text></View>
@@ -361,25 +362,45 @@ function ProductCard({ item, onPress, t, index }) {
           <View style={S.gridPriceRow}>
             {/* The cheapest ELIGIBLE offer — cheapest among the sellers who can
                 actually deliver to this buyer, not a catalog price. */}
-            <Text style={S.gridPrice}>₹{item.price?.toLocaleString()}</Text>
-            {item.mrp > item.price && (
-              <Text style={S.gridMrp}>₹{item.mrp?.toLocaleString()}</Text>
-            )}
+            <Text style={S.gridPrice}>{inr(item.price)}</Text>
+            {/* Struck MRP only when there is a real, positive difference — no
+                MRP means no "% off" badge, rather than an invented one. */}
+            {discount > 0 && <Text style={S.gridMrp}>{inr(item.mrp)}</Text>}
           </View>
           {item.sellerCount > 1 && (
             <Text style={S.gridSellers} numberOfLines={1}>
               {t('store.fromSellers', { count: item.sellerCount, defaultValue: `from ${item.sellerCount} sellers` })}
             </Text>
           )}
-          {/* Full-width "View Details" button */}
-          <TouchableOpacity style={S.addToCartBtn} onPress={() => onPress(item)} activeOpacity={0.85}>
-            <Ionicons name="cart-outline" size={14} color={COLORS.white} />
-            <Text style={S.addToCartTxt}>{t('addToCart')}</Text>
+          {/* Opens the product. Labelled for what it does — the button reads
+              "Add to cart" but has always navigated to the detail screen, and a
+              farmer tapping it expects the item to be in their cart. */}
+          <TouchableOpacity
+            style={S.addToCartBtn}
+            onPress={() => onPress(item)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={t('product.viewDetails', { name: item.name, defaultValue: `View ${item.name}` })}
+          >
+            <Ionicons name="eye-outline" size={14} color={COLORS.white} />
+            <Text style={S.addToCartTxt}>{t('store.viewProduct', 'View')}</Text>
           </TouchableOpacity>
         </View>
     </AnimatedCard>
   );
-}
+}, (prev, next) => (
+  // Memoised on the fields a card actually renders. Without this every card
+  // re-renders on every keystroke in the search box, because the parent
+  // re-renders and `renderItem` produces a fresh element each time — the single
+  // biggest source of dropped frames while typing on a mid-range device.
+  prev.item.id === next.item.id
+  && prev.item.price === next.item.price
+  && prev.item.mrp === next.item.mrp
+  && prev.item.stock === next.item.stock
+  && prev.item.rating === next.item.rating
+  && prev.item.sellerCount === next.item.sellerCount
+  && prev.index === next.index
+));
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -390,8 +411,20 @@ const ALL_ID = '__all__';
 export default function AgriStoreHome({ navigation }) {
   const { t, language, setLanguage, LANGUAGES } = useLanguage();
   const insets = useSafeAreaInsets();
-  const headerMaxH = insets.top + 60; // safe area + logo bar
-  const { onScroll: hideOnScroll, headerAnimatedStyle, showTopBtn } = useScrollHeader(headerMaxH);
+  // ── Only the LOGO BAR collapses; the status-bar inset never does ───────────
+  // This was `insets.top + 60`, i.e. the safe-area inset was inside the
+  // collapsing region and got animated to zero along with it. On scroll the
+  // whole header — inset included — closed to nothing and the search bar slid up
+  // underneath the clock and battery icons.
+  //
+  // 78 = paddingTop 10 + logo 44 + row margin 12 + paddingBottom 10 + hairline.
+  // A constant rather than an onLayout measurement because the element being
+  // measured lives inside the very view whose height is being animated, so
+  // feeding its layout back in would oscillate. Over-estimating is harmless
+  // (the collapse just finishes fractionally early); the previous value
+  // under-estimated by 16px and was already clipping the logo's bottom edge.
+  const HEADER_BAR_H = 78;
+  const { onScroll: hideOnScroll, headerAnimatedStyle, showTopBtn } = useScrollHeader(HEADER_BAR_H);
   const scrollRef = useRef(null);
 
   // Geography GATES which offers exist, so the storefront asks for the buyer's
@@ -413,6 +446,30 @@ export default function AgriStoreHome({ navigation }) {
   const [loading,            setLoading]            = useState(true);
   const searchTimer = useRef(null);
 
+  // ── Paging, refresh, offline and error state ──────────────────────────────
+  // The screen used to hold exactly two pieces of state: `products` and
+  // `loading`. That is why a network blip emptied the shop (nowhere to record
+  // "the fetch failed but these products are still valid"), why there was no
+  // second page (nowhere to record a cursor), and why "no products here" and
+  // "we could not reach the server" rendered identically.
+  const [page,        setPage]        = useState(1);
+  const [hasMore,     setHasMore]     = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [error,       setError]       = useState(null);   // { code, action, message, requestId }
+  const [fromCache,   setFromCache]   = useState(null);   // { ageMs } when showing saved results
+  const [totalCount,  setTotalCount]  = useState(null);
+  const [sort,        setSort]        = useState('relevance');
+  const [recent,      setRecent]      = useState([]);
+
+  const PAGE_SIZE = 20;
+
+  // One lane for the grid. Issuing a fetch aborts the previous one and stamps a
+  // sequence number, so a slow response for an old query can never overwrite a
+  // fast response for the current one.
+  const gridLane = useRef(createRequestLane()).current;
+  const catLane  = useRef(createRequestLane()).current;
+
   // Language bottom-sheet animation
   const sheetY  = useRef(new RNAnimated.Value(H)).current;
   const sheetBg = useRef(new RNAnimated.Value(0)).current;
@@ -432,16 +489,29 @@ export default function AgriStoreHome({ navigation }) {
     ]).start(() => setLangPickerOpen(false));
   };
 
-  // Load categories from API. No mock fallback — if the API has nothing yet
-  // we show the "coming soon" empty state instead of pretending there's data.
+  // Categories: paint the cached copy first, then refresh in the background.
+  // Categories change about once a quarter and are needed to render the very
+  // first frame, so waiting on the network for them is pure latency. A failed
+  // refresh leaves the cached list in place rather than clearing the nav.
   useEffect(() => {
-    api.get('/agristore/categories')
-      .then(({ data }) => {
-        const cats = data.data;
-        setCategories(Array.isArray(cats) ? cats : []);
-      })
-      .catch(() => setCategories([]));
-  }, []);
+    let alive = true;
+    (async () => {
+      const cached = await readCache('categories');
+      if (alive && cached?.data?.length) setCategories(cached.data);
+
+      const { stale, data } = await catLane.send((signal) => apiFetchCategories(signal));
+      if (!alive || stale) return;
+      if (Array.isArray(data)) {
+        setCategories(data);
+        writeCache('categories', data);
+      }
+      // On failure: keep whatever is on screen. An empty category rail with a
+      // full product grid is a worse state than a slightly stale rail.
+    })();
+    return () => { alive = false; };
+  }, [catLane]);
+
+  useEffect(() => { readRecentSearches().then(setRecent); }, []);
 
   // Clear the search focus ring once the keyboard is dismissed — on Android the
   // back-press hides the keyboard without firing onBlur, so the ring would stick.
@@ -450,36 +520,129 @@ export default function AgriStoreHome({ navigation }) {
     return () => sub.remove();
   }, []);
 
-  // Load products on filter/search change
+  /** The query the current filter state describes. Page is supplied per call. */
+  const buildParams = useCallback((pageNum) => {
+    const params = { limit: PAGE_SIZE, page: pageNum, sort };
+    if (selectedCategory !== ALL_ID) params.category    = selectedCategory;
+    if (selectedSubcategory)         params.subcategory = selectedSubcategory;
+    if (searchQuery.trim())          params.search      = searchQuery.trim();
+    if (district)                    params.district    = district;
+    return params;
+  }, [selectedCategory, selectedSubcategory, searchQuery, district, sort]);
+
+  /** Cache key for the current filter set. Page 1 only — deeper pages are not cached. */
+  const cacheKey = useCallback(
+    () => `products:${selectedCategory}:${selectedSubcategory || ''}:${district || ''}:${sort}`,
+    [selectedCategory, selectedSubcategory, district, sort],
+  );
+
+  /**
+   * Load page 1.
+   *
+   * `isRefresh` distinguishes a pull-to-refresh (keep the current products on
+   * screen, show the spinner in the control) from a filter change (show
+   * skeletons). Neither ever clears the grid on failure — that was the old
+   * `catch { setProducts([]) }`, which turned a dropped packet into "this shop
+   * has no products".
+   */
+  const loadFirstPage = useCallback(async ({ isRefresh = false } = {}) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
+    setError(null);
+
+    const { stale, data, error: err } = await gridLane.send(
+      (signal) => apiFetchProducts(buildParams(1), signal),
+    );
+    // Superseded by a newer query — drop it. Rendering it is exactly the stale
+    // -response bug this lane exists to prevent.
+    if (stale) return;
+
+    if (err) {
+      setError(err);
+      // Nothing on screen yet? Fall back to the last good results for this
+      // filter set, clearly labelled with their age.
+      if (!products.length) {
+        const cached = await readCache(cacheKey());
+        if (cached?.data?.length) {
+          setProducts(cached.data);
+          setFromCache({ ageMs: cached.ageMs });
+          setHasMore(false);
+        }
+      }
+      setLoading(false); setRefreshing(false);
+      return;
+    }
+
+    const items = data?.items || [];
+    setProducts(items);
+    setPage(1);
+    setTotalCount(data?.meta?.total ?? null);
+    setHasMore(items.length >= PAGE_SIZE && (data?.meta?.hasMore ?? true));
+    setFromCache(null);
+    // Only page 1 of an unsearched view is worth caching — a search result is
+    // ephemeral and caching it would fill storage with single-use entries.
+    if (!searchQuery.trim()) writeCache(cacheKey(), items);
+
+    setLoading(false); setRefreshing(false);
+  }, [gridLane, buildParams, cacheKey, products.length, searchQuery]);
+
+  /**
+   * Append the next page.
+   *
+   * De-duplicated by id: offset pagination over a catalogue that is being
+   * written to can return a row twice, and a duplicate key in a FlatList is both
+   * a React warning and a product the farmer sees twice.
+   */
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || loading || refreshing) return;
+    setLoadingMore(true);
+
+    const next = page + 1;
+    // Deliberately NOT on gridLane: a page-2 request must not abort the page-1
+    // request, and vice versa. It carries its own guard via the page check below.
+    try {
+      const { items } = await apiFetchProducts(buildParams(next), undefined);
+      setProducts((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        const fresh = items.filter((p) => !seen.has(p.id));
+        return fresh.length ? [...prev, ...fresh] : prev;
+      });
+      setPage(next);
+      setHasMore(items.length >= PAGE_SIZE);
+    } catch {
+      // A failed "load more" must not disturb what is already on screen; the
+      // farmer simply scrolls again.
+      setHasMore(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, loading, refreshing, page, buildParams]);
+
+  // Debounced reload on any filter/search change. 400 ms while typing (inside
+  // the 300–500 ms band that keeps search feeling live without a request per
+  // keystroke), immediate for a filter tap.
   useEffect(() => {
     clearTimeout(searchTimer.current);
     const delay = searchQuery.length > 0 ? 400 : 0;
-    searchTimer.current = setTimeout(fetchProducts, delay);
+    searchTimer.current = setTimeout(() => loadFirstPage(), delay);
     return () => clearTimeout(searchTimer.current);
-  }, [selectedCategory, selectedSubcategory, searchQuery, district]);
+    // loadFirstPage is intentionally excluded: it changes identity on every
+    // products-length change, which would re-fire this effect after every load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory, selectedSubcategory, searchQuery, district, sort]);
 
-  async function fetchProducts() {
-    setLoading(true);
-    try {
-      const params = { limit: 40 };
-      if (selectedCategory !== ALL_ID) params.category    = selectedCategory;
-      if (selectedSubcategory)         params.subcategory = selectedSubcategory;
-      if (searchQuery.trim())          params.search      = searchQuery.trim();
-      if (district)                    params.district    = district;
-      const { data } = await api.get('/agristore/products', { params });
-      const items = data.data;
-      // No mock fallback — empty list lets the "coming soon" empty state show.
-      setProducts(Array.isArray(items) ? items : []);
-    } catch {
-      setProducts([]);
-    } finally {
-      setLoading(false);
+  // Remember a search only once it has produced results the farmer looked at.
+  useEffect(() => {
+    if (!loading && searchQuery.trim().length >= 2 && products.length > 0) {
+      pushRecentSearch(searchQuery.trim());
     }
-  }
+  }, [loading, searchQuery, products.length]);
 
   const handleCategorySelect = (catId, sub) => {
     setSelectedCategory(catId);
     setSelectedSubcategory(sub || null);
+    // A category change is a new result set, not more of the current one.
+    setPage(1);
+    setHasMore(false);
   };
 
   // Re-sync the global cart count on focus — covers a change made in a screen
@@ -500,7 +663,13 @@ export default function AgriStoreHome({ navigation }) {
     });
   }, [navigation, district]);
 
-  const bestSellers = products.slice(0, 8);
+  // The rail is TOP RATED, and is derived by rating rather than by list position.
+  // `products.slice(0, 8)` under a "Best Sellers" heading was the first 8 rows of
+  // whatever the current sort happened to be — which under a price sort is "the
+  // 8 cheapest", presented as what other farmers buy most.
+  const topRated = products
+    .filter((p) => Number(p.rating) > 0 && Number(p.ratingCount) > 0)
+    .slice(0, 8);
 
   return (
 
@@ -520,9 +689,13 @@ export default function AgriStoreHome({ navigation }) {
         t={t}
       />
 
+      {/* Status-bar inset — deliberately OUTSIDE the collapsing header, so the
+          content below can never scroll up under the clock and battery. */}
+      <View style={{ height: insets.top, backgroundColor: CARD }} />
+
       {/* ── Header top bar (collapses on scroll) ── */}
       <Animated.View style={headerAnimatedStyle}>
-        <View style={[S.header, { paddingTop: insets.top + 10, paddingBottom: 10 }]}>
+        <View style={[S.header, { paddingTop: 10, paddingBottom: 10 }]}>
           <View style={S.headerTop}>
             <View style={S.headerSide}>
               <TouchableOpacity style={S.hamburger} onPress={() => setDrawerOpen(true)} activeOpacity={0.7}>
@@ -587,75 +760,186 @@ export default function AgriStoreHome({ navigation }) {
         />
       )}
 
-      {/* ── Scrollable content ── */}
-      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} style={S.scroll} contentContainerStyle={S.scrollContent} onScroll={hideOnScroll} scrollEventThrottle={16}>
-        <View style={S.contentSheet}>
+      {/* ── Scrollable content ────────────────────────────────────────────────
+          ONE FlatList, not a FlatList inside a ScrollView.
 
-        {/* Best Sellers */}
-        {!loading && bestSellers.length > 0 && (
-          <View style={S.section}>
+          The grid used to be `<FlatList scrollEnabled={false}>` nested in a
+          ScrollView, which switches virtualisation OFF entirely: every product
+          mounts at once, `windowSize` and `maxToRenderPerBatch` do nothing, and
+          the scroll gets heavier with each item. That is fine at 40 rows and is
+          exactly what makes a mid-range Android drop frames at 400.
+
+          The rails and section headers move into ListHeaderComponent, so the
+          layout is unchanged and virtualisation is real. */}
+      <FlatList
+        ref={scrollRef}
+        data={loading && !products.length ? [] : products}
+        keyExtractor={(item) => item.id}
+        numColumns={2}
+        showsVerticalScrollIndicator={false}
+        style={S.scroll}
+        contentContainerStyle={[S.scrollContent, S.contentSheet]}
+        columnWrapperStyle={{ gap: 12, alignItems: 'stretch', paddingHorizontal: 12 }}
+        onScroll={hideOnScroll}
+        scrollEventThrottle={16}
+        windowSize={7}
+        initialNumToRender={PAGE_SIZE / 2}
+        maxToRenderPerBatch={PAGE_SIZE / 2}
+        removeClippedSubviews
+        // Infinite scroll. 0.6 rather than the default 0.1 so the next page is
+        // already arriving before the farmer reaches the bottom — on a slow
+        // connection a late trigger reads as the list having ended.
+        onEndReachedThreshold={0.6}
+        onEndReached={loadMore}
+        refreshControl={(
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadFirstPage({ isRefresh: true })}
+            tintColor={GREEN}
+            colors={[GREEN]}
+          />
+        )}
+        renderItem={({ item, index }) => (
+          <ProductCard item={item} onPress={handleProductPress} t={t} index={index} />
+        )}
+        ListHeaderComponent={(
+          <View>
+            {/* Cached-results banner. Showing saved prices without saying they
+                are saved is worse than showing nothing; saying so makes them
+                useful. */}
+            {fromCache ? (
+              <View style={S.noticeBar}>
+                <Ionicons name="cloud-offline-outline" size={15} color={COLORS.textMedium} />
+                <Text style={S.noticeTxt} numberOfLines={2}>
+                  {t('shop.showingSaved', 'Showing saved results')} · {formatCacheAge(fromCache.ageMs, t)}
+                </Text>
+                <TouchableOpacity onPress={() => loadFirstPage({ isRefresh: true })} hitSlop={8}>
+                  <Text style={S.noticeAction}>{t('retry', 'Retry')}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {/* An error WITH products still on screen is a thin bar, not a
+                takeover: the products are still valid and still shoppable. */}
+            {error && products.length > 0 ? (
+              <View style={[S.noticeBar, S.noticeBarWarn]}>
+                <Ionicons name="warning-outline" size={15} color={COLORS.error} />
+                <Text style={[S.noticeTxt, { color: COLORS.error }]} numberOfLines={2}>{error.message}</Text>
+                <TouchableOpacity onPress={() => loadFirstPage({ isRefresh: true })} hitSlop={8}>
+                  <Text style={S.noticeAction}>{t('retry', 'Retry')}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {/* Top rated rail.
+                Previously labelled "Best Sellers" — but there is no sales
+                counter anywhere in this system, so the list was simply the first
+                8 of a rating-ordered page. Naming it after what the data
+                actually is costs nothing and stops the app making a claim about
+                what other farmers bought that it cannot support. */}
+            {!loading && topRated.length > 0 && !searchQuery.trim() && (
+              <View style={S.section}>
+                <View style={S.sectionRow}>
+                  <Text style={S.sectionTitle}>{t('store.topRated', 'Top rated')}</Text>
+                  <TouchableOpacity style={S.seeAllBtn} onPress={() => { setSort('rating'); setSelectedCategory(ALL_ID); }}>
+                    <Text style={S.seeAllTxt}>{t('store.viewAll')}</Text>
+                    <Ionicons name="chevron-forward" size={14} color={GREEN} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.bsScroll}>
+                  {topRated.map((item) => (
+                    <BestSellerCard key={item.id} item={item} onPress={handleProductPress} />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
             <View style={S.sectionRow}>
-              <Text style={S.sectionTitle}>{t('store.bestSellers')}</Text>
-              <TouchableOpacity style={S.seeAllBtn} onPress={() => setSelectedCategory(ALL_ID)}>
-                <Text style={S.seeAllTxt}>{t('store.viewAll')}</Text>
-                <Ionicons name="chevron-forward" size={14} color={GREEN} />
-              </TouchableOpacity>
+              <Text style={S.sectionTitle}>
+                {searchQuery.trim() ? t('store.searchResults', 'Results') : t('store.allProducts')}
+              </Text>
+              <Text style={S.resultCount}>
+                {t('store.itemCount', { count: totalCount ?? products.length })}
+              </Text>
             </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={S.bsScroll}
-            >
-              {bestSellers.map(item => (
-                <BestSellerCard key={item.id} item={item} onPress={handleProductPress} />
-              ))}
-            </ScrollView>
+
+            {loading && !products.length ? (
+              <View style={S.productGrid}>
+                {[0, 1, 2, 3].map((i) => <Skeleton key={i} />)}
+              </View>
+            ) : null}
           </View>
         )}
-
-        {/* All Products */}
-        <View style={S.section}>
-          <View style={S.sectionRow}>
-            <Text style={S.sectionTitle}>{t('store.allProducts')}</Text>
-            <Text style={S.resultCount}>{t('store.itemCount', { count: products.length })}</Text>
+        ListEmptyComponent={loading ? null : (
+          <View style={S.emptyWrap}>
+            <View style={S.emptyIconWrap}>
+              <StoreCategoryIcon type={error ? 'bag' : 'bag'} size={72} animated />
+            </View>
+            {error ? (
+              <>
+                {/* "We could not reach the server" and "this shop is empty" are
+                    different situations with different next steps. They used to
+                    render as the same "coming soon" screen. */}
+                <Text style={S.emptyTitle}>
+                  {error.code === SHOP_ERRORS.OFFLINE
+                    ? t('shop.offlineTitle', 'No internet connection')
+                    : t('shop.errorTitle', 'Could not load products')}
+                </Text>
+                <Text style={S.emptyTxt}>{error.message}</Text>
+                <TouchableOpacity style={S.emptyBtn} onPress={() => loadFirstPage({ isRefresh: true })}>
+                  <Ionicons name="refresh" size={16} color={COLORS.white} />
+                  <Text style={S.emptyBtnTxt}>{t('retry', 'Try again')}</Text>
+                </TouchableOpacity>
+                {error.requestId ? (
+                  <Text style={S.emptyHint}>
+                    {t('shop.refCode', 'Reference')}: {String(error.requestId).slice(0, 8)}
+                  </Text>
+                ) : null}
+              </>
+            ) : searchQuery.trim() || selectedCategory !== ALL_ID ? (
+              <>
+                {/* An empty SEARCH is not an empty catalogue. The recovery is to
+                    widen the search, and the screen says so and offers it. */}
+                <Text style={S.emptyTitle}>{t('shop.noResultsTitle', 'No products found')}</Text>
+                <Text style={S.emptyTxt}>
+                  {t('shop.noResultsMsg', 'Try a different word, or search in all categories.')}
+                </Text>
+                <TouchableOpacity
+                  style={S.emptyBtn}
+                  onPress={() => { setSearchQuery(''); setSelectedCategory(ALL_ID); setSelectedSubcategory(null); }}
+                >
+                  <Ionicons name="close-circle-outline" size={16} color={COLORS.white} />
+                  <Text style={S.emptyBtnTxt}>{t('shop.clearFilters', 'Clear filters')}</Text>
+                </TouchableOpacity>
+                {district ? (
+                  <Text style={S.emptyHint}>
+                    {t('shop.tryOtherLocation', { district, defaultValue: `Showing sellers who deliver to ${district}.` })}
+                  </Text>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Text style={S.emptyTitle}>{t('ai.comingSoon')}</Text>
+                <Text style={S.emptyTxt}>{t('store.comingSoonMsg')}</Text>
+                <Text style={S.emptyHint}>{t('store.comingSoonHint')}</Text>
+              </>
+            )}
           </View>
+        )}
+        ListFooterComponent={(
+          <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+            {loadingMore ? <ActivityIndicator size="small" color={GREEN} /> : null}
+            {!loadingMore && !hasMore && products.length > 0 ? (
+              <Text style={S.endTxt}>{t('shop.endOfList', 'That is everything for now')}</Text>
+            ) : null}
+          </View>
+        )}
+      />
 
-          {loading ? (
-            <View style={S.productGrid}>
-              {[0, 1, 2, 3].map(i => <Skeleton key={i} />)}
-            </View>
-          ) : products.length === 0 ? (
-            <View style={S.emptyWrap}>
-              <View style={S.emptyIconWrap}>
-                <StoreCategoryIcon type="bag" size={72} animated />
-              </View>
-              <Text style={S.emptyTitle}>{t('ai.comingSoon')}</Text>
-              <Text style={S.emptyTxt}>{t('store.comingSoonMsg')}</Text>
-              <Text style={S.emptyHint}>{t('store.comingSoonHint')}</Text>
-            </View>
-          ) : (
-            <FlatList
-              windowSize={5}
-              maxToRenderPerBatch={10}
-              removeClippedSubviews
-              data={products}
-              keyExtractor={item => item.id}
-              numColumns={2}
-              scrollEnabled={false}
-              contentContainerStyle={S.productGrid}
-              columnWrapperStyle={{ gap: 12, alignItems: 'stretch' }}
-              renderItem={({ item, index }) => (
-                <ProductCard item={item} onPress={handleProductPress} t={t} index={index} />
-              )}
-            />
-          )}
-        </View>
-
-        <View style={{ height: 40 }} />
-        </View>
-      </ScrollView>
-
-      <ScrollToTopButton visible={showTopBtn} onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })} />
+      <ScrollToTopButton
+        visible={showTopBtn}
+        onPress={() => scrollRef.current?.scrollToOffset({ offset: 0, animated: true })}
+      />
 
       {/* ── Language Picker Modal (animated bottom sheet) ── */}
       <Modal
@@ -792,7 +1076,7 @@ const S = StyleSheet.create({
   gridImgWrap:   { height: 130, backgroundColor: KHET.secondary, position: 'relative' },
   gridImg:           { width: '100%', height: '100%' },
   gridImgGrad:       { position: 'absolute', bottom: 0, left: 0, right: 0, height: 50 },
-  wishBtn:           { position: 'absolute', top: 8, left: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.9)', justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.black, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
+  // wishBtn: removed with the non-functional wishlist heart it styled.
   gridDiscRight:     { position: 'absolute', top: 8, right: 8, backgroundColor: KHET.gold, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
   gridDiscTxt:       { color: KHET.goldForeground, fontSize: 9, fontFamily: KFONT.sansBold },
   gridRatingBadge:   { position: 'absolute', bottom: 6, right: 8, flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
@@ -813,8 +1097,30 @@ const S = StyleSheet.create({
   addToCartBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: KHET.primary, borderRadius: 12, paddingVertical: 10, marginTop: 4, ...KSHADOW.soft },
   addToCartTxt:  { color: KHET.primaryForeground, fontSize: 12, fontFamily: KFONT.sansSemi },
 
+  // ── Notice bars (cached results / recoverable error) ──
+  // Deliberately a BAR, not a takeover: when there are products on screen they
+  // are still valid and still shoppable, and replacing them with a full-screen
+  // error is what made a dropped packet look like an empty shop.
+  noticeBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 12, marginTop: 10, paddingHorizontal: 12, paddingVertical: 10,
+    borderRadius: 12, backgroundColor: KHET.muted, borderWidth: 1, borderColor: KHET.border,
+  },
+  noticeBarWarn: { backgroundColor: COLORS.errorLight, borderColor: COLORS.error + '40' },
+  noticeTxt:     { flex: 1, fontSize: 12, color: COLORS.textMedium, fontFamily: KFONT.sans },
+  // 44dp minimum tap target — this is the recovery action, so it has to be
+  // comfortably tappable with wet or gloved hands.
+  noticeAction:  { fontSize: 12, color: KHET.primary, fontFamily: KFONT.sansBold, paddingVertical: 12, paddingHorizontal: 8 },
+  endTxt:        { fontSize: 12, color: KHET.mutedForeground, fontFamily: KFONT.sans },
+
   // ── Empty ──
   emptyWrap:   { alignItems: 'center', paddingVertical: 52, paddingHorizontal: 24, gap: 6 },
+  emptyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14,
+    paddingHorizontal: 20, minHeight: 48, borderRadius: 14, backgroundColor: KHET.primary,
+    justifyContent: 'center',
+  },
+  emptyBtnTxt: { color: KHET.primaryForeground, fontSize: 14, fontFamily: KFONT.sansSemi },
   emptyIconWrap: { width: 96, height: 96, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginBottom: 8, backgroundColor: KHET.muted },
   emptyTitle:  { fontSize: 22, fontFamily: KFONT.displaySemi, color: KHET.foreground, letterSpacing: -0.5 },
   emptyTxt:    { fontSize: 14, color: KHET.mutedForeground, fontFamily: KFONT.sans, textAlign: 'center' },

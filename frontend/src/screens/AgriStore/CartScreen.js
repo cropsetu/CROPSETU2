@@ -18,6 +18,7 @@ import { useCart } from '../../context/CartContext';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import { StoreCategoryIcon } from '@cropsetu/shared/components/StoreCategoryIcons';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
+import { classifyError, inr, thumbUrl, SHOP_ERRORS } from './shopClient';
 
 const W = Dimensions.get('window').width;
 
@@ -134,7 +135,8 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
   const sellerNm = listing?.seller?.name || null;
   const packSize = listing?.variant?.attributes?.packSize || listing?.variant?.unit || item.product?.unit;
   const subtotal = price * item.quantity;
-  const imageUrl = listing?.images?.[0] || product.images?.[0];
+  // 80px box — a thumbnail, not the original upload.
+  const imageUrl = thumbUrl(listing?.images?.[0] || product.images?.[0], 200);
 
   useEffect(() => {
     Animated.parallel([
@@ -193,7 +195,7 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
                 </Text>
               ) : null}
               <Text style={S.itemPrice}>
-                ₹{price.toLocaleString()}
+                {inr(price)}
                 <Text style={S.itemUnit}> / {packSize}</Text>
               </Text>
               {item.priceChanged ? (
@@ -248,7 +250,7 @@ function CartItem({ item, onQtyChange, onRemove, index, t }) {
               })()}
             </View>
 
-            <Text style={S.itemSubtotal}>₹{subtotal.toLocaleString()}</Text>
+            <Text style={S.itemSubtotal}>{inr(subtotal)}</Text>
           </View>
         </View>
       </Animated.View>
@@ -273,7 +275,7 @@ function DeliveryProgress({ current, threshold }) {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <Ionicons name="car-outline" size={15} color={COLORS.primary} />
         <Text style={S.progressTxt}>
-          {t('cart.freeDeliveryPrefix')} <Text style={{ color: COLORS.primary, fontWeight: '700' }}>₹{(threshold - current).toLocaleString()}</Text> {t('cart.freeDeliverySuffix')}
+          {t('cart.freeDeliveryPrefix')} <Text style={{ color: COLORS.primary, fontWeight: '700' }}>{inr(threshold - current)}</Text> {t('cart.freeDeliverySuffix')}
         </Text>
       </View>
       <View style={S.progressTrack}>
@@ -293,25 +295,78 @@ export default function CartScreen({ navigation }) {
   const [total,      setTotal]      = useState(0);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [quote,      setQuote]      = useState(null);
+  const [error,      setError]      = useState(null);
+  // The buyer's default delivery PIN code, used to price the quote. Read-only
+  // here; checkout is where it can be changed.
+  const [defaultPincode, setDefaultPincode] = useState(null);
 
-  const FREE_THRESHOLD = 999;
-  const delivery   = total >= FREE_THRESHOLD ? 0 : 49;
-  const grandTotal = total + delivery;
+  // ── The delivery fee is the SERVER'S number now ────────────────────────────
+  // This screen used to compute it:
+  //
+  //     const FREE_THRESHOLD = 999;
+  //     const delivery   = total >= FREE_THRESHOLD ? 0 : 49;
+  //     const grandTotal = total + delivery;
+  //
+  // …and then never send it anywhere. The farmer approved ₹448.98 here, the app
+  // posted the goods subtotal, and the order was created for ₹399.98. Both
+  // numbers were wrong and neither was auditable. Everything below reads the
+  // quote returned by GET /agristore/cart, which is the same computation the
+  // order is written from.
+  const subtotal   = quote ? Number(quote.subtotal) : total;
+  const delivery   = quote ? Number(quote.deliveryFee) : 0;
+  const taxAmount  = quote ? Number(quote.taxAmount) : 0;
+  const grandTotal = quote ? Number(quote.total) : total;
+  // Blocking problems (out of stock, price changed, a blocked chemical, an
+  // unserviceable PIN code). Checkout is disabled while any exist, and each one
+  // names the line it is about.
+  const blockingIssues = quote?.issues || [];
 
   const fetchCart = useCallback(async () => {
     try {
-      const { data } = await api.get('/agristore/cart');
+      // Send the delivery PIN CODE so the cart quote is priced for where the
+      // order is actually going. Without it the cart ignored the address
+      // entirely — no per-area surcharge, no ETA, no unserviceable warning —
+      // and could quote a different delivery fee from the checkout screen,
+      // which does send it.
+      const params = defaultPincode ? { pincode: defaultPincode } : undefined;
+      const { data } = await api.get('/agristore/cart', { params });
       setItems(data.data.items || []);
       setTotal(data.data.total || 0);
-    } catch {
-      setItems([]);
+      setQuote(data.data.quote || null);
+      setError(null);
+    } catch (err) {
+      // NOT `setItems([])`.
+      //
+      // That was the old behaviour, and it meant a dropped packet rendered the
+      // EMPTY CART screen — "your cart is empty, browse products" — to a farmer
+      // whose cart was full. They would re-add everything they had already
+      // chosen. The lines stay; the failure is shown as a bar with a retry.
+      const info = classifyError(err);
+      if (info) setError(info);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  }, [defaultPincode]);
+
+  // Resolve the default address first, then price the cart against it.
+  useEffect(() => {
+    let alive = true;
+    api.get('/addresses')
+      .then(({ data }) => {
+        if (!alive) return;
+        const list = data?.data || [];
+        const def = list.find((a) => a.isDefault) || list[0];
+        setDefaultPincode(def?.pincode || null);
+      })
+      // No address yet is normal for a first-time buyer — the quote just falls
+      // back to the platform default ETA and no surcharge.
+      .catch(() => { if (alive) setDefaultPincode(null); });
+    return () => { alive = false; };
   }, []);
 
-  useEffect(() => { fetchCart(); }, []);
+  useEffect(() => { fetchCart(); }, [fetchCart]);
 
   const handleRefresh = useCallback(() => { setRefreshing(true); fetchCart(); }, [fetchCart]);
 
@@ -346,7 +401,12 @@ export default function CartScreen({ navigation }) {
   }
 
   function handleCheckout() {
-    navigation.navigate('Checkout', { total, delivery, grandTotal, itemCount: items.length });
+    // Checkout re-fetches its own quote; these are passed only so the first
+    // frame does not flash different numbers. The AUTHORITY is always the quote
+    // the server returns at checkout time, never these.
+    navigation.navigate('Checkout', {
+      total: subtotal, delivery, grandTotal, itemCount: items.length, quote,
+    });
   }
 
   if (loading) {
@@ -369,7 +429,9 @@ export default function CartScreen({ navigation }) {
     );
   }
 
-  if (!loading && items.length === 0) return <EmptyCart navigation={navigation} />;
+  // The empty state is only shown when the server actually said the cart is
+  // empty — never when the request failed. `!error` is the whole guard.
+  if (!loading && items.length === 0 && !error) return <EmptyCart navigation={navigation} />;
 
   const totalQty = items.reduce((s, i) => s + i.quantity, 0);
 
@@ -392,6 +454,41 @@ export default function CartScreen({ navigation }) {
         )}
       </View>
 
+      {/* A failed refresh keeps the cart on screen and explains itself. */}
+      {error ? (
+        <View style={[S.banner, S.bannerError]}>
+          <Ionicons
+            name={error.code === SHOP_ERRORS.OFFLINE ? 'cloud-offline-outline' : 'warning-outline'}
+            size={16}
+            color={COLORS.error}
+          />
+          <Text style={S.bannerTxt} numberOfLines={2}>{error.message}</Text>
+          <TouchableOpacity onPress={handleRefresh} hitSlop={10} style={S.bannerBtn}>
+            <Text style={S.bannerAction}>{t('retry', 'Retry')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {/* Blocking problems, itemised. "Something went wrong" gives a farmer
+          nothing to do; "Only 3 left of Urea 50kg" tells them exactly what to
+          change. Each issue carries a code the backend defined, so the wording
+          is never a guess about what happened. */}
+      {blockingIssues.length > 0 ? (
+        <View style={[S.banner, S.bannerWarn, { flexDirection: 'column', alignItems: 'stretch', gap: 6 }]}>
+          {blockingIssues.slice(0, 4).map((issue, i) => (
+            <View key={`${issue.code}-${issue.listingId || i}`} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+              <Ionicons name="alert-circle-outline" size={15} color={COLORS.yellowDark} style={{ marginTop: 1 }} />
+              <Text style={[S.bannerTxt, { color: COLORS.yellowDark }]}>{issue.message}</Text>
+            </View>
+          ))}
+          {blockingIssues.length > 4 ? (
+            <Text style={[S.bannerTxt, { color: COLORS.yellowDark }]}>
+              {t('cart.moreIssues', { count: blockingIssues.length - 4, defaultValue: `+${blockingIssues.length - 4} more` })}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
       {/* ── List ── */}
       <FlatList
         windowSize={5}
@@ -412,29 +509,70 @@ export default function CartScreen({ navigation }) {
 
             <View style={S.summaryRow}>
               <Text style={S.summaryLabel}>{totalQty !== 1 ? t('cart.subtotalPlural', { count: totalQty }) : t('cart.subtotal', { count: totalQty })}</Text>
-              <Text style={S.summaryValue}>₹{total.toLocaleString()}</Text>
+              <Text style={S.summaryValue}>{inr(subtotal)}</Text>
             </View>
 
             <View style={S.summaryRow}>
-              <Text style={S.summaryLabel}>{t('cart.delivery')}</Text>
+              <Text style={S.summaryLabel}>
+                {t('cart.delivery')}
+                {quote?.shipmentCount > 1
+                  ? ` (${t('cart.shipments', { count: quote.shipmentCount, defaultValue: `${quote.shipmentCount} deliveries` })})`
+                  : ''}
+              </Text>
               <Text style={[S.summaryValue, delivery === 0 && { color: COLORS.primary, fontWeight: '700' }]}>
-                {delivery === 0 ? t('free') : `₹${delivery}`}
+                {delivery === 0 ? t('free') : inr(delivery)}
               </Text>
             </View>
 
-            {/* Free delivery progress bar */}
-            {delivery > 0 && (
-              <DeliveryProgress current={total} threshold={FREE_THRESHOLD} />
+            {/* Tax, only when the platform is actually charging or showing it.
+                The product page said "inclusive of all taxes" under every price
+                while no tax existed anywhere in the system. */}
+            {taxAmount > 0 && (
+              <View style={S.summaryRow}>
+                <Text style={S.summaryLabel}>
+                  {quote?.taxIncludedInPrice
+                    ? t('cart.taxIncluded', 'GST (included in price)')
+                    : t('cart.tax', 'GST')}
+                </Text>
+                <Text style={S.summaryValue}>{inr(taxAmount)}</Text>
+              </View>
+            )}
+
+            {/* Free-delivery progress, driven by the SERVER's threshold and the
+                server's per-shipment shortfall — not a hard-coded 999. */}
+            {delivery > 0 && quote?.shipments?.[0]?.freeDeliveryShortfall ? (
+              <DeliveryProgress
+                current={Number(quote.shipments[0].goodsSubtotal)}
+                threshold={Number(quote.shipments[0].goodsSubtotal) + Number(quote.shipments[0].freeDeliveryShortfall)}
+              />
+            ) : null}
+
+            {/* A cart spanning two Kendras arrives as two deliveries and is
+                charged as two. Saying so here stops it reading as a double
+                charge on the order screen. */}
+            {quote?.shipmentCount > 1 && (
+              <View style={S.shipmentsBox}>
+                {quote.shipments.map((s) => (
+                  <View key={s.sellerId || s.sellerName} style={S.shipmentRow}>
+                    <Ionicons name="cube-outline" size={13} color={COLORS.textMedium} />
+                    <Text style={S.shipmentTxt} numberOfLines={1}>
+                      {s.sellerName || t('cart.seller', 'Seller')} · {inr(s.goodsSubtotal)}
+                      {Number(s.deliveryFee) > 0 ? ` + ${inr(s.deliveryFee)}` : ` · ${t('free')}`}
+                      {s.etaMaxDays ? ` · ${t('cart.etaDays', { count: s.etaMaxDays, defaultValue: `in ${s.etaMaxDays} days` })}` : ''}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             )}
 
             <View style={S.summaryDivider} />
 
             <View style={S.summaryRow}>
               <Text style={S.totalLabel}>{t('cart.totalPayable')}</Text>
-              <Text style={S.totalValue}>₹{grandTotal.toLocaleString()}</Text>
+              <Text style={S.totalValue}>{inr(grandTotal)}</Text>
             </View>
 
-            {delivery === 0 && (
+            {delivery === 0 && subtotal > 0 && (
               <View style={S.savingsBadge}>
                 <Ionicons name="checkmark-circle" size={14} color={COLORS.primary} />
                 <Text style={S.savingsTxt}>{t('cart.savedOnDelivery')}</Text>
@@ -446,16 +584,25 @@ export default function CartScreen({ navigation }) {
 
       {/* ── Bottom action bar ── */}
       <View style={[S.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <View>
-          <Text style={S.barTotal}>₹{grandTotal.toLocaleString()}</Text>
-          <Text style={S.barSub}>
+        <View style={{ flexShrink: 1 }}>
+          <Text style={S.barTotal}>{inr(grandTotal)}</Text>
+          <Text style={S.barSub} numberOfLines={1}>
             {(totalQty !== 1 ? t('cart.itemCountPlural', { count: totalQty }) : t('cart.itemCount', { count: totalQty }))} · {delivery === 0 ? t('cart.freeDelivery') : t('cart.deliveryCharge', { amount: delivery })}
           </Text>
         </View>
-        <PressScale onPress={handleCheckout} down={0.96} style={S.checkoutBtn}>
-          <View style={S.checkoutGrad}>
-            <Text style={S.checkoutTxt}>{t('cart.proceedCheckout')}</Text>
-            <Ionicons name="arrow-forward" size={17} color={COLORS.white} />
+        {/* Checkout is disabled while the server says something blocks it. The
+            farmer used to be able to walk into a payment sheet with an
+            out-of-stock line and only find out afterwards. */}
+        <PressScale
+          onPress={blockingIssues.length ? handleRefresh : handleCheckout}
+          down={0.96}
+          style={S.checkoutBtn}
+        >
+          <View style={[S.checkoutGrad, blockingIssues.length > 0 && { backgroundColor: COLORS.grayMedium }]}>
+            <Text style={S.checkoutTxt}>
+              {blockingIssues.length ? t('cart.reviewCart', 'Review cart') : t('cart.proceedCheckout')}
+            </Text>
+            <Ionicons name={blockingIssues.length ? 'refresh' : 'arrow-forward'} size={17} color={COLORS.white} />
           </View>
         </PressScale>
       </View>
@@ -467,6 +614,24 @@ export default function CartScreen({ navigation }) {
 // ── Styles ────────────────────────────────────────────────────────────────────
 const S = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
+
+  // ── Banners (recoverable error / blocking cart issues) ──
+  banner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 14, marginTop: 10, paddingHorizontal: 12, paddingVertical: 10,
+    borderRadius: 12, borderWidth: 1,
+  },
+  bannerError: { backgroundColor: COLORS.errorLight, borderColor: COLORS.error + '40' },
+  bannerWarn:  { backgroundColor: COLORS.yellowWarm, borderColor: COLORS.yellowDark + '40' },
+  bannerTxt:   { flex: 1, fontSize: 12.5, lineHeight: 17, color: COLORS.error },
+  // 44dp tap target for the recovery action.
+  bannerBtn:   { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
+  bannerAction:{ fontSize: 12.5, fontWeight: '800', color: COLORS.primary },
+
+  // ── Per-seller shipment breakdown ──
+  shipmentsBox: { marginTop: 10, gap: 6, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border },
+  shipmentRow:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  shipmentTxt:  { flex: 1, fontSize: 11.5, color: COLORS.textMedium },
 
   // Header
   header: {

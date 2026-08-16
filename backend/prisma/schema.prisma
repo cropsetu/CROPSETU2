@@ -114,6 +114,8 @@ model User {
   priceAlerts              PriceAlert[]
   sellerProducts           Product[]            @relation("SellerProducts")
   sellerListings           SellerListing[]      @relation("SellerListings")
+  sellerLicences           SellerLicence[]      @relation("SellerLicences")
+  sellerServiceAreas       SellerServiceArea[]  @relation("SellerServiceAreas")
   pushTokens               PushToken[]
   refreshTokens            RefreshToken[]
   reviews                  Review[]
@@ -271,9 +273,49 @@ model Category {
   color     String?
   sortOrder Int       @default(0)
   isActive  Boolean   @default(true)
+  /// Which dynamic attribute schema the seller form and the buyer's detail page
+  /// render for products in this category (see constants/productAttributes.js).
+  /// NULL = the generic schema. Editable from admin, so a new category does not
+  /// need an app release to get the right form.
+  attributeSchema String?
+  /// Products in this category are agricultural chemicals / regulated inputs and
+  /// go through the compliance gate before they can be published. A CATEGORY flag
+  /// rather than a hard-coded name list, because category names are admin-editable.
+  isRegulated Boolean @default(false)
   products  Product[]
+  subcategories Subcategory[]
 
   @@map("categories")
+}
+
+/// Backend-managed subcategory master data.
+///
+/// `products.subcategory` was a free-text string typed by whichever seller
+/// created the row, so "Vegetable Seeds", "vegetable seeds" and "Veg Seeds" were
+/// three different filter values and an admin could neither rename nor reorder
+/// nor retire any of them. The string column is RETAINED and dual-written (same
+/// EXPAND pattern as the catalog split) so existing filters keep working.
+model Subcategory {
+  id         String   @id @default(uuid())
+  categoryId String
+  name       String
+  nameHi     String?
+  nameMr     String?
+  icon       String?
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  /// Overrides the parent category's schema when a subcategory needs its own form
+  /// (e.g. "Sprayers" inside "Farm Machinery").
+  attributeSchema String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  category Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([categoryId, name])
+  @@index([categoryId, isActive, sortOrder])
+  @@map("subcategories")
 }
 
 /// CATALOG identity — one row per real-world product, shared by every seller.
@@ -344,12 +386,33 @@ model Product {
   qcReviewedAt     DateTime?
   qcRejectionReason String?
 
+  // ── Tax (SHOP-HARDENING) ───────────────────────────────────────────────────
+  /// GST slab for this product, as a percentage. Agri-inputs are NOT one rate:
+  /// most seeds are exempt, fertilizers are 5%, many pesticides 18%, machinery
+  /// 12%. NULL falls back to the admin-set `shop.tax.defaultRatePct`. Tax is
+  /// computed server-side from THIS column — never from anything the app sends.
+  taxRatePct       Decimal?    @db.Decimal(5, 2)
+  hsnCode          String?
+  /// Shipping class. Machinery cannot ride the normal per-parcel delivery maths,
+  /// so the quote charges it separately (or refuses to quote and asks for a
+  /// freight quote). See services/shopPricing.service.js.
+  shippingClass    String      @default("PARCEL")
+  /// Shipping weight in kg and the longest dimension in cm, used by the freight
+  /// band for HEAVY/FREIGHT classes. NULL = unknown, which falls back to the
+  /// flat band rather than to zero.
+  weightKg         Decimal?    @db.Decimal(10, 3)
+  /// Master-data subcategory. `subcategory` (String) above is dual-written.
+  subcategoryId    String?
+
   cartItems       CartItem[]
   orderItems      OrderItem[]
   category        Category    @relation(fields: [categoryId], references: [id])
+  subcategoryRef  Subcategory? @relation(fields: [subcategoryId], references: [id])
   seller          User?       @relation("SellerProducts", fields: [sellerId], references: [id])
   reviews         Review[]
   variants        ProductVariant[]
+  compliance      ProductCompliance?
+  recalls         ProductRecall[]
 
   @@index([categoryId])
   @@index([sellerId])
@@ -368,6 +431,12 @@ model Product {
   // half of every remaining predicate index-served.
   @@index([status, categoryId])
   @@index([status, rating])
+  @@index([subcategoryId])
+  // Storefront sorts. `createdAt DESC` (Latest) and `rating DESC` (Top rated) are
+  // both keyset-paginated on (status, <sort>, id), so each needs the id tiebreaker
+  // IN the index or the sort spills to a filesort on every page.
+  @@index([status, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([status, rating(sort: Desc), id(sort: Desc)])
   @@index([normalizedKey])
   @@index([brand, modelNumber])
   @@index([mergedIntoId])
@@ -444,6 +513,8 @@ model SellerListing {
   variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
   seller    User           @relation("SellerListings", fields: [sellerId], references: [id])
   cartItems CartItem[]
+  batches   ProductBatch[]
+  reservations StockReservation[]
 
   /// One offer per seller per variant — a Kendra cannot list the same pack twice.
   @@unique([sellerId, variantId])
@@ -523,8 +594,26 @@ model Order {
   id              String      @id @default(uuid())
   userId          String
   status          OrderStatus @default(PENDING)
+  /// THE PAYABLE. Before SHOP-HARDENING this was the goods subtotal and the app
+  /// added a hard-coded ₹49 delivery fee on the client that the order never
+  /// recorded — the farmer was shown one number and charged another. It is now
+  /// subtotal + deliveryFee + taxAmount − discountAmount, computed by
+  /// services/shopPricing.service.js and never by the app.
   totalAmount     Decimal     @db.Decimal(12, 2)
+  subtotal        Decimal     @default(0) @db.Decimal(12, 2)
+  deliveryFee     Decimal     @default(0) @db.Decimal(12, 2)
+  taxAmount       Decimal     @default(0) @db.Decimal(12, 2)
+  discountAmount  Decimal     @default(0) @db.Decimal(12, 2)
+  couponCode      String?
+  /// Frozen copy of the quote the order was placed on (per-shipment breakdown,
+  /// tax lines, the settings values in force). An invoice reprinted a year later
+  /// has to show what was actually charged, not what today's settings would say.
+  pricingSnapshot Json?
   deliveryAddress Json
+  /// Serviceability decision recorded at checkout: the PIN code and the ETA the
+  /// buyer was shown. Kept so a delivery dispute has a record of the promise.
+  deliveryPincode String?
+  promisedEtaDays Int?
   paymentMethod   String      @default("cod")
   paymentStatus   String      @default("pending")
   notes           String?
@@ -567,6 +656,36 @@ model OrderItem {
   // [FIX #4/#13] Per-item status for multi-seller orders. Each seller controls
   // only their own items' status. The overall Order.status is derived from all items.
   status     String  @default("PENDING")
+
+  // ── Immutable snapshot of what was sold (SHOP-HARDENING) ───────────────────
+  // Order history joined to `products` for the name and image, so an admin
+  // renaming a catalog row, or a seller's re-upload, silently rewrote what a
+  // farmer's two-year-old order says they bought. Everything a past order needs
+  // to render is frozen here at creation. Nullable: rows created before this
+  // change still fall back to the join.
+  productName   String?
+  productNameMr String?
+  productImage  String?
+  brand         String?
+  unit          String?
+  packSize      String?
+  sellerName    String?
+  taxRatePct    Decimal?  @db.Decimal(5, 2)
+  taxAmount     Decimal   @default(0) @db.Decimal(12, 2)
+  /// Which physical batch was shipped, and the label version in force at the
+  /// time. A recall is announced by batch, so without this an affected buyer
+  /// cannot be identified; and the safety text shown at purchase must stay
+  /// reproducible even after the manufacturer publishes a new label.
+  batchNumber   String?
+  batchExpiry   DateTime?
+  labelVersion  String?
+  complianceSnapshot Json?
+  /// Return eligibility decided by the BACKEND at order time from the product's
+  /// category rules, and frozen. Consumable / opened-chemical rules differ from
+  /// machinery, and the app must never be the one deciding.
+  returnWindowDays Int?
+  returnEligible   Boolean @default(true)
+
   // ── State-transition timestamps (CATALOG-SPLIT) ─────────────────────────────
   // Nothing but createdAt/updatedAt existed before, which made dispatch SLA and
   // cancellation rate literally uncomputable. sellerMetrics.service.js reads these.
@@ -584,6 +703,12 @@ model OrderItem {
   @@index([listingId])
   // sellerMetrics scans one seller's terminal items in a rolling window.
   @@index([sellerId, status, createdAt])
+  // Verified-purchase check on review submit: WHERE productId = ? AND status = ?.
+  // It had no index and fell back to a scan of order_items.
+  @@index([productId, status])
+  // Recall fan-out: "who bought batch X of product Y". Without it a recall is a
+  // full scan of every order item ever placed.
+  @@index([batchNumber])
   @@map("order_items")
 }
 
@@ -2638,4 +2763,425 @@ model BroadcastLog {
   @@index([templateKey])
   @@index([createdAt])
   @@map("broadcast_logs")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SHOP HARDENING — payments, agri-chemical compliance, batches, recalls, blocks
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// One attempt to take money, recorded BEFORE the gateway is called.
+///
+/// The flow used to be: POST /orders/initiate created a Razorpay order and wrote
+/// NOTHING locally, then POST /orders/confirm created the Order. If the app died
+/// between the two — the exact thing that happens on a village connection — the
+/// farmer's money was captured and no record of it existed anywhere in this
+/// system. Nothing could reconcile it because nothing knew the payment had been
+/// started. This row is that knowledge, and it is also where the authoritative
+/// quote is frozen so `confirm` charges what `initiate` priced.
+model PaymentIntent {
+  id              String   @id @default(uuid())
+  userId          String
+  provider        String   @default("razorpay")
+  /// Gateway order id (Razorpay `order_...`). Unique so a webhook and a client
+  /// confirm converge on the same row instead of racing to create two.
+  providerOrderId String   @unique
+  /// Gateway payment id, once one exists. Unique for the same reason Order.paymentRef is.
+  providerPaymentId String? @unique
+  amount          Decimal  @db.Decimal(12, 2)
+  amountPaise     Int
+  currency        String   @default("INR")
+  receipt         String
+  status          PaymentIntentStatus @default(CREATED)
+  /// The frozen quote (subtotal / delivery / tax / per-shipment lines) this
+  /// payment was raised for. `confirm` rebuilds the quote and refuses if the
+  /// payable moved, so the buyer is never charged a stale amount.
+  quoteSnapshot   Json?
+  /// Cart fingerprint at initiate time — listing ids + quantities + unit prices.
+  /// A cart edited in another tab/device between initiate and confirm changes it.
+  cartHash        String?
+  orderId         String?  @unique
+  failureReason   String?
+  /// Set by the reconciler once the intent reached a terminal, explained state.
+  reconciledAt    DateTime?
+  reconcileNote   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  // The reconciler sweeps stale non-terminal intents.
+  @@index([status, createdAt])
+  @@map("payment_intents")
+}
+
+enum PaymentIntentStatus {
+  CREATED
+  PENDING
+  PAID
+  ORDER_CREATED
+  FAILED
+  CANCELLED
+  REFUND_INITIATED
+  REFUNDED
+  EXPIRED
+}
+
+/// Every gateway webhook, stored before it is acted on. `eventId` is unique, so
+/// a redelivered webhook (Razorpay retries for 24h) is a no-op instead of a
+/// second order or a second refund. Signature verification happens before insert.
+model PaymentWebhookEvent {
+  id          String   @id @default(uuid())
+  provider    String   @default("razorpay")
+  eventId     String   @unique
+  eventType   String
+  providerOrderId   String?
+  providerPaymentId String?
+  status      String   @default("RECEIVED") // RECEIVED | PROCESSED | FAILED | IGNORED
+  error       String?
+  /// Raw payload is deliberately NOT stored — it carries buyer contact details
+  /// and card metadata. Only the fields the handler needs are extracted above.
+  payloadDigest String?
+  receivedAt  DateTime @default(now())
+  processedAt DateTime?
+
+  @@index([status, receivedAt])
+  @@index([providerOrderId])
+  @@map("payment_webhook_events")
+}
+
+/// A seller's regulatory licence to sell a class of regulated input.
+///
+/// SellerProfile already carries ONE Kendra licence (number/type/state/expiry)
+/// used for Kendra discovery. That is a single flat set of columns and cannot
+/// express "this seller may sell fertilizer but is not licensed for insecticides",
+/// which is precisely the distinction the sale gate needs. This is one row per
+/// (seller, licence class), verified independently, with its own expiry.
+model SellerLicence {
+  id               String   @id @default(uuid())
+  sellerId         String
+  /// Licence class, matched against ProductCompliance.regulatedKind.
+  kind             RegulatedKind
+  licenceNumber    String
+  issuingAuthority String?
+  state            String?
+  district         String?
+  validFrom        DateTime?
+  validTo          DateTime?
+  /// PRIVATE Cloudinary public_ids, exactly like KYC docs — served only through
+  /// short-lived signed URLs, never returned to buyers.
+  documentIds      String[] @default([])
+  status           LicenceStatus @default(PENDING)
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  rejectionReason  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  seller User @relation("SellerLicences", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  /// One live licence per class per seller; a renewal updates the row.
+  @@unique([sellerId, kind])
+  // The sale gate asks "is this seller APPROVED for this kind, right now".
+  @@index([sellerId, kind, status])
+  // The expiry sweeper scans licences falling due.
+  @@index([status, validTo])
+  @@map("seller_licences")
+}
+
+enum RegulatedKind {
+  NONE
+  SEED
+  FERTILIZER
+  BIO_PRODUCT
+  PESTICIDE
+  INSECTICIDE
+  FUNGICIDE
+  HERBICIDE
+  PLANT_GROWTH_REGULATOR
+}
+
+enum LicenceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  SUSPENDED
+}
+
+/// The regulated-product record: what the approved label says, and whether an
+/// administrator has signed it off. A regulated product stays UNPUBLISHED until
+/// this row is APPROVED.
+///
+/// Every text field here is TRANSCRIBED FROM THE APPROVED MANUFACTURER LABEL by
+/// the seller and checked by a reviewer. Nothing in this system generates dosage,
+/// mixing, crop, pest or first-aid text — see services/shopCompliance.service.js.
+model ProductCompliance {
+  id                  String   @id @default(uuid())
+  productId           String   @unique
+  regulatedKind       RegulatedKind @default(NONE)
+  /// CIB&RC (or equivalent) registration for the formulation.
+  registrationNumber  String?
+  registrationAuthority String?
+  registrationValidTo DateTime?
+  activeIngredient    String?
+  formulation         String?   // EC, SC, WP, WG, SL …
+  concentration       String?   // "50% EC"
+  /// Label-approved crops and target pests. Arrays of plain strings copied from
+  /// the label; the app renders them as-is and never extrapolates to a crop that
+  /// is not on the list.
+  approvedCrops       String[] @default([])
+  targetPests         String[] @default([])
+  /// Verbatim label sections. NULL means "the label section was not supplied",
+  /// which the UI shows as such — it never substitutes generic advice.
+  dosageText          String?
+  safetyEquipment     String[] @default([])
+  storageInstructions String?
+  firstAidText        String?
+  precautionText      String?
+  /// Scan / PDF of the approved label, and the label revision it corresponds to.
+  /// The revision is snapshotted onto each order item.
+  labelDocId          String?
+  labelVersion        String?
+  /// Whether listings of this product must carry a batch number / expiry date.
+  requiresBatch       Boolean  @default(true)
+  requiresExpiry      Boolean  @default(true)
+  /// Minimum shelf life (days) that must remain at DISPATCH. A farmer buying a
+  /// fungicide that expires next week has effectively bought nothing.
+  minShelfLifeDays    Int      @default(30)
+  status              ComplianceStatus @default(DRAFT)
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  rejectionReason     String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([regulatedKind, status])
+  @@index([registrationValidTo])
+  @@map("product_compliance")
+}
+
+enum ComplianceStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+/// Batch-level stock for regulated inputs. One row per physical lot a seller
+/// holds of one offer.
+///
+/// SellerListing.stockQty stays the authoritative sellable number (checkout's
+/// Serializable decrement is on it and must not be split across two counters);
+/// batches record WHICH lots make it up, so an expiry or a recall can remove the
+/// affected quantity and a shipped item can name its lot.
+model ProductBatch {
+  id            String   @id @default(uuid())
+  listingId     String
+  sellerId      String
+  batchNumber   String
+  manufactureDate DateTime?
+  expiryDate    DateTime?
+  /// Units of this lot the seller still holds. Reduced on dispatch, zeroed when
+  /// the lot is quarantined or recalled.
+  quantity      Int      @default(0)
+  status        BatchStatus @default(ACTIVE)
+  quarantineReason String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  listing SellerListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, batchNumber])
+  // Pick the batch to dispatch: earliest expiry first, among live lots.
+  @@index([listingId, status, expiryDate])
+  // The expiry sweeper and the "expiring soon" admin alert.
+  @@index([status, expiryDate])
+  @@index([sellerId])
+  @@map("product_batches")
+}
+
+enum BatchStatus {
+  ACTIVE
+  EXPIRING_SOON
+  EXPIRED
+  RECALLED
+  QUARANTINED
+  DAMAGED
+}
+
+/// A recall. Scoped to a product, and optionally narrowed to one batch and/or
+/// one seller. Creating one blocks further sale immediately and produces the
+/// list of affected buyers to notify.
+model ProductRecall {
+  id           String   @id @default(uuid())
+  productId    String
+  batchNumber  String?
+  sellerId     String?
+  reason       String
+  severity     String   @default("HIGH") // HIGH | MEDIUM | LOW
+  advice       String?  // verbatim manufacturer / authority instruction to buyers
+  initiatedBy  String?
+  notifiedCount Int     @default(0)
+  notifiedAt   DateTime?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, isActive])
+  @@index([batchNumber])
+  @@index([isActive, createdAt])
+  @@map("product_recalls")
+}
+
+/// Administrative sale block. One table for every axis an operator needs to stop
+/// a sale on — product, seller, batch, state, district — because a regulator's
+/// restriction ("this insecticide may not be sold in Maharashtra") arrives as a
+/// geography, not as a list of listing ids.
+///
+/// Evaluated by services/shopCompliance.service.js on every add-to-cart and every
+/// checkout line. Cached in Redis; the cache is bumped on write.
+model SaleBlock {
+  id         String   @id @default(uuid())
+  scope      SaleBlockScope
+  productId  String?
+  sellerId   String?
+  categoryId String?
+  batchNumber String?
+  state      String?
+  district   String?
+  reason     String
+  /// Shown to the buyer. Kept separate from `reason` (which is internal) so an
+  /// enforcement note never leaks into the app.
+  publicMessage String?
+  isActive   Boolean  @default(true)
+  createdBy  String?
+  expiresAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([isActive, scope])
+  @@index([isActive, productId])
+  @@index([isActive, sellerId])
+  @@index([isActive, state])
+  @@index([isActive, district])
+  @@map("sale_blocks")
+}
+
+enum SaleBlockScope {
+  PRODUCT
+  SELLER
+  CATEGORY
+  BATCH
+  STATE
+  DISTRICT
+}
+
+/// PIN-code serviceability. Which pincodes a seller ships to, the promised
+/// transit time, and any surcharge.
+///
+/// Serviceability was previously inferred from `sellScope` + a district string
+/// compared case-insensitively, which cannot answer "will this reach 413102 and
+/// by when" — the only question the buyer actually asks. A seller with no rows
+/// here keeps the old sellScope behaviour, so this is additive.
+model SellerServiceArea {
+  id           String   @id @default(uuid())
+  sellerId     String
+  /// Either an exact 6-digit pincode, or a 3-digit prefix covering a sorting
+  /// region ("413" = Solapur). Prefix rows let a seller cover a district without
+  /// enumerating 400 pincodes.
+  pincode      String?
+  pincodePrefix String?
+  state        String?
+  district     String?
+  /// Deterministic, NON-NULL identity for the area this row covers:
+  /// `pin:413102` | `pre:413` | `dist:pune` | `state:maharashtra`.
+  ///
+  /// It exists because the obvious constraint — @@unique([sellerId, pincode,
+  /// pincodePrefix]) — does NOT work, for two independent reasons:
+  ///   1. Postgres treats NULLs as DISTINCT in a unique index, and every real
+  ///      row has a NULL in at least one of those columns (a row covers either
+  ///      an exact pincode or a prefix, never both). So the constraint silently
+  ///      permitted unlimited duplicates.
+  ///   2. Prisma rejects `null` inside a compound-unique WHERE input, so the
+  ///      upsert that maintains these rows could not even be expressed.
+  /// One non-null key fixes both.
+  matchKey     String
+  etaMinDays   Int      @default(2)
+  etaMaxDays   Int      @default(5)
+  surcharge    Decimal  @default(0) @db.Decimal(10, 2)
+  codAvailable Boolean  @default(true)
+  pickupAvailable Boolean @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  seller User @relation("SellerServiceAreas", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@unique([sellerId, matchKey])
+  // The serviceability probe: exact pincode first, then prefix.
+  @@index([pincode, isActive])
+  @@index([pincodePrefix, isActive])
+  @@index([sellerId, isActive])
+  @@map("seller_service_areas")
+}
+
+/// Units held for one buyer while their payment is in flight.
+///
+/// ── The race this closes ─────────────────────────────────────────────────────
+/// Stock was decremented only when the order was created, i.e. at /orders/confirm,
+/// AFTER the money had moved. So two buyers could both open the payment sheet for
+/// the last bag of seed, both pay, and the second one would be told "insufficient
+/// stock" having already been charged. The platform then owed a refund for a
+/// checkout it had allowed to happen.
+///
+/// ── How it works ─────────────────────────────────────────────────────────────
+/// /orders/initiate decrements `seller_listings.stockQty` and writes one HELD row
+/// per line. /orders/confirm then creates the order WITHOUT decrementing again and
+/// flips the rows to CONSUMED. Abandonment, failure and expiry all RELEASE — which
+/// increments the stock back.
+///
+/// The decisive property: `stockQty` keeps meaning exactly what it meant before —
+/// "units available to sell right now". Every read path (buy box, product list,
+/// cart validation, the storefront filter) is therefore unchanged. The alternative
+/// — leaving stock alone and subtracting live reservations at read time — would
+/// have required every one of those paths to learn about reservations, and any one
+/// that forgot would oversell.
+model StockReservation {
+  id        String   @id @default(uuid())
+  listingId String
+  userId    String
+  quantity  Int
+  /// The payment this reservation is being held for. Nullable so a reservation
+  /// can be written before the intent row exists in the same transaction.
+  paymentIntentId String?
+  /// The gateway order id, which is what /confirm arrives holding.
+  providerOrderId String?
+  status    ReservationStatus @default(HELD)
+  expiresAt DateTime
+  releasedAt DateTime?
+  releaseReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listing SellerListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  // The confirm path: "what is being held for this gateway order".
+  @@index([providerOrderId, status])
+  // The sweeper: expired holds, oldest first.
+  @@index([status, expiresAt])
+  @@index([userId, status])
+  @@index([listingId, status])
+  @@map("stock_reservations")
+}
+
+enum ReservationStatus {
+  HELD
+  CONSUMED
+  RELEASED
+  EXPIRED
 }

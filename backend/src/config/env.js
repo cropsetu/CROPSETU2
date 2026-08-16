@@ -317,6 +317,11 @@ export const ENV = {
   // Get keys from https://dashboard.razorpay.com — use test keys for dev
   RAZORPAY_KEY_ID:     process.env.RAZORPAY_KEY_ID     || '',
   RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || '',
+  // Separate secret, set in the Razorpay dashboard when the webhook is created.
+  // Blank means every incoming webhook is REJECTED (verifyWebhookSignature fails
+  // closed) — a webhook can mark money as received with no user behind it, so an
+  // unconfigured secret must never be read as "trust everything".
+  RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET || '',
 
   ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean),
   // How long (seconds) browsers may cache a CORS preflight (Access-Control-Max-Age),
