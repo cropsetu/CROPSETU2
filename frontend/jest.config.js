@@ -11,6 +11,10 @@ module.exports = {
   roots: ['<rootDir>/src', '<rootDir>/../shared'],
   testMatch: ['**/__tests__/**/*.test.js'],
   transform: { '^.+\\.[jt]sx?$': 'babel-jest' },
+  // ../shared has no node_modules of its own, so a file transformed there
+  // (translations.js pulls in @babel/runtime helpers) cannot resolve them by
+  // normal upward lookup. Point resolution at this package's install.
+  modulePaths: ['<rootDir>/node_modules'],
   moduleNameMapper: {
     '^@cropsetu/shared/(.*)$': '<rootDir>/../shared/$1',
     // AsyncStorage is a native module, so importing it under the node

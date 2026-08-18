@@ -1,20 +1,33 @@
 /**
- * MyAnimalListingsScreen — shows the user's own animal listings
+ * My Animal Listings — the seller's own livestock adverts.
+ *
+ * Two things were wrong here and both were invisible in an English test run.
+ *
+ * 1. EVERY user-facing string was hard-coded English — "Remove Listing?",
+ *    "Delete failed", "No listings yet" — on a screen whose users largely read
+ *    Marathi or Hindi. A destructive confirm dialog a farmer cannot read is
+ *    worse than no dialog.
+ * 2. It fetched `/animals/my` with no pagination while the endpoint has paged
+ *    since the animal-trade hardening pass. A Krushi Kendra with hundreds of
+ *    listings pulled all of them, with images, on every screen focus.
  */
 import { COLORS } from '@cropsetu/shared/constants/colors';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback, useRef, memo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Image, ActivityIndicator, RefreshControl, Platform, Alert, Modal,
+  Image, ActivityIndicator, RefreshControl, Alert, Modal,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '@cropsetu/shared/services/api';
+import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { formatLocation } from '../../utils/location';
 import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 
-function ListingCard({ item, onDelete, onEdit }) {
+const ListingCard = memo(function ListingCard({ item, onDelete, onEdit }) {
+  const { t } = useLanguage();
+  const [imgFailed, setImgFailed] = useState(false);
   const firstImg = item.images?.[0];
   const price    = typeof item.price === 'number' ? item.price : parseFloat(item.price || 0);
   const date     = item.createdAt
@@ -24,8 +37,8 @@ function ListingCard({ item, onDelete, onEdit }) {
   return (
     <View style={styles.card}>
       <View style={styles.cardInner}>
-        {firstImg ? (
-          <Image source={{ uri: firstImg }} style={styles.thumb} />
+        {firstImg && !imgFailed ? (
+          <Image source={{ uri: firstImg }} style={styles.thumb} onError={() => setImgFailed(true)} />
         ) : (
           <View style={[styles.thumb, styles.thumbPlaceholder]}>
             <Ionicons name="paw-outline" size={28} color={COLORS.textMedium} />
@@ -46,7 +59,7 @@ function ListingCard({ item, onDelete, onEdit }) {
       <View style={styles.footer}>
         <View style={styles.footerLeft}>
           <Ionicons name="eye-outline" size={13} color={COLORS.textMedium} />
-          <Text style={styles.footerTxt}>{item.viewCount ?? 0} views</Text>
+          <Text style={styles.footerTxt}>{t('myAnimalListingsScreen.views', { count: item.viewCount ?? 0 })}</Text>
           <Text style={[styles.footerTxt, { marginLeft: 10 }]}>{date}</Text>
         </View>
         <TouchableOpacity style={styles.actionBtn} onPress={() => onEdit(item)}>
@@ -58,40 +71,67 @@ function ListingCard({ item, onDelete, onEdit }) {
       </View>
     </View>
   );
-}
+});
+
+const PAGE_SIZE = 20;
 
 export default function MyAnimalListingsScreen({ navigation }) {
-  const [listings,   setListings]   = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error,      setError]      = useState(null);
+  const { t } = useLanguage();
+  const insets = useSafeAreaInsets();
+
+  const [listings,    setListings]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page,        setPage]        = useState(1);
+  const [hasMore,     setHasMore]     = useState(false);
+  const [error,       setError]       = useState(null);
   // Delete-confirm modal: the listing being asked about, or null.
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting,      setDeleting]      = useState(false);
 
-  const fetchListings = useCallback(async (refresh = false) => {
+  const inFlight = useRef(false);
+  const alive    = useRef(true);
+
+  const fetchListings = useCallback(async (p = 1) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
-      setError(null);
-      const { data } = await api.get('/animals/my');
-      setListings(data.data || []);
+      if (p === 1) setError(null);
+      const { data } = await api.get('/animals/my', { params: { page: p, limit: PAGE_SIZE } });
+      if (!alive.current) return;
+      const items = Array.isArray(data?.data) ? data.data : [];
+      const meta  = data?.meta || {};
+      setListings((prev) => (p === 1 ? items : [...prev, ...items]));
+      setHasMore(p < (meta.totalPages || 1));
+      setPage(p);
     } catch (e) {
-      setError(e?.response?.data?.error?.message || 'Failed to load listings');
+      if (!alive.current) return;
+      // A failed page-2 must not throw away the listings already on screen.
+      if (p === 1) setError(e?.response?.data?.error?.message || t('myAnimalListingsScreen.loadFailed'));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      inFlight.current = false;
+      if (alive.current) { setLoading(false); setRefreshing(false); setLoadingMore(false); }
     }
-  }, []);
+  }, [t]);
 
-  useEffect(() => { fetchListings(); }, [fetchListings]);
-
-  // Refresh on focus so a newly-posted listing shows up immediately
+  // Focus is the ONLY load trigger. Previously a mount-time useEffect ran
+  // alongside useFocusEffect, so opening this screen fired the request twice.
   useFocusEffect(
     useCallback(() => {
-      fetchListings();
+      alive.current = true;
+      fetchListings(1);
+      return () => { alive.current = false; };
     }, [fetchListings])
   );
 
-  const handleRefresh = () => { setRefreshing(true); fetchListings(true); };
+  const handleRefresh = useCallback(() => { setRefreshing(true); fetchListings(1); }, [fetchListings]);
+
+  const handleLoadMore = useCallback(() => {
+    if (!hasMore || loading || loadingMore || inFlight.current) return;
+    setLoadingMore(true);
+    fetchListings(page + 1);
+  }, [hasMore, loading, loadingMore, page, fetchListings]);
 
   // The card's trash button just opens the confirm modal — the actual API
   // call fires from the modal's "Delete" button below. Using a state-driven
@@ -111,11 +151,10 @@ export default function MyAnimalListingsScreen({ navigation }) {
       setPendingDelete(null);
     } catch (e) {
       const msg = e?.response?.data?.error?.message
-        || e?.message
-        || 'Could not delete listing. Please try again.';
+        || t('myAnimalListingsScreen.deleteFailedMsg');
       setPendingDelete(null);
       // Brief alert for the error case — single-button alerts work fine on web.
-      Alert.alert('Delete failed', msg);
+      Alert.alert(t('myAnimalListingsScreen.deleteFailedTitle'), msg);
     } finally {
       setDeleting(false);
     }
@@ -138,11 +177,11 @@ export default function MyAnimalListingsScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.root} edges={['bottom']}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Listings</Text>
+        <Text style={styles.headerTitle}>{t('myAnimalListingsScreen.title')}</Text>
         <TouchableOpacity
           style={styles.addBtn}
           onPress={() => navigation.navigate('AnimalTrade', { screen: 'AddAnimalListing' })}
@@ -155,8 +194,8 @@ export default function MyAnimalListingsScreen({ navigation }) {
         <View style={styles.center}>
           <Ionicons name="alert-circle-outline" size={48} color={COLORS.error} />
           <Text style={styles.errorTxt}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={() => fetchListings()}>
-            <Text style={styles.retryTxt}>Retry</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => { setLoading(true); fetchListings(1); }}>
+            <Text style={styles.retryTxt}>{t('myAnimalListingsScreen.retry')}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -166,20 +205,23 @@ export default function MyAnimalListingsScreen({ navigation }) {
           removeClippedSubviews
           data={listings}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+          contentContainerStyle={listings.length ? { padding: 16, paddingBottom: 32 } : { flexGrow: 1 }}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 16 }} /> : null}
           renderItem={({ item }) => <ListingCard item={item} onDelete={requestDelete} onEdit={handleEdit} />}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={[COLORS.primary]} />}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           ListEmptyComponent={
             <View style={styles.center}>
               <Ionicons name="paw-outline" size={64} color={COLORS.gray175} />
-              <Text style={styles.emptyTitle}>No listings yet</Text>
-              <Text style={styles.emptySubtitle}>Tap + to list an animal for sale</Text>
+              <Text style={styles.emptyTitle}>{t('myAnimalListingsScreen.empty')}</Text>
+              <Text style={styles.emptySubtitle}>{t('myAnimalListingsScreen.emptyHint')}</Text>
               <TouchableOpacity
                 style={[styles.retryBtn, { marginTop: 12 }]}
                 onPress={() => navigation.navigate('AnimalTrade', { screen: 'AddAnimalListing' })}
               >
-                <Text style={styles.retryTxt}>Add Listing</Text>
+                <Text style={styles.retryTxt}>{t('myAnimalListingsScreen.addListing')}</Text>
               </TouchableOpacity>
             </View>
           }
@@ -199,11 +241,13 @@ export default function MyAnimalListingsScreen({ navigation }) {
             <View style={styles.confirmIconCircle}>
               <Ionicons name="trash" size={28} color={COLORS.error} />
             </View>
-            <Text style={styles.confirmTitle}>Remove Listing?</Text>
+            <Text style={styles.confirmTitle}>{t('myAnimalListingsScreen.removeTitle')}</Text>
             <Text style={styles.confirmBody}>
               {pendingDelete
-                ? `"${pendingDelete.animal}${pendingDelete.breed ? ' — ' + pendingDelete.breed : ''}" will be removed from the marketplace.`
-                : 'Are you sure?'}
+                ? t('myAnimalListingsScreen.removeBody', {
+                    name: `${pendingDelete.animal}${pendingDelete.breed ? ' — ' + pendingDelete.breed : ''}`,
+                  })
+                : t('myAnimalListingsScreen.removeBodyGeneric')}
             </Text>
             <View style={styles.confirmBtnRow}>
               <TouchableOpacity
@@ -211,7 +255,7 @@ export default function MyAnimalListingsScreen({ navigation }) {
                 style={[styles.confirmBtn, styles.confirmBtnSecondary]}
                 onPress={() => setPendingDelete(null)}
               >
-                <Text style={styles.confirmBtnTextSecondary}>Cancel</Text>
+                <Text style={styles.confirmBtnTextSecondary}>{t('myAnimalListingsScreen.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 disabled={deleting}
@@ -220,7 +264,7 @@ export default function MyAnimalListingsScreen({ navigation }) {
               >
                 {deleting
                   ? <ActivityIndicator color={COLORS.white} />
-                  : <Text style={styles.confirmBtnTextDanger}>Delete</Text>}
+                  : <Text style={styles.confirmBtnTextDanger}>{t('myAnimalListingsScreen.delete')}</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -236,9 +280,8 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.surface, paddingHorizontal: 12, paddingVertical: 12,
+    backgroundColor: COLORS.surface, paddingHorizontal: 12, paddingBottom: 12,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
-    paddingTop: Platform.OS === 'android' ? 44 : 12,
   },
   backBtn:     { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '700', color: COLORS.textDark },

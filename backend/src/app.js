@@ -19,6 +19,12 @@ import { getCacheMetrics } from './utils/cacheMetrics.js';
 import { getShopMetricsFlat, getShopMetrics, shopMetricsMiddleware } from './services/shopMetrics.service.js';
 import { rateLimiter, clientIp } from './middleware/rateLimit.js';
 import { csrfProtection } from './middleware/csrf.js';
+import { installAsyncRouteSafety } from './middleware/asyncRoutes.js';
+
+// An async handler that rejects must produce a response, not a request that
+// hangs until the phone gives up. Installed before any router so every route in
+// every module is covered — see middleware/asyncRoutes.js.
+installAsyncRouteSafety();
 
 // Routes
 import authRoutes          from './routes/auth.routes.js';

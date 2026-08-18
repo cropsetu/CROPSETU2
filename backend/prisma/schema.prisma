@@ -26,6 +26,11 @@ model User {
   // existing admins keep full access until scopes are deliberately assigned.
   adminScopes              String[]             @default([])
   language                 String               @default("en")
+  /// Farmer-controlled mute for ACTIVITY pushes (order/booking/reply/like).
+  /// Security alerts — new-device login, location anomaly, OTP — IGNORE this
+  /// flag: a stolen handset must not be able to silence the warning that it was
+  /// stolen. See services/push.service.js.
+  notificationsEnabled     Boolean              @default(true)
   isActive                 Boolean              @default(true)
   // Bumped on security-sensitive changes (e.g. phone change). Access tokens
   // embed the version at issue time; a stale version is rejected at auth.

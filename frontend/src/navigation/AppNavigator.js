@@ -252,6 +252,7 @@ import StateCropsScreen from '../screens/Weather/StateCropsScreen';
 import ProfileScreen           from '../screens/Profile/ProfileScreen';
 import MyRentListingsScreen    from '../screens/Rent/MyRentListingsScreen';
 import MyOrdersScreen          from '../screens/Profile/MyOrdersScreen';
+import SavedAddressesScreen from '../screens/Profile/SavedAddressesScreen';
 import SavedPostsScreen        from '../screens/Profile/SavedPostsScreen';
 import MyAnimalListingsScreen  from '../screens/Profile/MyAnimalListingsScreen';
 
@@ -424,6 +425,7 @@ function ProfileNavigator() {
       <ProfileStack.Screen name="ProfileHome"         component={ProfileScreen}           options={{ headerShown: false }} />
       <ProfileStack.Screen name="MyRentListings"      component={MyRentListingsScreen}    options={{ headerShown: false }} />
       <ProfileStack.Screen name="MyOrders"            component={MyOrdersScreen}          options={{ headerShown: false }} />
+      <ProfileStack.Screen name="SavedAddresses"     component={SavedAddressesScreen}    options={{ headerShown: false }} />
       <ProfileStack.Screen name="SavedPosts"          component={SavedPostsScreen}        options={{ headerShown: false }} />
       <ProfileStack.Screen name="MyAnimalListings"    component={MyAnimalListingsScreen}  options={{ headerShown: false }} />
       {/* Farm Profile Module — cosmic screens draw own header */}

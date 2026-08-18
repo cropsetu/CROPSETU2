@@ -18,7 +18,7 @@ import { validate } from '../middleware/validate.js';
 import { createUploader, uploadFiles } from '../config/cloudinary.js';
 import prisma from '../config/db.js';
 import {
-  sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, paginationMeta,
+  sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, paginationMeta, parsePageNumber, parsePageSize,
 } from '../utils/response.js';
 import { stripHtml } from '../utils/encrypt.js';
 import { sanitizeSearch } from '../utils/sanitizeSearch.js';
@@ -38,8 +38,8 @@ router.get(
   ],
   validate,
   async (req, res) => {
-    const page  = parseInt(req.query.page  || '1', 10);
-    const limit = parseInt(req.query.limit || '20', 10);
+    const page  = parsePageNumber(req.query.page);
+    const limit = parsePageSize(req.query.limit, 20, 50);
     const { category, scope, district, city } = req.query;
     const search = sanitizeSearch(req.query.search); // strip LIKE wildcards / cap length
 
@@ -207,8 +207,8 @@ router.post('/posts/:id/like', authenticate, async (req, res) => {
 
 // ── Saved (bookmarked) posts for the current user ────────────────────────────
 router.get('/saved', authenticate, async (req, res) => {
-  const page  = parseInt(req.query.page  || '1', 10);
-  const limit = parseInt(req.query.limit || '20', 10);
+  const page  = parsePageNumber(req.query.page);
+  const limit = parsePageSize(req.query.limit, 20, 50);
 
   const savedWhere = { userId: req.user.id, post: { deletedAt: null } }; // skip bookmarks of removed posts
   const [bookmarks, total] = await Promise.all([

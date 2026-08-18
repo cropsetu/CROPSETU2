@@ -6,6 +6,7 @@ import { translations, LANGUAGES } from '../i18n/translations';
 import { getItem, setItem } from '../utils/storage';
 
 const LANG_KEY      = 'farmeasy_language';
+const STATE_KEY     = 'farmeasy_selected_state';  // home state, drives the language suggestion
 const CHAT_LANG_KEY = 'farmeasy_chat_language';   // 'auto' | language code
 const RESP_LEN_KEY  = 'farmeasy_response_length'; // 'short' | 'medium' | 'long' | 'extra_long'
 const DEFAULT_LANG  = 'en';
@@ -23,17 +24,22 @@ export function LanguageProvider({ children }) {
   // Chat reply length preference. Mirrors chatLanguage: persisted separately so
   // the farmer's pick (Short/Medium/Long/Extra Long) survives app restarts.
   const [responseLength, setResponseLengthState] = useState(DEFAULT_RESP_LEN);
+  // The farmer's home state. Account → Select State writes it, and it is shown
+  // back to them there. Purely a display + language-suggestion value.
+  const [selectedState, setSelectedStateValue] = useState(null);
   const [ready, setReady] = useState(false);
 
   // Load saved language preferences
   useEffect(() => {
     (async () => {
       try {
-        const [savedApp, savedChat, savedRespLen] = await Promise.all([
+        const [savedApp, savedChat, savedRespLen, savedState] = await Promise.all([
           getItem(LANG_KEY),
           getItem(CHAT_LANG_KEY),
           getItem(RESP_LEN_KEY),
+          getItem(STATE_KEY),
         ]);
+        if (savedState) setSelectedStateValue(savedState);
         const appLang = savedApp && translations[savedApp] ? savedApp : DEFAULT_LANG;
         setLanguageState(appLang);
         // Chat language defaults to the app language unless the user has
@@ -57,6 +63,34 @@ export function LanguageProvider({ children }) {
     if (translations[lang]) {
       setLanguageState(lang);
       await setItem(LANG_KEY, lang);
+    }
+  }, []);
+
+  /**
+   * Account → Select State. Records the farmer's home state and, where we can
+   * honour it, switches the UI to that state's language.
+   *
+   * This function is why the state picker existed but crashed: the screen was
+   * built and shipped calling `setLanguageByState`, which the context never
+   * provided — so every tap threw "setLanguageByState is not a function".
+   *
+   * `langCode` is supplied by the caller rather than looked up here, because the
+   * India-specific state→language table lives in the app (frontend/src/i18n/
+   * stateMappings.js) and this context is shared with the seller app.
+   *
+   * Only en/hi/mr have dictionaries. Selecting a state whose language has none —
+   * Gujarat, Punjab, Tamil Nadu — records the state but LEAVES THE UI LANGUAGE
+   * ALONE. Dropping a Hindi-reading farmer into English because they told us
+   * where they live would be a downgrade, and the picker offers an explicit
+   * "choose language" link for anyone who wants a different one.
+   */
+  const setLanguageByState = useCallback(async (stateName, langCode) => {
+    if (!stateName) return;
+    setSelectedStateValue(stateName);
+    await setItem(STATE_KEY, stateName);
+    if (langCode && translations[langCode]) {
+      setLanguageState(langCode);
+      await setItem(LANG_KEY, langCode);
     }
   }, []);
 
@@ -119,8 +153,14 @@ export function LanguageProvider({ children }) {
   // LanguageProvider render. All callbacks are already stable (useCallback);
   // this only changes identity when the underlying state actually changes.
   const value = useMemo(
-    () => ({ language, setLanguage, chatLanguage, setChatLanguage, responseLength, setResponseLength, t, LANGUAGES }),
-    [language, setLanguage, chatLanguage, setChatLanguage, responseLength, setResponseLength, t],
+    () => ({
+      language, setLanguage, chatLanguage, setChatLanguage,
+      responseLength, setResponseLength,
+      selectedState, setLanguageByState,
+      t, LANGUAGES,
+    }),
+    [language, setLanguage, chatLanguage, setChatLanguage, responseLength, setResponseLength,
+     selectedState, setLanguageByState, t],
   );
 
   if (!ready) return null;

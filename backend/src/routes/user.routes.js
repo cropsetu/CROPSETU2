@@ -133,6 +133,7 @@ router.get('/me', async (req, res) => {
       select: {
         id: true, phone: true, email: true, name: true, avatar: true,
         role: true, language: true, createdAt: true,
+        notificationsEnabled: true,
         statusQuote: true,
         pincode: true, district: true, taluka: true, village: true,
         city: true, state: true,
@@ -201,6 +202,7 @@ router.put(
     body('email').optional({ values: 'falsy' }).trim().isEmail().isLength({ max: 200 })
       .withMessage('Enter a valid email address'),
     body('language').optional().isIn(['en', 'hi', 'mr']),
+    body('notificationsEnabled').optional().isBoolean(),
     body('statusQuote').optional().trim().isLength({ max: 200 }),
     body('pincode').optional().matches(/^\d{6}$/),
     body('district').optional().trim().isLength({ max: 100 }),
@@ -253,7 +255,7 @@ router.put(
   async (req, res) => {
     try {
       const {
-        name, email, language, statusQuote,
+        name, email, language, statusQuote, notificationsEnabled,
         pincode, district, taluka, village, city, state,
         lat, lng, dateOfBirth,
         businessType, gstNumber, gstOptOut,
@@ -284,6 +286,12 @@ router.put(
       // (lowercased + trimmed) so the unique index treats casing consistently.
       if (email       !== undefined) userData.email       = email ? stripHtml(email.trim().toLowerCase()) : null;
       if (language    !== undefined) userData.language    = language;
+      // The Account → Notifications switch. Multipart bodies arrive as strings,
+      // so 'false' must not be read as truthy — this is exactly the coercion bug
+      // that made gstOptOut behave backwards ([M4]).
+      if (notificationsEnabled !== undefined) {
+        userData.notificationsEnabled = notificationsEnabled === true || notificationsEnabled === 'true';
+      }
       if (avatar      !== undefined) userData.avatar      = avatar;
       if (statusQuote !== undefined) userData.statusQuote = stripHtml(statusQuote);
       if (pincode     !== undefined) userData.pincode     = pincode;

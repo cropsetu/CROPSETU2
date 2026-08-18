@@ -19,7 +19,14 @@ const redisSet = jest.fn().mockResolvedValue('OK');
 
 jest.unstable_mockModule('../../../src/config/db.js', () => ({ default: { auditLog: { findMany: auditFindMany } } }));
 jest.unstable_mockModule('../../../src/services/geoIp.service.js', () => ({ resolveIpGeo }));
-jest.unstable_mockModule('../../../src/services/push.service.js', () => ({ sendPushToUser }));
+// The mock must expose EVERY export the service under test imports — a module
+// mock replaces the whole module, so a missing name is a link-time SyntaxError,
+// not an undefined at call time. geoAnomaly imports NOTIFICATION_CATEGORIES to
+// mark its alert as SECURITY (exempt from the farmer's notification mute).
+jest.unstable_mockModule('../../../src/services/push.service.js', () => ({
+  sendPushToUser,
+  NOTIFICATION_CATEGORIES: { ACTIVITY: 'ACTIVITY', SECURITY: 'SECURITY' },
+}));
 jest.unstable_mockModule('../../../src/services/incident.service.js', () => ({ reportSecurityEvent }));
 jest.unstable_mockModule('../../../src/config/redis.js', () => ({ default: { status: 'ready', set: redisSet } }));
 

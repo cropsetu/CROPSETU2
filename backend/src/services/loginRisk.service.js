@@ -12,7 +12,7 @@
  */
 import prisma from '../config/db.js';
 import logger from '../utils/logger.js';
-import { sendPushToUser } from './push.service.js';
+import { sendPushToUser, NOTIFICATION_CATEGORIES } from './push.service.js';
 
 const LOOKBACK_DAYS = 90;
 const HISTORY_LIMIT = 50;
@@ -92,6 +92,9 @@ export async function notifyRiskyLogin(userId, signals) {
       title: 'New sign-in to your account',
       body:  `We noticed a sign-in from ${where}. If this was you, no action is needed. If not, secure your account right away.`,
       data:  { kind: 'risky_login', signals },
+      // Not mutable from Account → Notifications: this is how a farmer finds
+      // out someone else is in their account.
+      category: NOTIFICATION_CATEGORIES.SECURITY,
     });
   } catch (err) {
     logger.warn('[LoginRisk] alert failed: %s', err.message);

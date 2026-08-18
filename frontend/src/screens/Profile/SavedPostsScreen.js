@@ -2,12 +2,12 @@
  * SavedPostsScreen — shows community posts the user has bookmarked
  */
 import { COLORS } from '@cropsetu/shared/constants/colors';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Image, ActivityIndicator, RefreshControl, Platform,
+  Image, ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '@cropsetu/shared/services/api';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
@@ -20,7 +20,7 @@ const CATEGORY_COLORS = {
   COMMUNITY: COLORS.violet,
 };
 
-function PostCard({ post }) {
+const PostCard = memo(function PostCard({ post }) {
   const { t } = useLanguage();
   const date = post.createdAt
     ? new Date(post.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -65,10 +65,11 @@ function PostCard({ post }) {
       </View>
     </View>
   );
-}
+});
 
 export default function SavedPostsScreen({ navigation }) {
   const { t } = useLanguage();
+  const insets = useSafeAreaInsets();
   const [posts,     setPosts]     = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -76,27 +77,46 @@ export default function SavedPostsScreen({ navigation }) {
   const [hasMore,   setHasMore]   = useState(true);
   const [error,     setError]     = useState(null);
 
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // FlatList fires onEndReached repeatedly during a fast flick. Without a guard
+  // the same page is requested several times and appended several times —
+  // duplicate posts and duplicate React keys.
+  const inFlight = useRef(false);
+  const alive    = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
   const fetchPosts = useCallback(async (p = 1, refresh = false) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
       if (p === 1) setError(null);
       const { data } = await api.get(`/community/saved?page=${p}&limit=20`);
-      const items = data.data || [];
-      const meta  = data.meta || {};
-      setPosts((prev) => refresh || p === 1 ? items : [...prev, ...items]);
+      if (!alive.current) return;
+      const items = Array.isArray(data?.data) ? data.data : [];
+      const meta  = data?.meta || {};
+      setPosts((prev) => (refresh || p === 1 ? items : [...prev, ...items]));
       setHasMore(p < (meta.totalPages || 1));
       setPage(p);
     } catch (e) {
-      setError(e?.response?.data?.error?.message || t('profile.savedPostsLoadError'));
+      if (!alive.current) return;
+      // A failed "load more" must not wipe the posts already on screen; only a
+      // failed first page justifies replacing the list with an error.
+      if (p === 1) setError(e?.response?.data?.error?.message || t('profile.savedPostsLoadError'));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      inFlight.current = false;
+      if (alive.current) { setLoading(false); setRefreshing(false); setLoadingMore(false); }
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { fetchPosts(1); }, [fetchPosts]);
 
-  const handleRefresh  = () => { setRefreshing(true); fetchPosts(1, true); };
-  const handleLoadMore = () => { if (hasMore && !loading) fetchPosts(page + 1); };
+  const handleRefresh  = useCallback(() => { setRefreshing(true); fetchPosts(1, true); }, [fetchPosts]);
+  const handleLoadMore = useCallback(() => {
+    if (!hasMore || loading || loadingMore || inFlight.current) return;
+    setLoadingMore(true);
+    fetchPosts(page + 1);
+  }, [hasMore, loading, loadingMore, page, fetchPosts]);
 
   if (loading && posts.length === 0) {
     return (
@@ -108,7 +128,7 @@ export default function SavedPostsScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.root} edges={['bottom']}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
         </TouchableOpacity>
@@ -131,12 +151,12 @@ export default function SavedPostsScreen({ navigation }) {
           removeClippedSubviews
           data={posts}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+          contentContainerStyle={posts.length ? { padding: 16, paddingBottom: 32 } : { flexGrow: 1 }}
           renderItem={({ item }) => <PostCard post={item} />}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={[COLORS.primary]} />}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.3}
-          ListFooterComponent={hasMore ? <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 16 }} /> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 16 }} /> : null}
           ListEmptyComponent={
             <View style={styles.center}>
               <Ionicons name="bookmark-outline" size={64} color={COLORS.gray175} />
@@ -157,9 +177,8 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.surface, paddingHorizontal: 12, paddingVertical: 12,
+    backgroundColor: COLORS.surface, paddingHorizontal: 12, paddingBottom: 12,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
-    paddingTop: Platform.OS === 'android' ? 44 : 12,
   },
   backBtn:     { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '700', color: COLORS.textDark },
