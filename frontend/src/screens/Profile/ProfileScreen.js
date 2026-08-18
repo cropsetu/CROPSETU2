@@ -290,7 +290,12 @@ export default function ProfileScreen({ navigation }) {
     return () => { cancelled = true; };
   }, [refreshUser]), { key: 'profile' });
 
-  const [notifications,   setNotifications]  = useState(true);
+  // Account → Notifications. This used to be a bare useState(true): flipping it
+  // changed a local variable and nothing else, so a farmer who turned alerts off
+  // kept receiving them and had no way to tell the switch was decorative.
+  // It now mirrors User.notificationsEnabled and writes through to the server.
+  const [notifications,    setNotifications]    = useState(user?.notificationsEnabled !== false);
+  const [savingNotifPref,  setSavingNotifPref]  = useState(false);
   const [showLangModal,   setShowLangModal]  = useState(false);
   const [showStateModal,  setShowStateModal] = useState(false);
   const [showEditModal,   setShowEditModal]  = useState(false);
@@ -305,6 +310,40 @@ export default function ProfileScreen({ navigation }) {
   // before weather resolves; the effect below refines it to the live condition.
   const [heroImage, setHeroImage] = useState(() => getWeatherImage(0, new Date().getHours()));
   const scrollY = useRef(new Animated.Value(0)).current;
+
+  // refreshUser() re-reads the profile on focus; adopt whatever the server says
+  // so the switch reflects reality rather than a stale first render.
+  useEffect(() => {
+    if (typeof user?.notificationsEnabled === 'boolean') {
+      setNotifications(user.notificationsEnabled);
+    }
+  }, [user?.notificationsEnabled]);
+
+  /**
+   * Optimistic, but honest about failure: the switch moves immediately (a
+   * toggle that lags behind the thumb feels broken), and snaps back with an
+   * explanation if the write does not land. Silently keeping the new position
+   * after a failed save would recreate the original bug in a subtler form.
+   */
+  const handleNotificationsToggle = useCallback(async (next) => {
+    if (savingNotifPref) return;
+    const previous = notifications;
+    setNotifications(next);
+    setSavingNotifPref(true);
+    try {
+      await api.put('/users/me', { notificationsEnabled: next });
+      updateUser({ notificationsEnabled: next });
+    } catch (err) {
+      setNotifications(previous);
+      Alert.alert(
+        t('profile.notifSaveFailedTitle', 'Could not save'),
+        err?.response?.data?.error?.message
+          || t('profile.notifSaveFailedMsg', 'Your notification setting was not saved. Please try again.'),
+      );
+    } finally {
+      setSavingNotifPref(false);
+    }
+  }, [notifications, savingNotifPref, updateUser, t]);
 
   const initials = user?.name
     ? user.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)
@@ -415,6 +454,49 @@ export default function ProfileScreen({ navigation }) {
       );
     }
   }, [t]);
+
+  /**
+   * Open an external link, or say so when nothing can.
+   *
+   * `Linking.openURL` REJECTS when no installed app handles the URL — on a
+   * device with no browser, or a stripped OEM build. Unhandled, that rejection
+   * surfaced as a button that appeared to do nothing at all.
+   */
+  const openExternal = useCallback(async (url) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) throw new Error('unsupported');
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert(
+        t('profile.linkFailedTitle', 'Could not open link'),
+        t('profile.linkFailedMsg', 'No app on this device can open this link.'),
+      );
+    }
+  }, [t]);
+
+  /**
+   * What we actually do with the farmer's data.
+   *
+   * The previous copy was a hard-coded English alert asserting the data is
+   * "never shared with third parties". That is not true — payments go to
+   * Razorpay, OTPs to MSG91, images to Cloudinary, AI features to the model
+   * provider — and it was unreadable to the Marathi and Hindi majority of users.
+   * The replacement is translated, and describes the protections that are
+   * genuinely implemented (encryption at rest, masking on read, private KYC
+   * storage, erasure on request) rather than an absolute we cannot honour.
+   */
+  const handlePrivacyCenter = useCallback(() => {
+    Alert.alert(
+      t('profile.privacyCenter'),
+      t('profile.privacyBody'),
+      [
+        { text: t('profile.privacyReadPolicy', 'Read full policy'),
+          onPress: () => openExternal('https://cropsetu.app/privacy') },
+        { text: t('profile.privacyClose', 'Close'), style: 'cancel' },
+      ],
+    );
+  }, [t, openExternal]);
 
   const handleLogout = () => setShowLogoutConfirm(true);
 
@@ -603,7 +685,7 @@ export default function ProfileScreen({ navigation }) {
           <SectionCard delay={60}>
             <SectionHeader title={t('profile.quickActions')} icon="flash-outline" iconColor={D.gold} />
             <View style={S.quickGrid}>
-              <QuickTile index={0} icon="leaf"     label="My Farms"               color={COLORS.primary} onPress={() => navigation.navigate('FarmList')} />
+              <QuickTile index={0} icon="leaf"     label={t('farmProfile.myFarms')}           color={COLORS.primary} onPress={() => navigation.navigate('FarmList')} />
               <QuickTile index={1} icon="cart"     label={t('myOrders')}          color={D.green}  onPress={() => navigation.navigate('MyOrders')} />
               <QuickTile index={2} icon="paw"      label={t('profile.myListings')} color={D.amber}  onPress={() => navigation.navigate('MyAnimalListings')} />
             </View>
@@ -612,7 +694,14 @@ export default function ProfileScreen({ navigation }) {
           <SectionCard delay={120}>
             <SectionHeader title={t('profile.accountSettings')} icon="settings-outline" iconColor={D.cyan} />
             {/* "Edit Profile" lives in the hero header — no duplicate row here. */}
-            <RowItem icon="location-outline"      iconColor={D.green}  label={t('profile.savedAddresses')}   subtitle={user?.city ? `${[user.city, user.district].filter(Boolean).join(', ')}` : t('profile.addAddress')} onPress={() => setShowEditModal(true)} />
+            {/* Opens the real address book (the one checkout reads), not the
+                profile-location editor this row used to open. */}
+            <RowItem
+              icon="location-outline" iconColor={D.green}
+              label={t('profile.savedAddresses')}
+              subtitle={t('savedAddresses.subtitle')}
+              onPress={() => navigation.navigate('SavedAddresses')}
+            />
             <RowItem
               icon="globe-outline" iconColor={D.cyan}
               label={t('profile.selectState')}
@@ -626,13 +715,15 @@ export default function ProfileScreen({ navigation }) {
               rightElement={
                 <Switch
                   value={notifications}
-                  onValueChange={setNotifications}
+                  onValueChange={handleNotificationsToggle}
+                  disabled={savingNotifPref}
                   trackColor={{ false: KHET.border, true: KHET.primary + '70' }}
                   thumbColor={notifications ? KHET.primary : KHET.white}
+                  accessibilityLabel={t('profile.notificationSettings')}
                 />
               }
             />
-            <RowItem icon="shield-checkmark-outline" iconColor={D.purple} label={t('profile.privacyCenter')} subtitle={t('profile.privacySub')} onPress={() => Alert.alert(t('profile.privacyCenter'), 'Your data is securely stored and never shared with third parties. We follow industry-standard encryption and privacy practices.')} isLast />
+            <RowItem icon="shield-checkmark-outline" iconColor={D.purple} label={t('profile.privacyCenter')} subtitle={t('profile.privacySub')} onPress={handlePrivacyCenter} isLast />
           </SectionCard>
 
           <SectionCard delay={180}>
@@ -640,7 +731,7 @@ export default function ProfileScreen({ navigation }) {
             <RowItem icon="call-outline"     iconColor={D.green}  label={t('profile.mobileNumber')} subtitle={user?.phone || '—'}                                  showArrow={false} />
             <RowItem icon="mail-outline"     iconColor={D.blue}   label={t('profile.email')}         subtitle={user?.email || t('profile.notAddedYet')}             onPress={() => setShowEditModal(true)} />
             <RowItem icon="business-outline" iconColor={D.cyan}   label={t('profile.district')}      subtitle={user?.district || '—'}                               showArrow={false} />
-            <RowItem icon="home-outline"     iconColor={D.green}  label="Village"                    subtitle={user?.village || '—'}                                showArrow={false} />
+            <RowItem icon="home-outline"     iconColor={D.green}  label={t('farmProfile.village')}                subtitle={user?.village || '—'}                                showArrow={false} />
             <RowItem icon="location-outline" iconColor={D.amber}  label={t('profile.cityTown')}      subtitle={user?.city || '—'}                                   showArrow={false} />
             <RowItem icon="map-outline"      iconColor={D.indigo} label={t('profile.state')}         subtitle={user?.state || '—'}                                  showArrow={false} />
             <RowItem icon="pin-outline"      iconColor={D.gold}   label={t('profile.pincode')}       subtitle={user?.pincode || '—'}                                showArrow={false} isLast />
@@ -713,8 +804,8 @@ export default function ProfileScreen({ navigation }) {
             <SectionHeader title={t('profile.feedbackInfo')} icon="chatbubbles-outline" iconColor={D.gold} />
             <RowItem icon="star-outline"              iconColor={D.gold}   label={t('rate')}                        subtitle={t('profile.rateStar')}          onPress={() => Alert.alert(t('profile.thankYou'), t('profile.thankYouMsg'))} />
             <RowItem icon="help-circle-outline"       iconColor={D.blue}   label={t('help')}                        subtitle={t('helpSub')}                   onPress={() => Alert.alert(t('profile.support'), t('profile.callUs'))} />
-            <RowItem icon="document-text-outline"     iconColor={D.purple} label={t('profile.termsLabel')}                                                    onPress={() => Linking.openURL('https://cropsetu.app/terms')} />
-            <RowItem icon="chatbubble-ellipses-outline" iconColor={D.cyan} label={t('profile.browseFAQs')}          subtitle={t('profile.faqsSub')}           onPress={() => Linking.openURL('https://cropsetu.app/faqs')} isLast />
+            <RowItem icon="document-text-outline"     iconColor={D.purple} label={t('profile.termsLabel')}                                                    onPress={() => openExternal('https://cropsetu.app/terms')} />
+            <RowItem icon="chatbubble-ellipses-outline" iconColor={D.cyan} label={t('profile.browseFAQs')}          subtitle={t('profile.faqsSub')}           onPress={() => openExternal('https://cropsetu.app/faqs')} isLast />
           </SectionCard>
 
           {/* Seller handoff — only for accounts the backend already flipped to
@@ -872,7 +963,7 @@ export default function ProfileScreen({ navigation }) {
                         <TouchableOpacity
                           key={state.name}
                           style={[S.stateOption, isSelected && { borderColor: KHET.primary, backgroundColor: KHET.accent }]}
-                          onPress={() => { setLanguageByState(state.name); setShowStateModal(false); }}
+                          onPress={() => { setLanguageByState(state.name, state.lang); setShowStateModal(false); }}
                           activeOpacity={0.75}
                         >
                           <View style={{ flex: 1 }}>
@@ -1264,7 +1355,12 @@ const S = StyleSheet.create({
     backgroundColor: KHET.card,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     padding: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 24,
-    maxHeight: '85%',
+    // A FIXED height, not maxHeight. The state list inside is a ScrollView with
+    // flex: 1, and flex distributes FREE SPACE — in a parent sized to its own
+    // content there is none, so the list collapsed to zero height and the sheet
+    // rendered as a bare header. This was invisible until the picker stopped
+    // crashing on tap (see setLanguageByState in LanguageContext).
+    height: '85%',
   },
   regionHeader: {
     fontSize: 11, fontFamily: KFONT.sansBold, color: KHET.mutedForeground,

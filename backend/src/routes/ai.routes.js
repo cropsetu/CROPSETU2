@@ -24,7 +24,7 @@ import fs          from 'fs';
 import os          from 'os';
 import { authenticate } from '../middleware/auth.js';
 import { uuidParamGuard } from '../middleware/uuidParams.js';
-import { sendSuccess, sendError } from '../utils/response.js';
+import { sendSuccess, sendError, parsePageNumber } from '../utils/response.js';
 import { ENV } from '../config/env.js';
 import {
   sarvamSTT,
@@ -1299,7 +1299,7 @@ router.post('/translate', authenticate, aiChatLimit, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/conversations', authenticate, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '20', 10), 50);
-  const page  = parseInt(req.query.page || '1', 10);
+  const page  = parsePageNumber(req.query.page);
 
   // Text chats only. Filter out:
   //  - archived (soft-deleted) rows
@@ -1337,7 +1337,7 @@ router.get('/conversations', authenticate, async (req, res) => {
 // GET /api/v1/ai/voice/conversations
 router.get('/voice/conversations', authenticate, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '20', 10), 50);
-  const page  = parseInt(req.query.page || '1', 10);
+  const page  = parsePageNumber(req.query.page);
   const where = { userId: req.user.id, isArchived: false };
 
   const [convos, total] = await Promise.all([
@@ -2486,7 +2486,7 @@ router.post('/scan/:sessionId/chat', authenticate, requireFeature('ai_chat'), ai
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/scan/sessions', authenticate, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '20', 10), 50);
-  const page  = parseInt(req.query.page || '1', 10);
+  const page  = parsePageNumber(req.query.page);
 
   const [sessions, total] = await Promise.all([
     prisma.aIConversation.findMany({

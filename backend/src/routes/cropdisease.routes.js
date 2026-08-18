@@ -29,7 +29,9 @@ import { query } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { uuidParamGuard } from '../middleware/uuidParams.js';
-import { sendSuccess, sendError, sendServerError } from '../utils/response.js';
+import {
+  sendSuccess, sendError, sendServerError, parsePageNumber, parsePageSize,
+} from '../utils/response.js';
 import { getWeatherData } from '../services/weather.service.js';
 import { getSoilData } from '../services/soildata.service.js';
 import prisma from '../config/db.js';
@@ -52,8 +54,8 @@ export const pincodeQueryRules = [
 // ─── GET /api/v1/crop-disease/reports ────────────────────────────────────────
 // List the authenticated user's past AI analysis reports (newest first)
 router.get('/reports', authenticate, listReportsRules, validate, async (req, res) => {
-  const page  = parseInt(req.query.page  || '1', 10);
-  const limit = parseInt(req.query.limit || '10', 10);
+  const page  = parsePageNumber(req.query.page);
+  const limit = parsePageSize(req.query.limit, 10, 50);
 
   const [reports, total] = await Promise.all([
     prisma.cropDiseaseReport.findMany({

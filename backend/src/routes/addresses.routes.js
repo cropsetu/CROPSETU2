@@ -52,28 +52,31 @@ router.post(
       return sendError(res, 'Invalid phone number', 400);
     }
 
-    // If marking as default, unset all existing defaults first
-    if (isDefault) {
-      await prisma.savedAddress.updateMany({
-        where: { userId: req.user.id },
-        data:  { isDefault: false },
+    // Clearing the old default and writing the new one must be ONE unit. Run
+    // apart, a create that fails after the updateMany leaves the farmer with no
+    // default address at all — and checkout then has nothing to preselect.
+    const address = await prisma.$transaction(async (tx) => {
+      if (isDefault) {
+        await tx.savedAddress.updateMany({
+          where: { userId: req.user.id },
+          data:  { isDefault: false },
+        });
+      }
+      return tx.savedAddress.create({
+        data: {
+          userId:   req.user.id,
+          type,
+          name:     name.trim().slice(0, 100),
+          phone:    normPhone,
+          flat:     flat.trim().slice(0, 100),
+          street:   street.trim().slice(0, 200),
+          city:     city.trim().slice(0, 100),
+          state:    state.trim().slice(0, 100),
+          pincode:  pincode.trim(),
+          landmark: landmark?.trim().slice(0, 200) || null,
+          isDefault: Boolean(isDefault),
+        },
       });
-    }
-
-    const address = await prisma.savedAddress.create({
-      data: {
-        userId:   req.user.id,
-        type,
-        name:     name.trim().slice(0, 100),
-        phone:    normPhone,
-        flat:     flat.trim().slice(0, 100),
-        street:   street.trim().slice(0, 200),
-        city:     city.trim().slice(0, 100),
-        state:    state.trim().slice(0, 100),
-        pincode:  pincode.trim(),
-        landmark: landmark?.trim().slice(0, 200) || null,
-        isDefault: Boolean(isDefault),
-      },
     });
     return sendCreated(res, address);
   }
@@ -128,7 +131,25 @@ router.delete('/:id', authenticate, async (req, res) => {
     where: { id: req.params.id, userId: req.user.id },
   });
   if (!addr) return sendNotFound(res, 'Address');
-  await prisma.savedAddress.delete({ where: { id: req.params.id } });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.savedAddress.delete({ where: { id: req.params.id } });
+
+    // Deleting the DEFAULT would otherwise leave the account with none, and
+    // checkout would open with nothing selected even though addresses exist.
+    // Promote the most recently added survivor.
+    if (addr.isDefault) {
+      const next = await tx.savedAddress.findFirst({
+        where:   { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        select:  { id: true },
+      });
+      if (next) {
+        await tx.savedAddress.update({ where: { id: next.id }, data: { isDefault: true } });
+      }
+    }
+  });
+
   return sendSuccess(res, { deleted: true });
 });
 

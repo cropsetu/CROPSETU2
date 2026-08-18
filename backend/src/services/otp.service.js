@@ -8,7 +8,7 @@ import axios from 'axios';
 import prisma from '../config/db.js';
 import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
-import { sendPushToUser } from './push.service.js';
+import { sendPushToUser, NOTIFICATION_CATEGORIES } from './push.service.js';
 import { checkOtpLock, recordOtpFailure, clearOtpLockout } from './otpLockout.service.js';
 
 function generateOtp() {
@@ -148,6 +148,7 @@ async function notifyOtpLockout(phone, lockSeconds) {
       title: 'Security alert: sign-in temporarily locked',
       body: `We blocked your number after several incorrect OTP attempts. Try again in about ${minutes} minute(s). If this wasn't you, your account is safe — no one was signed in.`,
       data: { kind: 'otp_lockout', lockSeconds: lockSeconds || ENV.OTP_LOCK_BASE_SECONDS },
+      category: NOTIFICATION_CATEGORIES.SECURITY,
     });
   } catch (err) {
     logger.warn('[OTP] lockout notification failed: %s', err.message);

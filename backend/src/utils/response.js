@@ -106,6 +106,19 @@ export function parsePageSize(raw, def = 50, max = 100) {
 }
 
 /**
+ * Parse a 1-based page number from untrusted query input.
+ *
+ * `parseInt('abc')` is NaN, and a NaN reaching `skip:` makes Prisma throw — so
+ * an unguarded page parameter is a 500 anyone can trigger by typo. Anything not
+ * a positive integer reads as page 1.
+ */
+export function parsePageNumber(raw, def = 1) {
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return def;
+  return n;
+}
+
+/**
  * Build pagination meta. Signature matches existing call sites: (total, page, limit).
  * Returns { page, limit, total, totalPages } — totalPages is ceil(total / limit),
  * minimum 1 so clients can always render "page X of Y".

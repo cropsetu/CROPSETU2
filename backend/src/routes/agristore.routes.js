@@ -53,7 +53,9 @@ import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
 import logger from '../utils/logger.js';
 import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
-import { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta, parsePageSize } from '../utils/response.js';
+import {
+  sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta, parsePageSize, parsePageNumber,
+} from '../utils/response.js';
 import { keysetPage } from '../utils/keyset.js';
 import { applyListingStockDeltas } from '../utils/stockBatch.js';
 import { withSerializableRetry } from '../utils/txRetry.js';
@@ -314,8 +316,8 @@ router.get(
   ],
   validate,
   async (req, res) => {
-    const page  = parseInt(req.query.page  || '1', 10);
-    const limit = parseInt(req.query.limit || '20', 10);
+    const page  = parsePageNumber(req.query.page);
+    const limit = parsePageSize(req.query.limit, 20, 50);
     const { category, featured, subcategory, subcategoryId } = req.query;
     const search = sanitizeSearch(req.query.search);
     const buyer  = buyerScope(req);
@@ -2597,7 +2599,7 @@ router.put(
 );
 
 router.get('/seller/orders', authenticate, requireRole(...SELLER_ROLES), async (req, res) => {
-  const page  = parseInt(req.query.page  || '1', 10);
+  const page  = parsePageNumber(req.query.page);
   const limit = parsePageSize(req.query.limit, 15, 50);
   const [items, total] = await Promise.all([
     prisma.orderItem.findMany({

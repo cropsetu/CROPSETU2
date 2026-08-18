@@ -34,7 +34,9 @@ import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
 import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
-import { sendSuccess, sendCreated, sendError, sendNotFound, paginationMeta } from '../utils/response.js';
+import {
+  sendSuccess, sendCreated, sendError, sendNotFound, paginationMeta, parsePageNumber, parsePageSize,
+} from '../utils/response.js';
 import { sendPushToUser } from '../services/push.service.js';
 import { decryptNumber } from '../utils/encrypt.js';
 import { KRUSHI_KENDRA_TYPES } from '../constants/kendra.js';
@@ -272,8 +274,8 @@ async function resolveRecommendedProducts(productIds) {
 // matches "/me/shares" as that param route with reportId="me", which the
 // uuidParamGuard then rejects with 400, making this endpoint unreachable.
 router.get('/me/shares', authenticate, async (req, res) => {
-  const page  = parseInt(req.query.page  || '1',  10);
-  const limit = parseInt(req.query.limit || '20', 10);
+  const page  = parsePageNumber(req.query.page);
+  const limit = parsePageSize(req.query.limit, 20, 50);
 
   const [shares, total] = await Promise.all([
     prisma.cropReportShare.findMany({
@@ -325,8 +327,8 @@ router.get('/:reportId/shares', authenticate, async (req, res) => {
 
 // ─── GET seller's inbox ─────────────────────────────────────────────────────
 router.get('/seller/inbox', authenticate, async (req, res) => {
-  const page  = parseInt(req.query.page  || '1',  10);
-  const limit = parseInt(req.query.limit || '20', 10);
+  const page  = parsePageNumber(req.query.page);
+  const limit = parsePageSize(req.query.limit, 20, 50);
   const status = req.query.status; // optional: PENDING | REPLIED | CLOSED
 
   const where = {

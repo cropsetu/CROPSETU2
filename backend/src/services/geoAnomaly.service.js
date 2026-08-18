@@ -23,7 +23,7 @@ import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
 import { haversineKm } from '../utils/geo.js';
 import { resolveIpGeo } from './geoIp.service.js';
-import { sendPushToUser } from './push.service.js';
+import { sendPushToUser, NOTIFICATION_CATEGORIES } from './push.service.js';
 import { reportSecurityEvent } from './incident.service.js';
 
 const INCIDENT_DEDUPE_TTL_SEC = 60 * 60; // at most one geo incident per user/hour
@@ -169,6 +169,7 @@ export async function flagGeoAnomaly(userId, decision, { ip = null } = {}) {
       title: 'New sign-in from an unusual location',
       body:  `We noticed a sign-in showing ${where}. If this was you, you can ignore this. If not, secure your account right away.`,
       data:  { kind: 'geo_anomaly', reasons: decision.reasons },
+      category: NOTIFICATION_CATEGORIES.SECURITY,
     });
   } catch (err) {
     logger.warn('[GeoAnomaly] alert failed: %s', err.message);
