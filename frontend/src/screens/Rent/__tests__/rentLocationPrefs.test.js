@@ -28,10 +28,10 @@ describe('the distance ladder', () => {
     expect(RADIUS_OPTIONS).toContain(20);
   });
 
-  test('is ascending, with "Any" (null) last', () => {
+  test('leads with "All" (null), then ascends — the Animals-tab order', () => {
+    expect(RADIUS_OPTIONS[0]).toBeNull();
     const numeric = RADIUS_OPTIONS.filter((r) => r != null);
     expect(numeric).toEqual([...numeric].sort((a, b) => a - b));
-    expect(RADIUS_OPTIONS[RADIUS_OPTIONS.length - 1]).toBeNull();
   });
 });
 
@@ -52,7 +52,7 @@ describe('buildListParams — what the server is actually asked for', () => {
     }
   });
 
-  test('"Any" keeps the origin so distances survive — it only drops the ceiling', () => {
+  test('"All" keeps the origin so distances survive — it only drops the ceiling', () => {
     // The whole point of the null rung. An earlier version dropped lat/lng too,
     // which silently switched the API to its rating-sorted branch and wiped
     // every distance badge on the screen.
@@ -123,7 +123,7 @@ describe('a preference saved under the OLD ladder', () => {
     }
   });
 
-  test('"Any" survives as null rather than being treated as missing', () => {
+  test('"All" survives as null rather than being treated as missing', () => {
     expect(sanitize({ source: SOURCE.GPS, radiusKm: null }).radiusKm).toBeNull();
   });
 

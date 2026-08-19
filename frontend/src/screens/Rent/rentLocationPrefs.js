@@ -16,14 +16,17 @@ const PREFS_KEY = 'cropsetu.rent.locationPrefs.v1';
 export const SOURCE = { GPS: 'gps', DISTRICT: 'district', ALL: 'all' };
 
 /**
- * The distance ladder. `null` km = "Any" — no ceiling, but still distance-sorted
- * and badged, so a farmer who wants the nearest option regardless of how far it
- * is still sees how far it is.
+ * The distance ladder. `null` km = "All" — no ceiling, but still distance-sorted
+ * and badged when we have a position, so a farmer who wants the nearest option
+ * regardless of how far it is still sees how far it is.
+ *
+ * `null` leads, matching the Animals tab: the unfiltered state is the default,
+ * so it belongs where the eye lands first.
  *
  * The server accepts any positive radius (see parseRadius in rent.routes.js), so
  * this list is purely a product choice about what a farmer is likely to travel.
  */
-export const RADIUS_OPTIONS = [5, 10, 20, 50, null];
+export const RADIUS_OPTIONS = [null, 5, 10, 20, 50];
 
 /**
  * Snap a stored radius that is no longer on the ladder to the closest one that

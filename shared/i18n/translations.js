@@ -544,6 +544,8 @@ export const translations = {
       sendFailed: 'Message not sent.',
     },
     rent: {
+      distAll: 'All',
+      setLocation: 'Set location',
       distAnyA11y: 'Any distance',
       radiusKmA11y: 'Within {{km}} kilometres',
       enterDetails: 'Enter Details',
@@ -2873,6 +2875,8 @@ export const translations = {
       sendFailed: 'संदेश नहीं भेजा गया।',
     },
     rent: {
+      distAll: 'सभी',
+      setLocation: 'स्थान चुनें',
       distAnyA11y: 'कोई भी दूरी',
       radiusKmA11y: '{{km}} किलोमीटर के भीतर',
       enterDetails: 'विवरण दर्ज करें',
@@ -4979,6 +4983,8 @@ export const translations = {
       sendFailed: 'संदेश पाठवला गेला नाही.',
     },
     rent: {
+      distAll: 'सर्व',
+      setLocation: 'स्थान निवडा',
       distAnyA11y: 'कोणतेही अंतर',
       radiusKmA11y: '{{km}} किलोमीटरच्या आत',
       enterDetails: 'माहिती टाका',
