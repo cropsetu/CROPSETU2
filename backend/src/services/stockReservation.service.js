@@ -35,6 +35,7 @@ import prisma from '../config/db.js';
 import logger from '../utils/logger.js';
 import { getSetting } from './settings.service.js';
 import { applyListingStockDeltas, } from '../utils/stockBatch.js';
+import { withSerializableRetry } from '../utils/txRetry.js';
 import { syncListingStockStatus } from './buyBox.service.js';
 import { recordEvent, SHOP_EVENTS } from './shopMetrics.service.js';
 
@@ -138,7 +139,10 @@ export async function releaseReservations(providerOrderId, reason = 'released') 
   if (!providerOrderId) return { released: 0 };
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    // Retried: a release that loses a serialization race leaves the units HELD
+    // until the sweeper comes round, and held-forever stock is invisible lost
+    // inventory. A replay is exactly what fixes a 40001.
+    const result = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
       // Lock the rows by transitioning them FIRST, then compute the restock from
       // exactly the rows this call won. Reading then updating would let two
       // concurrent releases both read HELD and both restock.
@@ -160,7 +164,7 @@ export async function releaseReservations(providerOrderId, reason = 'released') 
       );
       await syncListingStockStatus(tx, crossedZero);
       return { released: count, crossedZero };
-    }, { isolationLevel: 'Serializable' });
+    }, { isolationLevel: 'Serializable' }));
 
     if (result.released) recordEvent(SHOP_EVENTS.RESERVATION_RELEASED, result.released);
     return result;

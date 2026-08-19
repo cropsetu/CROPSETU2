@@ -52,6 +52,7 @@ import { geoPageIds, haversineKm } from '../utils/geo.js';
 import { Prisma } from '@prisma/client';
 import { stripHtml } from '../utils/encrypt.js';
 import { archiveResource } from '../services/softDelete.service.js';
+import { withSerializableRetry } from '../utils/txRetry.js';
 import { auditLog } from '../services/audit.service.js';
 import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
 import {
@@ -1285,8 +1286,14 @@ router.post(
 
     // [FIX #1] Wrap conflict check + booking create in a Serializable transaction
     // to prevent double-booking when concurrent requests hit the same slot.
+    //
+    // Retried like checkout: two farmers booking the same tractor for the same
+    // week is a NORMAL event, and Postgres aborts one of them with SQLSTATE
+    // 40001. Unwrapped, that abort reached the catch below as a bare Prisma error
+    // and became a 500 "Booking failed" — a server error for what is really a
+    // lost race that would succeed on a replay.
     try {
-      const booking = await prisma.$transaction(async (tx) => {
+      const booking = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
         const conflictWhere = {
           status: { in: ['PENDING', 'CONFIRMED', 'ACTIVE'] },
           OR: [
@@ -1372,7 +1379,7 @@ router.post(
         });
       }, {
         isolationLevel: 'Serializable', // prevents concurrent double-bookings
-      });
+      }));
 
       // Notify the listing owner (fire-and-forget, outside the critical transaction)
       const listingName  = booking.machineryListing?.name || booking.labourListing?.name || 'your listing';

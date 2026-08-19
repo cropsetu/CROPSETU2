@@ -578,4 +578,64 @@ describe('POST /api/v1/agristore/products/:id/review', () => {
 
     expect(res.status).toBe(401);
   });
+
+  test('404 — a soft-deleted product cannot be rated, even by someone who received it', async () => {
+    // The lookup had no visibility filter, so a delivered buyer could still write
+    // a review against a product pulled from the storefront — and the route
+    // recomputes product.rating (which orders the storefront) and busts the
+    // catalogue caches on the way out.
+    const dead = await createTestProduct(seller.user.id, category.id, {
+      name: `Soft Deleted Product ${Date.now()}`, isActive: false,
+    });
+    const order = await prisma.order.create({
+      data: {
+        userId: farmer.user.id, totalAmount: 199.99, deliveryAddress: {}, status: 'DELIVERED',
+        items: {
+          create: [{
+            productId: dead.id, sellerId: seller.user.id, quantity: 1,
+            unitPrice: 199.99, totalPrice: 199.99,
+            status: 'DELIVERED', deliveredAt: new Date(),
+          }],
+        },
+      },
+      include: { items: true },
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/agristore/products/${dead.id}/review`)
+      .set(farmer.headers)
+      .send({ rating: 5, orderItemId: order.items[0].id });
+
+    expect(res.status).toBe(404);
+
+    // And the rating it would have written never landed.
+    const after = await prisma.product.findUnique({ where: { id: dead.id } });
+    expect(after.ratingCount).toBe(0);
+  });
+
+  test('404 — a product still in QC cannot be rated', async () => {
+    const pending = await createTestProduct(seller.user.id, category.id, {
+      name: `Pending QC Product ${Date.now()}`, status: 'PENDING_QC',
+    });
+    const order = await prisma.order.create({
+      data: {
+        userId: farmer.user.id, totalAmount: 199.99, deliveryAddress: {}, status: 'DELIVERED',
+        items: {
+          create: [{
+            productId: pending.id, sellerId: seller.user.id, quantity: 1,
+            unitPrice: 199.99, totalPrice: 199.99,
+            status: 'DELIVERED', deliveredAt: new Date(),
+          }],
+        },
+      },
+      include: { items: true },
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/agristore/products/${pending.id}/review`)
+      .set(farmer.headers)
+      .send({ rating: 5, orderItemId: order.items[0].id });
+
+    expect(res.status).toBe(404);
+  });
 });

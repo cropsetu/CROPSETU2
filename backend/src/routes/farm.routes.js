@@ -11,8 +11,15 @@ import { sendSuccess, sendCreated, sendError, sendNotFound } from '../utils/resp
 import logger from '../utils/logger.js';
 import { createFarm, listFarms, getFarmDetail, updateFarm, deleteFarm, setActiveFarm, getFarmInsights, getFarmFinancialSummary } from '../services/farm.service.js';
 import { auditArchiveEvent } from '../services/softDelete.service.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 
 const router = Router();
+
+// Structural UUID guard. These routes each carried their own param('...').isUUID(),
+// which works only for as long as every future route remembers to repeat it — the
+// invariant lived in a convention rather than anywhere it could be enforced. Same
+// 400 as the per-route chains, which stay in place.
+router.param('farmId', uuidParamGuard);
 router.use(authenticate);
 
 // Per-user write throttle for farm mutations (create / update / delete / set-active).

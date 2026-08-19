@@ -271,6 +271,11 @@ export async function cleanupTestData() {
     prisma.product.deleteMany(),
     prisma.subcategory.deleteMany(),
     prisma.category.deleteMany(),
+    // Settlement rows key off sellerId as a loose scalar, so they do NOT cascade
+    // with the user. A leaked payout nets the next run's payable down to zero and
+    // surfaces as an unexplained "nothing payable for this seller".
+    prisma.payout.deleteMany(),
+    prisma.sellerLedgerEntry.deleteMany(),
     prisma.otpSession.deleteMany(),
     prisma.refreshToken.deleteMany(),
     prisma.sellerProfile.deleteMany(),

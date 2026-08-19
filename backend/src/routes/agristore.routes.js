@@ -503,6 +503,33 @@ router.get(
   },
 );
 
+/**
+ * Is this catalog row visible to THIS requester?
+ *
+ * The rule lived inline in the product-detail handler, which meant every other
+ * by-id surface either repeated it or — as the reviews listing did — simply did
+ * not have it. One function so the three call sites cannot drift apart.
+ *
+ * Public rows are APPROVED and not soft-deleted. `allowOwner` covers the
+ * deliberate exception: the seller who owns a row and any admin can still fetch
+ * it while it is in QC or after it has been archived, because both need to see
+ * what they are working on. Pass `allowOwner: false` where that exception makes
+ * no sense — writing a review against an invisible product, for instance.
+ *
+ * @param {?object} product   row with status / isActive / ownership columns
+ * @param {object}  req       for req.user (optionalAuth — may be anonymous)
+ * @param {{ allowOwner?: boolean }} [opts]
+ */
+function productVisibleTo(product, req, { allowOwner = true } = {}) {
+  if (!product) return false;
+  // DUAL-READ: `isActive` is the legacy soft-delete flag, still authoritative.
+  if (product.status === 'APPROVED' && product.isActive !== false) return true;
+  if (!allowOwner) return false;
+  const isOwner = req.user
+    && (req.user.id === product.createdBySellerId || req.user.id === product.sellerId);
+  return Boolean(isOwner || req.user?.role === 'ADMIN');
+}
+
 // ── Single product: catalog + winning offer ───────────────────────────────────
 router.get('/products/:id', optionalAuth, async (req, res) => {
   const buyer = buyerScope(req);
@@ -530,14 +557,8 @@ router.get('/products/:id', optionalAuth, async (req, res) => {
   }
 
   // This endpoint had NO auth and NO isActive filter, so a soft-deleted product
-  // stayed fetchable by id forever. Only APPROVED catalog rows are public; the
-  // seller who owns it and admins can still fetch it while it is in QC.
-  const isOwner = req.user && (req.user.id === product.createdBySellerId || req.user.id === product.sellerId);
-  const isAdmin = req.user?.role === 'ADMIN';
-  if (product.status !== 'APPROVED' && !isOwner && !isAdmin) return sendNotFound(res, 'Product');
-  if (product.status === 'APPROVED' && product.isActive === false && !isOwner && !isAdmin) {
-    return sendNotFound(res, 'Product'); // DUAL-READ: legacy soft-delete flag
-  }
+  // stayed fetchable by id forever, description and images included.
+  if (!productVisibleTo(product, req)) return sendNotFound(res, 'Product');
 
   // Two independent extras, fetched together with the buy box.
   //   safety   — the approved-label panel for a regulated product. NULL for
@@ -612,11 +633,21 @@ router.get(
  */
 router.get(
   '/products/:id/reviews',
+  optionalAuth,
   [query('limit').optional().isInt({ min: 1, max: 50 })],
   validate,
   async (req, res) => {
     const productId = await resolveCanonicalProductId(req.params.id);
     if (!productId) return sendNotFound(res, 'Product');
+
+    // The detail route hides a soft-deleted product; this one did not, so the
+    // reviews of an archived product stayed publicly listable and the 200/404
+    // split still answered "does this id exist?". Same gate, same answer.
+    const gate = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { status: true, isActive: true, createdBySellerId: true, sellerId: true },
+    });
+    if (!productVisibleTo(gate, req)) return sendNotFound(res, 'Product');
 
     const limit = parsePageSize(req.query.limit, 10, 50);
     const { items, nextCursor, hasMore } = await keysetPage(prisma, {
@@ -900,25 +931,56 @@ async function addLegacyProductToCart(req, res, productId, quantity) {
   if (!product || product.variants.length) return null;
   if (product.isActive === false || product.status !== 'APPROVED') return sendNotFound(res, 'Product');
 
-  const existing = await prisma.cartItem.findFirst({ where: { userId: req.user.id, productId, listingId: null } });
-  const totalAfter = (existing?.quantity || 0) + quantity;
-  if (totalAfter < product.minOrderQty) {
-    return sendError(res, `This seller's minimum order is ${product.minOrderQty}`, 400);
+  try {
+    // Same check-then-act fix the listing path below carries. This branch kept
+    // the old shape: read the product, compute totalAfter, THEN write — two
+    // statements, so N concurrent adds all passed the stock check against one
+    // stale read and every increment landed. Checkout's Serializable
+    // re-validation caught the overfill, but only at the payment step, which
+    // turns a clear "only 3 in stock" at add time into a hard failure after the
+    // farmer has entered their address.
+    const item = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
+      // Re-read INSIDE the transaction: the copy above was fetched before the
+      // snapshot and is what made the race possible.
+      const fresh = await tx.product.findUnique({ where: { id: productId } });
+      if (!fresh || fresh.isActive === false || fresh.status !== 'APPROVED') {
+        throw Object.assign(new Error('Product not found'), { statusCode: 404, expose: true });
+      }
+
+      const existing = await tx.cartItem.findFirst({ where: { userId: req.user.id, productId, listingId: null } });
+      const totalAfter = (existing?.quantity || 0) + quantity;
+
+      if (totalAfter < fresh.minOrderQty) {
+        throw Object.assign(
+          new Error(`This seller's minimum order is ${fresh.minOrderQty}`),
+          { statusCode: 400, expose: true },
+        );
+      }
+      // Carries the real available quantity, so the app can correct the stepper
+      // instead of just refusing.
+      if (fresh.stock < totalAfter) {
+        recordEvent(SHOP_EVENTS.OUT_OF_STOCK_HIT);
+        throw Object.assign(new Error(`Only ${fresh.stock} in stock`), { statusCode: 400, expose: true });
+      }
+
+      return existing
+        ? tx.cartItem.update({
+            where: { id: existing.id },
+            data: { quantity: totalAfter, unitPriceSnapshot: fresh.price },
+            include: CART_INCLUDE,
+          })
+        : tx.cartItem.create({
+            data: { userId: req.user.id, productId, quantity, unitPriceSnapshot: fresh.price },
+            include: CART_INCLUDE,
+          });
+    }, { isolationLevel: 'Serializable' }));
+
+    recordEvent(SHOP_EVENTS.CART_ADD_OK);
+    return sendCreated(res, item);
+  } catch (err) {
+    recordEvent(SHOP_EVENTS.CART_ADD_FAIL);
+    return sendServerError(res, err, 'Could not add to cart. Please try again.');
   }
-  if (product.stock < totalAfter) return sendError(res, `Only ${product.stock} in stock`, 400);
-
-  const item = existing
-    ? await prisma.cartItem.update({
-        where: { id: existing.id },
-        data: { quantity: totalAfter, unitPriceSnapshot: product.price },
-        include: CART_INCLUDE,
-      })
-    : await prisma.cartItem.create({
-        data: { userId: req.user.id, productId, quantity, unitPriceSnapshot: product.price },
-        include: CART_INCLUDE,
-      });
-
-  return sendCreated(res, item);
 }
 
 router.post(
@@ -2652,6 +2714,14 @@ router.post(
 
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product) return sendNotFound(res, 'Product');
+    // The lookup carried no visibility filter, so a soft-deleted or not-yet-approved
+    // row was still rateable — and the recompute below writes product.rating, which
+    // orders the storefront, then busts the catalogue caches. Nothing the buyer
+    // cannot see on the storefront is reviewable, and unlike the read paths there
+    // is no owner exception: rating a row because you own it is not a thing.
+    if (!productVisibleTo(product, req, { allowOwner: false })) {
+      return sendNotFound(res, 'Product');
+    }
 
     // There was no verified-purchase check and no requireRole — any authenticated
     // user could review any product. A review is now anchored to a delivered

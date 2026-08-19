@@ -297,6 +297,52 @@ describe('Catalog visibility', () => {
     expect(res.status).toBe(404);
   });
 
+  test('the owner and an admin CAN still fetch a soft-deleted product — a deliberate exception', async () => {
+    // Recorded as a test because it is a decision, not an accident: a seller has
+    // to be able to see the row they just archived, and support has to be able to
+    // look at it. Everyone else gets a 404.
+    const product = await freshProduct();
+    const listing = await createTestListing(kendraA.user.id, product.variants[0].id, { district: 'Pune' });
+    await prisma.product.update({
+      where: { id: product.id },
+      data: { isActive: false, createdBySellerId: kendraA.user.id },
+    });
+    expect(listing.sellerId).toBe(kendraA.user.id);
+
+    const owner = await request(app).get(`${API}/products/${product.id}`).set(kendraA.headers);
+    expect(owner.status).toBe(200);
+
+    const admin = await createTestUser({ role: 'ADMIN' });
+    const asAdmin = await request(app).get(`${API}/products/${product.id}`).set(admin.headers);
+    expect(asAdmin.status).toBe(200);
+
+    // A DIFFERENT seller is not an owner — authenticated is not the same as entitled.
+    const other = await request(app).get(`${API}/products/${product.id}`).set(kendraB.headers);
+    expect(other.status).toBe(404);
+  });
+
+  test('GET /products/:id/reviews hides a soft-deleted product too', async () => {
+    // The detail route was gated and this sibling was not, so the reviews of an
+    // archived product stayed publicly listable — reviewer names included — and
+    // the 200/404 split still answered "does this id exist?".
+    const product = await freshProduct();
+    const before = await request(app).get(`${API}/products/${product.id}/reviews`);
+    expect(before.status).toBe(200);
+
+    await prisma.product.update({ where: { id: product.id }, data: { isActive: false } });
+
+    const anon = await request(app).get(`${API}/products/${product.id}/reviews`);
+    expect(anon.status).toBe(404);
+  });
+
+  test('a product still in QC is not publicly readable, by either route', async () => {
+    const product = await freshProduct();
+    await prisma.product.update({ where: { id: product.id }, data: { status: 'PENDING_QC' } });
+
+    expect((await request(app).get(`${API}/products/${product.id}`)).status).toBe(404);
+    expect((await request(app).get(`${API}/products/${product.id}/reviews`)).status).toBe(404);
+  });
+
   test('a MERGED product redirects to the row it was folded into', async () => {
     const survivor = await freshProduct();
     const dupe = await freshProduct();
@@ -375,6 +421,66 @@ describe('Cart and multi-seller orders', () => {
     expect(res.body.error.message).toMatch(/minimum order/i);
   });
 
+  test('minOrderQty is enforced on cart UPDATE, not just on add', async () => {
+    // The field was accepted and persisted on create/update and read by no cart
+    // or checkout path, so a Kendra selling seed by the 5-packet carton believed
+    // it had a minimum that did not exist. Add-time was the first gate closed;
+    // lowering the quantity afterwards has to be refused too, or the minimum is
+    // one PUT away from being bypassed.
+    const product = await freshProduct();
+    const listing = await createTestListing(kendraA.user.id, product.variants[0].id, {
+      minOrderQty: 5, stockQty: 50, district: 'Pune',
+    });
+    await prisma.cartItem.deleteMany({ where: { userId: buyer.user.id } });
+
+    const added = await request(app).post(`${API}/cart`).set(buyer.headers)
+      .send({ listingId: listing.id, quantity: 5 });
+    expect(added.status).toBe(201);
+
+    const lowered = await request(app).put(`${API}/cart/${listing.id}`).set(buyer.headers)
+      .send({ quantity: 2 });
+    expect(lowered.status).toBe(400);
+    expect(lowered.body.error.message).toMatch(/minimum order/i);
+
+    // And the cart still holds the quantity that was actually allowed.
+    const row = await prisma.cartItem.findFirst({ where: { userId: buyer.user.id, listingId: listing.id } });
+    expect(row.quantity).toBe(5);
+  });
+
+  test('minOrderQty is enforced at CHECKOUT, even if a row got under it', async () => {
+    // The last gate. A cart row can fall below the minimum without passing
+    // through either cart route — the seller can RAISE minOrderQty after the
+    // buyer added the item — so checkout has to re-check rather than trust that
+    // an earlier gate ran.
+    const product = await freshProduct();
+    const listing = await createTestListing(kendraA.user.id, product.variants[0].id, {
+      minOrderQty: 1, stockQty: 50, district: 'Pune',
+    });
+    await prisma.cartItem.deleteMany({ where: { userId: buyer.user.id } });
+    await request(app).post(`${API}/cart`).set(buyer.headers)
+      .send({ listingId: listing.id, quantity: 2 });
+
+    // The seller raises their minimum after the item is already in the cart.
+    await prisma.sellerListing.update({ where: { id: listing.id }, data: { minOrderQty: 10 } });
+
+    const order = await request(app).post(`${API}/orders`).set(buyer.headers).send({
+      paymentMethod: 'cod',
+      deliveryAddress: { name: 'Buyer', phone: '9999999999', flat: '1', street: 'Main', city: 'Pune', state: 'Maharashtra', pincode: '411001' },
+    });
+    // 409 with a structured issue list, not a bare 400: the app needs the actual
+    // minimum to correct its quantity stepper, so the reason is machine-readable
+    // rather than only a sentence.
+    expect(order.status).toBe(409);
+    expect(order.body.error.message).toMatch(/minimum order/i);
+    const issue = order.body.error.details.issues.find((i) => i.code === 'BELOW_MIN_ORDER');
+    expect(issue).toBeDefined();
+    expect(issue.minOrderQty).toBe(10);
+    expect(issue.listingId).toBe(listing.id);
+
+    // Refused before anything moved: no order, and the stock is untouched.
+    expect((await prisma.sellerListing.findUnique({ where: { id: listing.id } })).stockQty).toBe(50);
+  });
+
   test('multi-seller order rolls up per-item status correctly', async () => {
     const product = await freshProduct();
     const variantId = product.variants[0].id;
@@ -429,6 +535,101 @@ describe('Cart and multi-seller orders', () => {
     await request(app).put(`${API}/seller/orders/${orderId}/status`).set(kendraA.headers).send({ status: 'DELIVERED' });
     const finalOrder = await prisma.order.findUnique({ where: { id: orderId } });
     expect(finalOrder.status).toBe('DELIVERED');
+  });
+
+  test('two sellers updating the same order concurrently cannot persist a stale rollup', async () => {
+    // The rollup is read-derive-write over EVERY item on the order, so when it
+    // ran outside a transaction two sellers finishing at the same moment each
+    // computed the order status from a snapshot taken before the other's write.
+    // The loser overwrote the winner: an order with a SHIPPED item persisted as
+    // PENDING because that seller had not seen the ship yet.
+    const product = await freshProduct();
+    const variantId = product.variants[0].id;
+    const a = await createTestListing(kendraA.user.id, variantId, { sellingPrice: 100, stockQty: 20, district: 'Pune' });
+    const b = await createTestListing(kendraB.user.id, variantId, { sellingPrice: 120, stockQty: 20, district: 'Pune' });
+
+    await prisma.cartItem.deleteMany({ where: { userId: buyer.user.id } });
+    await request(app).post(`${API}/cart`).set(buyer.headers).send({ listingId: a.id, quantity: 1 });
+    await request(app).post(`${API}/cart`).set(buyer.headers).send({ listingId: b.id, quantity: 1 });
+    const order = await request(app).post(`${API}/orders`).set(buyer.headers).send({
+      paymentMethod: 'cod',
+      deliveryAddress: { name: 'Buyer', phone: '9999999999', flat: '1', street: 'Main', city: 'Pune', state: 'Maharashtra', pincode: '411001' },
+    });
+    const orderId = order.body.data.id;
+
+    const [ra, rb] = await Promise.all([
+      request(app).put(`${API}/seller/orders/${orderId}/status`).set(kendraA.headers).send({ status: 'SHIPPED' }),
+      request(app).put(`${API}/seller/orders/${orderId}/status`).set(kendraB.headers).send({ status: 'DELIVERED' }),
+    ]);
+    expect(ra.status).toBe(200);
+    expect(rb.status).toBe(200);
+
+    const items = await prisma.orderItem.findMany({ where: { orderId }, select: { status: true } });
+    expect(items.map((i) => i.status).sort()).toEqual(['DELIVERED', 'SHIPPED']);
+
+    // The persisted rollup must match the FINAL item states, in either
+    // interleaving: one item is still only shipped, so the order is SHIPPED.
+    // A stale rollup shows PENDING here, which is the whole bug.
+    const finalOrder = await prisma.order.findUnique({ where: { id: orderId } });
+    expect(finalOrder.status).toBe('SHIPPED');
+  });
+
+  test('two sellers cancelling concurrently restock their own listing exactly once', async () => {
+    const product = await freshProduct();
+    const variantId = product.variants[0].id;
+    const a = await createTestListing(kendraA.user.id, variantId, { sellingPrice: 100, stockQty: 20, district: 'Pune' });
+    const b = await createTestListing(kendraB.user.id, variantId, { sellingPrice: 120, stockQty: 20, district: 'Pune' });
+
+    await prisma.cartItem.deleteMany({ where: { userId: buyer.user.id } });
+    await request(app).post(`${API}/cart`).set(buyer.headers).send({ listingId: a.id, quantity: 2 });
+    await request(app).post(`${API}/cart`).set(buyer.headers).send({ listingId: b.id, quantity: 3 });
+    const order = await request(app).post(`${API}/orders`).set(buyer.headers).send({
+      paymentMethod: 'cod',
+      deliveryAddress: { name: 'Buyer', phone: '9999999999', flat: '1', street: 'Main', city: 'Pune', state: 'Maharashtra', pincode: '411001' },
+    });
+    const orderId = order.body.data.id;
+    expect((await prisma.sellerListing.findUnique({ where: { id: a.id } })).stockQty).toBe(18);
+    expect((await prisma.sellerListing.findUnique({ where: { id: b.id } })).stockQty).toBe(17);
+
+    await Promise.all([
+      request(app).put(`${API}/seller/orders/${orderId}/status`).set(kendraA.headers).send({ status: 'CANCELLED' }),
+      request(app).put(`${API}/seller/orders/${orderId}/status`).set(kendraB.headers).send({ status: 'CANCELLED' }),
+    ]);
+
+    // Exactly once each — a Serializable retry must not replay the restock, and
+    // one seller's cancel must never return the other seller's units.
+    expect((await prisma.sellerListing.findUnique({ where: { id: a.id } })).stockQty).toBe(20);
+    expect((await prisma.sellerListing.findUnique({ where: { id: b.id } })).stockQty).toBe(20);
+
+    // No live items left, so the order itself is cancelled.
+    const finalOrder = await prisma.order.findUnique({ where: { id: orderId } });
+    expect(finalOrder.status).toBe('CANCELLED');
+  });
+
+  test('cancelling an already-cancelled item does not restock a second time', async () => {
+    const product = await freshProduct();
+    const listing = await createTestListing(kendraA.user.id, product.variants[0].id, {
+      sellingPrice: 100, stockQty: 10, district: 'Pune',
+    });
+    await prisma.cartItem.deleteMany({ where: { userId: buyer.user.id } });
+    await request(app).post(`${API}/cart`).set(buyer.headers).send({ listingId: listing.id, quantity: 4 });
+    const order = await request(app).post(`${API}/orders`).set(buyer.headers).send({
+      paymentMethod: 'cod',
+      deliveryAddress: { name: 'Buyer', phone: '9999999999', flat: '1', street: 'Main', city: 'Pune', state: 'Maharashtra', pincode: '411001' },
+    });
+    const orderId = order.body.data.id;
+    expect((await prisma.sellerListing.findUnique({ where: { id: listing.id } })).stockQty).toBe(6);
+
+    const put = () => request(app).put(`${API}/seller/orders/${orderId}/status`)
+      .set(kendraA.headers).send({ status: 'CANCELLED' });
+
+    await put();
+    await put();
+
+    // The restock filters on the item's PRE-UPDATE status, so the second call
+    // has nothing to return. Without that filter a seller could mint stock by
+    // pressing cancel repeatedly.
+    expect((await prisma.sellerListing.findUnique({ where: { id: listing.id } })).stockQty).toBe(10);
   });
 
   test('400 — a non-UUID orderId is a bad request, not a 500', async () => {

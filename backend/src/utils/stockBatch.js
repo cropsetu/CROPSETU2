@@ -1,70 +1,33 @@
 import { Prisma } from '@prisma/client';
 
 /**
- * Apply per-product stock deltas in a SINGLE SQL statement.
+ * Stock mutation: signed deltas applied to seller_listings.stockQty, keyed by
+ * LISTING id, in a SINGLE SQL statement.
  *
- * The naive checkout/cancel path looped `tx.product.update({ decrement })` once
- * per cart item — O(n) DB round-trips, so write latency (and the time the
- * Serializable transaction holds its locks) scaled with cart size. This folds
- * every delta into one `UPDATE ... FROM (VALUES ...)`, giving a constant number
- * of statements per checkout regardless of cart size.
+ * Stock is a property of one seller's offer, not of the catalog entry. This
+ * replaced a product-targeted `UPDATE products SET stock = stock + delta` that
+ * decremented a row shared by every Kendra — one buyer's purchase silently
+ * drained all three sellers' stock. That statement is gone; every checkout,
+ * confirm, reservation and restock path goes through this one.
  *
- * `delta` is signed: negative decrements (checkout), positive increments
- * (cancellation/restock). Duplicate productIds are summed so a single product
- * never gets a partial update (an UPDATE with multiple matching VALUES rows
- * would otherwise apply only one of them).
+ * Negative deltas decrement (checkout), positive increment (cancellation /
+ * restock). Duplicate listingIds are summed so a single listing never gets a
+ * partial update — an UPDATE with multiple matching VALUES rows would otherwise
+ * apply only one of them.
  *
- * MUST be called inside the same transaction (`tx`) that validated stock, so
- * the read-validate-write stays atomic under Serializable isolation.
- *
- * @param {import('@prisma/client').Prisma.TransactionClient} tx
- * @param {Array<{ productId: string, delta: number }>} deltas
- * @returns {Promise<number>} rows affected
- */
-export async function applyStockDeltas(tx, deltas) {
-  if (!deltas || !deltas.length) return 0;
-
-  // Collapse duplicates so each product appears at most once in the VALUES list.
-  const byId = new Map();
-  for (const { productId, delta } of deltas) {
-    byId.set(productId, (byId.get(productId) || 0) + delta);
-  }
-
-  const rows = [...byId.entries()].map(
-    ([productId, delta]) => Prisma.sql`(${productId}::text, ${delta}::int)`,
-  );
-
-  return tx.$executeRaw`
-    UPDATE products AS p
-    SET stock = p.stock + v.delta
-    FROM (VALUES ${Prisma.join(rows)}) AS v(id, delta)
-    WHERE p.id = v.id
-  `;
-}
-
-/**
- * Post-CATALOG-SPLIT stock mutation: deltas apply to seller_listings.stockQty,
- * keyed by LISTING id.
- *
- * Stock is a property of one seller's offer, not of the catalog entry. The
- * product-targeted statement above would decrement a row shared by every Kendra
- * — one buyer's purchase would silently drain all three sellers' stock. This
- * function replaces it on every checkout / restock path; applyStockDeltas is
- * retained only for the dual-write window and is dropped at CONTRACT.
- *
- * Same contract as applyStockDeltas: signed deltas, duplicates summed, MUST run
- * inside the Serializable transaction that validated stock.
+ * MUST be called inside the same transaction (`tx`) that validated stock, so the
+ * read-validate-write stays atomic under Serializable isolation.
  *
  * Also returns which listings CROSSED the zero boundary, because that is the only
  * stock event the buy box has to invalidate on (see buyBox.service.js).
  *
- * UNLIKE applyStockDeltas, this DOES carry a `stockQty + delta >= 0` guard in the
- * SQL. The old statement had none — correctness rested entirely on the caller's
- * in-transaction validation plus Serializable isolation, so any path that forgot
- * to validate first would drive stock negative silently. Here a row that would go
- * negative simply does not match, the RETURNING count comes up short, and we
- * throw a client-safe 400. It is defence in depth, not a replacement for
- * validating before the write.
+ * The `stockQty + delta >= 0` guard in the SQL is DEFENCE IN DEPTH, not a
+ * replacement for validating before the write. The deleted product-targeted
+ * statement had none, so correctness rested entirely on the caller remembering to
+ * validate first plus Serializable isolation; any path that forgot drove stock
+ * negative silently. Here a row that would go negative simply does not match, the
+ * RETURNING count comes up short, and the caller-agnostic check below throws a
+ * client-safe 400 that aborts the transaction.
  *
  * The guard is NOT `GREATEST(stockQty + delta, 0)`: clamping would turn an
  * over-sell into a *successful* order for the wrong quantity.

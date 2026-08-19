@@ -10,7 +10,7 @@
 import request from 'supertest';
 import {
   getApp, createTestUser, createTestSeller, createTestCategory,
-  createTestCatalogProduct, createTestListing, cleanupTestData, prisma,
+  createTestCatalogProduct, createTestListing, createTestProduct, cleanupTestData, prisma,
 } from '../../fixtures/setup.js';
 
 const API = '/api/v1/agristore';
@@ -338,5 +338,98 @@ describe('Inventory under concurrent checkout', () => {
     const after = await prisma.sellerListing.findUnique({ where: { id: listing.id } });
     expect(after.stockQty).toBe(0);
     expect(after.status).toBe('OUT_OF_STOCK');
+  });
+});
+
+describe('Stock cannot be driven negative', () => {
+  test('applyListingStockDeltas refuses a delta that would go below zero, even with no caller validation', async () => {
+    // H-1 was defence in depth: the SQL had no `stock + delta >= 0` guard, so
+    // correctness rested ENTIRELY on every caller validating first inside a
+    // Serializable transaction. This calls it the way a future caller that
+    // forgot would — straight to the write, no validation — and it must still
+    // refuse rather than silently oversell.
+    const { applyListingStockDeltas } = await import('../../../src/utils/stockBatch.js');
+    const product = await createTestCatalogProduct(category.id, { name: 'Guard Test Seed' });
+    const listing = await createTestListing(sellerA.user.id, product.variants[0].id, {
+      sellingPrice: 100, stockQty: 3,
+    });
+
+    await expect(
+      prisma.$transaction((tx) => applyListingStockDeltas(tx, [{ listingId: listing.id, delta: -5 }])),
+    ).rejects.toThrow(/sold out/i);
+
+    // The transaction aborted, so the row is untouched — not clamped to 0, which
+    // would turn an over-sell into a successful order for the wrong quantity.
+    const after = await prisma.sellerListing.findUnique({ where: { id: listing.id } });
+    expect(after.stockQty).toBe(3);
+  });
+
+  test('a delta that lands exactly on zero is allowed', async () => {
+    const { applyListingStockDeltas } = await import('../../../src/utils/stockBatch.js');
+    const product = await createTestCatalogProduct(category.id, { name: 'Exact Zero Seed' });
+    const listing = await createTestListing(sellerA.user.id, product.variants[0].id, {
+      sellingPrice: 100, stockQty: 2,
+    });
+
+    const { crossedZero } = await prisma.$transaction(
+      (tx) => applyListingStockDeltas(tx, [{ listingId: listing.id, delta: -2 }]),
+    );
+
+    expect(crossedZero).toEqual([listing.id]);
+    const after = await prisma.sellerListing.findUnique({ where: { id: listing.id } });
+    expect(after.stockQty).toBe(0);
+  });
+});
+
+describe('POST /cart is not a check-then-act race', () => {
+  test('concurrent adds cannot push the cart past available stock', async () => {
+    const product = await createTestCatalogProduct(category.id, { name: 'Race Add Urea' });
+    const listing = await createTestListing(sellerA.user.id, product.variants[0].id, {
+      sellingPrice: 150, stockQty: 3,
+    });
+    await prisma.cartItem.deleteMany({ where: { userId: farmer.user.id } });
+
+    // H-2: the read and the upsert used to be separate statements, so all five
+    // of these passed the stock check against the same stale read and every
+    // increment landed — a cart holding 5 of a 3-stock listing. The overfill was
+    // only caught at the payment step.
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => request(app).post(`${API}/cart`).set(farmer.headers)
+        .send({ listingId: listing.id, quantity: 1 })),
+    );
+
+    const row = await prisma.cartItem.findFirst({
+      where: { userId: farmer.user.id, listingId: listing.id },
+    });
+    expect(row.quantity).toBeLessThanOrEqual(3);
+
+    // A refusal has to tell the buyer what IS available, at add time, rather than
+    // failing later with a generic error.
+    for (const r of results.filter((x) => x.status === 400)) {
+      expect(r.body.error.message).toMatch(/in stock/i);
+    }
+  });
+
+  test('concurrent adds on the pre-backfill legacy path are bounded too', async () => {
+    // The DUAL-READ branch (a product with no variants, so no listing to resolve)
+    // kept the old check-then-upsert shape after the listing path was fixed.
+    const legacy = await createTestProduct(sellerA.user.id, category.id, {
+      name: 'Legacy Race Product', stock: 3, price: 150, minOrderQty: 1,
+    });
+    await prisma.cartItem.deleteMany({ where: { userId: farmer.user.id } });
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => request(app).post(`${API}/cart`).set(farmer.headers)
+        .send({ productId: legacy.id, quantity: 1 })),
+    );
+
+    const row = await prisma.cartItem.findFirst({
+      where: { userId: farmer.user.id, productId: legacy.id, listingId: null },
+    });
+    expect(row.quantity).toBeLessThanOrEqual(3);
+
+    for (const r of results.filter((x) => x.status === 400)) {
+      expect(r.body.error.message).toMatch(/in stock/i);
+    }
   });
 });

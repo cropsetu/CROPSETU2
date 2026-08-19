@@ -17,6 +17,7 @@ import {
   addActivity, addLaborLog, addExpenseLog, addIncomeLog, getCycleLogPage,
 } from '../services/cropCycle.service.js';
 import { LOG_COLUMNS } from '../utils/jsonLog.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 
 /**
  * Shared reply for the four log-append routes.
@@ -38,6 +39,13 @@ function replyLogAppend(res, result, label) {
 }
 
 const router = Router();
+
+// Structural UUID guard. These routes each carried their own param('...').isUUID(),
+// which works only for as long as every future route remembers to repeat it — the
+// invariant lived in a convention rather than anywhere it could be enforced. Same
+// 400 as the per-route chains, which stay in place.
+router.param('cycleId', uuidParamGuard);
+router.param('farmId', uuidParamGuard);
 
 // This router is mounted at the root API prefix so it can serve both
 // /farms/:farmId/cycles and /cycles/:cycleId. Without this guard, every

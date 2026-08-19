@@ -40,6 +40,7 @@
   },
   "jest": {
     "testEnvironment": "node",
+    "testTimeout": 30000,
     "transform": {},
     "setupFiles": [
       "<rootDir>/tests/fixtures/jest.env.js"

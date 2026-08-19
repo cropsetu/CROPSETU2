@@ -18,6 +18,7 @@
  * The admin surface + manual ADJUSTMENT entries are what this build exposes.
  */
 import { Prisma } from '@prisma/client';
+import { assertUsersExist } from './referentialIntegrity.service.js';
 import prisma from '../config/db.js';
 import { getSetting } from './settings.service.js';
 
@@ -98,6 +99,12 @@ export async function generatePayoutForPeriod(sellerId, from, to, createdBy = nu
     throw Object.assign(new Error('periodFrom must be on or before periodTo'), { expose: true, statusCode: 400 });
   }
 
+  // Payout.sellerId is a bare scalar with no FK (the models are additive so
+  // `db push` stays the deploy path), which means nothing at the database level
+  // stops a payout being raised for a user id that does not exist. Checked here
+  // instead, before any money is computed.
+  await assertUsersExist([sellerId, createdBy], 'payout');
+
   const ratePct = await getCommissionRatePct();
   const [sales, commissionLogged, refunds, priorPayouts] = await Promise.all([
     sumTypeInPeriod(sellerId, 'SALE', periodFrom, periodTo),
@@ -124,6 +131,13 @@ export async function generatePayoutForPeriod(sellerId, from, to, createdBy = nu
   // 2 dp so the payout and ledger entry match the stored Decimal(12,2) scale.
   const amount = payable.toDecimalPlaces(2, Prisma.Decimal.ROUND_DOWN);
 
+  // The unique on (sellerId, periodFrom, periodTo) is what actually stops a
+  // seller being paid twice for one window. `priorPayouts` above already nets a
+  // SEQUENTIAL retry down to "nothing payable", but two admins clicking at once
+  // — or a cron that fired twice — both read priorPayouts = 0 before either
+  // commits, so the constraint is the only thing between them and a double
+  // payout. Translate the violation into a plain 409: a 500 here reads as a
+  // transient failure and invites exactly the retry that must not happen.
   const result = await prisma.$transaction(async (tx) => {
     const balAgg = await tx.sellerLedgerEntry.aggregate({ where: { sellerId }, _sum: { amount: true } });
     const balanceBefore = D(balAgg._sum.amount ?? 0);
@@ -152,6 +166,14 @@ export async function generatePayoutForPeriod(sellerId, from, to, createdBy = nu
     });
 
     return { payout, ledgerEntryId: ledger.id };
+  }).catch((err) => {
+    if (err?.code === 'P2002') {
+      throw Object.assign(
+        new Error('A payout for this seller and settlement period already exists.'),
+        { expose: true, statusCode: 409 },
+      );
+    }
+    throw err;
   });
 
   return {
