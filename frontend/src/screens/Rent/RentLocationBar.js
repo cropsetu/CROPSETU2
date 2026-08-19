@@ -30,63 +30,16 @@ import { SOURCE, RADIUS_OPTIONS } from './rentLocationPrefs';
 // Every tappable target below clears 44px; chips reach it with padding + this.
 const TAP = 44;
 
-/** One-line summary of what the list is currently filtered to. */
-export function locationSummary({ prefs, coords, t }) {
-  if (prefs.source === SOURCE.GPS && coords) {
-    const radius = prefs.radiusKm == null
-      ? t('rent.distAny', 'Any')
-      : t('rent.radiusKm', { km: prefs.radiusKm });
-    return `${t('rent.srcNearMe', 'Near me')} · ${radius}`;
-  }
-  if (prefs.source === SOURCE.DISTRICT && prefs.district) {
-    const base = t('rent.districtNamed', { district: prefs.district });
-    return prefs.taluka ? `${base} · ${prefs.taluka}` : base;
-  }
-  return t('rent.srcOffShowingAll', 'Location off · showing all');
-}
-
-// ── The bar ──────────────────────────────────────────────────────────────────
-
-export function RentLocationBar({ prefs, coords, onOpen, refreshing }) {
-  const { t } = useLanguage();
-  const live = prefs.source === SOURCE.GPS && !!coords;
-  const manual = prefs.source === SOURCE.DISTRICT && !!prefs.district;
-  const tint = live ? COLORS.primary : manual ? COLORS.blue : COLORS.grayMid;
-
-  return (
-    <Pressable
-      style={S.bar}
-      onPress={() => { Haptics.selection(); onOpen(); }}
-      accessibilityRole="button"
-      accessibilityLabel={t('rent.locChange', 'Change location')}
-      accessibilityValue={{ text: locationSummary({ prefs, coords, t }) }}
-    >
-      <View style={[S.barIcon, { backgroundColor: tint + '18' }]}>
-        {refreshing
-          ? <ActivityIndicator size="small" color={tint} />
-          : <Ionicons name={live ? 'navigate' : manual ? 'map-outline' : 'globe-outline'} size={16} color={tint} />}
-      </View>
-      <View style={S.barTextWrap}>
-        <Text style={S.barLabel}>{t('rent.locShowing', 'Showing')}</Text>
-        <Text style={[S.barValue, { color: tint }]} numberOfLines={2}>
-          {locationSummary({ prefs, coords, t })}
-        </Text>
-      </View>
-      <Ionicons name="chevron-down" size={18} color={COLORS.grayMid} />
-    </Pressable>
-  );
-}
-
 // ── Radius chips (GPS source only) ───────────────────────────────────────────
 
-function Chip({ label, active, onPress, a11yLabel, dimmed = false }) {
+function Chip({ label, active, onPress, a11yLabel }) {
   const sc = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: sc.value }] }));
   const press = (to) => { if (!isReducedMotion()) sc.value = withSpring(to, SPRINGS.snappy); };
   return (
     <Animated.View style={animStyle}>
       <Pressable
-        style={[S.chip, active && S.chipActive, dimmed && S.chipDimmed]}
+        style={[S.chip, active && S.chipActive]}
         onPress={() => { Haptics.selection(); onPress(); }}
         onPressIn={() => press(0.9)}
         onPressOut={() => press(1)}
@@ -94,108 +47,93 @@ function Chip({ label, active, onPress, a11yLabel, dimmed = false }) {
         accessibilityState={{ selected: active, checked: active }}
         accessibilityLabel={a11yLabel || label}
       >
-        <Text style={[S.chipTxt, active && S.chipTxtActive, dimmed && S.chipTxtDimmed]}>{label}</Text>
+        <Text style={[S.chipTxt, active && S.chipTxtActive]}>{label}</Text>
       </Pressable>
     </Animated.View>
   );
 }
 
 /**
- * The distance filter — "Within 5 / 10 / 20 / 50 km / Any".
+ * Location pill + distance chips — one compact row, matching the Animals tab.
  *
- * This row USED to be hidden unless GPS was already the chosen source and a fix
- * had landed. Since the shipped default is "All of Maharashtra", the practical
- * effect was that the distance filter did not exist: a farmer had to open the
- * sheet, understand an abstract "source" concept, pick "Near me", and wait for a
- * fix before any distance control appeared. Nobody found it.
+ * ── What this replaced ──────────────────────────────────────────────────────
+ * A full-width "SHOWING / Location off · showing all" card sat under the search
+ * bar, with the distance chips on a separate line below it and, when GPS was
+ * unavailable, a third explanatory line under that. Three stacked rows of
+ * chrome before the farmer reached a single tractor.
  *
- * ── Why it is not simply "always on" ────────────────────────────────────────
- * A radius is measured FROM somewhere, and there is exactly one origin in this
- * codebase: the device GPS. There are no district centroids anywhere, so a
- * district cannot stand in for a position.
+ * The Animals tab had already solved this: a small location pill on the left,
+ * distance chips scrolling beside it, one row. The place you are searching is a
+ * detail; the distance is the filter. This brings Rent in line.
  *
- * That makes the naive fix worse than the bug. Render the chips unconditionally
- * and let one look SELECTED while `buildListParams` — which only emits `radius`
- * inside its GPS branch — silently sends no radius at all, and a farmer with
- * location switched off reads "Within 5 km" above a list covering the whole
- * state. The old code disappeared; that version would lie.
+ * ── Why tapping a distance opens the sheet when there is no position ────────
+ * A radius is measured FROM somewhere, and the only origin in this codebase is
+ * the device GPS — there are no district centroids. buildListParams therefore
+ * emits `radius` only inside its GPS branch.
  *
- * So with no fix the ladder is rendered but INERT: nothing shows as selected,
- * because nothing is filtering. What made the original five-disabled-chips UI a
- * dead end was disabling them with no way forward — so this states the reason
- * and carries the recovery, which turns the same row into a door.
- *
- * A district search hides the row outright: the district IS the area, the server
- * filters it by name rather than geometry, and "within 10 km" laid over "Pune
- * district" would describe a filter that does not exist.
+ * So a chip that merely selected itself would lie: it would look active while
+ * the request carried no radius and the results covered the whole state. Asking
+ * for a distance without a position is exactly the moment to explain why we
+ * need one, so the tap opens the picker — which offers GPS, a district, and the
+ * reason — instead of silently doing nothing.
  */
-export function RentRadiusRow({
-  prefs, coords, onChange,
-  showRecovery = false, permissionDenied = false, busy = false, onEnableLocation,
-}) {
+export function RentDistanceRow({ prefs, coords, onOpen, onChange }) {
   const { t } = useLanguage();
 
-  if (prefs.source === SOURCE.DISTRICT && prefs.district) return null;
-
-  // No origin ⇒ no radius is being applied, so no chip may claim to be active.
   const usable = !!coords;
-
-  // "Any" is what "no ceiling" looks like from here whether the farmer got there
-  // by widening a GPS search or by turning location off; the bar above states
-  // which, because only one of the two is still measuring distances.
   const activeKm = !usable ? undefined : prefs.source === SOURCE.ALL ? null : prefs.radiusKm;
 
-  return (
-    <View style={S.radiusBlock}>
-      <View style={S.row} accessibilityRole="radiogroup">
-        <Text style={[S.rowLabel, !usable && S.rowLabelOff]}>{t('rent.distWithin', 'Within')}</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.rowScroll}>
-          {RADIUS_OPTIONS.map((km) => (
-            <Chip
-              key={String(km)}
-              label={km == null ? t('rent.distAny', 'Any') : t('rent.radiusKm', { km })}
-              active={activeKm === km}
-              dimmed={!usable}
-              onPress={() => onChange(km)}
-              a11yLabel={
-                km == null
-                  ? t('rent.distAnyA11y', 'Any distance')
-                  : t('rent.radiusKmA11y', { km, defaultValue: `Within ${km} kilometres` })
-              }
-            />
-          ))}
-        </ScrollView>
-      </View>
+  const live   = prefs.source === SOURCE.GPS && usable;
+  const manual = prefs.source === SOURCE.DISTRICT && !!prefs.district;
+  const tint   = live ? COLORS.primary : manual ? COLORS.blue : COLORS.grayMid;
 
-      {/* Only when the screen is not already explaining the same thing. */}
-      {!usable && showRecovery && (
-        <View style={S.radiusNotice}>
-          <Ionicons name="location-outline" size={14} color={COLORS.grayMid} />
-          <Text style={S.radiusNoticeTxt}>
-            {permissionDenied
-              ? t('rent.gpsDeniedLine', 'Location permission is off, so distances are unavailable.')
-              : t('rent.gpsNoFixLine', 'No position yet, so distances are unavailable.')}
-          </Text>
-          <Pressable
-            style={S.radiusNoticeBtn}
-            onPress={onEnableLocation}
-            disabled={busy}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !!busy }}
-            accessibilityLabel={
-              permissionDenied ? t('rent.openSettings', 'Open Settings') : t('rent.gpsRetry', 'Try again')
+  // Names the origin, not the filter — the chips beside it say the rest.
+  const label = live
+    ? t('rent.srcNearMe', 'Near me')
+    : manual
+      ? prefs.district
+      : t('rent.setLocation', 'Set location');
+
+  return (
+    <View style={S.distRow}>
+      <Pressable
+        style={S.locPill}
+        onPress={() => { Haptics.selection(); onOpen(); }}
+        accessibilityRole="button"
+        accessibilityLabel={t('rent.locChange', 'Change location')}
+        accessibilityValue={{ text: label }}
+      >
+        <Ionicons
+          name={live ? 'location' : manual ? 'map-outline' : 'location-outline'}
+          size={14}
+          color={tint}
+        />
+        <Text style={[S.locPillTxt, (live || manual) && { color: tint }]} numberOfLines={1}>
+          {label}
+        </Text>
+        <Ionicons name="chevron-down" size={12} color={COLORS.grayMid} />
+      </Pressable>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={S.rowScroll}
+        accessibilityRole="radiogroup"
+      >
+        {RADIUS_OPTIONS.map((km) => (
+          <Chip
+            key={String(km)}
+            label={km == null ? t('rent.distAll', 'All') : t('rent.radiusKm', { km })}
+            active={activeKm === km}
+            onPress={() => onChange(km)}
+            a11yLabel={
+              km == null
+                ? t('rent.distAnyA11y', 'Any distance')
+                : t('rent.radiusKmA11y', { km, defaultValue: `Within ${km} kilometres` })
             }
-          >
-            {busy
-              ? <ActivityIndicator size="small" color={COLORS.primary} />
-              : (
-                <Text style={S.radiusNoticeBtnTxt}>
-                  {permissionDenied ? t('rent.openSettings', 'Open Settings') : t('rent.gpsRetry', 'Try again')}
-                </Text>
-              )}
-          </Pressable>
-        </View>
-      )}
+          />
+        ))}
+      </ScrollView>
     </View>
   );
 }
@@ -410,20 +348,19 @@ const S = StyleSheet.create({
   barLabel: { fontSize: 10, fontWeight: '700', color: COLORS.textLight, letterSpacing: 0.4, textTransform: 'uppercase' },
   barValue: { fontSize: 14, fontWeight: TYPE.weight.black, marginTop: 1 },
 
-  radiusBlock: {},
-  rowLabelOff: { color: COLORS.grayLightMid },
-  chipDimmed: { opacity: 0.45 },
-  chipTxtDimmed: { color: COLORS.grayMid },
-  radiusNotice: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACE[1],
-    marginHorizontal: SPACE[2], marginTop: SPACE[0.5],
+  // One row: pill + chips. Mirrors the Animals tab's distRow/locBtn.
+  distRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: SPACE[2], paddingTop: SPACE[1], gap: SPACE[1],
   },
-  radiusNoticeTxt: { flex: 1, fontSize: 11, color: COLORS.grayMid, lineHeight: 15 },
-  radiusNoticeBtn: {
-    minHeight: 32, justifyContent: 'center',
-    paddingHorizontal: SPACE[1], borderRadius: RADIUS.sm,
+  locPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: 132,
+    minHeight: TAP - 8,
+    paddingVertical: 8, paddingHorizontal: 10, borderRadius: 16,
+    backgroundColor: COLORS.background,
+    borderWidth: 1, borderColor: COLORS.border,
   },
-  radiusNoticeBtnTxt: { fontSize: 12, fontWeight: '800', color: COLORS.primary },
+  locPillTxt: { fontSize: 12, fontWeight: '800', color: COLORS.textMedium, flexShrink: 1 },
 
   // Chip rows (radius, sort)
   row: {
