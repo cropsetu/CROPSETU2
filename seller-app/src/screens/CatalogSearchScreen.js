@@ -357,13 +357,6 @@ export default function CatalogSearchScreen({ navigation }) {
 const s = StyleSheet.create({
   body: { paddingVertical: SP.lg, gap: SP.md, paddingBottom: SP.xxl },
 
-  select: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderWidth: 1, borderColor: C.border, borderRadius: R.md,
-    paddingHorizontal: SP.md, paddingVertical: SP.sm + 2, backgroundColor: C.surface,
-  },
-  selectTxt: { ...T.body, color: C.text, flex: 1, marginRight: SP.sm },
-
   resultHead: { ...T.label, color: C.textMuted, marginTop: SP.sm },
 
   hit: { padding: 0, overflow: 'hidden' },

@@ -24,7 +24,7 @@
  * Both directions are covered because every listing's searchText carries the
  * whole alias set, so a query in either language hits the same rows.
  */
-export const ANIMAL_ALIASES = {
+const ANIMAL_ALIASES = {
   cow:      ['गाय', 'गाई', 'gay', 'gai'],
   buffalo:  ['म्हैस', 'म्हशी', 'भैंस', 'mhais', 'bhains'],
   goat:     ['शेळी', 'बकरी', 'बकरा', 'sheli', 'bakri'],
@@ -104,15 +104,6 @@ export function searchGroups(raw) {
     if (!canonical) return [word];
     return [...new Set([word, canonical, ...ANIMAL_ALIASES[canonical].map((a) => a.toLowerCase())])];
   });
-}
-
-/**
- * Flat list of every term any group would match. Kept for callers that only
- * need "did the query mention an animal?" — the list endpoint uses
- * searchGroups() so it can AND the words.
- */
-export function expandQueryTerms(raw) {
-  return [...new Set(searchGroups(raw).flat())];
 }
 
 /** First finite number in a string, or null. Accepts "12.5", "१२" is NOT parsed. */

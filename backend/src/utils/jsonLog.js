@@ -44,10 +44,10 @@ export const LOG_COLUMNS = Object.freeze({
 });
 
 /** Per-entry text caps. Bound the row and keep one entry from dwarfing the log. */
-export const TEXT_CAP = 500;
+const TEXT_CAP = 500;
 /** `fields` is a free-form bag on activity entries — bound its shape too. */
-export const MAX_FIELD_KEYS = 30;
-export const MAX_FIELD_VALUE = 500;
+const MAX_FIELD_KEYS = 30;
+const MAX_FIELD_VALUE = 500;
 
 /** Trim, strip HTML, cap. Returns null for anything empty. */
 export function cleanText(value, cap = TEXT_CAP) {

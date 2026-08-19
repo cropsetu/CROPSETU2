@@ -9,7 +9,7 @@
  *   isRain / isStorm / isSnow — advisory flags
  */
 
-export const WMO_CODES = {
+const WMO_CODES = {
   0:  { en: 'Clear Sky',             hi: 'साफ आसमान',           icon: 'sunny',         isRain: false, isStorm: false },
   1:  { en: 'Mainly Clear',          hi: 'ज्यादातर साफ',         icon: 'partly-sunny',  isRain: false, isStorm: false },
   2:  { en: 'Partly Cloudy',         hi: 'आंशिक बादल',          icon: 'partly-sunny',  isRain: false, isStorm: false },

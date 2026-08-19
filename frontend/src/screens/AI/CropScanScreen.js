@@ -13,14 +13,13 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Pressable, ScrollView,
   TextInput, Dimensions, Animated, Easing, StatusBar, Image,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Linking,
-  Modal, Switch,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Haptics } from '@cropsetu/shared/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import * as Location   from 'expo-location';
 import { scanCropImage } from '../../services/aiApi';
 import { useMultiFarm } from '../../context/MultiFarmContext';
 import { listCropCycles, getCropCycle } from '../../services/farmApi';
@@ -29,7 +28,6 @@ import { summarizeFertilizers, summarizePesticides, buildFarmHistory } from '../
 import { useFarm, COMMON_CROPS, COMMON_CROP_KEYS, SOIL_TYPES, IRRIGATION_TYPES } from '../../context/FarmContext';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import FarmProfileBanner from '../../components/FarmProfileBanner';
 import { SoundEffects } from '@cropsetu/shared/utils/sounds';
 import { COLORS } from '@cropsetu/shared/constants/colors';
 import {
@@ -1603,7 +1601,6 @@ const SC = StyleSheet.create({
   // step (14/16/20), so this is KSPACE.s18 — an exact value, not a gutter role.
   // Moving it to KGUTTER.wide or .base retunes both grids. Don't.
   scrollContent: { paddingHorizontal: KSPACE.s18, paddingTop: KSPACE.s4 },
-  farmBanner: { marginBottom: KSPACE.s18 },
 
   // Section label
   sectionLabel: {
@@ -1682,35 +1679,6 @@ const SC = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
 
-  // Chip row — DEAD: nothing references SC.chipRow/chip/cropChip/chipThumb any
-  // more. Migrated in place rather than deleted; removing dead styles is a
-  // separate change with its own review.
-  chipRow: { gap: KSPACE.s8, paddingBottom: KSPACE.s4 },
-  chip: {
-    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4,
-    backgroundColor: COLORS.white, borderRadius: KRADIUS.r20,
-    paddingHorizontal: KSPACE.s14, paddingVertical: KSPACE.s8,
-    borderWidth: KBORDER.hairline, borderColor: COLORS.border,
-  },
-  chipActive:     { backgroundColor: COLORS.greenBright, borderColor: COLORS.greenBright },
-  chipText:       { fontSize: 13, color: COLORS.gray700dark, fontWeight: '600' },
-  chipTextActive: { color: COLORS.white },
-
-  cropChip: {
-    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6,
-    backgroundColor: COLORS.white, borderRadius: 22,
-    paddingLeft: KSPACE.s4, paddingRight: KSPACE.s14, paddingVertical: KSPACE.s4,
-    borderWidth: KBORDER.chip, borderColor: COLORS.border,
-  },
-  cropChipActive: { backgroundColor: COLORS.greenBright, borderColor: COLORS.greenBright },
-  cropChipIcon: {
-    ...circle(32),
-    backgroundColor: COLORS.surface, overflow: 'hidden',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  cropChipText: { fontSize: 12, color: COLORS.gray700dark, fontWeight: '700' },
-  chipThumb: { ...circle(32) },
-
   // Input fields
   textField: {
     backgroundColor: COLORS.white, borderRadius: KRADIUS.r12, paddingHorizontal: KSPACE.s14, paddingVertical: KSPACE.s12,
@@ -1720,15 +1688,6 @@ const SC = StyleSheet.create({
   },
   rowInputWrap: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s10 },
   inputUnit:    { fontSize: 13, color: COLORS.textMedium, marginBottom: KSPACE.s4, width: 40 },
-
-  // DEAD — see chipRow.
-  profileHint: {
-    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6,
-    backgroundColor: 'rgba(52,152,219,0.06)', borderRadius: 8,
-    padding: KSPACE.s10, marginTop: KSPACE.s16,
-    borderWidth: KBORDER.hairline, borderColor: 'rgba(52,152,219,0.15)',
-  },
-  profileHintText: { fontSize: 11, color: COLORS.blue, flex: 1 },
 
   // Farm reference bar (futuristic) + dropdown
   farmBarWrap: { marginBottom: KSPACE.s6 },
@@ -1871,66 +1830,12 @@ const SC = StyleSheet.create({
   // screen. KHET.warningInk: 4.80:1.
   changePhotoBtnText: { fontSize: 12, color: KHET.warningInk, fontWeight: '700' },
 
-  // Multi-image gallery card — DEAD: superseded by the single-photo preview
-  // above. Migrated in place, not deleted.
-  photoGallery: {
-    backgroundColor: COLORS.white,
-    borderRadius: KRADIUS.r16, padding: KSPACE.s12,
-    borderWidth: KBORDER.hairline, borderColor: COLORS.border,
-    shadowColor: COLORS.black, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
-    marginTop: KSPACE.s8, marginBottom: KSPACE.s8,
-  },
-  photoGalleryHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: KSPACE.s10, paddingHorizontal: KSPACE.s2,
-  },
-  photoGalleryTitle: { fontSize: 13, fontWeight: '800', color: COLORS.slate800 },
-  addMoreBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4,
-    paddingHorizontal: KSPACE.s10, paddingVertical: KSPACE.s6, borderRadius: KRADIUS.r14,
-    backgroundColor: withAlpha(COLORS.primary, '14'),
-  },
-  addMoreBtnTxt: { fontSize: 11, fontWeight: '800', color: COLORS.primary },
-
-  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s8 },
-  // (card padding 12 each side ≈ 24, gaps 8×2 ≈ 16, screen padding 18×2 ≈ 36)
-  // Available row width = W - 36 - 24, ÷3 = tile width.
-  photoCell: {
-    width: (W - 36 - 24 - 16) / 3, aspectRatio: 1,
-    borderRadius: KRADIUS.r12, overflow: 'hidden',
-    backgroundColor: COLORS.surface,
-    position: 'relative',
-  },
-  photoCellImg: { width: '100%', height: '100%' },
-  // NOT circle(): minWidth 22 / height 22 is not the w === h === 2r shape
-  // circle() encodes, so radius 11 stays literal.
-  photoCellBadge: {
-    position: 'absolute', top: KSPACE.s6, left: KSPACE.s6,
-    minWidth: 22, height: 22, paddingHorizontal: KSPACE.s6, borderRadius: 11,
-    backgroundColor: withAlpha(COLORS.black, 0.6),
-    justifyContent: 'center', alignItems: 'center',
-  },
-  photoCellBadgePrimary: { backgroundColor: COLORS.primary },
-  photoCellBadgeTxt: { fontSize: 10, color: COLORS.white, fontWeight: '800' },
   photoCellRemove: {
     position: 'absolute', top: KSPACE.s6, right: KSPACE.s6,
     ...circle(24),
     backgroundColor: withAlpha(COLORS.black, 0.65),
     justifyContent: 'center', alignItems: 'center',
   },
-  photoCellAdd: {
-    backgroundColor: withAlpha(COLORS.primary, '08'),
-    borderWidth: KBORDER.chip, borderStyle: 'dashed', borderColor: withAlpha(COLORS.primary, '55'),
-    justifyContent: 'center', alignItems: 'center', gap: KSPACE.s4,
-    padding: KSPACE.s6,
-  },
-  photoCellAddTxt: { fontSize: 11, fontWeight: '800', color: COLORS.primary, textAlign: 'center' },
-
-  photoGalleryHint: {
-    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, marginTop: KSPACE.s12,
-    paddingHorizontal: KSPACE.s2,
-  },
-  photoGalleryHintTxt: { fontSize: 11, color: COLORS.textMedium, flex: 1, lineHeight: 16 },
 
   // Error modal (proper popup, replaces the inline "[status=undefined]" text)
   // The scrim is #0F172A at 55% — not a COLORS token, so it stays a literal.
@@ -1978,10 +1883,6 @@ const SC = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderTopWidth: KBORDER.hairline, borderTopColor: COLORS.grayBorder,
   },
-  nextBtn: {   // DEAD — GradientBtn renders nextBtnGradient instead.
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: KSPACE.s8,
-    backgroundColor: COLORS.greenBright, borderRadius: KRADIUS.r12, paddingVertical: KSPACE.s14,
-  },
   // Shadow left RAW: a coloured glow (greenBright, .3, radius 8, offset (0,3)),
   // which no KELEV tier expresses — they are all neutral #0e3a20 lifts.
   nextBtnGradient: {
@@ -1990,8 +1891,6 @@ const SC = StyleSheet.create({
     shadowColor: COLORS.greenBright, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
-  nextBtnDisabled: { backgroundColor: COLORS.gray175 },      // DEAD
-  analyseBtn:      { backgroundColor: COLORS.greenBright },  // DEAD
   nextBtnText: { fontSize: 15, fontWeight: '800', color: COLORS.white },
 
   // Analysis screen
@@ -2031,15 +1930,4 @@ const SC = StyleSheet.create({
   progressTextDone:  { color: COLORS.primary },
   progressTextActive:{ color: COLORS.slate800, fontWeight: '700' },
   analysisNote: { fontSize: 11, color: COLORS.textMedium, textAlign: 'center', fontStyle: 'italic' },
-
-  // Error — DEAD: superseded by the errModal* block above.
-  errorBox: { alignItems: 'center', gap: KSPACE.s12, paddingHorizontal: KSPACE.s20 },
-  errorTitle: { fontSize: 18, fontWeight: '900', color: COLORS.red },
-  errorMsg:   { fontSize: 13, color: COLORS.textMedium, textAlign: 'center', lineHeight: 20 },
-  retryBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8,
-    backgroundColor: COLORS.greenBright, borderRadius: KRADIUS.r12, paddingHorizontal: KSPACE.s24, paddingVertical: KSPACE.s12,
-    marginTop: KSPACE.s8,
-  },
-  retryBtnText: { fontSize: 14, fontWeight: '800', color: COLORS.white },
 });

@@ -213,7 +213,7 @@ export const GRAD = {
  * lifecycle order (`step`) lives here too, so the order card's step indicator
  * and the "advance to next" button can never disagree about the sequence.
  */
-export const ORDER_STATUS = {
+const ORDER_STATUS = {
   PENDING:   { color: P.amber600, tint: P.amber50, icon: 'hourglass-outline',    step: 0, tKey: 'orders.statusPending',   fallback: 'Pending' },
   CONFIRMED: { color: P.azure600, tint: P.azure50, icon: 'checkmark-circle',     step: 1, tKey: 'orders.statusConfirmed', fallback: 'Confirmed' },
   SHIPPED:   { color: P.iris600,  tint: P.iris50,  icon: 'cube',                 step: 2, tKey: 'orders.statusShipped',   fallback: 'Shipped' },
@@ -222,7 +222,7 @@ export const ORDER_STATUS = {
   REFUNDED:  { color: P.stone600, tint: P.stone50, icon: 'return-up-back',       step: -1, tKey: 'orders.statusRefunded',  fallback: 'Refunded' },
 };
 
-export const ORDER_STATUS_FALLBACK = {
+const ORDER_STATUS_FALLBACK = {
   color: P.stone600, tint: P.stone50, icon: 'ellipse-outline', step: -1, tKey: null, fallback: 'Unknown',
 };
 
@@ -248,7 +248,7 @@ export const RISK = {
   LOW:      { color: P.moss600,  tint: P.moss50,  icon: 'shield-checkmark-outline' },
 };
 
-export const RISK_FALLBACK = { color: P.stone600, tint: P.stone50, icon: 'help-circle-outline' };
+const RISK_FALLBACK = { color: P.stone600, tint: P.stone50, icon: 'help-circle-outline' };
 
 export function riskMeta(level) {
   return RISK[String(level || '').toUpperCase()] || RISK_FALLBACK;
@@ -413,7 +413,7 @@ export const MOTION = {
 };
 
 // ── Responsive ───────────────────────────────────────────────────────────────
-export const BREAKPOINT = { sm: 360, md: 600, lg: 905, xl: 1240 };
+const BREAKPOINT = { sm: 360, md: 600, lg: 905, xl: 1240 };
 
 /**
  * Layout facts derived from the *live* window size. Screens previously read
@@ -458,15 +458,6 @@ export function formatCurrency(value, { withSymbol = true } = {}) {
   if (!Number.isFinite(n)) return withSymbol ? '₹—' : '—';
   const formatted = n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
   return withSymbol ? `₹${formatted}` : formatted;
-}
-
-/** Compact number for badges/stats — 1.2k, 15k, 1.1M. */
-export function formatCompact(value) {
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n)) return '0';
-  if (Math.abs(n) < 1000) return String(Math.round(n));
-  if (Math.abs(n) < 1_000_000) return `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
 /** Initials for an avatar, resilient to empty/whitespace/emoji names. */

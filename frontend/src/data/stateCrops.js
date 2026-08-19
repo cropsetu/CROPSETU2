@@ -653,10 +653,3 @@ export function detectStateFromLocation(locationString) {
   }
   return null;
 }
-
-// Display-friendly state name (with Hindi)
-export function getStateDisplayName(stateKey) {
-  const state = STATE_CROPS[stateKey];
-  if (!state) return stateKey;
-  return `${stateKey.replace(/([A-Z])/g, ' $1').trim()} (${state.nameHi})`;
-}

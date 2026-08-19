@@ -78,7 +78,7 @@ export const CREDIT_COSTS = {
 // ONE function used by every AI service (chat, voice, scan, …) to convert the
 // actual tokens a call consumed into credits to debit. Free features (floor 0)
 // stay free; everything else costs at least its floor, more for big responses.
-export function creditsForUsage(featureType, tokensUsed = 0, tokensPerCredit = TOKENS_PER_CREDIT_ENV) {
+function creditsForUsage(featureType, tokensUsed = 0, tokensPerCredit = TOKENS_PER_CREDIT_ENV) {
   const floor = CREDIT_COSTS[featureType] ?? MIN_CREDITS_PER_CALL;
   if (floor === 0) return 0;                                   // rule-based / free
   const tokens = Number(tokensUsed) || 0;
@@ -89,7 +89,7 @@ export function creditsForUsage(featureType, tokensUsed = 0, tokensPerCredit = T
 }
 
 // ── Tier limits ──────────────────────────────────────────────────────────────
-export const TIER_CONFIG = {
+const TIER_CONFIG = {
   free:       { monthlyCredits: FREE_MONTHLY_CREDITS_ENV, maxDailyTokens: 50_000,  label: 'Free' },
   basic:      { monthlyCredits: 500,   maxDailyTokens: 200_000, label: 'Basic' },
   pro:        { monthlyCredits: 2000,  maxDailyTokens: 500_000, label: 'Pro' },
@@ -97,7 +97,7 @@ export const TIER_CONFIG = {
 };
 
 // ── Credit pack prices (for future payment integration) ──────────────────────
-export const CREDIT_PACKS = [
+const CREDIT_PACKS = [
   { id: 'pack_100',  credits: 100,  priceInr: 49,   label: '100 Credits' },
   { id: 'pack_500',  credits: 500,  priceInr: 199,  label: '500 Credits' },
   { id: 'pack_1000', credits: 1000, priceInr: 349,  label: '1000 Credits' },
@@ -108,7 +108,7 @@ export const CREDIT_PACKS = [
  * Get or create user's credit record.
  * Auto-creates with free tier balance on first access.
  */
-export async function getOrCreateCredits(userId) {
+async function getOrCreateCredits(userId) {
   let credit = await prisma.aICredit.findUnique({
     where: { userId },
   });
@@ -490,15 +490,6 @@ export async function getCreditSummary(userId) {
     costs: CREDIT_COSTS,
     packs: CREDIT_PACKS,
   };
-}
-
-/**
- * Map pest prediction engine level to feature type for credit deduction.
- */
-export function pestLevelToFeatureType(level) {
-  if (level === 0) return 'ai_pest_rule';
-  if (level === 1) return 'ai_pest_haiku';
-  return 'ai_pest_sonnet';
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

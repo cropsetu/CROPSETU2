@@ -92,15 +92,3 @@ export const NAV: NavGroup[] = [
 ];
 
 export const ALL_NAV_ITEMS: NavItem[] = NAV.flatMap((g) => g.items);
-
-/** Keep only nav items the predicate admits; drop now-empty groups. */
-export function visibleNav(canSee: (item: NavItem) => boolean): NavGroup[] {
-  return NAV
-    .map((g) => ({ ...g, items: g.items.filter(canSee) }))
-    .filter((g) => g.items.length > 0);
-}
-
-/** Flat list of nav items the predicate admits (for the ⌘K palette). */
-export function visibleNavItems(canSee: (item: NavItem) => boolean): NavItem[] {
-  return ALL_NAV_ITEMS.filter(canSee);
-}

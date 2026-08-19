@@ -28,7 +28,7 @@ export const NS_ANIMALS = 'animals:listings';
 export const ANIMALS_TTL_SEC = 30;
 
 /** Days a new listing stays live before it needs renewing. */
-export const LISTING_TTL_DAYS = 45;
+const LISTING_TTL_DAYS = 45;
 
 /** Columns the 2-column grid actually renders. */
 export const LIST_SELECT = {

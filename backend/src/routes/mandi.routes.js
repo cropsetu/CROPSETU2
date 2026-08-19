@@ -32,12 +32,12 @@ const SUPPORTED_COMMODITIES = [
 // Free-text commodity/state/district flow into Prisma `contains` filters and the
 // data.gov.in query string — cap their length so a caller can't push a giant
 // string into the DB scan or the upstream request.
-export const locationQueryRules = [
+const locationQueryRules = [
   query('commodity').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
   query('state').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
   query('district').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
 ];
-export const trendQueryRules = [
+const trendQueryRules = [
   param('commodity').isString().trim().isLength({ min: 1, max: 100 }),
   query('market').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
   query('days').optional({ checkFalsy: true }).isInt({ min: 1, max: 365 }).withMessage('days must be 1-365').toInt(),

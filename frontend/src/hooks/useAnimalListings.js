@@ -28,9 +28,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '@cropsetu/shared/services/api';
 import { classifyError, ERROR_CODES } from '../utils/apiError';
 
-export const ANIMALS_PAGE_SIZE = 16;   // ~8 rows of the 2-column grid
-export const SEARCH_DEBOUNCE_MS = 400;
-export const MIN_SEARCH_LEN = 2;       // 1 character matches half the marketplace
+const ANIMALS_PAGE_SIZE = 16;   // ~8 rows of the 2-column grid
+const SEARCH_DEBOUNCE_MS = 400;
+const MIN_SEARCH_LEN = 2;       // 1 character matches half the marketplace
 
 const CACHE_PREFIX = '@animals:page1:';
 /** Older than this and we show it, but tell the user how old it is. */

@@ -17,7 +17,3 @@ export const KRUSHI_KENDRA_TYPES = [
   'agri_input_shop',
   'pesticide_dealer',
 ];
-
-export function isKendraBusinessType(businessType) {
-  return !!businessType && KRUSHI_KENDRA_TYPES.includes(businessType);
-}

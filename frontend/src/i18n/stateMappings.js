@@ -4,7 +4,7 @@
  * States with no dedicated language file fall back to Hindi (hi) or English (en).
  */
 
-export const INDIAN_STATES = [
+const INDIAN_STATES = [
   // ── North India (Hindi belt) ──────────────────────────────────────────────
   { name: 'Uttar Pradesh',       nativeName: 'उत्तर प्रदेश',      lang: 'hi', region: 'North' },
   { name: 'Bihar',               nativeName: 'बिहार',              lang: 'hi', region: 'North' },
@@ -67,11 +67,6 @@ export function getStatesByRegion() {
     map[state.region].push(state);
   }
   return map;
-}
-
-/** Get the language code for a given state name. Returns 'en' if not found. */
-export function getLangForState(stateName) {
-  return INDIAN_STATES.find((s) => s.name === stateName)?.lang ?? 'en';
 }
 
 // Region display order for the UI

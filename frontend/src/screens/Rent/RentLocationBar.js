@@ -324,30 +324,6 @@ export function RentLocationSheet({
 }
 
 const S = StyleSheet.create({
-  // Bar
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACE[1.5],
-    marginHorizontal: SPACE[2],
-    marginTop: SPACE[1.5],
-    minHeight: TAP + SPACE[1],
-    paddingHorizontal: SPACE[1.5],
-    paddingVertical: SPACE[1],
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    ...SHADOWS.small,
-  },
-  barIcon: {
-    width: 34, height: 34, borderRadius: RADIUS.full,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  barTextWrap: { flex: 1, minWidth: 0 },
-  barLabel: { fontSize: 10, fontWeight: '700', color: COLORS.textLight, letterSpacing: 0.4, textTransform: 'uppercase' },
-  barValue: { fontSize: 14, fontWeight: TYPE.weight.black, marginTop: 1 },
-
   // One row: pill + chips. Mirrors the Animals tab's distRow/locBtn.
   distRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -363,14 +339,6 @@ const S = StyleSheet.create({
   locPillTxt: { fontSize: 12, fontWeight: '800', color: COLORS.textMedium, flexShrink: 1 },
 
   // Chip rows (radius, sort)
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACE[1],
-    paddingHorizontal: SPACE[2],
-    paddingTop: SPACE[1],
-  },
-  rowLabel: { fontSize: 12, fontWeight: '700', color: COLORS.textMedium, flexShrink: 0 },
   rowScroll: { gap: SPACE[0.5] + 3, paddingRight: SPACE[0.5], alignItems: 'center' },
   chip: {
     // Full 44px target even in the languages whose labels stay short.

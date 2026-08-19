@@ -182,15 +182,6 @@ const sty = StyleSheet.create({
 
   blob: { position: "absolute", width: 280, height: 280, borderRadius: 140, opacity: 0.18 },
 
-  // Brand
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 22 },
-  brandIcon: {
-    width: 42, height: 42, borderRadius: 13,
-    justifyContent: "center", alignItems: "center", ...KSHADOW.elegant,
-  },
-  appName: { fontSize: 18, fontFamily: KFONT.sansBold, color: KHET.foreground, letterSpacing: -0.3 },
-  appSub: { fontSize: 11, color: KHET.mutedForeground, marginTop: 1, fontFamily: KFONT.sans },
-
   // Hero
   hero: { flexDirection: "row", alignItems: "center", marginBottom: 26 },
   heroIcon: { width: 56, height: 56, borderRadius: 16, justifyContent: "center", alignItems: "center", ...KSHADOW.elegant },

@@ -396,17 +396,6 @@ export const noLead = (step) => {
 };
 
 /**
- * A type role at a different size, leading kept proportional. For the Onboarding
- * screens, which scale type to the viewport via utils/responsive.js.
- *     scaleType(KTYPE.title, 1.15)
- */
-export const scaleType = (step, factor) => ({
-  ...step,
-  fontSize: Math.round(step.fontSize * factor),
-  ...(step.lineHeight ? { lineHeight: Math.round(step.lineHeight * factor) } : {}),
-});
-
-/**
  * The circle idiom in one call. Replaces the 185 places that hand-compute
  * `borderRadius: size / 2`, which silently breaks when the size changes.
  */

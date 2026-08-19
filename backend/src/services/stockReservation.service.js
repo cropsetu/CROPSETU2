@@ -49,10 +49,6 @@ async function config() {
   };
 }
 
-export async function reservationsEnabled() {
-  return (await config()).enabled;
-}
-
 /**
  * Hold stock for a set of cart lines, inside the caller's transaction.
  *
@@ -214,24 +210,6 @@ export async function sweepExpiredReservations({ batchSize = 200 } = {}) {
     logger.error({ err }, '[Reservation] expiry sweep failed');
     return { released: 0, orphaned: 0, error: true };
   }
-}
-
-/**
- * How many units this listing currently has held by OTHER buyers.
- * Not used by the sale path (stockQty is already net of holds) — it exists for
- * the admin inventory view, where "5 available, 3 held" is the honest picture.
- */
-export async function heldUnitsByListing(listingIds = []) {
-  const out = new Map(listingIds.map((id) => [id, 0]));
-  if (!listingIds.length) return out;
-
-  const rows = await prisma.stockReservation.groupBy({
-    by: ['listingId'],
-    where: { listingId: { in: listingIds }, status: 'HELD', expiresAt: { gt: new Date() } },
-    _sum: { quantity: true },
-  });
-  for (const r of rows) out.set(r.listingId, r._sum.quantity || 0);
-  return out;
 }
 
 export { config as reservationConfig };

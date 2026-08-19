@@ -232,17 +232,6 @@ export const INDIA_DISTRICTS = {
 export const INDIA_STATES_LIST = Object.keys(INDIA_DISTRICTS).sort();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MAJOR AGRICULTURAL STATES (shown first / used for mandi predictions)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const AGRI_STATES = [
-  'Maharashtra','Punjab','Madhya Pradesh','Uttar Pradesh','Karnataka',
-  'Andhra Pradesh','Rajasthan','Gujarat','Telangana','Tamil Nadu',
-  'Bihar','West Bengal','Haryana','Odisha','Chhattisgarh','Assam',
-  'Jharkhand','Kerala','Uttarakhand','Himachal Pradesh',
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
 // HELPER
 // ─────────────────────────────────────────────────────────────────────────────
 

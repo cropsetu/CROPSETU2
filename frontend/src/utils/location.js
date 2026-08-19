@@ -19,14 +19,6 @@ export function formatLocation(loc) {
   return s.replace(/([a-z0-9])([A-Z])/g, '$1, $2').trim();
 }
 
-// First location segment for compact card labels. The location string is built
-// as "village, taluka, district, city, state", so the first segment is the
-// village (falling back to whatever the most specific available place is).
-export function locationVillage(loc) {
-  const formatted = formatLocation(loc);
-  return formatted ? formatted.split(',')[0].trim() : '';
-}
-
 // Village + taluka — the two most specific segments — for compact card labels,
 // e.g. "Palshi, Sillod". Falls back to whatever segments are available.
 export function locationVillageTaluka(loc) {

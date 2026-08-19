@@ -6,8 +6,7 @@
  * (and React escapes JSX text on web), so normal text display is safe and lossless
  * WITHOUT touching it here. These helpers are a SECOND layer for the few sinks
  * that bypass React's automatic escaping:
- *   - HTML strings handed to a WebView           -> escapeHtml()
- *   - URLs passed to Linking.openURL              -> sanitizeUrl() / safeOpenURL()
+ *   - URLs passed to Linking.openURL              -> safeOpenURL()
  *   - phone numbers interpolated into tel: links  -> sanitizePhone()
  * plus stripHtml() mirroring the backend for the rare plain-text-from-HTML case.
  *
@@ -15,16 +14,6 @@
  * escapes it correctly, and stripHtml would corrupt legitimate input like "a < b".
  */
 import { Linking } from 'react-native';
-
-const HTML_ESCAPES = {
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;',
-};
-
-/** Escape HTML special chars so a string is safe to interpolate into HTML (e.g. WebView source). */
-export function escapeHtml(value) {
-  if (value == null) return '';
-  return String(value).replace(/[&<>"'/]/g, (c) => HTML_ESCAPES[c]);
-}
 
 /** Strip HTML tags (mirrors the backend stripHtml) for plain-text-from-HTML display. */
 export function stripHtml(value) {
@@ -47,7 +36,7 @@ const SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
  * Return the URL only if its scheme is allowlisted, else null. Leading/trailing
  * whitespace is trimmed so legitimate URLs with stray spaces still work.
  */
-export function sanitizeUrl(url) {
+function sanitizeUrl(url) {
   if (typeof url !== 'string') return null;
   const cleaned = url.trim();
   if (!cleaned) return null;

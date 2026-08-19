@@ -197,7 +197,7 @@ export const ACTIVITY_TYPES = [
   { key: 'OTHER',      color: COSMIC.PRIMARY_LT, icon: 'sparkles-outline',     i18n: 'myFarm.v2.activity.other'      },
 ];
 
-export const ACTIVITY_TYPE_MAP = Object.fromEntries(ACTIVITY_TYPES.map((a) => [a.key, a]));
+const ACTIVITY_TYPE_MAP = Object.fromEntries(ACTIVITY_TYPES.map((a) => [a.key, a]));
 
 export function activityMeta(key) {
   return ACTIVITY_TYPE_MAP[key] || { key, color: COSMIC.TEXT_2, icon: 'ellipse-outline', i18n: 'myFarm.v2.activity.other' };

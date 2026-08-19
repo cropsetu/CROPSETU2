@@ -19,7 +19,7 @@ const BEARER_RE = /^Bearer (\S+)$/;
  * Returns the token string, or null if the header is absent or malformed.
  * Pure string work — never throws — so callers can't 500 on garbage input.
  */
-export function parseBearerToken(headerValue) {
+function parseBearerToken(headerValue) {
   if (typeof headerValue !== 'string') return null;
   const match = BEARER_RE.exec(headerValue.trim());
   return match ? match[1] : null;

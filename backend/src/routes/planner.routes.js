@@ -31,7 +31,7 @@ router.param('id', uuidParamGuard); // reject non-UUID :id (task) with 400 befor
 
 // ── Validation rules ──────────────────────────────────────────────────────────
 const PRIORITIES = ['urgent', 'today', 'plan'];
-export const listTasksRules = [
+const listTasksRules = [
   query('date').optional({ checkFalsy: true }).isISO8601().withMessage('date must be a valid date (YYYY-MM-DD)'),
 ];
 export const createTaskRules = [
@@ -44,13 +44,13 @@ export const createTaskRules = [
   body('color').optional({ checkFalsy: true }).matches(/^#[0-9A-Fa-f]{3,8}$/).withMessage('color must be a hex code'),
   body('scheduledFor').optional({ checkFalsy: true }).isISO8601().withMessage('scheduledFor must be a valid date'),
 ];
-export const updateTaskRules = [
+const updateTaskRules = [
   body('done').optional().isBoolean().withMessage('done must be a boolean'),
   body('title').optional({ checkFalsy: true }).trim().isLength({ max: 200 }),
   body('description').optional().isString().isLength({ max: 2000 }),
   body('priority').optional({ checkFalsy: true }).isIn(PRIORITIES),
 ];
-export const generateTasksRules = [
+const generateTasksRules = [
   body('crop').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
   body('state').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
   body('dayOfSeason').optional({ checkFalsy: true }).isInt({ min: 0, max: 400 }).withMessage('dayOfSeason must be 0-400').toInt(),

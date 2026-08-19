@@ -17,7 +17,7 @@
  * upgrading from that build — not just fresh installs.
  */
 import { Platform } from 'react-native';
-import { SESSION_TIMEOUT_MS, SESSION_IDLE_TIMEOUT_MS, STORAGE_KEYS } from '../constants/config';
+import { SESSION_IDLE_TIMEOUT_MS, STORAGE_KEYS } from '../constants/config';
 
 let _SecureStore = null;
 function getSecureStore() {
@@ -34,7 +34,7 @@ const memStore = new Map();
  * is a no-op on fresh installs — it exists purely to scrub legacy leftovers and
  * keep them out of JS-readable storage. Safe to call repeatedly.
  */
-export function scrubLegacyWebTokenStorage() {
+function scrubLegacyWebTokenStorage() {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
   const keys = Object.values(STORAGE_KEYS);
   for (const store of [window.localStorage, window.sessionStorage]) {
@@ -70,13 +70,6 @@ export async function deleteItem(key) {
     return;
   }
   await getSecureStore().deleteItemAsync(key);
-}
-
-/** Returns true if the stored session has exceeded SESSION_TIMEOUT_MS. */
-export async function isTokenStale() {
-  const raw = await getItem(STORAGE_KEYS.TOKEN_SAVED_AT);
-  if (!raw) return true;
-  return Date.now() - Number(raw) > SESSION_TIMEOUT_MS;
 }
 
 // ── Inactivity (idle) tracking ────────────────────────────────────────────────

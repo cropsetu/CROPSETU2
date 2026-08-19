@@ -15,10 +15,10 @@ import { getSetting } from './settings.service.js';
 // Hard safety ceiling on a single broadcast's fan-out. The runtime
 // `broadcast.maxRecipients` AppSetting may LOWER this (ops tuning) but can never
 // raise it above the ceiling — unbounded fan-out stays impossible.
-export const MAX_RECIPIENTS = 5000;
+const MAX_RECIPIENTS = 5000;
 
 /** Build the User where-clause for an audience filter (active users only). */
-export function audienceWhere({ district, state, role, crop } = {}) {
+function audienceWhere({ district, state, role, crop } = {}) {
   const where = { isActive: true };
   if (role) where.role = role;
   if (district) where.district = { equals: district, mode: 'insensitive' };

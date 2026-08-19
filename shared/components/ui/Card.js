@@ -52,8 +52,8 @@ const SURFACES = {
 // The two alphas the app already uses for accent fills, decided once. 0.09 ≈ the
 // '18' suffix (0.094); 0.25 ≈ '40' (0.251), chosen at the top of the existing
 // '3A'..'40' range so the border stays visible against the page background.
-export const TINT_BG = 0.09;
-export const TINT_BORDER = 0.25;
+const TINT_BG = 0.09;
+const TINT_BORDER = 0.25;
 
 /**
  * <Card

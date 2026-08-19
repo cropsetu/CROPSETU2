@@ -161,7 +161,7 @@ export const KYC_SIGNED_URL_TTL_SEC = 5 * 60; // 5 minutes
  * Upload a single buffer PRIVATELY. Returns the Cloudinary `public_id`
  * (a reference, NOT a fetchable URL).
  */
-export function uploadPrivateBuffer(buffer, folder) {
+function uploadPrivateBuffer(buffer, folder) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Cloudinary upload timed out')), 55000);
 

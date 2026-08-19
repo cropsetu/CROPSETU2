@@ -7,8 +7,9 @@
  * pincode regex lived only in CheckoutScreen). The backend remains AUTHORITATIVE;
  * these mirror its expectations to give fast, consistent client-side feedback.
  *
- * Each rule is exported both as a RegExp (for callers that need it) and as a
- * boolean predicate that trims/normalises input first.
+ * Each rule is exposed as a boolean predicate that trims/normalises input
+ * first; PHONE_RE and PINCODE_RE are additionally exported as RegExps, for the
+ * callers that need the raw pattern.
  */
 
 // Indian mobile number: 10 digits, first digit 6-9 (the valid operator series).
@@ -16,15 +17,15 @@ export const PHONE_RE = /^[6-9]\d{9}$/;
 // Indian PIN code: exactly 6 digits.
 export const PINCODE_RE = /^\d{6}$/;
 // One-time password: 6 digits.
-export const OTP_RE = /^\d{6}$/;
+const OTP_RE = /^\d{6}$/;
 // GSTIN, e.g. 27ABCDE1234F1Z5.
-export const GST_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+const GST_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 // Bank IFSC, e.g. SBIN0012345.
-export const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 // Aadhaar: 12 digits.
-export const AADHAAR_RE = /^\d{12}$/;
+const AADHAAR_RE = /^\d{12}$/;
 // PAN, e.g. ABCDE1234F.
-export const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 /**
  * Reduce raw phone input to a bare 10-digit national number. Strips non-digits,

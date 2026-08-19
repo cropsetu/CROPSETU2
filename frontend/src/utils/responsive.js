@@ -64,28 +64,9 @@ export function fs(size) {
   return PixelRatio.roundToNearestPixel(size + (scaleX - 1) * size * 0.3);
 }
 
-/**
- * Minimum touch target (Material Design = 48dp).
- * Use as hitSlop on small touchables.
- */
-export const MIN_TAP = 48;
-
 export const HIT = { top: 10, bottom: 10, left: 10, right: 10 };
 
 /**
  * Screen dimensions (static snapshot at app launch).
  */
 export const SCREEN = { W: SCREEN_W, H: SCREEN_H };
-
-/**
- * isSmallDevice — true at 360dp AND BELOW (budget Androids). The comparison is
- * <= deliberately: 360dp is the most common budget-Android width in India and the
- * design base is 390dp, so 360 is exactly the case this guard exists to catch. A
- * strict < 360 excluded it.
- */
-export const isSmallDevice = SCREEN_W <= 360;
-
-/**
- * isLargeDevice — true for screens wider than 430dp (Plus/Max/tablets).
- */
-export const isLargeDevice = SCREEN_W > 430;

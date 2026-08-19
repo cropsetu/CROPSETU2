@@ -18,7 +18,7 @@ import { auditAction, auditLog, AUDIT_ACTIONS } from './audit.service.js';
 
 // patch builders are functions so per-call values (e.g. a fresh tombstone
 // timestamp) are evaluated at archive time, not at module load.
-export const ARCHIVE_SPECS = {
+const ARCHIVE_SPECS = {
   AIConversation:    { model: () => prisma.aIConversation,    archive: () => ({ isArchived: true }),     restore: () => ({ isArchived: false }) },
   VoiceConversation: { model: () => prisma.voiceConversation, archive: () => ({ isArchived: true }),     restore: () => ({ isArchived: false }) },
   AnimalListing:     { model: () => prisma.animalListing,     archive: () => ({ status: 'INACTIVE' }),    restore: () => ({ status: 'ACTIVE' }) },

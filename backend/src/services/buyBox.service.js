@@ -36,9 +36,9 @@ import { getSetting } from './settings.service.js';
 import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
 import logger from '../utils/logger.js';
 
-export const NS_BUYBOX = 'agristore:buybox';
+const NS_BUYBOX = 'agristore:buybox';
 /** Short, like the products namespace — bounds drift between explicit bumps. */
-export const BUYBOX_TTL = 60;
+const BUYBOX_TTL = 60;
 
 /** Invalidate every cached buy box. Call after any price/stock/status change. */
 export async function invalidateBuyBox() {
@@ -205,7 +205,7 @@ export async function rankOffersForVariant(variantId, buyer = {}) {
  * globally-shared entry would serve a Nagpur buyer a Kendra that cannot sell to
  * them.
  */
-export async function getBuyBox(variantId, buyer = {}) {
+async function getBuyBox(variantId, buyer = {}) {
   const identity = JSON.stringify([
     variantId,
     (buyer.district || '').toLowerCase(),

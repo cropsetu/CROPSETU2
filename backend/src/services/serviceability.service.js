@@ -29,7 +29,7 @@ import prisma from '../config/db.js';
 import { getSetting } from './settings.service.js';
 import { cachedListing } from '../utils/listingCache.js';
 
-export const NS_SERVICEABILITY = 'agristore:serviceability';
+const NS_SERVICEABILITY = 'agristore:serviceability';
 const SERVICEABILITY_TTL = 300;
 
 /** Indian PIN codes are exactly six digits and never start with 0. */

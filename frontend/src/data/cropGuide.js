@@ -1,9 +1,9 @@
 // cropGuide.js
 // Crop-guide directory for CropSetu. Keyed by each entry's normalized `key`.
-// Exposes CROP_GUIDE (the directory) and getCropGuide(name) — a tolerant lookup
+// Exposes getCropGuide(name) — a tolerant lookup
 // helper that normalizes crop names and resolves common aliases/synonyms.
 
-export const CROP_GUIDE = {
+const CROP_GUIDE = {
   "rice": {
     "key": "rice",
     "title": "Rice (Paddy)",
@@ -3066,4 +3066,3 @@ export function getCropGuide(name) {
   const hit = Object.keys(CROP_GUIDE).find((k) => n.startsWith(k) || k.startsWith(n));
   return hit ? CROP_GUIDE[hit] : null;
 }
-export default CROP_GUIDE;

@@ -30,7 +30,7 @@ export const generateCalendarRules = [
   body('season').optional({ checkFalsy: true }).isIn(['kharif', 'rabi', 'zaid']),
   body('fieldName').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
 ];
-export const updateTaskStatusRules = [
+const updateTaskStatusRules = [
   body('status').isIn(['upcoming', 'due', 'completed', 'skipped'])
     .withMessage('status must be one of: upcoming, due, completed, skipped'),
 ];

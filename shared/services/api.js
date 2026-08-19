@@ -55,7 +55,7 @@ export async function clearTokens() {
 }
 
 export const getAccessToken  = () => getItem(STORAGE_KEYS.ACCESS_TOKEN);
-export const getRefreshToken = () => getItem(STORAGE_KEYS.REFRESH_TOKEN);
+const getRefreshToken        = () => getItem(STORAGE_KEYS.REFRESH_TOKEN);
 export const getUserId       = () => getItem(STORAGE_KEYS.USER_ID);
 
 // ── Safe error message ────────────────────────────────────────────────────────

@@ -16,7 +16,7 @@
 import prisma from '../config/db.js';
 import { ANIMAL_MASTER_DATA } from '../constants/animalMaster.js';
 
-export const SETTINGS_CACHE_TTL_MS = 60_000;
+const SETTINGS_CACHE_TTL_MS = 60_000;
 
 // Model options shared by the LLM-backed services (per-service routing). Labels are
 // provider-prefixed so the admin dropdown reads naturally. The FastAPI pipeline
@@ -191,7 +191,7 @@ const MANIFEST_BY_KEY = new Map(SETTINGS_MANIFEST.map((s) => [s.key, s]));
 
 // Expected environment variables — for the read-only env-status panel. The panel
 // reports PRESENT / ABSENT only; values (especially secrets) NEVER leave the server.
-export const ENV_MANIFEST = [
+const ENV_MANIFEST = [
   { key: 'DATABASE_URL', category: 'Core', secret: true },
   { key: 'REDIS_URL', category: 'Core', secret: true },
   { key: 'JWT_SECRET', category: 'Core', secret: true },
@@ -218,7 +218,7 @@ export const ENV_MANIFEST = [
 ];
 
 // ── coercion / validation ──────────────────────────────────────────────────────
-export class SettingError extends Error {
+class SettingError extends Error {
   constructor(message) {
     super(message);
     this.name = 'SettingError';
@@ -296,7 +296,7 @@ function defaultValue(def) {
 // ── cache ───────────────────────────────────────────────────────────────────────
 const cache = new Map(); // key -> { value, at }
 
-export function invalidateSetting(key) {
+function invalidateSetting(key) {
   if (key) cache.delete(key);
   else cache.clear();
 }

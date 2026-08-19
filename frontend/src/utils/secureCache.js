@@ -90,25 +90,12 @@ async function secureGetRaw(key) {
   return out;
 }
 
-async function secureDeleteRaw(key) {
-  const S = getSecureStore();
-  let n = 0;
-  try {
-    const m = await S.getItemAsync(manifestKey(key));
-    if (m) n = JSON.parse(m).n || 0;
-  } catch { /* ignore */ }
-  for (let i = 0; i < n; i++) {
-    try { await S.deleteItemAsync(chunkKey(key, i)); } catch { /* best-effort */ }
-  }
-  try { await S.deleteItemAsync(manifestKey(key)); } catch { /* best-effort */ }
-}
-
 // ── Public API ────────────────────────────────────────────────────────────────
 /**
  * Read a string value. On native, migrates+scrubs any legacy plaintext that an
  * older app version wrote to AsyncStorage under the same key.
  */
-export async function getSecureItem(key) {
+async function getSecureItem(key) {
   if (IS_WEB) return AsyncStorage.getItem(key);
 
   const v = await secureGetRaw(key);
@@ -128,17 +115,10 @@ export async function getSecureItem(key) {
 }
 
 /** Persist a string value to encrypted storage (native) or AsyncStorage (web). */
-export async function setSecureItem(key, value) {
+async function setSecureItem(key, value) {
   const str = typeof value === 'string' ? value : String(value);
   if (IS_WEB) return AsyncStorage.setItem(key, str);
   return secureSetRaw(key, str);
-}
-
-/** Remove a value (all chunks + manifest, and any legacy plaintext). */
-export async function removeSecureItem(key) {
-  if (IS_WEB) return AsyncStorage.removeItem(key);
-  await secureDeleteRaw(key);
-  try { await AsyncStorage.removeItem(key); } catch { /* ignore */ }
 }
 
 /** Read and JSON.parse a value. Returns null if absent or unparseable. */

@@ -31,7 +31,7 @@ import { ENV } from '../config/env.js';
 import { extractJSONString } from '../utils/jsonExtract.js';
 import logger from '../utils/logger.js';
 
-export const PROMPT_VERSION = 'v3.0';
+const PROMPT_VERSION = 'v3.0';
 
 // ─── Client singleton (Gemini-only; OpenAI key kept as a last-resort fallback) ─
 let _geminiClient = null;

@@ -14,7 +14,7 @@ export function getDistrictsForState(state) {
   return getIndiaDistricts(state);
 }
 
-export const MAHARASHTRA_DISTRICTS = {
+const MAHARASHTRA_DISTRICTS = {
   Ahmednagar: ['Ahmednagar', 'Akole', 'Jamkhed', 'Karjat', 'Kopargaon', 'Nevasa', 'Parner', 'Pathardi', 'Rahata', 'Rahuri', 'Sangamner', 'Shevgaon', 'Shrigonda', 'Shrirampur'],
   Akola:      ['Akola', 'Akot', 'Balapur', 'Barshitakli', 'Murtijapur', 'Patur', 'Telhara'],
   Amravati:   ['Amravati', 'Achalpur', 'Anjangaon Surji', 'Chandur Bazar', 'Chandur Railway', 'Chikhaldara', 'Daryapur', 'Dhamangaon Railway', 'Morshi', 'Nandgaon Khandeshwar', 'Teosa', 'Warud'],

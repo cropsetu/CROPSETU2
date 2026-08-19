@@ -4,15 +4,15 @@
 import prisma from '../config/db.js';
 import { D } from '../utils/money.js';
 
-export function acresToHectares(a) { return a ? Math.round(a * 0.4047 * 1000) / 1000 : null; }
-export function acresToGunta(a) { return a ? Math.round(a * 40 * 100) / 100 : null; }
+function acresToHectares(a) { return a ? Math.round(a * 0.4047 * 1000) / 1000 : null; }
+function acresToGunta(a) { return a ? Math.round(a * 40 * 100) / 100 : null; }
 
 async function nextFarmNumber(farmerId, tx = prisma) {
   const last = await tx.farm.findFirst({ where: { farmerId }, orderBy: { farmNumber: 'desc' }, select: { farmNumber: true } });
   return (last?.farmNumber || 0) + 1;
 }
 
-export async function syncFarmerStats(farmerId, tx = prisma) {
+async function syncFarmerStats(farmerId, tx = prisma) {
   const agg = await tx.farm.aggregate({ where: { farmerId, isActive: true }, _count: true, _sum: { landSizeAcres: true } });
   await tx.user.update({ where: { id: farmerId }, data: { totalFarms: agg._count, totalLandAcres: agg._sum.landSizeAcres || 0 } });
 }

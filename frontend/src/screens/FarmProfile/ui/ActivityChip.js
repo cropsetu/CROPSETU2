@@ -13,7 +13,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { ActivityIcon } from '../../../components/ActivityIcons';
-import { COSMIC, CR, CT, TAP, activityMeta } from '../theme/cosmicTheme';
+import { COSMIC, CR, activityMeta } from '../theme/cosmicTheme';
 import { Haptics } from '@cropsetu/shared/utils/haptics';
 
 export default function ActivityChip({
@@ -116,14 +116,6 @@ const tileStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-  },
-  iconBubble: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   label: {
     fontSize: 11,

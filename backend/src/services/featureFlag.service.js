@@ -22,7 +22,7 @@ import logger from '../utils/logger.js';
 // tell the farmer why. Flags propagate across instances in milliseconds via the
 // Redis pub/sub below, and fail OPEN (isEnabled returns true when the DB is
 // unreachable) so a database blip never silently disables the product.
-export const AI_FEATURE_FLAGS = [
+const AI_FEATURE_FLAGS = [
   'ai_chat', 'ai_scan', 'ai_voice', 'ai_soil_ocr', 'ai_alerts', 'ai_planner', 'ai_schemes',
 ];
 

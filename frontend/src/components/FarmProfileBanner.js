@@ -262,12 +262,6 @@ const S = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'rgba(26,92,42,0.15)',
   },
-  thumbPlaceholder: {
-    borderRadius: 999,
-    backgroundColor: 'rgba(26,92,42,0.08)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
 
   // ── Crop age badge ──
   ageBadge: {

@@ -58,7 +58,7 @@ export const QUOTE_ISSUES = {
 };
 
 /** Shipping classes a product can declare. Anything else is treated as PARCEL. */
-export const SHIPPING_CLASSES = ['PARCEL', 'HEAVY', 'FREIGHT', 'PICKUP_ONLY'];
+const SHIPPING_CLASSES = ['PARCEL', 'HEAVY', 'FREIGHT', 'PICKUP_ONLY'];
 
 async function pricingConfig() {
   const [
@@ -125,7 +125,7 @@ function lineTax(lineTotal, ratePct, cfg) {
  * for a different basket. Deliberately covers quantities and unit prices, not
  * display fields.
  */
-export function quoteFingerprint(quote) {
+function quoteFingerprint(quote) {
   const basis = (quote.shipments || [])
     .flatMap((s) => s.items)
     .map((i) => `${i.listingId || i.productId}:${i.quantity}:${D(i.unitPrice).toFixed(2)}`)

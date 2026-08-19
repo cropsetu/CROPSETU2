@@ -60,7 +60,7 @@ export async function recordConsent({
  * Record several consents in one batch (e.g. the required set at signup).
  * `purposes` is an array of purpose strings; all are granted with the same proof.
  */
-export async function recordConsents({ userId, purposes, granted = true, policyVersion = CONSENT_POLICY_VERSION, method = 'api', ip = null, userAgent = null, metadata = null }) {
+async function recordConsents({ userId, purposes, granted = true, policyVersion = CONSENT_POLICY_VERSION, method = 'api', ip = null, userAgent = null, metadata = null }) {
   const valid = purposes.filter(isValidPurpose);
   if (!valid.length) return { count: 0 };
   return prisma.consentRecord.createMany({

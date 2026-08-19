@@ -18,7 +18,6 @@ export const P_LIGHT  = '#4ADE80';
 export const ACCENT   = '#F5B841';
 export const BORDER   = 'rgba(255,255,255,0.1)';
 export const SURFACE  = 'rgba(255,255,255,0.05)';
-export const SURFACE2 = 'rgba(255,255,255,0.08)';
 export const TEXT     = '#F0FDF4';
 export const TEXT2    = 'rgba(255,255,255,0.75)';
 export const MUTED    = 'rgba(255,255,255,0.55)';

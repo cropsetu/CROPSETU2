@@ -85,10 +85,3 @@ export async function openSellerApp() {
     return 'failed';
   }
 }
-
-export const SELLER_APP_LINKS = {
-  deepLink: SELLER_APP_DEEP_LINK,
-  androidPackage: SELLER_ANDROID_PACKAGE,
-  playStore: PLAY_STORE_URL,
-  webPortal: SELLER_WEB_PORTAL,
-};

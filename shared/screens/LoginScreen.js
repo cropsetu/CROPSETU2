@@ -617,18 +617,6 @@ const sty = StyleSheet.create({
     paddingVertical: 4,
   },
   langChipTxt: { color: 'rgba(255,255,255,0.88)', fontSize: 11, fontFamily: KFONT.sansMed },
-  glassBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    borderRadius: 18,
-    paddingVertical: 14,
-  },
-  glassBtnTxt: { color: '#fff', fontSize: 14, fontFamily: KFONT.sansMed },
   termsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 24 },
   termsTxt: { color: 'rgba(255,255,255,0.6)', fontSize: 11, fontFamily: KFONT.sans },
 
@@ -706,7 +694,6 @@ const sty = StyleSheet.create({
   progTxt: { flexShrink: 1, color: KHET.mutedForeground, fontSize: 11, fontFamily: KFONT.sansMed },
 
   iconSquare: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', ...KSHADOW.elegant },
-  otpHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 26 },
 
   title: { color: KHET.foreground, fontSize: 36, lineHeight: 40, fontFamily: KFONT.display, letterSpacing: -0.5, marginTop: 26 },
   titleItalic: { color: KHET.primary, fontFamily: KFONT.displayItalic, fontStyle: 'italic' },

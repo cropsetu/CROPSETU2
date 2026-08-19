@@ -49,13 +49,7 @@ export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL
 export const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL
   || (__DEV__ ? `http://${DEV_HOST}:3001` : PROD_SOCKET);
 
-// ── Input / upload limits ──────────────────────────────────────────────────
-export const MAX_MESSAGE_LENGTH   = 2000;
-export const MAX_UPLOAD_BYTES     = 15 * 1024 * 1024; // 15 MB (images compressed client-side)
-export const ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
-
 // ── OTP / auth limits ──────────────────────────────────────────────────────
-export const OTP_RESEND_COOLDOWN_SEC = 30;
 export const OTP_MAX_ATTEMPTS        = 5;
 
 // ── Storage keys ───────────────────────────────────────────────────────────
@@ -66,12 +60,6 @@ export const STORAGE_KEYS = {
   TOKEN_SAVED_AT: 'fm_token_saved_at',
   LAST_ACTIVE_AT: 'fm_last_active_at',
 };
-
-/**
- * Maximum session age (ms) before the client forces a re-login.
- * 30 days — matches the server-side refresh token expiry.
- */
-export const SESSION_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Inactivity window (ms): if the user is idle longer than this, the client

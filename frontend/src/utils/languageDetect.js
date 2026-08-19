@@ -84,23 +84,3 @@ export function detectLanguage(text, userPreference = 'hi') {
 
   return best;
 }
-
-/**
- * Convenience: map a short code to a Sarvam-style BCP-47 full code for backend
- * (used by TTS). Falls back to 'en-IN'.
- */
-export function toFullLocale(shortCode) {
-  const map = {
-    en: 'en-IN',
-    hi: 'hi-IN',
-    mr: 'mr-IN',
-    ta: 'ta-IN',
-    te: 'te-IN',
-    kn: 'kn-IN',
-    ml: 'ml-IN',
-    bn: 'bn-IN',
-    gu: 'gu-IN',
-    pa: 'pa-IN',
-  };
-  return map[shortCode] || 'en-IN';
-}

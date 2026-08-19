@@ -3,7 +3,7 @@ import clsx from 'clsx';
 import { Loader2 } from 'lucide-react';
 import type { ButtonHTMLAttributes, ReactNode, SelectHTMLAttributes, InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
 
-export const cn = clsx;
+const cn = clsx;
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 const VARIANT: Record<Variant, string> = {

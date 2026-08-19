@@ -15,7 +15,7 @@ import { PARAM_FIELDS } from './soilShared';
  * @param {function} t      i18n function (key, fallback)
  * @returns {string}
  */
-export function buildSoilSeedMessage(report, language, t) {
+function buildSoilSeedMessage(report, language, t) {
   const parts = [];
   for (const f of PARAM_FIELDS) {
     const val = report?.[f.key];

@@ -18,8 +18,8 @@ const subs = new Set();
 const emit = () => { for (const cb of subs) { try { cb(state); } catch {} } };
 const set = (patch) => { state = { ...state, ...patch }; emit(); };
 
-export function subscribeSync(cb) { subs.add(cb); cb(state); return () => subs.delete(cb); }
-export function getSyncState() { return state; }
+function subscribeSync(cb) { subs.add(cb); cb(state); return () => subs.delete(cb); }
+function getSyncState() { return state; }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const isNetwork = (e) => !e?.response;                       // axios: no response → offline/timeout
@@ -53,11 +53,6 @@ export async function withWrite(fn, { label = 'write', retries = 3 } = {}) {
     lastError: lastErr?.userMessage || lastErr?.message || 'Could not sync',
   });
   throw lastErr;
-}
-
-/** Clear an error/offline status back to synced (e.g. after a manual retry). */
-export function clearSyncError() {
-  if (state.pending === 0) set({ status: 'synced', lastError: null });
 }
 
 /** React hook → live sync state for the SyncBadge. */

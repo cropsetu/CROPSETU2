@@ -7,7 +7,7 @@
  * Images live in assets/weather/ — see the naming guide in project docs.
  */
 
-export const WEATHER_IMAGES = {
+const WEATHER_IMAGES = {
   rain_day:      require('../../assets/weather/wx_rain_day.jpg'),
   rain_night:    require('../../assets/weather/wx_rain_night.jpg'),
   thunderstorm:  require('../../assets/weather/wx_thunderstorm.jpg'),

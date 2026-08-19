@@ -140,10 +140,6 @@ function faceFor(stack, weight) {
 // sibling of ITS PARENT's face rather than defaulting to sans.
 const StackContext = createContext(null);
 
-export function useTextStack() {
-  return useContext(StackContext);
-}
-
 const DEV = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
 
 /**

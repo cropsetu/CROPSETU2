@@ -6,7 +6,7 @@
 import { Linking, Alert } from 'react-native';
 
 // National Government Services Portal — locate soil testing laboratory.
-export const SOIL_LAB_LOCATOR_URL =
+const SOIL_LAB_LOCATOR_URL =
   'https://services.india.gov.in/service/detail/locate-soil-testing-laboratory';
 
 /**

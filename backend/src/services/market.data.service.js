@@ -8,7 +8,7 @@
  * prices AND was expensive (it ran on every cache-warm tick, burning tokens 24/7).
  *
  * To plug in a real source later: replace the body of getMarketPrices() /
- * getPricePrediction() / getExtendedForecast() with the API call; the cache
+ * getExtendedForecast() with the API call; the cache
  * (L1 Map + L2 Redis) and the response shapes below can stay exactly as-is.
  */
 import { singleFlight } from '../utils/singleFlight.js';
@@ -191,43 +191,6 @@ export async function getMarketPrices(commodity = 'Tomato', state = 'Maharashtra
   });
 }
 
-// ── 7-day price prediction (NO AI — deterministic estimate) ───────────────────
-export async function getPricePrediction(commodity = 'Tomato', state = 'Maharashtra') {
-  const key = `pred:${commodity}:${state}`;
-  const cached = cacheGet(key);
-  if (cached) return { ...cached, fromCache: true };
-
-  const result = buildPredictionFallback(commodity, state);
-  cacheSet(key, result);
-  return result;
-}
-
-// Deterministic 7-day forecast from the crop's historical average — a gentle
-// intra-week wave. Clearly marked isFallback until a real price API is wired in.
-function buildPredictionFallback(commodity, state) {
-  const ctx = PRICE_CONTEXT[commodity] || { avg: 2500 };
-  const avg = ctx.avg || 2500;
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const forecast = days.map((day, i) => ({
-    day,
-    price: Math.round(avg * (0.96 + Math.sin((i / 7) * Math.PI) * 0.08)),
-    confidence: 55,
-  }));
-  const prices = forecast.map(f => f.price);
-  const bestIdx = prices.indexOf(Math.max(...prices));
-  return {
-    commodity, state,
-    forecast,
-    trend: 'stable',
-    bestDayToSell: forecast[bestIdx]?.day || 'Wed',
-    reasoning: `Estimated range for ${commodity} in ${state} from historical seasonal patterns. Live mandi rates are not connected yet — check your local mandi for exact prices.`,
-    riskLevel: 'medium',
-    factors: ['Seasonal supply cycles', 'Local mandi arrivals', 'Government MSP / procurement'],
-    isFallback: true,
-    generatedAt: new Date().toISOString(),
-  };
-}
-
 // ── Extended multi-month forecast (3m / 6m / 12m) ─────────────────────────────
 export async function getExtendedForecast(commodity = 'Tomato', state = 'Maharashtra', period = '3m') {
   const key = `ext:${commodity}:${state}:${period}`;
@@ -328,4 +291,3 @@ function buildFallback(commodity, state) {
 
 export const SUPPORTED_CROPS   = Object.keys(PRICE_CONTEXT);
 export const SUPPORTED_STATES  = Object.keys(STATE_MANDIS);
-export const SUPPORTED_PERIODS = ['7d', '3m', '6m', '12m'];

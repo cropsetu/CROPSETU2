@@ -72,6 +72,6 @@ Uses `useLanguage()` → `t()`. Primary namespace `aiHome.*` (title, subtitle, a
 - **No pull-to-refresh and no manual reload** — weather and credits load once on mount; navigating away and back does not re-fetch (the AI Credits screen itself does support refresh).
 - **AI Credits card is hidden until the credits call resolves**; if `getAICredits()` fails the card never appears (failure is silently caught).
 - **Weather card degrades gracefully** to `—` placeholders and falls back to `user?.district || user?.city || '—'` for location and i18n labels for condition/status when `wxData` is absent.
-- The greeting/pill styles (`greetCard`, `pill`, etc.) exist in the stylesheet but a greeting card is no longer rendered in the current JSX — only the header, ask input, banner, grids, history, credits, and weather are shown.
+- No greeting card is rendered — only the header, ask input, banner, grids, history, credits, and weather are shown. (The orphaned `greetCard`/`pill` styles this note used to flag have since been removed from the stylesheet.)
 - `newBadge` count is hard-coded to `'1'` rather than derived from the number of NEW tools.
 - All navigation is intra-stack; because Market/Weather/Soil/FarmList are all registered inside `AINavigator`, tapping these tiles keeps the user on the AI tab rather than switching tabs.

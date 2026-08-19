@@ -77,15 +77,6 @@ export const STAGE_RAMP_INK = [
 ];
 
 /**
- * Ink for text on an arbitrary ramp step. Prefer STAGE_RAMP_INK[i] when you
- * have the index; use this when the step arrives as a colour.
- */
-export const stageInk = (step) => {
-  const i = STAGE_RAMP.indexOf(step);
-  return i === -1 ? RAMP_INK : STAGE_RAMP_INK[i];
-};
-
-/**
  * Section tints — CATEGORICAL. Each identifies a topic in the crop encyclopedia;
  * they carry no order and no magnitude.
  *

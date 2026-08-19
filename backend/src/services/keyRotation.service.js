@@ -15,7 +15,7 @@ import { needsRotation, rotateCiphertext, activeKeyId } from '../utils/encrypt.j
 
 // Inventory of every field-encrypted column, keyed by Prisma delegate name.
 // Keep this in sync when new fields are encrypted.
-export const ENCRYPTED_COLUMNS = {
+const ENCRYPTED_COLUMNS = {
   user:          ['gstNumber', 'lat', 'lng', 'annualHouseholdIncome'],
   sellerProfile: ['bankHolderName', 'bankName', 'bankAccountNumber', 'bankIfsc', 'aadharNumber', 'panNumber'],
 };

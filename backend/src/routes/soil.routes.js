@@ -43,7 +43,7 @@ export const soilManualRules = [
       .withMessage(`${field} must be a number between 0 and ${max}`)),
 ];
 
-export const soilRecommendationRules = [
+const soilRecommendationRules = [
   query('soilId').notEmpty().withMessage('soilId is required').isString(),
   query('crop').notEmpty().withMessage('crop is required').isString().trim().isLength({ max: 100 }),
   query('area').optional({ checkFalsy: true }).isFloat({ min: 0.01, max: 100000 }).withMessage('area must be a positive number'),

@@ -49,7 +49,7 @@ const REFRESH_CONCURRENCY = 5;           // DB-friendly fan-out per batch
  * Prisma.Decimal exactly as the route returned before (Express serialises it the
  * same whether served fresh or from cache).
  */
-export async function computeSellerStats(sellerId) {
+async function computeSellerStats(sellerId) {
   const [totalProducts, activeProducts, revenueAgg] = await Promise.all([
     prisma.product.count({ where: { sellerId } }),
     prisma.product.count({ where: { sellerId, isActive: true } }),

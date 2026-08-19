@@ -17,9 +17,9 @@
 //   2. Every intermediate flex parent AND the ScrollView must declare
 //      min-height:0 so they can actually shrink and let overflow scroll.
 //
-// This helper covers two screen patterns:
+// This helper covers one screen pattern:
 //
-//   A) ScrollView + ABSOLUTELY-positioned bottom bar (overlay)
+//   ScrollView + ABSOLUTELY-positioned bottom bar (overlay)
 //      e.g. OnboardingLanguageScreen, OnboardingProfileScreen
 //
 //        <View style={[sty.container, webScreenContainer]}>
@@ -27,15 +27,6 @@
 //            ...content + spacer to clear the absolute bar...
 //          </ScrollView>
 //          <View style={sty.bottomBarAbsolute}>...</View>
-//        </View>
-//
-//   B) ScrollView + flex-sibling bottom bar (pushes content up)
-//
-//        <View style={[sty.safe, webScreenContainer]}>
-//          <View style={[sty.bg, webFlexShrink]}>
-//            <ScrollView style={[{ flex: 1 }, webFlexShrink]}>...</ScrollView>
-//            <View style={sty.bottomBar}>...</View>
-//          </View>
 //        </View>
 //
 // Native: all helpers are no-ops or pure flex sugar — never breaks native.
@@ -48,13 +39,6 @@ import { Platform, useWindowDimensions } from 'react-native';
  */
 export const webScreenContainer =
   Platform.OS === 'web' ? { height: '100vh', overflow: 'hidden' } : null;
-
-/**
- * Web-only `minHeight: 0` — drop this on every intermediate flex View AND on
- * the ScrollView's `style` prop so the CSS-flex chain can actually shrink.
- * No-op on native (RN ignores minHeight:0 happily).
- */
-export const webFlexShrink = Platform.OS === 'web' ? { minHeight: 0 } : null;
 
 /**
  * Style for ScrollView's `style` prop on screens with an ABSOLUTELY-positioned

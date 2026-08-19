@@ -14,12 +14,6 @@
  * the server still validates independently; this only shapes the UI.
  */
 
-/** Field keys the post-ad form may render per animal type. */
-export const ANIMAL_FIELD_KEYS = [
-  'age', 'weight', 'gender', 'price', 'milkYield', 'pregnant', 'lactating',
-  'vaccinated', 'healthCertificate',
-];
-
 const COMMON = ['age', 'weight', 'gender', 'price', 'vaccinated', 'healthCertificate'];
 const MILCH = [...COMMON, 'milkYield', 'pregnant', 'lactating'];
 

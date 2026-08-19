@@ -413,30 +413,6 @@ const S = StyleSheet.create({
   headerTitle: { fontSize: 23, fontWeight: TYPE.weight.black, color: COLORS.textDark, letterSpacing: -0.4 },
   headerSub:   { fontSize: 12, color: COLORS.textMedium, marginTop: 3, lineHeight: 17 },
 
-  // Greeting
-  greetCard: {
-    marginHorizontal: 18, marginBottom: 14,
-    backgroundColor: 'rgba(26,92,42,0.04)',
-    borderRadius: 18, padding: 16,
-    borderWidth: 1.5, borderColor: GREEN + '28',
-    gap: 14,
-    shadowColor: GREEN, shadowOpacity: 0.07, shadowRadius: 10, elevation: 2,
-  },
-  greetTop:    { flexDirection: 'row', alignItems: 'flex-start' },
-  greetHi:     { fontSize: 20, fontWeight: '800', color: COLORS.textDark, marginBottom: 6 },
-  greetMeta:   { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-  greetMetaTxt:{ fontSize: 12, color: COLORS.textMedium },
-  greetMetaDot:{ fontSize: 12, color: COLORS.textLight },
-  greetCropTxt:{ fontSize: 12, color: GREEN, fontWeight: '700' },
-  pillRow:     { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  pill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 11, paddingVertical: 7,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderRadius: 10, borderWidth: 1, borderColor: GREEN + '30',
-  },
-  pillTxt: { fontSize: 12, fontWeight: '700', color: COLORS.textDark },
-
   // Ask input
   askBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 10,

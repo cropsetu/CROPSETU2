@@ -24,7 +24,7 @@ import axios from 'axios';
 import prisma from '../config/db.js';
 
 // ── Open-Meteo fetch (7-day forecast + historical) ────────────────────────────
-export async function fetchWeatherForIrrigation(lat, lon) {
+async function fetchWeatherForIrrigation(lat, lon) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_max,windspeed_10m_max,shortwave_radiation_sum&timezone=Asia%2FKolkata&forecast_days=7`;
   const res = await axios.get(url, { timeout: 10000 });
   return res.data;

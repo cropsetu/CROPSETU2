@@ -12,7 +12,6 @@ import Animated, {
   withSpring,
   withTiming,
   interpolate,
-  Easing,
   runOnJS,
   FadeIn,
   FadeOut,
@@ -50,17 +49,6 @@ AccessibilityInfo.addEventListener?.('reduceMotionChanged', v => { _reducedMotio
 /** Returns current reduced motion preference (sync, safe for worklets via runOnJS) */
 export function isReducedMotion() {
   return _reducedMotion;
-}
-
-/**
- * Returns a spring or a timing config depending on reduced motion.
- * Reduced motion → 200ms crossfade. Normal → spring with given config.
- */
-export function motionSpring(config = SPRINGS.snappy) {
-  if (_reducedMotion) {
-    return { duration: 200, easing: Easing.out(Easing.quad) };
-  }
-  return config;
 }
 
 // ── Entering / Exiting for reduced motion ────────────────────────────────────
@@ -201,29 +189,4 @@ export function AnimatedCard({
       </Pressable>
     </Animated.View>
   );
-}
-
-// ── HeartButton ──────────────────────────────────────────────────────────────
-// Like/favorite with physics-based pop animation.
-
-export function HeartButton({ liked, onToggle, size = 16 }) {
-  const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePress = useCallback(() => {
-    // Heart pops: 1 → 0.8 → 1.2 → 1 (snappy spring chain)
-    scale.value = withSpring(0.8, { ...SPRINGS.snappy, stiffness: 400 }, () => {
-      scale.value = withSpring(1.2, SPRINGS.bouncy, () => {
-        scale.value = withSpring(1, SPRINGS.snappy);
-      });
-    });
-    Haptics.light();
-    onToggle?.();
-  }, [onToggle]);
-
-  // Import Ionicons at usage site — this component just handles animation
-  return { animatedStyle, handlePress, scale };
 }

@@ -44,7 +44,7 @@ async function windowStart() {
  * Returns the computed values, or null when the seller has no SellerProfile
  * (metrics live on the profile, and only KYC'd sellers have one).
  */
-export async function refreshSellerMetrics(sellerId, since) {
+async function refreshSellerMetrics(sellerId, since) {
   const from = since || (await windowStart());
 
   const profile = await prisma.sellerProfile.findUnique({

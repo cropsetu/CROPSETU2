@@ -8,8 +8,6 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Easing } from 'react-native';
 
-export const TAU = Math.PI * 2;
-
 /** Clamp v into [min, max]. */
 export const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
 
@@ -21,7 +19,7 @@ export const sumValues = (arr) =>
  * Point on a circle. angleDeg measured with 0° = 3 o'clock, increasing
  * clockwise (SVG y-down). Used by arc gauges and rings.
  */
-export function polarToCartesian(cx, cy, r, angleDeg) {
+function polarToCartesian(cx, cy, r, angleDeg) {
   const a = (angleDeg * Math.PI) / 180;
   return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
 }

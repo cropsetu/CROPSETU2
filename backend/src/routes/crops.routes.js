@@ -17,7 +17,7 @@ import prisma from '../config/db.js';
 const router = Router();
 
 // ── Validation rules ──────────────────────────────────────────────────────────
-export const listCropsRules = [
+const listCropsRules = [
   query('category').optional({ checkFalsy: true }).isString().trim().isLength({ max: 50 }),
   query('season').optional({ checkFalsy: true }).isString().trim().isLength({ max: 50 }),
 ];

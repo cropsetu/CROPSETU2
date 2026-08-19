@@ -20,7 +20,7 @@ import { ENV } from '../config/env.js';
 
 // How long a view-as context stays valid. Short by design — it is a UI banner
 // token, not a session.
-export const VIEW_AS_TTL_MS = 10 * 60 * 1000; // ~10 minutes
+const VIEW_AS_TTL_MS = 10 * 60 * 1000; // ~10 minutes
 
 function b64url(buf) {
   return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

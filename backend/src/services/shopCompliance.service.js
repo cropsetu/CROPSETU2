@@ -41,11 +41,11 @@ import { getSetting } from './settings.service.js';
 import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
 import logger from '../utils/logger.js';
 
-export const NS_SALEBLOCKS = 'agristore:saleblocks';
+const NS_SALEBLOCKS = 'agristore:saleblocks';
 const SALEBLOCKS_TTL = 120;
 
 /** Machine-readable refusal codes. The app maps each to a distinct message. */
-export const COMPLIANCE_CODES = {
+const COMPLIANCE_CODES = {
   NOT_APPROVED: 'COMPLIANCE_NOT_APPROVED',
   SELLER_UNLICENSED: 'SELLER_UNLICENSED',
   LICENCE_EXPIRED: 'SELLER_LICENCE_EXPIRED',

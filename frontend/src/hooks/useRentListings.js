@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '@cropsetu/shared/services/api';
 import { classifyError, ERROR_CODES } from '../utils/apiError';
 
-export const RENT_PAGE_SIZE = 20;
+const RENT_PAGE_SIZE = 20;
 
 const CACHE_PREFIX = '@rent:page1:';
 /** Older than this and it is not worth showing even as a fallback. */
