@@ -873,6 +873,42 @@ export default function RentHome({ navigation }) {
 
   const gpsUnavailable = prefs.source === SOURCE.GPS && !coords && !gpsLoading;
 
+  /**
+   * A distance chip has to be able to stand on its own.
+   *
+   * Picking "10 km" from the default "All of Maharashtra" used to be impossible
+   * — the row was not even rendered. Now that it is, tapping a distance has to
+   * ACQUIRE the origin that distance is measured from, rather than silently
+   * doing nothing because the source happens to be wrong. So it switches to GPS
+   * and asks for a fix in the same gesture.
+   *
+   * "Any" is deliberately NOT symmetric: it drops the ceiling without throwing
+   * away the origin, so a farmer who taps it keeps their distance badges and
+   * nearest-first ordering. Turning location off entirely is a separate, explicit
+   * choice in the sheet — it should not be a side effect of widening the search.
+   */
+  const handleRadiusChange = useCallback(
+    (km) => {
+      if (km == null) {
+        // Widen, keep measuring — the origin (GPS or none) is untouched.
+        setPrefs({ radiusKm: null });
+        return;
+      }
+      setPrefs({ source: SOURCE.GPS, radiusKm: km });
+      // Ask only when we have nothing to measure from, and only when asking can
+      // work: after a hard denial the OS never shows the prompt again, so the
+      // row offers Settings instead of silently doing nothing.
+      if (!coords && !gpsRefreshing && !permissionDenied) refreshGps?.();
+    },
+    [coords, gpsRefreshing, permissionDenied, refreshGps, setPrefs],
+  );
+
+  /** The recovery attached to the distance row when there is no position. */
+  const handleEnableLocation = useCallback(() => {
+    if (permissionDenied) { Linking.openSettings?.(); return; }
+    refreshGps?.();
+  }, [permissionDenied, refreshGps]);
+
   // ── Header (rides in ListHeaderComponent so the list virtualizes) ──────────
   const header = (
     <View>
@@ -971,11 +1007,17 @@ export default function RentHome({ navigation }) {
         </View>
       )}
 
-      {/* Radius (GPS only) */}
+      {/* Distance filter — the primary way a farmer narrows this list. */}
       <RentRadiusRow
         prefs={prefs}
         coords={coords}
-        onChange={(km) => setPrefs({ radiusKm: km })}
+        onChange={handleRadiusChange}
+        permissionDenied={permissionDenied}
+        busy={gpsRefreshing}
+        onEnableLocation={handleEnableLocation}
+        // The full GPS notice above already says this whenever the SOURCE is
+        // GPS; the row carries the message only when nothing else is.
+        showRecovery={!gpsUnavailable}
       />
 
       {/* Category filter (machinery only) — now a server-side `category` param */}

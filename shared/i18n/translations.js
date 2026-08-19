@@ -544,6 +544,8 @@ export const translations = {
       sendFailed: 'Message not sent.',
     },
     rent: {
+      distAnyA11y: 'Any distance',
+      radiusKmA11y: 'Within {{km}} kilometres',
       enterDetails: 'Enter Details',
       enterDetailsMsg: 'Please enter number of acres or hours to calculate cost.',
       enterLaborMsg: 'Please enter number of days or hours.',
@@ -2871,6 +2873,8 @@ export const translations = {
       sendFailed: 'संदेश नहीं भेजा गया।',
     },
     rent: {
+      distAnyA11y: 'कोई भी दूरी',
+      radiusKmA11y: '{{km}} किलोमीटर के भीतर',
       enterDetails: 'विवरण दर्ज करें',
       enterDetailsMsg: 'लागत जानने के लिए एकड़ या घंटे की संख्या दर्ज करें।',
       enterLaborMsg: 'दिनों या घंटों की संख्या दर्ज करें।',
@@ -4975,6 +4979,8 @@ export const translations = {
       sendFailed: 'संदेश पाठवला गेला नाही.',
     },
     rent: {
+      distAnyA11y: 'कोणतेही अंतर',
+      radiusKmA11y: '{{km}} किलोमीटरच्या आत',
       enterDetails: 'माहिती टाका',
       enterDetailsMsg: 'खर्च जाणण्यासाठी एकर किंवा तासांची संख्या टाका.',
       enterLaborMsg: 'दिवस किंवा तासांची संख्या टाका.',
