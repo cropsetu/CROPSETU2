@@ -79,14 +79,14 @@ export function RentLocationBar({ prefs, coords, onOpen, refreshing }) {
 
 // ── Radius chips (GPS source only) ───────────────────────────────────────────
 
-function Chip({ label, active, onPress, a11yLabel }) {
+function Chip({ label, active, onPress, a11yLabel, dimmed = false }) {
   const sc = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: sc.value }] }));
   const press = (to) => { if (!isReducedMotion()) sc.value = withSpring(to, SPRINGS.snappy); };
   return (
     <Animated.View style={animStyle}>
       <Pressable
-        style={[S.chip, active && S.chipActive]}
+        style={[S.chip, active && S.chipActive, dimmed && S.chipDimmed]}
         onPress={() => { Haptics.selection(); onPress(); }}
         onPressIn={() => press(0.9)}
         onPressOut={() => press(1)}
@@ -94,32 +94,108 @@ function Chip({ label, active, onPress, a11yLabel }) {
         accessibilityState={{ selected: active, checked: active }}
         accessibilityLabel={a11yLabel || label}
       >
-        <Text style={[S.chipTxt, active && S.chipTxtActive]}>{label}</Text>
+        <Text style={[S.chipTxt, active && S.chipTxtActive, dimmed && S.chipTxtDimmed]}>{label}</Text>
       </Pressable>
     </Animated.View>
   );
 }
 
-export function RentRadiusRow({ prefs, coords, onChange }) {
+/**
+ * The distance filter — "Within 5 / 10 / 20 / 50 km / Any".
+ *
+ * This row USED to be hidden unless GPS was already the chosen source and a fix
+ * had landed. Since the shipped default is "All of Maharashtra", the practical
+ * effect was that the distance filter did not exist: a farmer had to open the
+ * sheet, understand an abstract "source" concept, pick "Near me", and wait for a
+ * fix before any distance control appeared. Nobody found it.
+ *
+ * ── Why it is not simply "always on" ────────────────────────────────────────
+ * A radius is measured FROM somewhere, and there is exactly one origin in this
+ * codebase: the device GPS. There are no district centroids anywhere, so a
+ * district cannot stand in for a position.
+ *
+ * That makes the naive fix worse than the bug. Render the chips unconditionally
+ * and let one look SELECTED while `buildListParams` — which only emits `radius`
+ * inside its GPS branch — silently sends no radius at all, and a farmer with
+ * location switched off reads "Within 5 km" above a list covering the whole
+ * state. The old code disappeared; that version would lie.
+ *
+ * So with no fix the ladder is rendered but INERT: nothing shows as selected,
+ * because nothing is filtering. What made the original five-disabled-chips UI a
+ * dead end was disabling them with no way forward — so this states the reason
+ * and carries the recovery, which turns the same row into a door.
+ *
+ * A district search hides the row outright: the district IS the area, the server
+ * filters it by name rather than geometry, and "within 10 km" laid over "Pune
+ * district" would describe a filter that does not exist.
+ */
+export function RentRadiusRow({
+  prefs, coords, onChange,
+  showRecovery = false, permissionDenied = false, busy = false, onEnableLocation,
+}) {
   const { t } = useLanguage();
-  // Radius only means anything measured from a point. With no GPS fix the row
-  // would be five disabled chips, which is what made the old UI a dead end —
-  // so it simply is not rendered, and the bar explains why.
-  if (prefs.source !== SOURCE.GPS || !coords) return null;
+
+  if (prefs.source === SOURCE.DISTRICT && prefs.district) return null;
+
+  // No origin ⇒ no radius is being applied, so no chip may claim to be active.
+  const usable = !!coords;
+
+  // "Any" is what "no ceiling" looks like from here whether the farmer got there
+  // by widening a GPS search or by turning location off; the bar above states
+  // which, because only one of the two is still measuring distances.
+  const activeKm = !usable ? undefined : prefs.source === SOURCE.ALL ? null : prefs.radiusKm;
 
   return (
-    <View style={S.row} accessibilityRole="radiogroup">
-      <Text style={S.rowLabel}>{t('rent.distWithin', 'Within')}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.rowScroll}>
-        {RADIUS_OPTIONS.map((km) => (
-          <Chip
-            key={String(km)}
-            label={km == null ? t('rent.distAny', 'Any') : t('rent.radiusKm', { km })}
-            active={prefs.radiusKm === km}
-            onPress={() => onChange(km)}
-          />
-        ))}
-      </ScrollView>
+    <View style={S.radiusBlock}>
+      <View style={S.row} accessibilityRole="radiogroup">
+        <Text style={[S.rowLabel, !usable && S.rowLabelOff]}>{t('rent.distWithin', 'Within')}</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.rowScroll}>
+          {RADIUS_OPTIONS.map((km) => (
+            <Chip
+              key={String(km)}
+              label={km == null ? t('rent.distAny', 'Any') : t('rent.radiusKm', { km })}
+              active={activeKm === km}
+              dimmed={!usable}
+              onPress={() => onChange(km)}
+              a11yLabel={
+                km == null
+                  ? t('rent.distAnyA11y', 'Any distance')
+                  : t('rent.radiusKmA11y', { km, defaultValue: `Within ${km} kilometres` })
+              }
+            />
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* Only when the screen is not already explaining the same thing. */}
+      {!usable && showRecovery && (
+        <View style={S.radiusNotice}>
+          <Ionicons name="location-outline" size={14} color={COLORS.grayMid} />
+          <Text style={S.radiusNoticeTxt}>
+            {permissionDenied
+              ? t('rent.gpsDeniedLine', 'Location permission is off, so distances are unavailable.')
+              : t('rent.gpsNoFixLine', 'No position yet, so distances are unavailable.')}
+          </Text>
+          <Pressable
+            style={S.radiusNoticeBtn}
+            onPress={onEnableLocation}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !!busy }}
+            accessibilityLabel={
+              permissionDenied ? t('rent.openSettings', 'Open Settings') : t('rent.gpsRetry', 'Try again')
+            }
+          >
+            {busy
+              ? <ActivityIndicator size="small" color={COLORS.primary} />
+              : (
+                <Text style={S.radiusNoticeBtnTxt}>
+                  {permissionDenied ? t('rent.openSettings', 'Open Settings') : t('rent.gpsRetry', 'Try again')}
+                </Text>
+              )}
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -333,6 +409,21 @@ const S = StyleSheet.create({
   barTextWrap: { flex: 1, minWidth: 0 },
   barLabel: { fontSize: 10, fontWeight: '700', color: COLORS.textLight, letterSpacing: 0.4, textTransform: 'uppercase' },
   barValue: { fontSize: 14, fontWeight: TYPE.weight.black, marginTop: 1 },
+
+  radiusBlock: {},
+  rowLabelOff: { color: COLORS.grayLightMid },
+  chipDimmed: { opacity: 0.45 },
+  chipTxtDimmed: { color: COLORS.grayMid },
+  radiusNotice: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACE[1],
+    marginHorizontal: SPACE[2], marginTop: SPACE[0.5],
+  },
+  radiusNoticeTxt: { flex: 1, fontSize: 11, color: COLORS.grayMid, lineHeight: 15 },
+  radiusNoticeBtn: {
+    minHeight: 32, justifyContent: 'center',
+    paddingHorizontal: SPACE[1], borderRadius: RADIUS.sm,
+  },
+  radiusNoticeBtnTxt: { fontSize: 12, fontWeight: '800', color: COLORS.primary },
 
   // Chip rows (radius, sort)
   row: {

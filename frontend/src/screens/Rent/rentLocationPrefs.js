@@ -15,8 +15,26 @@ const PREFS_KEY = 'cropsetu.rent.locationPrefs.v1';
 /** Where "near me" is measured from. GPS ▸ district ▸ everywhere. */
 export const SOURCE = { GPS: 'gps', DISTRICT: 'district', ALL: 'all' };
 
-/** `null` km = "Any" — no ceiling, but still distance-sorted and badged. */
-export const RADIUS_OPTIONS = [5, 10, 25, 50, null];
+/**
+ * The distance ladder. `null` km = "Any" — no ceiling, but still distance-sorted
+ * and badged, so a farmer who wants the nearest option regardless of how far it
+ * is still sees how far it is.
+ *
+ * The server accepts any positive radius (see parseRadius in rent.routes.js), so
+ * this list is purely a product choice about what a farmer is likely to travel.
+ */
+export const RADIUS_OPTIONS = [5, 10, 20, 50, null];
+
+/**
+ * Snap a stored radius that is no longer on the ladder to the closest one that
+ * is. 25 km was offered previously; a farmer who chose it should land on 20, not
+ * be silently reset to the 10 km default — that would quietly shrink their
+ * search area and hide listings they had been seeing.
+ */
+function nearestRadius(km) {
+  const numeric = RADIUS_OPTIONS.filter((r) => r != null);
+  return numeric.reduce((best, r) => (Math.abs(r - km) < Math.abs(best - km) ? r : best), numeric[0]);
+}
 
 export const DEFAULT_PREFS = {
   source: SOURCE.GPS,
@@ -29,12 +47,25 @@ export const DEFAULT_PREFS = {
   strictCoords: true,
 };
 
-function sanitize(raw) {
+/**
+ * Coerce anything read out of storage into a usable prefs object.
+ *
+ * Exported because the ladder migration below is the kind of rule that is only
+ * exercised once, on the launch after a release, on a device that already had a
+ * value saved — the single worst place to discover a mistake. A pure function
+ * can be tested directly instead.
+ */
+export function sanitize(raw) {
   if (!raw || typeof raw !== 'object') return DEFAULT_PREFS;
   const source = Object.values(SOURCE).includes(raw.source) ? raw.source : DEFAULT_PREFS.source;
-  const radiusKm = raw.radiusKm === null || RADIUS_OPTIONS.includes(raw.radiusKm)
-    ? raw.radiusKm
-    : DEFAULT_PREFS.radiusKm;
+  let radiusKm;
+  if (raw.radiusKm === null || RADIUS_OPTIONS.includes(raw.radiusKm)) {
+    radiusKm = raw.radiusKm;
+  } else if (typeof raw.radiusKm === 'number' && Number.isFinite(raw.radiusKm) && raw.radiusKm > 0) {
+    radiusKm = nearestRadius(raw.radiusKm);   // ladder changed under a saved pref
+  } else {
+    radiusKm = DEFAULT_PREFS.radiusKm;        // junk, missing or non-positive
+  }
   return {
     source,
     radiusKm,
