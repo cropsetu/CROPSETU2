@@ -6,32 +6,32 @@
  * 1. READ AsyncStorage weather cache FIRST (before getting location).
  *    → UI renders in ~100ms on every repeat open.
  *
- * 2. CACHE GPS coordinates with 15-min TTL.
- *    → Skips Location.getCurrentPositionAsync (saves 1–5 seconds on Android).
- *    → Uses getLastKnownPositionAsync as fallback (returns in <50ms if OS has a fix).
- *    → Only calls getCurrentPositionAsync on very first ever open.
+ * 2. LOCATION comes from services/locationService — the app's one fix.
+ *    → That module owns the TTL'd cache, the OS last-known fast path and the
+ *      permission request. This file used to own a second, private copy of all
+ *      three, which meant two permission prompts and two caches that could
+ *      disagree with each other. Resolving here now also updates the Rent and
+ *      Animals tabs, because they read the same service through LocationContext.
  *
- * 3. CACHE city name alongside coords.
+ * 3. City name is cached alongside the coords by that service.
  *    → Skips reverseGeocodeAsync (saves 500ms–1.5s).
  *
  * 4. Background refresh after rendering cached UI.
  *    → User sees data immediately; fresh data replaces it silently.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getSecureJSON, setSecureJSON } from '../utils/secureCache';
-import * as Location from 'expo-location';
+import { peekLocationAsync, resolveLocation } from './locationService';
 import { API_BASE_URL } from '@cropsetu/shared/constants/config';
 
 // ── TTLs ──────────────────────────────────────────────────────────────────────
 const WEATHER_CACHE_TTL_MS  = 60 * 60 * 1000;   // 1 hour  — weather data
-const LOCATION_CACHE_TTL_MS = 15 * 60 * 1000;   // 15 min  — GPS coords + city
 const TIMEOUT_MS            = 8_000;             // reduced from 10s → 8s
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
-// Weather payloads (fe_wx_*) are public data → plain AsyncStorage. The precise
-// GPS coordinates in fe_loc are PII → encrypted secure storage (see secureCache).
+// Weather payloads are public data → plain AsyncStorage. The precise GPS
+// coordinates they are keyed by are PII and live in encrypted secure storage,
+// owned by locationService — this file never touches them at rest.
 const WEATHER_KEY_PREFIX = 'fe_wx_';            // fe_wx_{lat}_{lon}
-const LOCATION_KEY       = 'fe_loc';            // { lat, lon, city, savedAt }
 
 // ── In-memory L0 cache (process lifetime) ─────────────────────────────────────
 // Prevents redundant AsyncStorage reads when user switches tabs quickly.
@@ -75,72 +75,6 @@ async function writeWxCache(key, data) {
   } catch { /* non-fatal */ }
 }
 
-// ── Location cache ────────────────────────────────────────────────────────────
-async function readLocationCache() {
-  try {
-    const loc = await getSecureJSON(LOCATION_KEY);
-    if (!loc) return null;
-    if (Date.now() - loc.savedAt > LOCATION_CACHE_TTL_MS) return null;
-    return { lat: loc.lat, lon: loc.lon, city: loc.city };
-  } catch { return null; }
-}
-
-async function writeLocationCache(lat, lon, city) {
-  try {
-    await setSecureJSON(LOCATION_KEY, { lat, lon, city, savedAt: Date.now() });
-  } catch { /* non-fatal */ }
-}
-
-// ── Location resolver ─────────────────────────────────────────────────────────
-// Priority: cached coords → lastKnown (OS) → getCurrentPosition (GPS hardware)
-// Each step is faster than the next. We almost never need the GPS hardware.
-async function resolveLocation() {
-  // 1. Use cached coords if fresh (< 15 min)
-  const cached = await readLocationCache();
-  if (cached) return cached;
-
-  // 2. Request permission (fast if already granted — no UI shown)
-  const { status } = await Location.requestForegroundPermissionsAsync();
-  if (status !== 'granted') throw new Error('Location permission denied');
-
-  // 3. OS last-known position (returns in <50ms, no GPS hardware wake-up)
-  let coords = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60 * 1000 }); // accept up to 10min old
-
-  // 4. Full GPS fix only if the OS has nothing (first ever open / very cold device).
-  //    Cap it: if there's no fix in 4s, drop to Lowest accuracy — a coarse fix is
-  //    plenty for city-level weather — so a cold device never hangs on a precise lock.
-  if (!coords) {
-    try {
-      coords = await Promise.race([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('gps-timeout')), 4000)),
-      ]);
-    } catch {
-      coords = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Lowest });
-    }
-  }
-
-  const { latitude: lat, longitude: lon } = coords.coords;
-
-  // 5. Cache coords NOW so the next open (within 15 min) takes the fast path.
-  writeLocationCache(lat, lon, '').catch(() => {});
-
-  // 6. Reverse-geocode the city name OFF the critical path (fire-and-forget). The
-  //    backend tolerates an empty `city` and resolves the name itself (it reverse-
-  //    geocodes in parallel with Open-Meteo), so blocking the weather fetch on a
-  //    500ms–1.5s client geocode was pure waste. We still cache the resolved city
-  //    so the NEXT request can send it and let the backend skip its own geocode.
-  Location.reverseGeocodeAsync({ latitude: lat, longitude: lon })
-    .then(([place]) => {
-      const city = place?.city || place?.district || place?.subregion || '';
-      if (city) writeLocationCache(lat, lon, city).catch(() => {});
-    })
-    .catch(() => {});
-
-  // Return immediately with coords; city is '' on the cold call (filled in next time).
-  return { lat, lon, city: '' };
-}
-
 // ── HTTP fetch with timeout ───────────────────────────────────────────────────
 async function fetchWithTimeout(url, ms = TIMEOUT_MS) {
   const ctrl  = new AbortController();
@@ -178,9 +112,12 @@ export async function fetchWeatherForCurrentLocation(opts = {}) {
   const lang = SUPPORTED.has(opts.lang) ? opts.lang : 'en';
 
   // ── Step 1: Fire cached data to UI before anything else ───────────────────
-  // We read the location cache to know which weather key to look up.
-  // If location cache is empty we'll still attempt a weather read after GPS.
-  const cachedLoc  = await readLocationCache();
+  // We read the last known fix to know which weather key to look up. Age is
+  // deliberately ignored here: a fix from an hour ago is still the right cache
+  // key, and gating the instant paint on a 15-min location TTL used to blank the
+  // screen on repeat opens even when the weather cache itself was perfectly
+  // valid. Freshness is Step 2's job.
+  const cachedLoc  = await peekLocationAsync();
   let   servedCache = false;
 
   if (cachedLoc) {
@@ -200,7 +137,7 @@ export async function fetchWeatherForCurrentLocation(opts = {}) {
   // ── Step 2: Resolve location (fast path: usually <100ms) ─────────────────
   let loc;
   try {
-    loc = await resolveLocation();
+    loc = await resolveLocation();   // shared ladder: cache → last-known → GPS
   } catch (err) {
     // No GPS and no cached location — return whatever the cache had
     if (servedCache && cachedLoc) {
