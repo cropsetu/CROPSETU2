@@ -1160,6 +1160,7 @@ export const translations = {
     },
     animal: {
       searchPlaceholder: 'Search animals, breed, location...',
+      loadingAnimals: 'Finding nearby animals…',
       animalsNearby: '{{count}} Animals Nearby',
       filters: 'Filters',
       noAnimals: 'No animals found',
@@ -3469,6 +3470,7 @@ export const translations = {
     },
     animal: {
       searchPlaceholder: 'जानवर, नस्ल, स्थान खोजें...',
+      loadingAnimals: 'पास के जानवर ढूंढ रहे हैं…',
       animalsNearby: '{{count}} पशु पास में',
       filters: 'फिल्टर',
       noAnimals: 'कोई जानवर नहीं मिला',
@@ -5577,6 +5579,7 @@ export const translations = {
     },
     animal: {
       searchPlaceholder: 'जनावर, जात, ठिकाण शोधा...',
+      loadingAnimals: 'जवळपासची जनावरे शोधत आहे…',
       animalsNearby: '{{count}} जनावरे जवळपास',
       filters: 'फिल्टर',
       noAnimals: 'कोणतेही जनावर सापडले नाही',

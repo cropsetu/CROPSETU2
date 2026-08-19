@@ -28,6 +28,7 @@ import { COLORS } from '@cropsetu/shared/constants/colors';
 import api from '@cropsetu/shared/services/api';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import DashboardStatIcon from '@cropsetu/shared/components/DashboardStatIcons';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 /** ₹ with Indian digit grouping (1,20,000 — not 120,000). */
 function inr(value) {
@@ -238,9 +239,16 @@ export default function MyOrdersScreen({ navigation }) {
       </View>
 
       {loading && orders.length === 0 ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
+        /* Same shape as OrderCard — the 56pt item thumb, the name lines and the
+           date/total footer row — so nothing shifts when the orders land. */
+        <SkeletonList
+          rows={5}
+          thumb="square"
+          thumbSize={56}
+          lines={2}
+          label={t('loading')}
+          style={{ padding: 16 }}
+        />
       ) : error ? (
         <View style={styles.center}>
           <Ionicons name="alert-circle-outline" size={48} color={COLORS.error} />

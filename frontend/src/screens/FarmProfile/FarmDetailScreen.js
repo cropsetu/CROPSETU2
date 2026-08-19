@@ -14,7 +14,7 @@
 
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator, Alert, RefreshControl,
+  View, Text, ScrollView, Pressable, StyleSheet, Alert, RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +27,7 @@ import StageTimelineBar from './ui/StageTimelineBar';
 import WhyThisButton    from './ui/WhyThisButton';
 import { CropIcon }  from '@cropsetu/shared/components/CropIcons';
 import { RadialGauge } from '../../components/charts';
+import { SkeletonList, SkeletonStats } from '../../components/ui/Skeleton';
 import { useMultiFarm } from '../../context/MultiFarmContext';
 import { useLanguage }  from '@cropsetu/shared/context/LanguageContext';
 import * as farmApi     from '../../services/farmApi';
@@ -83,9 +84,11 @@ export default function FarmDetailScreen({ navigation, route }) {
     return (
       <CosmicScreen>
         <CosmicHeader title={t('common.loading', 'Loading…')} />
-        <View style={styles.centerWrap}>
-          <ActivityIndicator size="large" color={COSMIC.PRIMARY} />
-        </View>
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          {/* Hero KPI strip, then the cycle cards — the two blocks the fetch fills. */}
+          <SkeletonStats count={3} columns={3} tileH={78} gutter={CS.base} label={t('loading')} style={styles.heroOuter} />
+          <SkeletonList rows={2} thumb="square" thumbSize={44} label={t('loading')} style={styles.section} />
+        </ScrollView>
       </CosmicScreen>
     );
   }

@@ -15,8 +15,9 @@
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import useFocusRefresh from '../../hooks/useFocusRefresh';
+import { SkeletonBlock, SkeletonGroup, SkeletonList } from '../../components/ui/Skeleton';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -200,7 +201,19 @@ export default function MyFarmHomeScreen({ navigation }) {
       />
       <GlassCard style={styles.section} padding={0}>
         {loadingDetail && recentActivities.length === 0 ? (
-          <ActivityIndicator color={COSMIC.PRIMARY} style={{ paddingVertical: 18 }} />
+          /* Hand-composed: these rows sit INSIDE this card, so the SkeletonList
+             preset's own card surface would nest a card in a card. */
+          <SkeletonGroup label={t('loading')}>
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={styles.feedSkeletonRow}>
+                <SkeletonBlock w={36} h={36} r={18} />
+                <View style={styles.feedSkeletonBody}>
+                  <SkeletonBlock w="62%" h={12} />
+                  <SkeletonBlock w="88%" h={10} />
+                </View>
+              </View>
+            ))}
+          </SkeletonGroup>
         ) : recentActivities.length === 0 ? (
           <EmptyFeed onStart={() => goActivityPicker(null)} t={t} />
         ) : (
@@ -232,9 +245,7 @@ export default function MyFarmHomeScreen({ navigation }) {
         }
       />
       {loadingDetail && cycles.length === 0 ? (
-        <GlassCard style={styles.section}>
-          <ActivityIndicator color={COSMIC.PRIMARY} />
-        </GlassCard>
+        <SkeletonList rows={2} thumb="square" thumbSize={44} label={t('loading')} style={styles.cyclesList} />
       ) : cycles.length === 0 ? (
         <GlassCard style={styles.section}>
           <Text style={styles.emptyText}>
@@ -736,6 +747,18 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: COSMIC.BORDER,
     marginLeft: 14 + 36 + 12,    // align under content column (row pad + icon + gap)
+  },
+  // Mirrors ActivityFeedItem's row padding so the feed doesn't shift on load.
+  feedSkeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  feedSkeletonBody: {
+    flex: 1,
+    gap: 6,
   },
 
   // Cycles

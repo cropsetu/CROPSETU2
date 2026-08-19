@@ -9,6 +9,7 @@ import { getPlannerTasks, updateTaskDone, generateAITasks } from '../../services
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COLORS } from '@cropsetu/shared/constants/colors';
 import ActivityIcon from '../../components/ActivityIcons';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 
 const PRIORITY = {
@@ -274,11 +275,8 @@ export default function DailyPlannerScreen({ navigation }) {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={T.list}>
-        {loading ? (
-          <View style={{ alignItems: 'center', paddingVertical: 48 }}>
-            <ActivityIndicator color={COLORS.primary} size="large" />
-            <Text style={{ color: COLORS.textBody, marginTop: 12, fontSize: 13 }}>{t('planner.generatingAI')}</Text>
-          </View>
+        {loading && tasks.length === 0 ? (
+          <SkeletonList rows={5} thumb="square" thumbSize={34} showMeta={false} bordered label={t('planner.generatingAI')} style={{ marginTop: 16 }} />
         ) : tasks.length === 0 ? (
           <View style={{ alignItems: 'center', paddingVertical: 40 }}>
             <Ionicons name="checkmark-done-circle-outline" size={48} color={COLORS.textDark} />

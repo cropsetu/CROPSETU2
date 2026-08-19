@@ -30,6 +30,7 @@ import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import AnimalIcon from '../../components/AnimalIcons';
+import { SkeletonDetail } from '../../components/ui/Skeleton';
 import api from '@cropsetu/shared/services/api';
 import { useLocation } from '../../context/LocationContext';
 import { classifyError, ERROR_CODES } from '../../utils/apiError';
@@ -212,10 +213,11 @@ export default function AnimalDetail({ route, navigation }) {
   }, [contentAnim]);
 
   if (loading && !listing) {
+    // Only reached with no preview in the params; the hero height is pinned to
+    // the real one so the photo does not jump when the row lands.
     return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.mutedTxt}>{t('loading')}</Text>
+      <View style={styles.container}>
+        <SkeletonDetail heroH={HERO_H} chips={3} paragraphs={4} label={t('loading')} />
       </View>
     );
   }
@@ -712,7 +714,6 @@ export default function AnimalDetail({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   center:    { justifyContent: 'center', alignItems: 'center', padding: 24, gap: 12 },
-  mutedTxt:  { fontSize: 13, color: COLORS.textMedium },
   errorTxt:  { fontSize: 14, color: COLORS.error, textAlign: 'center' },
   retryBtn:  { backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 24, paddingVertical: 12 },
   retryTxt:  { color: COLORS.white, fontWeight: '700', fontSize: 15 },

@@ -20,6 +20,7 @@ import {
 } from '../../services/aiApi';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import ActivityIcon from '../../components/ActivityIcons';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 const STATUS_CONFIG = {
   upcoming:   { color: COLORS.textMedium, icon: 'time-outline' },
@@ -255,8 +256,8 @@ export default function FarmCalendarScreen({ navigation }) {
       </ScrollView>
 
       {tab === 'today' && (
-        loading ? (
-          <View style={S.centered}><ActivityIndicator color={COLORS.primary} size="large" /></View>
+        loading && todayTasks.length === 0 ? (
+          <SkeletonList rows={4} thumb="square" thumbSize={36} bordered label={t('loading')} style={S.listContent} />
         ) : (
           <FlatList
             windowSize={5}
@@ -280,8 +281,8 @@ export default function FarmCalendarScreen({ navigation }) {
       )}
 
       {tab === 'calendars' && (
-        loading ? (
-          <View style={S.centered}><ActivityIndicator color={COLORS.primary} size="large" /></View>
+        loading && calendars.length === 0 ? (
+          <SkeletonList rows={3} thumb="square" thumbSize={44} showMeta={false} bordered label={t('loading')} style={S.listContent} />
         ) : (
           <FlatList
             windowSize={5}

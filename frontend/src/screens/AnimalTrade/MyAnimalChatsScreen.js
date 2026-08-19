@@ -9,7 +9,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Image,
-  ActivityIndicator, RefreshControl, Platform,
+  RefreshControl, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import api from '@cropsetu/shared/services/api';
 import { connectSocket } from '@cropsetu/shared/services/socket';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 function timeAgo(iso) {
   if (!iso) return '';
@@ -187,9 +188,15 @@ export default function MyAnimalChatsScreen({ navigation }) {
       </View>
 
       {loading ? (
-        <View style={s.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
+        <SkeletonList
+          rows={6}
+          thumb="circle"
+          thumbSize={56}
+          lines={2}
+          showMeta={false}
+          label={t('loading')}
+          style={s.skeleton}
+        />
       ) : error ? (
         <View style={s.center}>
           <Ionicons name="alert-circle-outline" size={48} color={COLORS.error} />
@@ -232,6 +239,8 @@ export default function MyAnimalChatsScreen({ navigation }) {
 const s = StyleSheet.create({
   root:   { flex: 1, backgroundColor: COLORS.background },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 10 },
+  // Full-bleed like the real rows; only the gap under the header is added.
+  skeleton: { paddingTop: 8 },
 
   header: {
     flexDirection: 'row', alignItems: 'center',

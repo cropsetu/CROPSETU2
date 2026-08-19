@@ -20,6 +20,7 @@ import * as Sharing from 'expo-sharing';
 import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
+import { SkeletonDetail } from '../../components/ui/Skeleton';
 
 const RISK_COLOR = {
   CRITICAL: COLORS.error,
@@ -302,7 +303,17 @@ export default function PastReportScreen({ navigation, route }) {
 
   if (loading) {
     return (
-      <View style={S.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>
+      <View style={S.safe}>
+        <View style={[S.header, { paddingTop: insets.top + 8 }]}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={S.backBtn}>
+            <Ionicons name="chevron-back" size={22} color={COLORS.white} />
+          </TouchableOpacity>
+          <Text style={S.headerTitle}>{t('pastReport.title', 'Past Report')}</Text>
+        </View>
+        {/* heroH stands in for the scanned-image strip (140 thumb + 24 padding);
+            the body below it maps to the hero card, meta card and sections. */}
+        <SkeletonDetail heroH={164} chips={2} paragraphs={5} label={t('loading', 'Loading...')} />
+      </View>
     );
   }
   if (error || !row) {
@@ -578,7 +589,6 @@ function KendraReplyCard({ share, t }) {
 
 const S = StyleSheet.create({
   safe:   { flex: 1, backgroundColor: COLORS.background },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
 
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 12,

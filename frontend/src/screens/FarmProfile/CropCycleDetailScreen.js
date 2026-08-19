@@ -31,6 +31,7 @@ import StageTimelineBar from './ui/StageTimelineBar';
 import ActivityChip from './ui/ActivityChip';
 import { DonutChart, GrowthRing } from '../../components/charts';
 import MandiGlanceCard from './components/MandiGlanceCard';
+import { SkeletonBlock, SkeletonGroup } from '../../components/ui/Skeleton';
 import SpeakerButton from './ui/SpeakerButton';
 
 import CropIcon from '@cropsetu/shared/components/CropIcons';
@@ -294,9 +295,14 @@ export default function CropCycleDetailScreen({ navigation, route }) {
     return (
       <CosmicScreen>
         <CosmicHeader title={t('loading')} />
-        <View style={styles.centerWrap}>
-          <ActivityIndicator size="large" color={COSMIC.PRIMARY} />
-        </View>
+        {/* Hero card, growth-stage card and the two deep-link rows below it —
+            hand-composed because no preset matches this stack of fixed cards. */}
+        <SkeletonGroup label={t('loading')} style={styles.cycleSkeleton}>
+          <SkeletonBlock w="100%" h={168} r={CR.lg} />
+          <SkeletonBlock w="100%" h={132} r={CR.lg} />
+          <SkeletonBlock w="100%" h={62} r={CR.md} />
+          <SkeletonBlock w="100%" h={62} r={CR.md} />
+        </SkeletonGroup>
       </CosmicScreen>
     );
   }
@@ -866,6 +872,7 @@ function InputModal({ visible, title, tint = COSMIC.PRIMARY, icon, onClose, onSa
 const styles = StyleSheet.create({
   scroll: { paddingBottom: 30 },
   centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
+  cycleSkeleton: { marginHorizontal: CS.base, marginTop: CS.sm, gap: 12 },
 
   // Footer delete button
   deleteFooter: {
@@ -1171,13 +1178,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: CS.base,
     paddingVertical: 4,
     paddingBottom: 4,
-  },
-
-  // Activity feed — divider runs full-width inside the white card
-  feedDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: COSMIC.BORDER,
-    marginLeft: 14 + 36 + 12,    // align under the content column (row padding + icon + gap)
   },
 
   // Activity timeline

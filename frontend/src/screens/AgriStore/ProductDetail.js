@@ -13,6 +13,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useCart } from '../../context/CartContext';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
+import { SkeletonDetail } from '../../components/ui/Skeleton';
 import OfferListSheet from './OfferListSheet';
 import { fs } from '../../utils/responsive';
 import {
@@ -674,6 +675,16 @@ export default function ProductDetail({ route, navigation }) {
         </View>
       </SafeAreaView>
 
+      {/* Cold open: arrived with only a product id, so `product` is still {} and
+          every derived value below reads zero. Hold the page's shape until the
+          record lands rather than painting an empty product and a "Buy at ₹0"
+          bar under it. heroH tracks imgBox's 1.2 aspect ratio so the gallery
+          does not jump when the real image arrives. */}
+      {loading && !detail ? (
+        <SkeletonDetail heroH={Math.round(Dimensions.get('window').width / 1.2)} label={t('loading')} />
+      ) : (
+      <>
+
       {/* ── Scroll content ────────────────────────────────────────────────── */}
       <Animated.ScrollView
         style={{ opacity: fadeIn }}
@@ -1115,6 +1126,9 @@ export default function ProductDetail({ route, navigation }) {
         </TouchableOpacity>
       </View>
 
+      </>
+      )}
+
     </View>
     </AnimatedScreen>
   );
@@ -1193,7 +1207,6 @@ const S = StyleSheet.create({
   },
   ratingChipTxt:  { color: COLORS.white, fontSize: 12, fontWeight: '800' },
   ratingCountTxt: { fontSize: 12, color: COLORS.textBody },
-  ratingDot:      { fontSize: 12, color: COLORS.textMedium },
   priceRow:       { flexDirection: 'row', alignItems: 'flex-start', gap: 14, marginTop: 14 },
   price:          { fontSize: 30, fontWeight: '900', color: COLORS.textDark },
   priceMeta:      { paddingTop: 5, gap: 5 },
@@ -1382,12 +1395,6 @@ const S = StyleSheet.create({
   bulletRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   bulletDot:   { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.primary, marginTop: 6 },
   bulletTxt:   { flex: 1, fontSize: 14, color: COLORS.textDark, lineHeight: 22 },
-
-  // Highlights grid (2-col)
-  highlightGrid:  { flexDirection: 'row', flexWrap: 'wrap', borderWidth: 0.5, borderColor: COLORS.border, borderRadius: 10, overflow: 'hidden' },
-  highlightCell:  { width: '50%', padding: 12, borderBottomWidth: 0.5, borderBottomColor: COLORS.border },
-  highlightLabel: { fontSize: 11, color: COLORS.textMedium, fontWeight: '600', marginBottom: 3 },
-  highlightValue: { fontSize: 13, fontWeight: '700', color: COLORS.textDark },
 
   // Tabs
   tabRow:       { flexDirection: 'row', borderBottomWidth: 1.5, borderBottomColor: COLORS.border, marginBottom: 12 },

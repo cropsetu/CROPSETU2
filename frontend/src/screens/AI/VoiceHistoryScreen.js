@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  RefreshControl, ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +16,7 @@ import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { getVoiceConversations, deleteVoiceConversation } from '../../services/aiApi';
 import { safeErrorMessage } from '@cropsetu/shared/services/api';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 function formatDate(iso) {
   if (!iso) return '';
@@ -63,14 +64,6 @@ export default function VoiceHistoryScreen({ navigation }) {
     }
   };
 
-  if (loading) {
-    return (
-      <View style={S.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
-  }
-
   return (
     <View style={S.safe}>
       <View style={[S.header, { paddingTop: insets.top + 8 }]}>
@@ -80,12 +73,26 @@ export default function VoiceHistoryScreen({ navigation }) {
         <View style={{ flex: 1 }}>
           <Text style={S.headerTitle}>{t('voiceHistory.title', 'Voice Chat History')}</Text>
           <Text style={S.headerSub}>
-            {items.length} {items.length === 1 ? 'chat' : 'chats'}
+            {loading && !items.length
+              ? t('loading', 'Loading...')
+              : `${items.length} ${items.length === 1 ? 'chat' : 'chats'}`}
           </Text>
         </View>
       </View>
 
-      {error ? (
+      {loading && !items.length ? (
+        /* Mirrors the row below: 38px mic circle, title, then the date/count
+           foot line — the meta pills are off because the real row has none. */
+        <SkeletonList
+          rows={8}
+          thumb="circle"
+          thumbSize={38}
+          lines={2}
+          showMeta={false}
+          label={t('loading', 'Loading...')}
+          style={{ padding: 16 }}
+        />
+      ) : error ? (
         <View style={S.empty}>
           <Ionicons name="cloud-offline-outline" size={48} color={COLORS.gray175} />
           <Text style={S.emptyTitle}>{error}</Text>
@@ -138,7 +145,6 @@ export default function VoiceHistoryScreen({ navigation }) {
 
 const S = StyleSheet.create({
   safe:   { flex: 1, backgroundColor: COLORS.background },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingHorizontal: 14, paddingBottom: 14,

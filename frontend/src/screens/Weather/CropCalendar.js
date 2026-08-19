@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, FlatList, ActivityIndicator,
+  SafeAreaView, FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
 import api from '@cropsetu/shared/services/api';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 function CropCard({ crop, onPress, t }) {
   return (
@@ -83,9 +84,7 @@ export default function CropCalendar({ navigation }) {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
+        <SkeletonList rows={4} thumb="square" thumbSize={56} label={t('loading')} style={styles.listSkeleton} />
       </SafeAreaView>
     );
   }
@@ -149,6 +148,8 @@ export default function CropCalendar({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   listContent: { paddingBottom: 30 },
+  // Matches the crop cards' own 16-px side margin so nothing shifts on load.
+  listSkeleton: { paddingHorizontal: 16, paddingTop: 16 },
 
   banner: { padding: 28, alignItems: 'center', gap: 8 },
   bannerTitle: { fontSize: 26, fontWeight: '900', color: COLORS.textWhite },

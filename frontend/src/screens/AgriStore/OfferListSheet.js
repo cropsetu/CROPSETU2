@@ -22,6 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import api from '@cropsetu/shared/services/api';
+import { SkeletonList } from '../../components/ui/Skeleton';
 import { fs } from '../../utils/responsive';
 
 const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
@@ -173,7 +174,9 @@ export default function OfferListSheet({
         </Text>
 
         {state.loading ? (
-          <View style={S.center}><ActivityIndicator color={COLORS.primary} /></View>
+          // The sheet opens on nothing, so the offer rows are placeheld rather
+          // than spun for — the list is the reason the sheet was opened.
+          <SkeletonList rows={3} thumb="none" label={t('loading')} />
         ) : state.error ? (
           <View style={S.center}><Text style={S.errorTxt}>{state.error}</Text></View>
         ) : !rows.length ? (

@@ -27,6 +27,7 @@ import {
   CosmicHeader, PARAM_FIELDS, fieldLabel, ratingColor, ratingFillPct, soilHumanError,
 } from './components/soilShared';
 import { askSoilAdvisor } from './components/soilAdvisor';
+import { SkeletonBlock, SkeletonGroup, SkeletonText } from '../../components/ui/Skeleton';
 
 const GOOD = ['optimal', 'high', 'sufficient', 'low_ec'];
 
@@ -51,6 +52,11 @@ export default function SoilReportScreen({ navigation, route }) {
   const [recAdvice, setRecAdvice] = useState([]);
   const [loadingRec, setLoadingRec] = useState(false);
   const [error, setError] = useState(null);
+  // Only true when we arrived without a report and have to go find one. Without
+  // it the `!report` branch below renders "No soil test yet" for the length of
+  // the fetch — a farmer who HAS reports gets told they have none, then watches
+  // it flip. An empty state and a pending one are different claims.
+  const [loadingReport, setLoadingReport] = useState(!route?.params?.report);
 
   // Load crops + history; if no report was passed, show the most recent.
   useEffect(() => {
@@ -61,7 +67,7 @@ export default function SoilReportScreen({ navigation, route }) {
         try { setReport(await getSoilReportDetail(list[0].id)); }
         catch { setReport(list[0]); }
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setLoadingReport(false));
   }, []);
 
   const switchReport = useCallback(async (item) => {
@@ -100,7 +106,19 @@ export default function SoilReportScreen({ navigation, route }) {
         insetTop={insets.top}
       />
 
-      {!report ? (
+      {loadingReport && !report ? (
+        <SkeletonGroup label={t('loading')} style={S.reportSkeleton}>
+          {/* The shape the report lands as: score card, the nutrient tiles, then
+              the advisory prose. Raw blocks rather than the SkeletonStats preset,
+              because the presets mount their own group — nesting one here would
+              spin up a second animation clock inside this one. */}
+          <SkeletonBlock w="100%" h={96} r={18} />
+          <View style={S.reportSkeletonGrid}>
+            {[0, 1, 2, 3].map((i) => <SkeletonBlock key={i} w="48%" h={78} r={18} />)}
+          </View>
+          <SkeletonText lines={4} />
+        </SkeletonGroup>
+      ) : !report ? (
         <View style={S.empty}>
           <FileText size={46} color={MUTED} strokeWidth={1.6} />
           <Text style={S.emptyTxt}>{t('soilHub.report.empty', 'No soil test yet')}</Text>
@@ -154,7 +172,28 @@ export default function SoilReportScreen({ navigation, route }) {
             <ChevronDown size={16} color={MUTED} />
           </TouchableOpacity>
 
-          {loadingRec && <ActivityIndicator color={P_LIGHT} style={{ marginTop: 14 }} />}
+          {loadingRec && (
+            // Re-picking a crop leaves the previous plan on screen, so that case
+            // keeps the spinner — a skeleton would hide readable content.
+            fertilizers.length || recAdvice.length ? (
+              <ActivityIndicator color={P_LIGHT} style={{ marginTop: 14 }} />
+            ) : (
+              <SkeletonGroup label={t('loading')} style={S.planSkeleton}>
+                <View style={S.planSkeletonBody}>
+                  <SkeletonText lines={2} />
+                  {[0, 1, 2].map(i => (
+                    <View key={`fert-skel-${i}`} style={S.fertCard}>
+                      <SkeletonBlock w={36} h={36} r={11} />
+                      <View style={S.planSkeletonLines}>
+                        <SkeletonBlock w="58%" h={13} />
+                        <SkeletonBlock w="34%" h={11} />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </SkeletonGroup>
+            )
+          )}
 
           {recAdvice.map((line, i) => (
             <View key={`adv-${i}`} style={S.adviceRow}>
@@ -316,6 +355,14 @@ const S = StyleSheet.create({
   fertName: { fontSize: 14, fontWeight: '800', color: TEXT, fontFamily: INTER_EXTRA },
   fertDose: { fontSize: 12.5, color: P_LIGHT, marginTop: 2, fontFamily: INTER_BOLD },
   fertAdj: { fontSize: 11, color: MUTED, marginTop: 2, fontFamily: INTER_REG },
+
+  // The shared skeleton tones are tuned for the app's light screens; against
+  // this cosmic background they need dimming to sit at text weight.
+  reportSkeleton:     { paddingHorizontal: 18, paddingTop: 14, gap: 14 },
+  reportSkeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  planSkeleton:      { opacity: 0.5 },
+  planSkeletonBody:  { gap: 12 },
+  planSkeletonLines: { flex: 1, gap: 7 },
 
   errorTxt: { fontSize: 13, color: DANGER, fontFamily: INTER_SEMI },
   disclaimer: { fontSize: 11, color: MUTED, lineHeight: 16, marginTop: 4, fontStyle: 'italic', fontFamily: INTER_REG },

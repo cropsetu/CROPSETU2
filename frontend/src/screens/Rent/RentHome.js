@@ -75,7 +75,7 @@ import {
   withAlpha,
 } from "@cropsetu/shared/constants/khetTheme";
 import AnimatedScreen from "@cropsetu/shared/components/ui/AnimatedScreen";
-import TractorLoader from "../../components/ui/TractorLoader";
+import { SkeletonGrid } from "../../components/ui/Skeleton";
 import { MachineryIcon } from "../../components/MachineryIcons";
 import { LabourIcon } from "../../components/LabourIcon";
 import useRentListings, { probeTotal } from "../../hooks/useRentListings";
@@ -1050,17 +1050,20 @@ export default function RentHome({ navigation }) {
 
   // ── Empty state ───────────────────────────────────────────────────────────
   const empty = active.loading ? (
-    <View style={S.loadWrap}>
-      <TractorLoader
-        message={
-          tab === "machinery"
-            ? t("rent.loadingMachinery")
-            : t("rent.loadingWorkers")
-        }
-        size="medium"
-        fullScreen={false}
-      />
-    </View>
+    // Same 2-up shape as the cards below, so nothing shifts when page 1 lands.
+    // The real photo block is a fixed 190 and the row gap a fixed 12, so both are
+    // passed outright — deriving them from card width drifts on wider screens.
+    <SkeletonGrid
+      rows={3}
+      gutter={KGUTTER.tight}
+      gap={KSPACE.s12}
+      photoH={190}
+      label={
+        tab === "machinery"
+          ? t("rent.loadingMachinery")
+          : t("rent.loadingWorkers")
+      }
+    />
   ) : (
     <View style={S.emptyWrap}>
       <View style={S.emptyIconBg}>
@@ -1854,7 +1857,6 @@ const S = StyleSheet.create({
   },
   callBtnTxt: { fontSize: 12, fontWeight: "800", color: COLORS.white },
 
-  loadWrap: { paddingVertical: 60, alignItems: "center", gap: KSPACE.s10 },
   emptyWrap: {
     alignItems: "center",
     paddingVertical: KSPACE.s40,

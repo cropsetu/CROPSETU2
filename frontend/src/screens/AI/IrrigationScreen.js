@@ -17,7 +17,7 @@ import IrrigationIcon from '../../components/IrrigationIcons';
 import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, StatusBar, Modal, FlatList,
+  StatusBar, Modal, FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -26,6 +26,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { getIrrigationToday, logIrrigation, getCrops } from '../../services/aiApi';
 import { useLocation } from '../../context/LocationContext';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import { SkeletonBlock, SkeletonGroup, SkeletonList } from '../../components/ui/Skeleton';
 
 const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
@@ -130,12 +131,27 @@ export default function IrrigationScreen({ navigation }) {
           </View>
         )}
 
-        {/* Loading */}
+        {/* Loading — shaped like the hero card and the 7-day strip that land here */}
         {loading && (
-          <View style={S.centered}>
-            <ActivityIndicator color={COLORS.primary} size="large" />
-            <Text style={S.loadingTxt}>{t('irrigation.computing')}</Text>
-          </View>
+          <SkeletonGroup label={t('irrigation.computing')}>
+            <View style={S.heroSkeleton}>
+              <SkeletonBlock w={68} h={68} r={34} />
+              <SkeletonBlock w="62%" h={20} />
+              <SkeletonBlock w="86%" h={12} />
+              <SkeletonBlock w={176} h={32} r={10} />
+              <View style={S.heroGrid}>
+                <SkeletonBlock w={44} h={30} />
+                <SkeletonBlock w={44} h={30} />
+                <SkeletonBlock w={44} h={30} />
+              </View>
+            </View>
+            <SkeletonBlock w="42%" h={11} style={S.skeletonLabel} />
+            <View style={S.forecastSkeletonRow}>
+              {Array.from({ length: 5 }, (_, i) => (
+                <SkeletonBlock key={i} w={66} h={96} r={14} />
+              ))}
+            </View>
+          </SkeletonGroup>
         )}
 
         {/* Error */}
@@ -274,7 +290,7 @@ export default function IrrigationScreen({ navigation }) {
           <View style={S.modalSheet}>
             <Text style={S.modalTitle}>{t('irrigation.selectCropTitle')}</Text>
             {!crops.length ? (
-              <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 20 }} />
+              <SkeletonList rows={4} thumb="circle" thumbSize={32} showMeta={false} label={t('loading')} />
             ) : (
               <FlatList
                 windowSize={7}
@@ -383,6 +399,15 @@ const S = StyleSheet.create({
   rainTxt:  { fontSize: 9, color: COLORS.blue, fontWeight: '700' },
   dayEt0:   { fontSize: 9, color: COLORS.textLight },
 
+  // Skeleton placeholders — same box as the hero card and the forecast strip.
+  heroSkeleton: {
+    marginHorizontal: 18, marginTop: 4, borderRadius: 20, padding: 22,
+    alignItems: 'center', gap: 10,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
+  },
+  skeletonLabel:       { marginHorizontal: 18, marginTop: 16, marginBottom: 10 },
+  forecastSkeletonRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 18 },
+
   infoCard: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
     marginHorizontal: 18, marginTop: 16,
@@ -392,7 +417,6 @@ const S = StyleSheet.create({
   infoTxt: { flex: 1, fontSize: 12, color: COLORS.textLight, lineHeight: 18 },
 
   centered: { alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 },
-  loadingTxt: { fontSize: 14, color: COLORS.textLight },
   errorTxt:   { fontSize: 13, color: COLORS.error, textAlign: 'center', paddingHorizontal: 20 },
   retryBtn: { backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 24, paddingVertical: 10 },
   retryTxt: { fontSize: 14, fontWeight: '700', color: COLORS.white },

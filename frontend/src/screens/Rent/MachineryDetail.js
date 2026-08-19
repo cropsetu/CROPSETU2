@@ -27,6 +27,7 @@ import { MachineryIcon } from '../../components/MachineryIcons';
 import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 import useContactReveal from '../../hooks/useContactReveal';
 import { classifyError, ERROR_CODES } from '../../utils/apiError';
+import { SkeletonDetail } from '../../components/ui/Skeleton';
 
 // Machinery icon registry keys — fall back to 'tractor' so the hero is never blank.
 const MACH_ICON_KEYS = ['tractor','harvester','sprayer','rotavator','thresher','transplanter','truck','tempo'];
@@ -395,8 +396,10 @@ export default function MachineryDetail({ route, navigation }) {
 
   if (loadingData || !m) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.white }}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+      <View style={{ flex: 1, backgroundColor: COLORS.white }}>
+        {/* heroH matches the 300pt media gallery below so the page does not
+            reflow when the record lands. */}
+        <SkeletonDetail heroH={300} label={t('loading')} />
       </View>
     );
   }

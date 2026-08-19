@@ -6,10 +6,11 @@
  * is off or no data exists.
  */
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getMandiPrices, getMandiTrend } from '../../../services/mandiApi';
 import { Sparkline } from '../../../components/charts';
+import { SkeletonBlock, SkeletonGroup } from '../../../components/ui/Skeleton';
 import SpeakerButton from '../ui/SpeakerButton';
 import GlassCard from '../ui/GlassCard';
 import { COSMIC, CR, CT } from '../theme/cosmicTheme';
@@ -56,7 +57,20 @@ export default function MandiGlanceCard({ cropName, district, state, salePricePe
     return (
       <GlassCard style={styles.card}>
         <View style={styles.headRow}><Text style={styles.title}>{t('mspTracker.mandiPrice')}</Text></View>
-        <ActivityIndicator color={COSMIC.PRIMARY} style={{ marginVertical: 8 }} />
+        {/* Card-sized, not a page preset: this is one card inside the cycle screen. */}
+        <SkeletonGroup label={t('mandiBhav.loadingPrices')}>
+          <View style={styles.bestRow}>
+            <View style={styles.skelBestCol}>
+              <SkeletonBlock w="62%" h={26} r={6} />
+              <SkeletonBlock w="44%" h={12} />
+            </View>
+            <SkeletonBlock w={96} h={40} r={8} />
+          </View>
+          <View style={styles.skelOtherRow}>
+            <SkeletonBlock w="46%" h={12} />
+            <SkeletonBlock w="22%" h={12} />
+          </View>
+        </SkeletonGroup>
       </GlassCard>
     );
   }
@@ -138,6 +152,8 @@ const styles = StyleSheet.create({
   liveText: { fontSize: 10, color: COSMIC.TEXT_3, fontFamily: CT.family.semibold, textTransform: 'uppercase', letterSpacing: 0.4 },
 
   bestRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  skelBestCol: { flex: 1, gap: 7 },
+  skelOtherRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, borderTopWidth: 1, borderTopColor: COSMIC.BORDER, paddingTop: 12 },
   bestPrice: { fontSize: 24, fontFamily: CT.family.extra, color: COSMIC.TEXT },
   bestUnit: { fontSize: 13, fontFamily: CT.family.medium, color: COSMIC.TEXT_3 },
   bestMeta: { fontSize: 12, fontFamily: CT.family.medium, color: COSMIC.TEXT_3, marginTop: 1 },

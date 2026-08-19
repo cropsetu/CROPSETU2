@@ -30,6 +30,7 @@ import { KHET, KFONT, KSHADOW } from '@cropsetu/shared/constants/khetTheme';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
+import { SkeletonGrid } from '../../components/ui/Skeleton';
 import { StoreCategoryIcon } from '@cropsetu/shared/components/StoreCategoryIcons';
 import {
   createRequestLane, fetchProducts as apiFetchProducts, fetchCategories as apiFetchCategories,
@@ -46,31 +47,6 @@ const BG       = COLORS.background;
 const CARD     = COLORS.surface;
 const BORDER   = COLORS.border;
 const DRAWER_W = W * 0.85;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shimmer skeleton
-// ─────────────────────────────────────────────────────────────────────────────
-function Skeleton() {
-  const anim = useRef(new RNAnimated.Value(0)).current;
-  useEffect(() => {
-    RNAnimated.loop(RNAnimated.sequence([
-      RNAnimated.timing(anim, { toValue: 1, duration: 750, useNativeDriver: false, easing: Easing.inOut(Easing.ease) }),
-      RNAnimated.timing(anim, { toValue: 0, duration: 750, useNativeDriver: false, easing: Easing.inOut(Easing.ease) }),
-    ])).start();
-  }, []);
-  const bg = anim.interpolate({ inputRange: [0, 1], outputRange: [COLORS.greenAsh, COLORS.greenMist] });
-  return (
-    <View style={S.gridCard}>
-      <RNAnimated.View style={[{ height: 130, backgroundColor: bg }]} />
-      <View style={{ padding: 10, gap: 7 }}>
-        <RNAnimated.View style={{ height: 11, width: '85%', borderRadius: 5, backgroundColor: bg }} />
-        <RNAnimated.View style={{ height: 9,  width: '55%', borderRadius: 5, backgroundColor: bg }} />
-        <RNAnimated.View style={{ height: 9,  width: '40%', borderRadius: 5, backgroundColor: bg }} />
-        <RNAnimated.View style={{ height: 32, borderRadius: 10, marginTop: 4, backgroundColor: bg }} />
-      </View>
-    </View>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Category Drawer — flat list, slides from left, web-prototype style
@@ -864,9 +840,11 @@ export default function AgriStoreHome({ navigation }) {
             </View>
 
             {loading && !products.length ? (
-              <View style={S.productGrid}>
-                {[0, 1, 2, 3].map((i) => <Skeleton key={i} />)}
-              </View>
+              // 2 rows × 2 columns = the same four placeholder cards this grid has
+              // always shown, now from the shared kit. gutter tracks
+              // columnWrapperStyle's 12pt padding and photoRatio the 130px
+              // gridImgWrap, so nothing shifts when the products land.
+              <SkeletonGrid rows={2} gutter={12} gap={12} photoH={130} bordered style={S.productGrid} label={t('loading')} />
             ) : null}
           </View>
         )}

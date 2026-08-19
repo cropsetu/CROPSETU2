@@ -716,7 +716,7 @@ export default function AnimalTradeHome({ navigation, route }) {
           )}
           ListEmptyComponent={
             loading ? (
-              <AnimalCardSkeleton rows={4} />
+              <AnimalCardSkeleton rows={4} label={t('animal.loadingAnimals')} />
             ) : (
               <EmptyAnimals
                 t={t}

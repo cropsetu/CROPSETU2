@@ -9,13 +9,14 @@ import { COLORS } from '@cropsetu/shared/constants/colors';
 import { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, StatusBar, FlatList,
+  StatusBar, FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { getMSPRates, getMSPComparison } from '../../services/aiApi';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import { SkeletonBlock, SkeletonGroup, SkeletonList } from '../../components/ui/Skeleton';
 
 const SIGNAL_CONFIG = {
   ABOVE_MSP: { color: COLORS.primary, bg: 'rgba(46,204,113,0.12)', icon: 'trending-up',   label: 'Above MSP' },
@@ -23,7 +24,7 @@ const SIGNAL_CONFIG = {
   BELOW_MSP: { color: COLORS.red, bg: 'rgba(231,76,60,0.12)',  icon: 'trending-down',  label: 'Below MSP' },
 };
 
-function MSPRateCard({ item, onCompare, language }) {
+function MSPRateCard({ item, onCompare, language, t }) {
   return (
     <View style={S.rateCard}>
       <View style={S.rateCardTop}>
@@ -50,13 +51,13 @@ function MSPRateCard({ item, onCompare, language }) {
       </View>
       <TouchableOpacity style={S.compareBtn} onPress={() => onCompare(item)}>
         <Ionicons name="swap-horizontal-outline" size={13} color={COLORS.primary} />
-        <Text style={S.compareTxt}>{t('mspTracker.compareWithMandi')}{/* TODO: needs t() from parent */}</Text>
+        <Text style={S.compareTxt}>{t('mspTracker.compareWithMandi')}</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-function ComparisonView({ item, state, language, onBack }) {
+function ComparisonView({ item, state, language, t, onBack }) {
   const [data, setData]   = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -68,11 +69,18 @@ function ComparisonView({ item, state, language, onBack }) {
   }, [item.commodity, state]);
 
   if (loading) {
+    // Same run of blocks the comparison lands as: title, signal card, the two
+    // MSP/mandi boxes, then the mandi row.
     return (
-      <View style={S.centered}>
-        <ActivityIndicator color={COLORS.primary} size="large" />
-        <Text style={S.loadingTxt}>{t('mspTracker.loadingComparison')}</Text>
-      </View>
+      <SkeletonGroup label={t('mspTracker.loadingComparison')} style={S.compSkeleton}>
+        <SkeletonBlock w="55%" h={16} />
+        <SkeletonBlock w="100%" h={78} r={14} style={{ marginTop: 14 }} />
+        <View style={[S.compGrid, { marginTop: 14 }]}>
+          <SkeletonBlock w="48%" h={104} r={14} />
+          <SkeletonBlock w="48%" h={104} r={14} />
+        </View>
+        <SkeletonBlock w="100%" h={62} r={12} style={{ marginTop: 14 }} />
+      </SkeletonGroup>
     );
   }
 
@@ -197,13 +205,11 @@ export default function MSPTrackerScreen({ navigation }) {
           item={comparing}
           state={user?.state || 'Maharashtra'}
           language={language}
+          t={t}
           onBack={() => setComparing(null)}
         />
       ) : loading ? (
-        <View style={S.centered}>
-          <ActivityIndicator color={COLORS.primary} size="large" />
-          <Text style={S.loadingTxt}>{t('mspTracker.loading')}</Text>
-        </View>
+        <SkeletonList rows={6} thumb="none" label={t('mspTracker.loading')} style={S.listContent} />
       ) : (
         <FlatList
           windowSize={5}
@@ -212,7 +218,7 @@ export default function MSPTrackerScreen({ navigation }) {
           data={rates}
           keyExtractor={(_, i) => String(i)}
           renderItem={({ item }) => (
-            <MSPRateCard item={item} language={language} onCompare={setComparing} />
+            <MSPRateCard item={item} language={language} t={t} onCompare={setComparing} />
           )}
           contentContainerStyle={S.listContent}
           ListEmptyComponent={
@@ -315,8 +321,7 @@ const S = StyleSheet.create({
   mandiRowPrice: { fontSize: 15, fontWeight: '800', color: COLORS.amberDark },
   miniSignal: { width: 26, height: 26, borderRadius: 13, justifyContent: 'center', alignItems: 'center' },
 
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 12 },
-  loadingTxt: { fontSize: 14, color: COLORS.textLight, marginTop: 8 },
+  compSkeleton: { padding: 18 },
   errorTxt: { fontSize: 14, color: COLORS.error, textAlign: 'center' },
   emptyTxt: { fontSize: 15, color: COLORS.textMedium, fontWeight: '700', textAlign: 'center', paddingTop: 40 },
 });

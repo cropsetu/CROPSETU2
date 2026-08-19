@@ -22,7 +22,7 @@ The landing screen of the Rent bottom tab. It is a two-mode marketplace where fa
 - Key state: `tab` ('machinery' | 'labour'), `category`, `search`, `radiusKm` (default 10), `machinery`, `labour`, `loading`, `fetchError`, `pendingCount`, `hasListings`, `bookingMap`.
 - Filtering is client-side: machinery is filtered by selected `category` and a case-insensitive search across name/equipment/brand/location; labour is filtered by search across name/leader/location/skills.
 - The collapsing header uses `useScrollHeader(55)`; a `ScrollToTopButton` appears once scrolled.
-- **Loading:** a `TractorLoader` is shown in place of the list. **Error:** on a failed fetch a red retry banner appears (in `__DEV__` it falls back to mock data from `constants/mockData`; in production it shows empty lists + error). **Empty:** a "Coming Soon" empty card with a call-to-action button to list machinery / register as a worker.
+- **Loading:** a `SkeletonGrid` (shared kit, `components/ui/Skeleton`) is shown in place of the list, in the same 2-up shape as the real cards so nothing shifts when page 1 lands. **Error:** on a failed fetch a red retry banner appears (in `__DEV__` it falls back to mock data from `constants/mockData`; in production it shows empty lists + error). **Empty:** a "Coming Soon" empty card with a call-to-action button to list machinery / register as a worker.
 
 ## UI elements
 

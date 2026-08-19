@@ -18,47 +18,12 @@ import { useCart } from '../../context/CartContext';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import { StoreCategoryIcon } from '@cropsetu/shared/components/StoreCategoryIcons';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
+import { SkeletonList } from '../../components/ui/Skeleton';
 import { classifyError, inr, thumbUrl, SHOP_ERRORS } from './shopClient';
 
 const W = Dimensions.get('window').width;
 
 const GREEN_BG = 'rgba(23,107,67,0.08)';
-
-// ── Shimmer box ───────────────────────────────────────────────────────────────
-function ShimmerBox({ style }) {
-  const s = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.loop(Animated.timing(s, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: true })).start();
-  }, []);
-  const tx = s.interpolate({ inputRange: [0, 1], outputRange: [-200, 200] });
-  return (
-    <View style={[{ backgroundColor: COLORS.coolGray, overflow: 'hidden', borderRadius: 8 }, style]}>
-      <Animated.View style={{ ...StyleSheet.absoluteFillObject, transform: [{ translateX: tx }] }}>
-        <LinearGradient colors={['transparent', 'rgba(255,255,255,0.6)', 'transparent']}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ width: 100, height: '100%' }} />
-      </Animated.View>
-    </View>
-  );
-}
-
-function CartItemSkeleton() {
-  return (
-    <View style={S.itemCard}>
-      <View style={{ flexDirection: 'row', gap: 12 }}>
-        <ShimmerBox style={{ width: 80, height: 80, borderRadius: 12 }} />
-        <View style={{ flex: 1, gap: 8 }}>
-          <ShimmerBox style={{ width: 60, height: 9 }} />
-          <ShimmerBox style={{ width: '80%', height: 13 }} />
-          <ShimmerBox style={{ width: 70, height: 11 }} />
-        </View>
-      </View>
-      <View style={[S.itemCardFooter, { marginTop: 14 }]}>
-        <ShimmerBox style={{ width: 120, height: 36, borderRadius: 20 }} />
-        <ShimmerBox style={{ width: 60, height: 20 }} />
-      </View>
-    </View>
-  );
-}
 
 // ── Press scale wrapper ───────────────────────────────────────────────────────
 function PressScale({ onPress, style, down = 0.88, children }) {
@@ -422,8 +387,11 @@ export default function CartScreen({ navigation }) {
             <Text style={S.headerSub}>{t('loading')}</Text>
           </View>
         </View>
-        <View style={{ padding: 14, gap: 12 }}>
-          {[0, 1, 2].map(i => <CartItemSkeleton key={i} />)}
+        <View style={{ padding: 14 }}>
+          {/* thumbSize matches itemImgBox so the rows do not resize on load. */}
+          {/* rowH 179 is the real itemCard's height — without it the list
+              collapses ~230pt upward the moment the cart lands. */}
+          <SkeletonList rows={3} thumb="square" thumbSize={80} rowH={179} bordered label={t('loading')} />
         </View>
       </SafeAreaView>
     );

@@ -18,7 +18,7 @@ On mount and on every focus (`useFocusEffect`), and whenever `activeFilter`, `se
 
 Key state: `activeFilter` ('All' default), `searchQuery`, `sortBy` ('sortLatest' default), `distanceKm` (null default), `listings`, `loading`, `refreshing`. GPS comes from the global `LocationContext` (`coords`, `permissionGranted`, `loading`), surfaced as `locStatus` ('loading' | 'granted' | 'denied'). Listings are chunked into 2-item `pairs` rendered as `CardRow`s in a `FlatList`. Pull-to-refresh calls `fetchListings(true)`.
 
-Loading shows a `TractorLoader`; on success with zero items the `EmptyAnimals` illustration shows. On API error: in `__DEV__` it falls back to mock `ANIMAL_LISTINGS` from `constants/mockData`; in production it shows an empty list. Tapping a distance chip while location is denied triggers an `Alert` instead of filtering.
+Loading shows `AnimalCardSkeleton` — placeholder cards in the shape of the real grid, from the shared skeleton kit (`components/ui/Skeleton`); on success with zero items the `EmptyAnimals` illustration shows. On API error it shows an empty list. Tapping a distance chip while location is denied triggers an `Alert` instead of filtering.
 
 ## UI elements
 
@@ -37,7 +37,7 @@ Loading shows a `TractorLoader`; on success with zero items the `EmptyAnimals` i
 | Vaccinated badge | Badge on card | Bottom-right green `shield-checkmark` chip when `item.vaccinated`. |
 | "Book Now" button | Button on card | Green button with `car-outline` icon; opens `AnimalDetail` (same as tapping card). |
 | Pull-to-refresh | RefreshControl | Green spinner; re-fetches listings. |
-| Loading state | TractorLoader | "Loading animals" tractor animation while `loading` and list empty. |
+| Loading state | AnimalCardSkeleton | Shimmering placeholder cards in the real grid's shape while `loading` and list empty; announces "Finding nearby animals…" to a screen reader. |
 | Empty state | Illustration + CTA | `EmptyAnimals`: layered rings + floating animal icons, title (`noAnimalsNearby`/`noAnimals`), reassurance chips (reach buyers / free to post / verified), "Post Ad" CTA, and a "Show all animals" button when a distance filter is active. |
 | Post Ad FAB | Floating button | Bottom-right; `add` icon + "Post Ad" text → `AddAnimalListing`. |
 | Scroll-to-top button | Floating button | `ScrollToTopButton`, visible after scrolling 200px (`useScrollHeader`); scrolls list to top. |
@@ -47,7 +47,7 @@ Loading shows a `TractorLoader`; on success with zero items the `EmptyAnimals` i
 - **API endpoints:** `GET /animals` via `services/api` (`api.get('/animals', { params })`), params: `limit`, optional `animal`, `search`, `lat`, `lng`, `radius`. Reads `data.data` as the listings array.
 - **Backend route/service:** `backend/src/routes/animaltrade.routes.js` (mounted at `/api/v1/animals` in `backend/src/app.js`) — the `GET /` list handler.
 - **State / context:** `useLanguage()` (i18n), `useLocation()` (global GPS), local `useState` for filters/listings, `useScrollHeader` hook, `useFocusEffect`. No socket on this screen.
-- **Local / static data:** `ANIMAL_CATEGORIES`, `DISTANCE_KEYS` ([null,10,25,50,100]), `SORT_KEYS`. `haversineKm` helper present (distance math). Dev-only fallback mock: `ANIMAL_LISTINGS` from `constants/mockData`.
+- **Local / static data:** `ANIMAL_CATEGORIES`, `DISTANCE_KEYS` ([null,10,25,50,100]), `SORT_KEYS`. `haversineKm` helper present (distance math).
 
 ## Languages / i18n
 Uses `t()` from `useLanguage()` throughout. Keys span `animal.*` (e.g. `searchPlaceholder`, `allAnimals`, `nearMe`, `locating`, `distance`, `sortLatest`, `sortPriceLow`, `sortPriceHigh`, `bookNow`, `addedRecently`, `postAd`, `noAnimals`, `noAnimalsNearby`, `beFirstToList`, `reachBuyers`, `freeToPost`, `verifiedBadge`, `showAllAnimals`, `locationRequired`, `locationRequiredMsg`), `animals.<type>` for category labels, plus top-level keys `all` and `chatWithSeller`. Multi-language: app ships en/hi/gu/kn/te/ml/pa/ta/bn translation files.

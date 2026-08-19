@@ -24,6 +24,7 @@ import api from '@cropsetu/shared/services/api';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { formatLocation } from '../../utils/location';
 import { invalidateFocusData } from '../../hooks/useFocusRefresh';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 const ListingCard = memo(function ListingCard({ item, onDelete, onEdit }) {
   const { t } = useLanguage();
@@ -169,9 +170,30 @@ export default function MyAnimalListingsScreen({ navigation }) {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
+      // The loading branch renders the SAME chrome as the loaded one — safe area
+      // plus the header — so the placeholder is never painted under the status
+      // bar and the list does not jump down by insets.top + header height once
+      // the listings arrive.
+      <SafeAreaView style={styles.root} edges={['bottom']}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{t('myAnimalListingsScreen.title')}</Text>
+          <View style={styles.addBtn} />
+        </View>
+
+        {/* ListingCard is a full-width row — 72pt photo, the name/detail lines
+            and an action footer — drawn at the FlatList's own 16pt padding. */}
+        <SkeletonList
+          rows={5}
+          thumb="square"
+          thumbSize={72}
+          lines={2}
+          label={t('loading')}
+          style={{ padding: 16 }}
+        />
+      </SafeAreaView>
     );
   }
 
@@ -306,7 +328,6 @@ const styles = StyleSheet.create({
   footerLeft:  { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 },
   footerTxt:   { fontSize: 12, color: COLORS.textMedium },
   actionBtn:   { padding: 6, marginLeft: 4 },
-  deleteBtn:   { padding: 6 },
 
   errorTxt: { fontSize: 15, color: COLORS.error, textAlign: 'center' },
   retryBtn: { backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 24, paddingVertical: 10, marginTop: 8 },

@@ -15,6 +15,7 @@ import api from '@cropsetu/shared/services/api';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
 import { invalidateFocusData } from '../../hooks/useFocusRefresh';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 const RED   = COLORS.error;
 
@@ -245,9 +246,9 @@ export default function MyRentListingsScreen({ navigation }) {
       </View>
 
       {loading ? (
-        <View style={S.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
+        // Listing cards are full-width rows with a 70pt thumb + an edit/delete
+        // action row, so the placeholder carries a thumb and a meta line.
+        <SkeletonList rows={4} thumb="square" thumbSize={70} style={S.list} label={t('loading')} />
       ) : isEmpty ? (
         <View style={S.center}>
           <Ionicons name={tab === 'machinery' ? 'construct-outline' : 'people-outline'} size={60} color={COLORS.divider} />

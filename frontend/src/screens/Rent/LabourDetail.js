@@ -20,6 +20,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { COLORS } from '@cropsetu/shared/constants/colors';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import { SkeletonDetail } from '../../components/ui/Skeleton';
 
 const { width: W } = Dimensions.get('window');
 
@@ -110,8 +111,9 @@ export default function LabourDetail({ route, navigation }) {
 
   if (loadingData || !data) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.white }}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+      <View style={{ flex: 1, backgroundColor: COLORS.white }}>
+        {/* heroH matches the 280pt gallery / avatar header below. */}
+        <SkeletonDetail heroH={280} label={t('loading')} />
       </View>
     );
   }

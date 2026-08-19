@@ -25,6 +25,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { COLORS } from '@cropsetu/shared/constants/colors';
 import api from '@cropsetu/shared/services/api';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 const TYPE_ICON = { HOME: 'home-outline', OFFICE: 'briefcase-outline', OTHER: 'location-outline' };
 const TYPE_KEY  = { HOME: 'typeHome',     OFFICE: 'typeOffice',        OTHER: 'typeOther'      };
@@ -243,7 +244,9 @@ export default function SavedAddressesScreen({ navigation }) {
       </View>
 
       {loading && !items.length ? (
-        <View style={S.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>
+        /* An address card carries no image — name, address lines, then the
+           set-default/edit/delete row — so the placeholder is thumbless. */
+        <SkeletonList rows={4} thumb="none" lines={2} label={t('loading')} style={{ padding: 16 }} />
       ) : error ? (
         <View style={S.center}>
           <Ionicons name="alert-circle-outline" size={48} color={COLORS.error} />

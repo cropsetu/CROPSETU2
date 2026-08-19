@@ -11,6 +11,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons';
 import api from '@cropsetu/shared/services/api';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { SkeletonGrid } from '../../components/ui/Skeleton';
 
 const CATEGORY_COLORS = {
   TIP:       COLORS.emerald,
@@ -120,9 +121,31 @@ export default function SavedPostsScreen({ navigation }) {
 
   if (loading && posts.length === 0) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
+      // Same chrome as the loaded branch — safe area plus header — so the first
+      // photo placeholder is not drawn behind the status bar and the column does
+      // not shift down by insets.top + header height when the posts land.
+      <SafeAreaView style={styles.root} edges={['bottom']}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color={COLORS.textDark} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{t('savedPosts')}</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        {/* A PostCard is one full-width card — a 160pt image above the
+            category/title/description block — so the placeholder is a
+            single-column grid at the FlatList's 16pt padding, not a thumb row. */}
+        <SkeletonGrid
+          rows={3}
+          columns={1}
+          gutter={16}
+          photoH={160}
+          showButton={false}
+          label={t('loading')}
+          style={{ padding: 16 }}
+        />
+      </SafeAreaView>
     );
   }
 

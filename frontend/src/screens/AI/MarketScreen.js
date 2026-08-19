@@ -2,7 +2,7 @@ import { COLORS } from '@cropsetu/shared/constants/colors';
 import { useRef, useEffect, useState, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, FlatList,
-  Dimensions, Animated, StatusBar, ActivityIndicator, Pressable,
+  Dimensions, Animated, StatusBar, Pressable,
   Modal, TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,10 +11,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location'; // reverseGeocodeAsync only
 import { useLocation } from '../../context/LocationContext';
 import { getMandiPrices } from '../../services/aiApi';
-import { INDIA_STATES_LIST, INDIA_DISTRICTS, STATE_GPS_MAP, getDistricts } from '@cropsetu/shared/constants/indiaLocations';
+import { INDIA_STATES_LIST, STATE_GPS_MAP, getDistricts } from '@cropsetu/shared/constants/indiaLocations';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import CropIcon from '@cropsetu/shared/components/CropIcons';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import { SkeletonBlock, SkeletonGroup } from '../../components/ui/Skeleton';
 import {
   KHET, KSPACE, KGUTTER, KRADIUS, KICON, KBORDER, circle, withAlpha,
 } from '@cropsetu/shared/constants/khetTheme';
@@ -33,7 +34,6 @@ const { width: W, height: H } = Dimensions.get('window');
 // The four constants below are CATEGORICAL DATA (they identify a stat channel,
 // not a semantic state) and stay out of KHET for the reason dataPalette.js
 // states in its header. See the report for the proposed dataPalette entry.
-const GREEN_L= COLORS.mintGreen;
 const PURPLE = COLORS.sellerShipped;
 const AMBER  = COLORS.amber;
 // A11Y: was COLORS.error #EF4444 — 3.62:1 as the LOWEST stat value on the price
@@ -43,17 +43,7 @@ const BLUE   = COLORS.blue;
 const SLATE  = COLORS.textDark;
 
 const CARD_MARGIN  = KGUTTER.base;
-const CARD_PADDING = KSPACE.s16;
-const CHART_W      = W - CARD_MARGIN * 2 - CARD_PADDING * 2;
-
 const DEFAULT_CROP = 'Tomato';
-const PERIODS = [
-  { key: '7d',  label: '7D'  },
-  { key: '3m',  label: '3M'  },
-  { key: '6m',  label: '6M'  },
-  { key: '12m', label: '1Y'  },
-];
-
 // ── All Indian crops by category ──────────────────────────────────────────────
 const CROP_CATEGORIES = [
   {
@@ -102,53 +92,6 @@ const CROP_CATEGORIES = [
 // Flat list of all crops for search
 const ALL_CROPS = CROP_CATEGORIES.filter(c => c.key !== 'all').flatMap(c => c.crops);
 CROP_CATEGORIES[0].crops = ALL_CROPS;
-
-// ── Mandi coordinates ─────────────────────────────────────────────────────────
-const MANDI_COORDS = {
-  'Nashik':                   { lat: 19.9975, lon: 73.7898 },
-  'Pune':                     { lat: 18.5204, lon: 73.8567 },
-  'Mumbai (Vashi)':           { lat: 19.0760, lon: 72.8777 },
-  'Aurangabad':               { lat: 19.8762, lon: 75.3433 },
-  'Kolhapur':                 { lat: 16.7050, lon: 74.2433 },
-  'Ludhiana':                 { lat: 30.9010, lon: 75.8573 },
-  'Amritsar':                 { lat: 31.6340, lon: 74.8723 },
-  'Jalandhar':                { lat: 31.3260, lon: 75.5762 },
-  'Patiala':                  { lat: 30.3398, lon: 76.3869 },
-  'Bathinda':                 { lat: 30.2110, lon: 74.9455 },
-  'Lucknow':                  { lat: 26.8467, lon: 80.9462 },
-  'Agra':                     { lat: 27.1767, lon: 78.0081 },
-  'Kanpur':                   { lat: 26.4499, lon: 80.3319 },
-  'Varanasi':                 { lat: 25.3176, lon: 82.9739 },
-  'Mathura':                  { lat: 27.4924, lon: 77.6737 },
-  'Bangalore (Yeshwanthpur)': { lat: 13.0000, lon: 77.5500 },
-  'Hubli':                    { lat: 15.3647, lon: 75.1240 },
-  'Mysore':                   { lat: 12.2958, lon: 76.6394 },
-  'Davangere':                { lat: 14.4644, lon: 75.9218 },
-  'Kurnool':                  { lat: 15.8281, lon: 78.0373 },
-  'Guntur':                   { lat: 16.3067, lon: 80.4365 },
-  'Ahmedabad':                { lat: 23.0225, lon: 72.5714 },
-  'Surat':                    { lat: 21.1702, lon: 72.8311 },
-  'Jaipur':                   { lat: 26.9124, lon: 75.7873 },
-  'Indore':                   { lat: 22.7196, lon: 75.8577 },
-};
-
-function distanceKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-}
-
-function addDistances(prices, userLat, userLon) {
-  return prices.map(p => {
-    const name  = p.mandi?.split(' (')[0];
-    const coord = MANDI_COORDS[name] || MANDI_COORDS[p.mandi];
-    const dist  = coord && userLat ? `${distanceKm(userLat, userLon, coord.lat, coord.lon)} km` : null;
-    return { ...p, dist };
-  });
-}
 
 // ── AnimCard ──────────────────────────────────────────────────────────────────
 function AnimCard({ delay = 0, style, children }) {
@@ -323,97 +266,6 @@ function CropPickerModal({ visible, selected, onSelect, onClose, t }) {
         />
       </Animated.View>
     </Modal>
-  );
-}
-
-// ── SparkLine ─────────────────────────────────────────────────────────────────
-function SparkLine({ data, color, days, width: cw = CHART_W, height: ch = 80 }) {
-  const revealAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    revealAnim.setValue(0);
-    Animated.timing(revealAnim, { toValue: 1, duration: 700, useNativeDriver: true }).start();
-  }, [data]);
-
-  if (!data?.length) return null;
-  const min   = Math.min(...data);
-  const max   = Math.max(...data);
-  const range = max - min || 1;
-  const pad   = 10;
-  const plotH = ch - pad * 2 - 20; // 20 for day labels
-  const pts   = data.map((v, i) => ({
-    x: pad + (i / (data.length - 1)) * (cw - pad * 2),
-    y: pad + (1 - (v - min) / range) * plotH,
-  }));
-
-  const maxIdx = data.indexOf(max);
-
-  return (
-    <Animated.View style={{ width: cw, height: ch, opacity: revealAnim }}>
-      {/* Grid */}
-      {[0.25, 0.5, 0.75].map((p, i) => (
-        <View key={i} style={{
-          position: 'absolute', left: pad, right: pad,
-          top: pad + p * plotH, height: 1,
-          backgroundColor: 'rgba(0,0,0,0.05)',
-        }} />
-      ))}
-      {/* Line segments */}
-      {pts.slice(0, -1).map((p, i) => {
-        const next  = pts[i + 1];
-        const len   = Math.hypot(next.x - p.x, next.y - p.y);
-        const angle = Math.atan2(next.y - p.y, next.x - p.x) * (180 / Math.PI);
-        return (
-          <View key={i} style={{
-            position: 'absolute',
-            left: p.x, top: p.y - 1.5,
-            width: len, height: 3,
-            backgroundColor: color,
-            transform: [{ rotate: `${angle}deg` }],
-            transformOrigin: '0 50%',
-            borderRadius: 2,
-          }} />
-        );
-      })}
-      {/* Dots */}
-      {pts.map((p, i) => {
-        const isBest = i === maxIdx;
-        const size   = isBest ? 10 : 6;
-        return (
-          <View key={i} style={{
-            position: 'absolute',
-            left: p.x - size / 2, top: p.y - size / 2,
-            width: size, height: size, borderRadius: size / 2,
-            backgroundColor: isBest ? color : COLORS.surface,
-            borderWidth: isBest ? 0 : 2,
-            borderColor: color,
-            shadowColor: isBest ? color : 'transparent',
-            shadowOpacity: 0.4, shadowRadius: 4,
-          }} />
-        );
-      })}
-      {/* Peak label */}
-      {pts[maxIdx] && (
-        <View style={{
-          position: 'absolute',
-          left: pts[maxIdx].x - 22, top: pts[maxIdx].y - 24,
-          backgroundColor: color,
-          // GAP: radius 6 and padding 5 have no KRADIUS/KSPACE step.
-          borderRadius: 6, paddingHorizontal: 5, paddingVertical: KSPACE.s2,
-        }}>
-          <Text style={{ fontSize: 8, color: COLORS.white, fontWeight: '800' }}>
-            ₹{(max / 1000).toFixed(1)}k
-          </Text>
-        </View>
-      )}
-      {/* Day labels */}
-      {(days || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']).slice(0, data.length).map((d, i) => (
-        <Text key={i} style={{
-          position: 'absolute',
-          left: pts[i].x - 12, top: ch - 16,
-          fontSize: 9, color: COLORS.textMedium, width: 26, textAlign: 'center', fontWeight: '600',
-        }}>{d}</Text>
-      ))}
-    </Animated.View>
   );
 }
 
@@ -715,14 +567,27 @@ export default function MarketScreen({ navigation }) {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={M.scrollContent}>
 
         {/* ── Loading real mandi prices ── */}
+        {/* Shaped like the price hero + the mandi row card below it, so the
+            layout is already the right size when data.gov.in answers. */}
         {mandiLoading && (
-          <View style={M.centered}>
-            <View style={M.loadingSpinner}>
-              <ActivityIndicator color={COLORS.primary} size="large" />
+          <SkeletonGroup label={t('market.fetchingPrices', { crop: selectedCrop })} style={M.section}>
+            <SkeletonBlock w="100%" h={210} r={24} />
+            <SkeletonBlock w="45%" h={13} style={{ marginTop: KSPACE.s12, marginBottom: KSPACE.s10 }} />
+            <View style={M.mandiCard}>
+              {Array.from({ length: 5 }, (_, i) => (
+                <View key={i}>
+                  <View style={M.mandiRow}>
+                    <View style={M.mandiLeft}>
+                      <SkeletonBlock w="58%" h={13} />
+                      <SkeletonBlock w="40%" h={10} style={{ marginTop: KSPACE.s6 }} />
+                    </View>
+                    <SkeletonBlock w={82} h={16} />
+                  </View>
+                  {i < 4 && <View style={M.mandiDiv} />}
+                </View>
+              ))}
             </View>
-            <Text style={M.loadingTxt}>{t('market.fetchingPrices', { crop: selectedCrop })}</Text>
-            <Text style={[M.loadingTxt, { fontSize: 11, marginTop: KSPACE.s4 }]}>{t('market.source', 'Source: data.gov.in')}</Text>
-          </View>
+          </SkeletonGroup>
         )}
 
         {/* ── Mandi error ── */}
@@ -925,7 +790,6 @@ export default function MarketScreen({ navigation }) {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 // State & district data — imported from global constants (src/constants/indiaLocations.js)
-// INDIA_STATES_LIST, INDIA_DISTRICTS, STATE_GPS_MAP, getDistricts are all available via imports at top of file.
 const STATES = INDIA_STATES_LIST; // alias for dropdown
 // ── Styles ────────────────────────────────────────────────────────────────────
 const M = StyleSheet.create({
@@ -1043,25 +907,12 @@ const M = StyleSheet.create({
   cropTileCheck:  { position: 'absolute', top: 5, right: 5, ...circle(16), backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
 
   // ── Cards
-  card: {
-    backgroundColor: COLORS.surface,
-    marginHorizontal: CARD_MARGIN, marginBottom: KSPACE.s12,
-    borderRadius: KRADIUS.r20, padding: CARD_PADDING,
-    borderWidth: KBORDER.hairline, borderColor: COLORS.border,
-    // GAP: no KELEV tier matches.
-    shadowColor: COLORS.black, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2,
-  },
-  cardHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: KSPACE.s14 },
-  cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8 },
   // NOT circle(): 7x7 with radius 4 is not w === h === 2r, so circle(7) would
   // round it to 3.5 and change the shape. Left exactly as authored.
   cardDot:        { width: 7, height: 7, borderRadius: KRADIUS.r4 },
   // RESPONSIVE: every child of `sectionHeader` was flexShrink 0, so the title
   // and the "data.gov.in" badge overflow the card at large text sizes.
   cardTitle:      { fontSize: 13, fontWeight: '700', color: SLATE, flexShrink: 1 },
-  // GAP: radius 8 sits between KRADIUS.r4 and r10.
-  trendBadge:     { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4, borderRadius: 8, borderWidth: KBORDER.hairline, paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s4 },
-  trendBadgeText: { fontSize: 10, fontWeight: '700' },
 
   // ── Stale data warning bar
   staleBar: {
@@ -1093,16 +944,6 @@ const M = StyleSheet.create({
   priceRangeVal:   { fontSize: 12, fontWeight: '800', color: SLATE },
   priceRangeAvg:   { fontSize: 11, fontWeight: '700' },
 
-  // ── Predict prompt button
-  predictPromptBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s12,
-    backgroundColor: COLORS.lavenderWhite, borderRadius: KRADIUS.r14,
-    borderWidth: KBORDER.chip, borderColor: COLORS.lavender,
-    padding: KSPACE.s14,
-  },
-  predictPromptTitle: { fontSize: 14, fontWeight: '800', color: PURPLE },
-  predictPromptSub:   { fontSize: 11, color: COLORS.textMedium, marginTop: KSPACE.s2, lineHeight: 15 },
-
   // ── Price hero
   priceHero: {
     marginHorizontal: CARD_MARGIN, marginBottom: KSPACE.s12,
@@ -1117,14 +958,10 @@ const M = StyleSheet.create({
   // GAP: paddingVertical 5. The scrim IS exactly withAlpha(KHET.white, 0.7).
   priceHeroCropBadge:{ flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, backgroundColor: withAlpha(KHET.white, 0.7), borderRadius: KRADIUS.r10, paddingHorizontal: KSPACE.s10, paddingVertical: 5, borderWidth: KBORDER.hairline, borderColor: COLORS.greenMint300 },
   priceHeroCropName: { fontSize: 13, fontWeight: '700', color: SLATE },
-  priceHeroDate:     { fontSize: 11, color: COLORS.textMedium, fontWeight: '600' },
   priceHeroMid:      { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   priceHeroRupee:    { fontSize: 16, fontWeight: '700', color: COLORS.textMedium, marginTop: KSPACE.s4 },
   priceHeroValue:    { fontSize: 44, fontWeight: '900', color: SLATE, letterSpacing: -1, lineHeight: 50 },
   priceHeroUnit:     { fontSize: 12, color: COLORS.textMedium, marginTop: KSPACE.s4 },
-  changeBadge:       { borderRadius: KRADIUS.r16, borderWidth: KBORDER.hairline, padding: KSPACE.s12, alignItems: 'center', gap: KSPACE.s4 },
-  changePct:         { fontSize: 22, fontWeight: '900' },
-  changeCaption:     { fontSize: 9, fontWeight: '600', opacity: 0.8 },
 
   // Week stats
   weekStatRow: { flexDirection: 'row', backgroundColor: withAlpha(KHET.white, 0.7), borderRadius: KRADIUS.r14, padding: KSPACE.s12, gap: KSPACE.s0 },
@@ -1141,15 +978,6 @@ const M = StyleSheet.create({
   statPillLabel:{ fontSize: 8, fontWeight: '700', letterSpacing: 0.5, alignSelf: 'stretch', textAlign: 'center' },
   statPillValue:{ fontSize: 13, fontWeight: '800', alignSelf: 'stretch', textAlign: 'center' },
 
-  // ── Insight card
-  // GAP: no KELEV tier — and this one is tinted AMBER, which no tier offers.
-  insightCard:     { marginHorizontal: CARD_MARGIN, marginBottom: KSPACE.s12, borderRadius: KRADIUS.r18, overflow: 'hidden', borderWidth: KBORDER.hairline, borderColor: COLORS.goldLight, shadowColor: AMBER, shadowOpacity: 0.1, shadowRadius: 8, elevation: 2 },
-  insightGradient: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s12, padding: KSPACE.s16 },
-  // GAP: rgba(217,119,6,0.12) is amber-600, which is not a KHET colour.
-  insightIconWrap: { width: 36, height: 36, borderRadius: KRADIUS.r10, backgroundColor: 'rgba(217,119,6,0.12)', justifyContent: 'center', alignItems: 'center' },
-  insightLabel:    { fontSize: 9, fontWeight: '900', color: AMBER, letterSpacing: 1.5, marginBottom: 5 },
-  insightText:     { fontSize: 13, color: COLORS.brownDeep, lineHeight: 19 },
-
   // ── Sections
   section:        { marginHorizontal: CARD_MARGIN, marginBottom: KSPACE.s12 },
   sectionHeader:  { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8, marginBottom: KSPACE.s10 },
@@ -1158,8 +986,6 @@ const M = StyleSheet.create({
   // A11Y: was COLORS.textMedium #78716C on #F1F5F9 — 4.38:1. mutedForeground
   // is 5.43:1.
   sourceBadgeText:{ fontSize: 9, color: KHET.mutedForeground, fontWeight: '600' },
-  aiBadge:        { marginLeft: KSPACE.s4, flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4, backgroundColor: COLORS.violetPale, borderRadius: 6, paddingHorizontal: 7, paddingVertical: KSPACE.s3, borderWidth: KBORDER.hairline, borderColor: COLORS.lavender },
-  aiBadgeText:    { fontSize: 9, color: PURPLE, fontWeight: '700' },
 
   // ── Mandi
   // GAP: no KELEV tier matches.
@@ -1172,16 +998,11 @@ const M = StyleSheet.create({
   // GAP: radius 6.
   mandiNearestBadge:{ backgroundColor: COLORS.successLight, borderRadius: 6, paddingHorizontal: KSPACE.s6, paddingVertical: KSPACE.s2 },
   mandiNearestText: { fontSize: 8, fontWeight: '800', color: COLORS.primary },
-  mandiMeta:       { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s3 },
   mandiDist:       { fontSize: 10, color: COLORS.textMedium },
   mandiRight:      { alignItems: 'flex-end', gap: KSPACE.s3 },
   mandiPrice:      { fontSize: 16, fontWeight: '900', color: SLATE },
   mandiRange:      { fontSize: 9, color: COLORS.textMedium },
   mandiDiv:        { height: 1, backgroundColor: COLORS.slateBg, marginHorizontal: KSPACE.s14 },
-  // GAP: marginTop 5.
-  updatedAt:       { fontSize: 9, color: COLORS.textMedium, marginTop: 5, marginLeft: KSPACE.s2 },
-  reportingNote:   { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s6, marginTop: KSPACE.s10, marginHorizontal: KSPACE.s14, padding: KSPACE.s10, backgroundColor: COLORS.slate50, borderRadius: 8, borderWidth: KBORDER.hairline, borderColor: COLORS.border },
-  reportingNoteTxt:{ flex: 1, fontSize: 11, color: COLORS.textMedium, lineHeight: 16 },
 
   // ── Ask button
   // GAP: no KELEV tier — and this shadow is tinted COLORS.primary at 0.3.
@@ -1227,59 +1048,9 @@ const M = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
 
-  // ── AgriPredict section
-  // NOTE: everything from `agriSyncMsg` to `agriNearbyTrend` is DEAD — the
-  // AgriPredict feature was removed and nothing renders these. Migrated anyway
-  // so the file holds ONE vocabulary; see the report before deleting them.
-  agriSyncMsg:      { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, backgroundColor: COLORS.skyBg, borderRadius: KRADIUS.r10, borderWidth: KBORDER.hairline, borderColor: COLORS.skyBorder, padding: KSPACE.s10, marginBottom: KSPACE.s8 },
-  agriSyncMsgText:  { flex: 1, fontSize: 12, color: COLORS.skyMid, lineHeight: 16 },
-  agriErrorBox:     { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6, backgroundColor: COLORS.blushPink, borderRadius: KRADIUS.r10, borderWidth: KBORDER.hairline, borderColor: COLORS.coralPink, padding: KSPACE.s10, marginBottom: KSPACE.s8 },
-  agriErrorText:    { flex: 1, fontSize: 12, color: COLORS.crimsonAlt, lineHeight: 16 },
-  agriLoadingRow:   { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8, paddingVertical: KSPACE.s10 },
-  agriLoadingTxt:   { fontSize: 12, color: COLORS.textMedium },
-
-  agriSummaryRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.slate50, borderRadius: KRADIUS.r12, borderWidth: KBORDER.hairline, borderColor: COLORS.border, padding: KSPACE.s12, marginBottom: KSPACE.s10 },
-  agriSummaryItem:  { flex: 1, alignItems: 'center', gap: KSPACE.s3 },
-  agriSummaryLabel: { fontSize: 8, color: COLORS.textMedium, fontWeight: '700', letterSpacing: 0.3 },
-  agriSummaryVal:   { fontSize: 13, fontWeight: '800', color: SLATE },
-  agriSummaryDiv:   { width: 1, height: 28, backgroundColor: COLORS.border },
-
-  agriChartWrap:  { marginTop: KSPACE.s4, marginBottom: KSPACE.s8 },
-  agriChartTitle: { fontSize: 10, color: COLORS.textMedium, fontWeight: '700', marginBottom: KSPACE.s8, letterSpacing: 0.3 },
-
-  // Prediction box
-  agriPredBox:    { backgroundColor: COLORS.slate50, borderRadius: KRADIUS.r14, borderWidth: KBORDER.hairline, borderColor: COLORS.skyTint, padding: KSPACE.s14, gap: KSPACE.s10, marginTop: KSPACE.s8 },
-  agriCachePill:  { flexDirection: 'row', alignItems: 'center', gap: KSPACE.s4, alignSelf: 'flex-start', backgroundColor: COLORS.white, borderRadius: 8, paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s4, borderWidth: KBORDER.hairline, borderColor: COLORS.border },
-  agriCacheText:  { fontSize: 9, fontWeight: '700' },
-  agriRangeRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.white, borderRadius: KRADIUS.r12, borderWidth: KBORDER.hairline, borderColor: COLORS.border, padding: KSPACE.s12 },
-  agriRangeItem:  { flex: 1, alignItems: 'center', gap: KSPACE.s3 },
-  agriRangeLabel: { fontSize: 8, color: COLORS.textMedium, fontWeight: '600' },
-  agriRangeVal:   { fontSize: 15, fontWeight: '900', color: SLATE },
-  agriConfBadge:  { paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s6, borderRadius: 8, borderWidth: KBORDER.hairline, alignItems: 'center', gap: KSPACE.s1 },
-  agriConfText:   { fontSize: 11, fontWeight: '900' },
-  agriConfSub:    { fontSize: 7, fontWeight: '700' },
-  agriTrendRow:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  agriTrendText:  { fontSize: 13, fontWeight: '700' },
-  agriInsightBox: { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s6, backgroundColor: COLORS.yellowPale, borderRadius: KRADIUS.r10, borderWidth: KBORDER.hairline, borderColor: COLORS.goldLight, padding: KSPACE.s10 },
-  agriInsightText:{ flex: 1, fontSize: 12, color: COLORS.brownDeep, lineHeight: 17 },
-  agriFactorChip: { backgroundColor: COLORS.skyBg, borderRadius: 8, paddingHorizontal: KSPACE.s8, paddingVertical: KSPACE.s4, borderWidth: KBORDER.hairline, borderColor: COLORS.skyBorder },
-  agriFactorText: { fontSize: 10, color: COLORS.skyMid, fontWeight: '600' },
-  agriRecoBox:    { flexDirection: 'row', alignItems: 'flex-start', gap: KSPACE.s6, backgroundColor: COLORS.greenMint, borderRadius: KRADIUS.r10, borderWidth: KBORDER.hairline, borderColor: COLORS.greenMint300, padding: KSPACE.s10 },
-  agriRecoText:   { flex: 1, fontSize: 12, color: COLORS.darkGreen, lineHeight: 17, fontWeight: '600' },
-
-  // Nearby markets
-  agriNearbyWrap:       { marginTop: KSPACE.s10 },
-  agriNearbyTitle:      { fontSize: 11, color: SLATE, fontWeight: '700', marginBottom: KSPACE.s8 },
-  agriNearbyRow:        { flexDirection: 'row', alignItems: 'center', paddingVertical: KSPACE.s8, gap: KSPACE.s8 },
-  agriNearbyRowBorder:  { borderBottomWidth: KBORDER.hairline, borderBottomColor: COLORS.border },
-  agriNearbyDistrict:   { flex: 1, fontSize: 13, color: SLATE, fontWeight: '600' },
-  agriNearbyPrice:      { fontSize: 14, fontWeight: '800', color: SLATE, marginRight: KSPACE.s6 },
-  agriNearbyTrend:      { width: 26, height: 26, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-
   // ── States
   // GAP: paddingTop 80 sits between KSPACE.s64 and the tailTab role (100).
   centered:      { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: KSPACE.s14 },
-  loadingSpinner:{ ...circle(64), backgroundColor: COLORS.greenMint, justifyContent: 'center', alignItems: 'center', marginBottom: KSPACE.s4 },
   // A11Y: was COLORS.textMedium #78716C on the #F4F8F1 page — 4.46:1, just
   // under AA. mutedForeground is 5.53:1.
   loadingTxt:    { fontSize: 13, color: KHET.mutedForeground, textAlign: 'center', paddingHorizontal: KSPACE.s32 },

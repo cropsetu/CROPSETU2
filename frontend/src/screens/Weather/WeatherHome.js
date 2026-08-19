@@ -17,7 +17,7 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Dimensions, StatusBar, Platform,
+  Dimensions, StatusBar, Platform,
   ImageBackground, Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -28,6 +28,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COLORS } from '@cropsetu/shared/constants/colors';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import { WeatherIcon } from '../../components/WeatherIcons';
+import { SkeletonBlock, SkeletonGroup, SkeletonRail, SkeletonStats } from '../../components/ui/Skeleton';
 
 const { width: W, height: H } = Dimensions.get('window');
 const CARD_W = (W - 32 - 10) / 2;
@@ -412,10 +413,16 @@ export default function WeatherHome({ navigation, embeddedInHub }) {
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading && !weather) {
     return (
-      <View style={[S.root, S.center]}>
+      <View style={S.root}>
         <StatusBar barStyle="dark-content" />
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={S.loadTxt}>{t('weatherHome.fetchingFieldData')}</Text>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scroll}>
+          {/* Hero card, then the hourly strip and the atmosphere tiles. */}
+          <SkeletonGroup label={t('weatherHome.fetchingFieldData')} style={S.heroSkeleton}>
+            <SkeletonBlock w="100%" h={200} r={20} />
+          </SkeletonGroup>
+          <SkeletonRail count={5} cardW={58} cardH={34} label={t('loading')} style={S.section} />
+          <SkeletonStats count={4} columns={2} gutter={16} label={t('loading')} style={S.section} />
+        </ScrollView>
       </View>
     );
   }
@@ -937,6 +944,7 @@ const S = StyleSheet.create({
     shadowColor: COLORS.black, shadowOpacity: 0.22, shadowRadius: 16, elevation: 8,
   },
   heroImg:      { borderRadius: 20 },
+  heroSkeleton: { marginHorizontal: 16, marginTop: 14, marginBottom: 6 },
   heroLocRow:   { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
   heroLoc:      { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.82)', letterSpacing: 1.1 },
   staleBadge:   { fontSize: 10, color: 'rgba(255,255,255,0.55)', fontStyle: 'italic' },
@@ -1093,7 +1101,6 @@ const S = StyleSheet.create({
   },
 
   // ── Loading / Error
-  loadTxt:  { fontSize: 14, color: COLORS.textMedium, marginTop: 10 },
   errTxt:   { fontSize: 14, color: COLORS.error, textAlign: 'center', paddingHorizontal: 40 },
   errSub:   { fontSize: 12, color: COLORS.textMedium, textAlign: 'center', lineHeight: 20, marginTop: 4 },
   retryBtn: { backgroundColor: COLORS.primary, borderRadius: 12, paddingHorizontal: 28, paddingVertical: 12, marginTop: 10 },

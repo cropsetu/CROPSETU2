@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  RefreshControl, ActivityIndicator, SafeAreaView,
+  RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 const RISK_COLOR = {
   CRITICAL: COLORS.error,
@@ -64,14 +65,6 @@ export default function ScanHistoryScreen({ navigation }) {
     navigation.navigate('PastReport', { reportId: item.id });
   };
 
-  if (loading) {
-    return (
-      <SafeAreaView style={S.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </SafeAreaView>
-    );
-  }
-
   return (
     <View style={S.safe}>
       {/* Header */}
@@ -82,12 +75,24 @@ export default function ScanHistoryScreen({ navigation }) {
         <View style={{ flex: 1 }}>
           <Text style={S.headerTitle}>{t('scanHistory.title', 'Past Crop Scans')}</Text>
           <Text style={S.headerSub}>
-            {t('scanHistory.subtitle', { count: items.length, defaultValue: '{{count}} reports' })}
+            {loading && !items.length
+              ? t('loading', 'Loading...')
+              : t('scanHistory.subtitle', { count: items.length, defaultValue: '{{count}} reports' })}
           </Text>
         </View>
       </View>
 
-      {error ? (
+      {loading && !items.length ? (
+        /* Same shape as the card below — no thumbnail, disease + crop line,
+           then the risk pill and timestamp — so nothing shifts on arrival. */
+        <SkeletonList
+          rows={6}
+          thumb="none"
+          lines={2}
+          label={t('loading', 'Loading...')}
+          style={{ padding: 16 }}
+        />
+      ) : error ? (
         <View style={S.empty}>
           <Ionicons name="cloud-offline-outline" size={48} color={COLORS.gray175} />
           <Text style={S.emptyTitle}>{error}</Text>
@@ -144,7 +149,6 @@ export default function ScanHistoryScreen({ navigation }) {
 
 const S = StyleSheet.create({
   safe:   { flex: 1, backgroundColor: COLORS.background },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingHorizontal: 14, paddingBottom: 14,

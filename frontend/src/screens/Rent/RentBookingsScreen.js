@@ -21,6 +21,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { SHADOWS } from '@cropsetu/shared/constants/colors';
 import { MachineryIcon } from '../../components/MachineryIcons';
 import { LabourIcon } from '../../components/LabourIcon';
+import { SkeletonList } from '../../components/ui/Skeleton';
 
 const ORANGE = COLORS.cta;
 const RED    = COLORS.error;
@@ -294,9 +295,9 @@ export default function RentBookingsScreen({ navigation }) {
       </View>
 
       {loading ? (
-        <View style={S.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
+        // Booking cards are full-width rows with a 56pt thumb — match that so
+        // the list does not jump when the first fetch lands.
+        <SkeletonList rows={4} thumb="square" thumbSize={56} style={S.list} label={t('loading')} />
       ) : isEmpty ? (
         <View style={S.center}>
           <Ionicons

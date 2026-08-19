@@ -18,7 +18,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, Image, ScrollView, StyleSheet, ActivityIndicator, Pressable,
+  View, Text, Image, ScrollView, StyleSheet, Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,6 +27,7 @@ import CosmicScreen from './ui/CosmicScreen';
 import CosmicHeader from './ui/CosmicHeader';
 import GlassCard from './ui/GlassCard';
 import CropIcon from '@cropsetu/shared/components/CropIcons';
+import { SkeletonBlock, SkeletonGroup } from '../../components/ui/Skeleton';
 import * as farmApi from '../../services/farmApi';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { COSMIC, CR, CS, CT } from './theme/cosmicTheme';
@@ -91,7 +92,15 @@ export default function GrowthStoryScreen({ navigation, route }) {
     return (
       <CosmicScreen>
         <CosmicHeader title={t('growthStory.title')} />
-        <View style={styles.center}><ActivityIndicator size="large" color={COSMIC.PRIMARY} /></View>
+        {/* Stage hero, the photo rail and the first timeline cards. */}
+        <SkeletonGroup label={t('loading')} style={styles.storySkeleton}>
+          <SkeletonBlock w="100%" h={210} r={CR.xl} />
+          <View style={styles.storySkeletonRail}>
+            {[0, 1, 2].map((i) => <SkeletonBlock key={i} w={120} h={120} r={CR.md} />)}
+          </View>
+          <SkeletonBlock w="100%" h={88} r={CR.lg} />
+          <SkeletonBlock w="100%" h={88} r={CR.lg} />
+        </SkeletonGroup>
       </CosmicScreen>
     );
   }
@@ -267,6 +276,8 @@ function StatusPill({ status }) {
 // ──────────────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  storySkeleton: { marginHorizontal: CS.base, marginTop: CS.sm, gap: 14 },
+  storySkeletonRail: { flexDirection: 'row', gap: 10 },
   muted: { fontSize: 13, color: COSMIC.TEXT_2, fontFamily: CT.family.regular },
 
   // Hero

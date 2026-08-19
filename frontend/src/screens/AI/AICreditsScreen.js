@@ -8,13 +8,14 @@ import { COLORS, TYPE, SHADOWS } from '@cropsetu/shared/constants/colors';
 import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, StatusBar, Platform, RefreshControl, Alert,
+  StatusBar, Platform, RefreshControl, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { getAICredits } from '../../services/aiApi';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import { SkeletonBlock, SkeletonGroup } from '../../components/ui/Skeleton';
 
 // Fallback monthly allowance used only until the API returns the live value. The
 // real budget is data.monthlyAllowance from the credit summary, so the bar tracks
@@ -44,13 +45,46 @@ export default function AICreditsScreen({ navigation }) {
   // moment the farmer opens or returns to this screen (no manual pull-to-refresh).
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  if (loading) {
+  // First load only. A focus re-fetch keeps the last known balance on screen
+  // rather than blanking a number the farmer is already reading.
+  if (loading && !data) {
     return (
       <AnimatedScreen style={S.root}>
-        <StatusBar barStyle="dark-content" />
-        <View style={S.centered}>
-          <ActivityIndicator color={COLORS.primary} size="large" />
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+
+        <View style={S.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={S.backBtn}>
+            <Ionicons name="chevron-back" size={22} color={COLORS.primary} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={S.headerTitle}>{t('aiCredits.title')}</Text>
+          </View>
         </View>
+
+        {/* The gap lives on an inner view because SkeletonGroup's `style` sits
+            on its outer wrapper, one level above these children. */}
+        <SkeletonGroup label={t('loading', 'Loading...')} style={{ padding: 18 }}>
+          <View style={{ gap: 14 }}>
+            <View style={S.balanceCard}>
+              <View style={S.balanceRow}>
+                <View style={{ gap: 8 }}>
+                  <SkeletonBlock w={92} h={12} />
+                  <SkeletonBlock w={120} h={40} r={8} />
+                </View>
+                <View style={{ gap: 8, alignItems: 'flex-end' }}>
+                  <SkeletonBlock w={52} h={20} r={6} />
+                  <SkeletonBlock w={96} h={11} />
+                </View>
+              </View>
+              <View style={S.barWrap}><SkeletonBlock w="100%" h={8} r={4} /></View>
+              <View style={S.barLabels}>
+                <SkeletonBlock w={88} h={10} />
+                <SkeletonBlock w={88} h={10} />
+              </View>
+            </View>
+            <SkeletonBlock w="100%" h={50} r={16} />
+          </View>
+        </SkeletonGroup>
       </AnimatedScreen>
     );
   }
@@ -133,7 +167,6 @@ export default function AICreditsScreen({ navigation }) {
 
 const S = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.background },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   scroll: { padding: 18, gap: 14 },
 
   header: {
