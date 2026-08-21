@@ -2,12 +2,14 @@
 
 ## Current Item
 
-None in progress — PERF-005 closed the last of the self-contained P0s.
+PERF-021 — feature-by-feature sweep (claude.md §71), audit in progress.
 
 ## Status
 
-Ten items COMPLETE and verified: PERF-001 → 008 and PERF-010. Every P0 on the original
-list is now either done or reclassified.
+Every item on the original P0/P1 list is closed. The remaining work is the §71
+per-feature sweep and the two things that need something this environment does
+not have: production `pg_stat_user_indexes` (index drops, §18) and a staging
+environment with mocked AI providers (load testing, §62/§63).
 
 ## Current Feature
 
@@ -75,15 +77,22 @@ PERF-005  backend/src/socket/chat.socket.js, backend/src/socket/socketReauth.js 
           backend/src/server.js, shared/services/{api,socket}.js
           backend/tests/backend/security/{socketHandshakeAuth,socketReauth}.test.js (new)
           frontend/src/services/__tests__/socketAuthRetry.test.js (new)
+PERF-009  backend/src/services/erasure.service.js  (to_regclass probe, pre-transaction)
+PERF-011  backend/src/server.js, backend/src/config/env.js  (CRON_ENABLED)
+PERF-012  backend/src/services/authCache.js (new), middleware/auth.js, config/db.js
+PERF-015  backend/prisma/schema.prisma, prisma/manual/read_path_indexes.sql (new)
+PERF-016  shared/i18n/translations.js, frontend/src/screens/AI/{Scan,Voice}HistoryScreen.js
+          fastapi/weather_service.py  (Redis address + re-probe)
+docs      docs/performance/TABLES.md (new) — §14, §66, §67, §68, §69
 ```
 
 ## Tests
 
 | Suite | Before | After |
 |---|---|---|
-| backend (`npm test -- --runInBand`) | 7–8 suites / 37–38 failing | **99 suites / 0 failing, 1174 passing** |
-| fastapi (`pytest tests`) | 4 failing / 311 passing | **330 passing** |
-| frontend + shared (`npx jest`) | 9 suites / 175 passing | **10 suites / 182 passing** |
+| backend (`npm test -- --runInBand`) | 7–8 suites / 37–38 failing | **104 suites / 0 failing, 1230 passing** |
+| fastapi (`pytest tests`) | 4 failing / 311 passing | **337 passing** |
+| frontend + shared (`npx jest`) | 9 suites / 175 passing | **12 suites / 199 passing** |
 | admin (`tsc --noEmit`, `vite build`) | green | green |
 
 Two new suites were confirmed to **fail with the fix reverted** and pass with it
@@ -110,22 +119,40 @@ Behavioural, measured locally — no production telemetry is available:
   fail-open path is capped and sheds best-effort work instead of the API.
 - A banned or logged-out user could previously hold a socket indefinitely; the
   handshake now refuses one and the sweep closes an existing one within a tick.
+- Buy-box: **6 offer queries → 1** for a six-variant product, same winner throughout.
+- Consent: **320 rows read → 8**, identical verdict per purpose.
+- Admin dashboard: 16 aggregates → **0 on a warm read**.
+- Auth: **50 authenticated requests → 1 user read** (98% hit rate); a plain
+  `prisma.user.update({isActive:false})` still 401s the next request.
+- Comments replies: Seq Scan 8.31 ms → bitmap index scan **0.79 ms**.
+- Community feed: 13.07 ms with a sort → **0.14 ms**, no sort.
+- Celery scan persistence: 1 of 30 tasks succeeded → **30 of 30**, connections flat at 3.
+- i18n: seven regional bundles (692 KB) no longer evaluated at cold start.
 - Backend suite wall clock: ~30 s, unchanged.
 
 ## Next item
 
-No P0 remains. The highest-value open items, in order:
+The §71 sweep's surviving findings, then the two blocked items.
 
-**PERF-009** — FastAPI tables invisible to erasure. Note PERF-007 reframes it: most of
-those rows were never written in the first place, so the compliance question and the
-data question are now different sizes than the audit assumed.
+**Blocked on something this environment does not have — not on effort:**
+- **§18 index drops** need `pg_stat_user_indexes` from production. ~40 of 282
+  index declarations look prefix-subsumed or duplicated, and not one is safe to
+  drop on structural grounds alone.
+- **§62/§63 load testing** needs a staging environment and mocked AI providers,
+  so a run does not spend real Gemini money. This is the largest remaining gap:
+  every capacity figure in these documents is derived from query plans and code
+  paths, never measured under concurrent load.
 
-**PERF-011** — move the 12 cron schedules off the latency-serving tier. Read the two
-traps first: gating `:228-244` and `:278-444` separately throws `ReferenceError` because
-`triggerMandiSync` is defined in the first and called in the second, and
-`setSerializableConflictObserver` sits in that range and is not a cron.
+**Known and deliberately deferred:** PERF-020 (the 676 KB i18n backfill is still
+eager — splitting it means changing the generator), and the Expo receipt-polling
+half of §45.
 
-**PERF-015** — the composite indexes, each already confirmed by EXPLAIN. Needs
-`pg_stat_user_indexes` from production before anything is dropped.
+## A note on the test suite
 
-**PERF-014** still needs a human decision rather than an implementation.
+Three DB-backed suites each failed once during this work — `inputValidation`,
+`auth.api`, `shopPayment` — and none reproduced, roughly three failures in
+thirty full runs. The cause is not known. It is most likely shared-schema
+contention between suites, the same family as the `randomPhone` collision fixed
+in PERF-001, but that is a hypothesis and nothing has confirmed it. Worth
+chasing before the CI added in PERF-002 trains anyone to re-run rather than
+read.
