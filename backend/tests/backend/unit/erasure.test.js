@@ -6,6 +6,7 @@
  * These cover the pure logic without touching the DB or Cloudinary network.
  */
 import { jest } from '@jest/globals';
+import { readFileSync } from 'fs';
 
 process.env.FIELD_ENCRYPTION_KEY = 'a'.repeat(64); // env.js requires this at import
 
@@ -81,5 +82,47 @@ describe('publicIdFromUrl', () => {
     expect(publicIdFromUrl('')).toBeNull();
     expect(publicIdFromUrl(null)).toBeNull();
     expect(publicIdFromUrl(undefined)).toBeNull();
+  });
+});
+
+// ── FastAPI-owned tables (claude.md §26 / GROW-10) ──────────────────────────
+// `ai_scan_diagnoses` and `ai_scan_feedback` are created by the AI service via
+// asyncpg and are absent from schema.prisma, so no Prisma delegate reaches them
+// and every model-based delete in this service walked straight past. They carry
+// a user_id next to image hashes and the full diagnosis payload.
+describe('erasure reaches the tables Prisma does not know about', () => {
+  const src = readFileSync(
+    new URL('../../../src/services/erasure.service.js', import.meta.url), 'utf8',
+  );
+
+  test('both FastAPI tables are named', () => {
+    expect(src).toMatch(/ai_scan_diagnoses/);
+    expect(src).toMatch(/ai_scan_feedback/);
+  });
+
+  test('existence is probed BEFORE the transaction, not caught inside it', () => {
+    // Postgres aborts the ENTIRE transaction on a failed statement, so a DELETE
+    // against a missing table cannot be caught and stepped over — everything
+    // after it fails with 25P02 and the erasure dies. Verified the hard way:
+    // the try/catch version threw exactly that.
+    const probe = src.indexOf('existingAiScanTables()');
+    const txn   = src.indexOf('prisma.$transaction');
+    expect(probe).toBeGreaterThan(-1);
+    expect(probe).toBeLessThan(txn);
+  });
+
+  test('uses to_regclass, which returns NULL rather than raising', () => {
+    expect(src).toMatch(/to_regclass/);
+  });
+
+  test('the delete is scoped to the user, and parameterised', () => {
+    expect(src).toMatch(/DELETE FROM "\$\{table\}" WHERE user_id = \$1`, userId/);
+  });
+
+  test('a failure to PROBE is thrown, not swallowed', () => {
+    // An erasure that quietly leaves personal data behind is worse than one
+    // that fails and gets retried.
+    const fn = src.slice(src.indexOf('async function existingAiScanTables'));
+    expect(fn.slice(0, fn.indexOf('\n}'))).toMatch(/throw err/);
   });
 });

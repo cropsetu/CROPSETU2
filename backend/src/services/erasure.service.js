@@ -115,6 +115,45 @@ async function collectMediaRefs(userId, avatar) {
   return refs;
 }
 
+
+/**
+ * The FastAPI-owned scan tables that exist in THIS database.
+ *
+ * `ai_scan_diagnoses` and `ai_scan_feedback` are created by the AI service
+ * through asyncpg (fastapi/persistence/diagnosis_repo.py) and are absent from
+ * schema.prisma, so no Prisma delegate can reach them and no model-based delete
+ * walks them. They carry a user_id next to image hashes and the full diagnosis
+ * payload, which makes them personal data this service is meant to erase.
+ *
+ * A deployment where the AI service has never booted has neither table, and that
+ * must not fail a farmer's erasure request — hence the probe rather than a
+ * try/catch around the DELETE itself.
+ *
+ * `to_regclass` returns NULL instead of raising for an unknown name, which is
+ * the whole reason it is used here.
+ */
+const AI_SCAN_TABLES = ['ai_scan_feedback', 'ai_scan_diagnoses'];
+
+async function existingAiScanTables() {
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT c.name FROM unnest(${AI_SCAN_TABLES}::text[]) AS c(name)
+      WHERE to_regclass('public.' || c.name) IS NOT NULL
+    `;
+    const found = rows.map((r) => r.name);
+    const missing = AI_SCAN_TABLES.filter((t) => !found.includes(t));
+    if (missing.length) {
+      logger.warn('[erasure] AI scan table(s) absent, nothing to erase there: %s', missing.join(', '));
+    }
+    return found;
+  } catch (err) {
+    // Failing to ASK must not silently skip the delete: an erasure that quietly
+    // leaves personal data behind is worse than one that fails and is retried.
+    logger.error({ err }, '[erasure] could not determine AI scan tables');
+    throw err;
+  }
+}
+
 /**
  * Erase a user's account: delete personal data, anonymize shared records and
  * the user row, then purge Cloudinary assets. Returns a summary for auditing.
@@ -129,6 +168,15 @@ export async function eraseUserAccount(userId) {
 
   // 1) Gather media to purge BEFORE the rows that reference it are deleted.
   const mediaRefs = await collectMediaRefs(userId, user.avatar);
+
+  // 1b) Which FastAPI-owned tables actually exist here?
+  //
+  // Probed BEFORE the transaction, deliberately. Postgres aborts the ENTIRE
+  // transaction on any failed statement, so a DELETE against a missing table
+  // cannot be caught and stepped over — every statement after it fails with
+  // 25P02 "current transaction is aborted" and the erasure dies. Asking first
+  // costs one cheap query and keeps the transaction clean.
+  const aiTables = await existingAiScanTables();
 
   // 2) All DB mutations in one transaction so erasure is all-or-nothing.
   await prisma.$transaction(async (tx) => {
@@ -196,6 +244,28 @@ export async function eraseUserAccount(userId) {
     // Orders/bookings retained for the counterparty + tax records, PII scrubbed.
     await tx.order.updateMany({ where: { userId }, data: { deliveryAddress: { redacted: true }, notes: null } });
     await tx.booking.updateMany({ where: { userId }, data: { notes: null } });
+
+    // ── Tables Prisma does not know about ────────────────────────────────────
+    // `ai_scan_diagnoses` and `ai_scan_feedback` are created by the FastAPI
+    // service through asyncpg (persistence/diagnosis_repo.py) and are absent
+    // from schema.prisma, so every model-based delete above walks straight past
+    // them. They carry a `user_id` alongside image hashes and the full
+    // diagnosis payload, which makes them personal data this service is
+    // supposed to be erasing.
+    //
+    // Raw SQL because there is no delegate to call — parameterised, and inside
+    // the SAME transaction as everything else, so an erasure either takes all
+    // of it or none of it. `IF EXISTS`-style tolerance is handled by the catch:
+    // a deployment where FastAPI has never booted has no such tables, and that
+    // must not fail a farmer's erasure request.
+    //
+    // NOTE the rows written before the worker started copying user_id into the
+    // task params carry user_id NULL, and nothing keyed on user_id can reach
+    // them. Deleting those is a separate backfill decision, not something to do
+    // silently here — see docs/performance/FINDINGS.md.
+    for (const table of aiTables) {
+      await tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE user_id = $1`, userId);
+    }
 
     // ── Anonymize the user row itself ────────────────────────────────────────
     await tx.user.update({ where: { id: userId }, data: anonymizedUserFields(userId) });
