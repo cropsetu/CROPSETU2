@@ -9,6 +9,7 @@ import { Buffer } from 'buffer';
 import { Platform } from 'react-native';
 import { setItem, getItem, deleteItem } from '../utils/storage';
 import { API_BASE_URL, STORAGE_KEYS } from '../constants/config';
+import { isDefinitiveAuthFailure } from './authFailure';
 
 // On web, opt into cookie-based refresh transport: the server keeps the refresh
 // token in an httpOnly cookie and never returns it in the body.
@@ -210,10 +211,46 @@ function processQueue(error, token = null) {
 // tokens, and resolve with the new access token. Dedupes concurrent callers via
 // the shared isRefreshing flag + failedQueue so only ONE network refresh runs at
 // a time — whether triggered by a 401 retry or a proactive expiry check.
+// ── Transient-failure cooldown ────────────────────────────────────────────────
+// Destroying the tokens on any failure used to be an accidental circuit breaker:
+// after one failed refresh there was nothing left to retry with, so the loop
+// stopped. Now that a transport failure preserves the session, that brake is
+// gone — and every 401 in the app funnels here, including the ones produced by
+// screens that poll on a fixed interval. During a backend outage that is a
+// synchronised retry storm from every device at once, against the service that
+// is already struggling.
+//
+// So: after a non-definitive failure, refuse to touch the network for a growing,
+// jittered interval. Jitter matters more than the delay — it is what stops
+// thousands of phones retrying in lockstep. Any success clears it.
+let refreshCooldownUntil = 0;
+let transientFailures    = 0;
+
+function noteRefreshSuccess() {
+  transientFailures = 0;
+  refreshCooldownUntil = 0;
+}
+
+function noteTransientRefreshFailure() {
+  transientFailures += 1;
+  const ceiling = Math.min(30_000, 1_000 * 2 ** (transientFailures - 1));
+  refreshCooldownUntil = Date.now() + Math.round(ceiling * (0.5 + Math.random() * 0.5));
+}
+
 async function performRefresh() {
   if (isRefreshing) {
     // Wait for the in-flight refresh; resolve with its new access token.
     return new Promise((resolve, reject) => failedQueue.push({ resolve, reject }));
+  }
+
+  // Cooling down after a transport failure — fail fast without a request. This
+  // is NOT a session verdict, so it must not carry sessionExpired.
+  if (Date.now() < refreshCooldownUntil) {
+    throw Object.assign(new Error('Refresh is cooling down after a network failure'), {
+      sessionExpired: false,
+      refreshFailed:  true,
+      refreshCoolingDown: true,
+    });
   }
 
   isRefreshing = true;
@@ -238,7 +275,9 @@ async function performRefresh() {
         getRefreshToken(),
         getUserId(),
       ]);
-      if (!refreshToken || !userId) throw new Error('No refresh token');
+      if (!refreshToken || !userId) {
+        throw Object.assign(new Error('No refresh token'), { noRefreshToken: true });
+      }
       ({ data } = await axios.post(
         `${API_BASE_URL}/auth/refresh`,
         { userId, refreshToken },
@@ -252,12 +291,59 @@ async function performRefresh() {
     });
 
     const newToken = data.data.accessToken;
+    noteRefreshSuccess();
     processQueue(null, newToken);
     return newToken;
   } catch (err) {
     processQueue(err, null);
-    await clearTokens();
-    throw Object.assign(err, { sessionExpired: true });
+
+    // Only a DEFINITIVE rejection may destroy the session.
+    //
+    // This used to clear tokens on ANY failure. On a village connection that is
+    // the normal case, not the exception: one timed-out refresh — no signal, DNS
+    // failure, a 502 from the edge, a backend 503 — wiped the refresh token and
+    // sent the farmer back to SMS OTP with no way to undo it. The same line
+    // turned a brief Postgres stall into a fleet-wide involuntary logout,
+    // because every in-flight 401 funnels through here.
+    //
+    // 401/403 means the server looked at this refresh token and refused it —
+    // expired, revoked, reused (family revocation), or the account is gone. That
+    // is unrecoverable and the tokens are worthless, so they go. Anything else —
+    // no response at all, 5xx, 429 — means we never got an answer, so we keep
+    // what we have and let the next attempt succeed.
+    // A 5xx means the server RECEIVED this token and got far enough to fail
+    // internally. Rotation commits before the reply is written, so the token may
+    // already be spent — and re-presenting a spent token is indistinguishable
+    // from an attacker replaying a stolen one: the server burns the whole family
+    // and files a HIGH-severity ACCOUNT_TAKEOVER incident for a farmer who did
+    // nothing wrong. Give up on it here instead. The user signs in again, which
+    // is what the old code did for every failure; the difference is that a
+    // connection-level failure — no signal, DNS, TLS, the village case this
+    // change exists for — no longer costs them their session, because there the
+    // request plausibly never arrived and the token is almost certainly intact.
+    // Specifically 5xx, not merely "got a response". A 429 is refused by the
+    // limiter and a CSRF 403 by the guard, both BEFORE the handler runs, so no
+    // rotation happened and those tokens are intact — destroying a session
+    // because a village shares one NAT'd IP would be the opposite of the point.
+    // Only a 5xx means the handler itself ran and threw.
+    const mayBeSpent = (err.response?.status ?? 0) >= 500;
+    const definitive = isDefinitiveAuthFailure(err);
+
+    if (definitive || mayBeSpent) await clearTokens();
+    else noteTransientRefreshFailure();
+
+    // `sessionExpired` keeps its original meaning — the session is genuinely
+    // over — so existing consumers still route to Login only when they should.
+    // `refreshFailed` marks the transient case for callers that want to
+    // distinguish "signed out" from "couldn't reach the server".
+    // `sessionExpired` must match what we actually did to the tokens, or the UI
+    // will keep a user on a session that no longer exists. Both branches that
+    // called clearTokens() set it, so consumers route to Login in exactly the
+    // cases where the credentials are gone.
+    throw Object.assign(err, {
+      sessionExpired: definitive || mayBeSpent,
+      refreshFailed:  true,
+    });
   } finally {
     isRefreshing = false;
   }

@@ -6,7 +6,7 @@
  * requireRole   — factory that returns middleware checking req.user.role
  */
 import { verifyAccessToken } from '../utils/jwt.js';
-import { sendUnauthorized, sendForbidden } from '../utils/response.js';
+import { sendUnauthorized, sendForbidden, sendError } from '../utils/response.js';
 import { isAccessTokenDenylisted } from '../services/tokenDenylist.service.js';
 import prisma from '../config/db.js';
 
@@ -67,8 +67,27 @@ export async function authenticate(req, res, next) {
       return sendUnauthorized(res, 'Session expired. Please sign in again.');
     }
   } catch {
-    // Fail closed — never admit a request we couldn't validate.
-    return sendUnauthorized(res, 'Authentication unavailable');
+    // Fail closed — never admit a request we couldn't validate — but do NOT
+    // say 401. The token is not the problem here; the database is.
+    //
+    // 401 is the client's signal to refresh-and-replay (shared/services/api.js),
+    // and a failed refresh used to destroy the refresh token outright. So a
+    // brief Postgres stall turned into: every in-flight request 401s → every
+    // client refreshes → each refresh costs 5 more statements against the DB
+    // that is already failing → the refresh fails too → the session is wiped and
+    // the farmer is back at SMS OTP. One transient fault, thousands of
+    // involuntary logouts, recoverable only by re-verifying a phone number.
+    //
+    // 503 says "try again later" and is the honest answer: the request was
+    // neither authorised nor rejected, because we could not tell. Retry-After
+    // keeps well-behaved clients from synchronising their retries.
+    // Retry-After is jittered, not a constant. A fixed value would schedule
+    // every client that hit the stall to come back at the same instant — the
+    // thundering herd this status exists to avoid — and 2 s was shorter than any
+    // realistic Postgres failover, so it invited a retry that was certain to
+    // fail. 5-15 s spreads the return and gives a failover time to finish.
+    res.setHeader('Retry-After', String(5 + Math.floor(Math.random() * 11)));
+    return sendError(res, 'Authentication temporarily unavailable', 503);
   }
 
   req.user = { id: payload.sub, role: payload.role };

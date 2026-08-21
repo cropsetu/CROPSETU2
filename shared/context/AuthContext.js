@@ -8,6 +8,7 @@ import { setLastActiveAt, getLastActiveAt, isSessionIdleExpired } from '../utils
 import { SESSION_IDLE_TIMEOUT_MS } from '../constants/config';
 import { solveProofOfWork } from '../utils/proofOfWork';
 import { resetSocket } from '../services/socket';
+import { isDefinitiveAuthFailure } from '../services/authFailure';
 
 const AuthContext = createContext(null);
 
@@ -93,8 +94,20 @@ export function AuthProvider({ children }) {
           setIsLoggedIn(true);
           markActivity(true); // start a fresh idle clock on restore
         }
-      } catch {
-        await clearTokens();
+      } catch (err) {
+        // Same rule as performRefresh: only a definitive rejection ends the
+        // session. A cold start with no usable signal is routine in a field, and
+        // clearing here on any error meant an app-open on a dead cell logged the
+        // farmer out permanently — the one failure a farmer cannot recover from
+        // without re-verifying a phone number.
+        //
+        // On a transport failure we keep the tokens and simply do not restore
+        // the session for this launch. The user sees Login, but the next launch
+        // with signal — or the next successful request — picks the session back
+        // up instead of demanding a new OTP.
+        if (err?.sessionExpired || isDefinitiveAuthFailure(err)) {
+          await clearTokens();
+        }
       } finally {
         setLoading(false);
       }

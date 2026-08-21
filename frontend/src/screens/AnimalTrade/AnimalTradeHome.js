@@ -321,7 +321,15 @@ function StatusStrip({ error, cachedAt, onRetry, onSignIn, onWidenRadius, hasRad
         <TouchableOpacity onPress={onSignIn} hitSlop={8} accessibilityRole="button">
           <Text style={[S.bannerAction, { color: COLORS.error }]}>{t('signIn', 'Sign in')}</Text>
         </TouchableOpacity>
-      ) : isRate || isMaint ? null : hasRadius ? (
+      ) : isMaint ? (
+        // 503 now also covers a transient database fault, not just planned
+        // maintenance, so it is worth offering the retry that clears it. Rate
+        // limiting still gets no action — the only useful response there is to
+        // wait, and a Retry button invites the opposite.
+        <TouchableOpacity onPress={onRetry} hitSlop={8} accessibilityRole="button">
+          <Text style={[S.bannerAction, { color: COLORS.error }]}>{t('retry', 'Retry')}</Text>
+        </TouchableOpacity>
+      ) : isRate ? null : hasRadius ? (
         <TouchableOpacity onPress={onWidenRadius} hitSlop={8} accessibilityRole="button">
           <Text style={[S.bannerAction, { color: COLORS.error }]}>{t('animal.showAllAnimals')}</Text>
         </TouchableOpacity>

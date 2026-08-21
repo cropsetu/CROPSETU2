@@ -83,12 +83,12 @@ function absoluteTtlMs() {
  * across rotations so the absolute timeout is anchored to the original login.
  * Returns the raw token.
  */
-export async function createRefreshToken(userId, familyId = null, sessionStartedAt = null) {
+export async function createRefreshToken(userId, familyId = null, sessionStartedAt = null, client = prisma) {
   const raw = crypto.randomBytes(48).toString('hex');
   const now = Date.now();
   const expiresAt = new Date(now + idleTtlMs()); // idle window (sliding)
 
-  await prisma.refreshToken.create({
+  await client.refreshToken.create({
     data: {
       token:    hashToken(raw),
       userId,
@@ -99,6 +99,33 @@ export async function createRefreshToken(userId, familyId = null, sessionStarted
   });
 
   return raw;
+}
+
+
+/**
+ * Atomically spend `record` and mint its successor.
+ *
+ * These were two separate statements. If the mint failed — a pool timeout, a
+ * stalled primary — the token was left spent with no successor in existence, so
+ * the client could never recover: every later attempt presented an already-
+ * rotated token and tripped reuse detection. A transaction makes it all-or-
+ * nothing, so a failed mint rolls the claim back and the token stays usable.
+ *
+ * `updateMany` with `rotatedAt: null` in the predicate is what serialises two
+ * concurrent refreshes: exactly one gets count === 1.
+ *
+ * @returns {Promise<string|null>} the successor's raw token, or null if another
+ *   caller claimed this rotation first.
+ */
+async function claimAndMint(record, startedAt) {
+  return prisma.$transaction(async (tx) => {
+    const claim = await tx.refreshToken.updateMany({
+      where: { id: record.id, rotatedAt: null },
+      data:  { rotatedAt: new Date() },
+    });
+    if (claim.count === 0) return null;
+    return createRefreshToken(record.userId, record.familyId, startedAt, tx);
+  });
 }
 
 // Revoke an entire lineage. Guards against a null familyId (legacy tokens
@@ -128,6 +155,16 @@ export async function rotateRefreshToken(rawToken, userId = null) {
   if (!record) return { status: 'invalid' };
 
   // Reuse: a spent (already-rotated) token is being replayed → leak. Burn it all.
+  //
+  // NOTE: a lost response can also land here — rotation commits before the reply
+  // is written, so a client that never received the successor will re-present a
+  // token the server already spent, and that is indistinguishable from theft at
+  // this layer. A short "rotation leeway" (recover when the successor is still
+  // unspent) is the standard mitigation, but it deliberately weakens the
+  // property asserted by `rotation issues a new token and replaying the old one
+  // burns the whole family` in tests/backend/api/auth.api.test.js, so it is not
+  // taken unilaterally. The client side avoids provoking this instead: see the
+  // 5xx handling in shared/services/api.js performRefresh().
   if (record.rotatedAt) {
     await revokeFamily(record);
     return { status: 'reuse', familyId: record.familyId, userId: record.userId };
@@ -149,19 +186,16 @@ export async function rotateRefreshToken(rawToken, userId = null) {
     return { status: 'expired' };
   }
 
-  // Atomically claim the rotation so two concurrent refreshes can't both
-  // succeed. The loser is treated as reuse of an already-spent token.
-  const claim = await prisma.refreshToken.updateMany({
-    where: { id: record.id, rotatedAt: null },
-    data:  { rotatedAt: new Date(now) },
-  });
-  if (claim.count === 0) {
+  // Claim the rotation and mint the successor as ONE transaction, so the token
+  // is never spent without a successor existing. The loser of a concurrent race
+  // gets null and is treated as reuse of an already-spent token.
+  // Successor inherits the session start so the absolute cap stays anchored.
+  const refreshToken = await claimAndMint(record, startedAt);
+  if (!refreshToken) {
     await revokeFamily(record);
     return { status: 'reuse', familyId: record.familyId, userId: record.userId };
   }
 
-  // Successor inherits the session start so the absolute cap stays anchored.
-  const refreshToken = await createRefreshToken(record.userId, record.familyId, startedAt);
   return { status: 'ok', refreshToken, familyId: record.familyId, userId: record.userId };
 }
 

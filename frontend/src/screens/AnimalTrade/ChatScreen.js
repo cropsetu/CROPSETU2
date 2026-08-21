@@ -40,6 +40,7 @@ import { connectSocket } from '@cropsetu/shared/services/socket';
 import { classifyError, backoffDelay, ERROR_CODES } from '../../utils/apiError';
 
 const POLL_MS      = 10_000;  // socket is primary; polling is the fallback
+const POLL_MAX_MS  = 60_000;  // ceiling once an outage persists
 const MAX_CHARS    = 2000;
 const COUNTER_AT   = 1800;    // show char counter when within 200 of cap
 const PAGE_SIZE    = 30;
@@ -325,23 +326,61 @@ export default function ChatScreen({ route, navigation }) {
 
   useEffect(() => { if (chatId && connection === 'online') flushOutbox(); }, [chatId, connection, flushOutbox]);
 
-  // ── Poll (fallback when the socket is down) ────────────────────────────────
+  // ── Poll — a real fallback, not a second transport ─────────────────────────
+  // This used to be an unconditional setInterval: it fetched every 10 s for as
+  // long as the screen was focused, ALONGSIDE a perfectly healthy socket. The
+  // comment called it a fallback; the code never checked whether the socket was
+  // up. Every open chat was one request per 10 s of pure duplicate work — the
+  // app's steadiest background load, and it grows with concurrent users.
+  //
+  // Now it skips the fetch whenever the socket is connected, so a healthy
+  // session costs nothing. The gate reads the socket's OWN `connected` flag
+  // rather than the `connection` state, because a successful poll sets that
+  // state to 'online' — gating on it would let one poll switch the fallback off
+  // while the socket was still down.
+  //
+  // Self-rescheduling timeout rather than setInterval, so the delay can grow and
+  // carry jitter: without jitter every phone that lost signal in the same
+  // village comes back at the same instant.
   useFocusEffect(useCallback(() => {
     if (!chatId) return undefined;
-    pollTimerRef.current = setInterval(async () => {
+    let cancelled = false;
+    let attempt = 0;
+
+    const schedule = () => {
+      const base  = Math.min(POLL_MS * 2 ** Math.min(attempt, 3), POLL_MAX_MS);
+      const delay = Math.round(base * (0.75 + Math.random() * 0.5));
+      pollTimerRef.current = setTimeout(tick, delay);
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+
+      // Socket is the primary transport. While it is up there is nothing to do.
+      if (socketRef.current?.connected) {
+        attempt = 0;
+        schedule();
+        return;
+      }
+
       try {
         const { data } = await api.get(`/animals/chats/${chatId}/messages`, { params: { limit: PAGE_SIZE } });
-        if (!aliveRef.current) return;
+        if (!aliveRef.current || cancelled) return;
         const rows = data?.data || [];
         setMessages((prev) => mergeServer(prev, rows));
         persist(rows);
         setConnection('online');
         setError((e) => (e?.retryable ? null : e)); // a poll succeeding clears a transient error
+        attempt = 0;
       } catch {
         if (aliveRef.current) setConnection('offline');
+        attempt += 1; // back off while the outage lasts
       }
-    }, POLL_MS);
-    return () => clearInterval(pollTimerRef.current);
+      schedule();
+    };
+
+    schedule();
+    return () => { cancelled = true; clearTimeout(pollTimerRef.current); };
   }, [chatId, mergeServer, persist]));
 
   // ── Socket: real-time messages + read receipts ─────────────────────────────

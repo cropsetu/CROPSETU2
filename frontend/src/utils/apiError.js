@@ -43,8 +43,23 @@ const ACTION_BY_CODE = {
   UNKNOWN:     'retry',
 };
 
-/** Codes it is safe to retry automatically (idempotent reads only). */
-const AUTO_RETRYABLE = new Set([ERROR_CODES.OFFLINE, ERROR_CODES.TIMEOUT, ERROR_CODES.SERVER]);
+/**
+ * Codes it is safe to retry automatically (idempotent reads only).
+ *
+ * MAINTENANCE is in the set because 503 no longer means only "planned
+ * maintenance". The auth middleware now answers 503 when the database — not the
+ * token — is what failed, which is a transient fault that clears on its own.
+ * Leaving it out made those screens dead ends: the banner offered no retry and
+ * nothing re-armed, so a farmer whose request landed during a two-second stall
+ * had to kill the app. Retries here go through `backoffDelay`, which is
+ * jittered, so this does not synchronise the fleet.
+ */
+const AUTO_RETRYABLE = new Set([
+  ERROR_CODES.OFFLINE,
+  ERROR_CODES.TIMEOUT,
+  ERROR_CODES.SERVER,
+  ERROR_CODES.MAINTENANCE,
+]);
 
 /**
  * @param {*} error   an axios error, a thrown Error, or anything
