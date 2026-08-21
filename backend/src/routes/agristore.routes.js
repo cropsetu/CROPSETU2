@@ -57,7 +57,7 @@ import {
   sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError, paginationMeta, parsePageSize, parsePageNumber,
 } from '../utils/response.js';
 import { keysetPage } from '../utils/keyset.js';
-import { applyListingStockDeltas } from '../utils/stockBatch.js';
+import { applyListingStockDeltas, applyStockDeltas } from '../utils/stockBatch.js';
 import { withSerializableRetry } from '../utils/txRetry.js';
 import { D, toMinorUnits } from '../utils/money.js';
 import { stripHtml, deepStripHtml } from '../utils/encrypt.js';
@@ -1135,6 +1135,10 @@ async function validateCartForCheckout(tx, userId, { reservedByListing = null } 
 
   const orderItems = [];
   const deltas = [];
+  // Pre-backfill lines, whose stock lives on products.stock rather than on a
+  // seller_listing. Collected separately because the two are different tables
+  // and different statements — see utils/stockBatch.js.
+  const productDeltas = [];
 
   for (const item of cartItems) {
     const label = item.listing?.variant?.productId ? item.product?.name : item.product?.name;
@@ -1191,10 +1195,16 @@ async function validateCartForCheckout(tx, userId, { reservedByListing = null } 
         productId: p.id, listingId: null, variantId: null, sellerId: p.sellerId || null,
         quantity: item.quantity, unitPrice: p.price, totalPrice: D(p.price).times(item.quantity),
       });
+      // The line above validated p.stock and then, until now, recorded no
+      // decrement anywhere — so the check ran against a number no order ever
+      // moved, and the last unit of a pre-backfill product could be sold over
+      // and over. The listing branch has always pushed its delta; this one
+      // simply never did.
+      productDeltas.push({ productId: p.id, delta: -item.quantity });
     }
   }
 
-  return { cartItems, orderItems, deltas, total: cartTotal(cartItems) };
+  return { cartItems, orderItems, deltas, productDeltas, total: cartTotal(cartItems) };
 }
 
 /**
@@ -1334,7 +1344,7 @@ router.post(
       // Two buyers racing for the last unit is a NORMAL marketplace event, not a
       // server error — a 40001 abort is replayed instead of surfacing as a 500.
       const { order, crossedZero } = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
-        const { orderItems, deltas } = await validateCartForCheckout(tx, req.user.id);
+        const { orderItems, deltas, productDeltas } = await validateCartForCheckout(tx, req.user.id);
         assertCartMatchesQuote(orderItems, quote);
 
         const o = await tx.order.create({
@@ -1360,9 +1370,13 @@ router.post(
 
         const { crossedZero } = await applyListingStockDeltas(tx, deltas);
         await syncListingStockStatus(tx, crossedZero);
+        // Pre-backfill lines decrement products.stock instead. Inside the same
+        // Serializable transaction that validated them, so the read-validate-
+        // write stays atomic exactly as it does for listings.
+        const { crossedZero: productCrossedZero } = await applyStockDeltas(tx, productDeltas);
         await tx.cartItem.deleteMany({ where: { userId: req.user.id } });
 
-        return { order: o, crossedZero };
+        return { order: o, crossedZero: [...crossedZero, ...productCrossedZero] };
       }, { isolationLevel: 'Serializable' }));
 
       // Only a zero crossing can change a buy-box winner, so only that bumps the
@@ -1433,14 +1447,25 @@ router.put('/orders/:id/cancel', authenticate, velocityGuard(VELOCITY_ACTIONS.RE
   const { cancelled, crossedZero } = await prisma.$transaction(async (tx) => {
     const updated = await tx.order.update({ where: { id: order.id }, data: { status: 'CANCELLED' } });
 
-    // Restock the OFFERS, not the catalog rows. Pre-backfill items have no
-    // listingId and are skipped here — their stock still lives on the product row
-    // and is restored by the legacy path below.
+    // Restock the OFFERS, not the catalog rows: stock is a property of one
+    // seller's listing, so decrementing the shared catalog row would drain every
+    // Kendra's stock for one buyer's purchase.
+    //
+    // Pre-backfill items have no listingId and their stock lives on the product
+    // row instead. This comment used to say they were "restored by the legacy
+    // path below" — there was no such path, here or anywhere else, and nothing
+    // in the codebase moved products.stock at all. Both halves are present now:
+    // checkout decrements (validateCartForCheckout), and this restores.
     const listingDeltas = order.items
       .filter((i) => i.listingId)
       .map((i) => ({ listingId: i.listingId, delta: i.quantity }));
     const { crossedZero } = await applyListingStockDeltas(tx, listingDeltas);
     await syncListingStockStatus(tx, crossedZero);
+
+    const productDeltas = order.items
+      .filter((i) => !i.listingId && i.productId)
+      .map((i) => ({ productId: i.productId, delta: i.quantity }));
+    await applyStockDeltas(tx, productDeltas);
 
     await tx.orderItem.updateMany({
       where: { orderId: order.id },
@@ -1716,7 +1741,7 @@ router.post(
       const totals = orderTotalsFromQuote(quote);
 
       const { order, crossedZero } = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
-        const { orderItems, deltas } = await validateCartForCheckout(tx, req.user.id, { reservedByListing });
+        const { orderItems, deltas, productDeltas } = await validateCartForCheckout(tx, req.user.id, { reservedByListing });
         assertCartMatchesQuote(orderItems, quote);
         assertClientTotalMatches(expectedTotal, quote.subtotal);
         assertClientTotalMatches(expectedPayable, quote.total);
@@ -1778,9 +1803,14 @@ router.post(
           ({ crossedZero } = await applyListingStockDeltas(tx, deltas));
           await syncListingStockStatus(tx, crossedZero);
         }
+        // NOT gated on `consumed`: that flag means the LISTING reservation taken
+        // at /orders/initiate has already been converted, and a pre-backfill line
+        // never had one — /orders/initiate reserves seller_listings only. Skipping
+        // these here would leave them permanently undecremented on the paid path.
+        const { crossedZero: productCrossedZero } = await applyStockDeltas(tx, productDeltas);
 
         await tx.cartItem.deleteMany({ where: { userId: req.user.id } });
-        return { order: o, crossedZero };
+        return { order: o, crossedZero: [...crossedZero, ...productCrossedZero] };
       }, { isolationLevel: 'Serializable' }));
 
       recordEvent(SHOP_EVENTS.PAYMENT_CONFIRM_OK);
@@ -2533,7 +2563,7 @@ router.put(
       const result = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
         const mine = await tx.orderItem.findMany({
           where: { orderId, sellerId: req.user.id },
-          select: { id: true, status: true, quantity: true, listingId: true },
+          select: { id: true, status: true, quantity: true, listingId: true, productId: true },
         });
         if (!mine.length) return null;
 
@@ -2554,6 +2584,10 @@ router.put(
             .map((i) => ({ listingId: i.listingId, delta: i.quantity }));
           ({ crossedZero } = await applyListingStockDeltas(tx, deltas));
           await syncListingStockStatus(tx, crossedZero);
+          // Pre-backfill items, same as the buyer-cancel path above.
+          await applyStockDeltas(tx, mine
+            .filter((i) => !i.listingId && i.productId && i.status !== 'CANCELLED')
+            .map((i) => ({ productId: i.productId, delta: i.quantity })));
         }
 
         // The rollup used to run OUTSIDE the transaction, so two sellers updating

@@ -17,12 +17,26 @@ import { Prisma } from '@prisma/client';
  * MUST be called inside the same transaction (`tx`) that validated stock, so
  * the read-validate-write stays atomic under Serializable isolation.
  *
+ * STILL REQUIRED after the catalog split, for exactly one case: a product that
+ * predates the split has no variants, therefore no seller_listing, therefore no
+ * listingId on its cart row — so checkout takes the DUAL-READ branch in
+ * validateCartForCheckout and stock lives on `products.stock`, where
+ * applyListingStockDeltas cannot reach it.
+ *
+ * That case was validated and never written. This function was documented as
+ * "retained only for the dual-write window" and had ZERO call sites, so no
+ * order has ever moved products.stock: the legacy branch checked
+ * `p.stock < quantity` against a number that never went down, and the same last
+ * unit could be sold without limit. 20 of 67 products in the development
+ * database have no variants, so this was not a hypothetical branch.
+ *
  * @param {import('@prisma/client').Prisma.TransactionClient} tx
  * @param {Array<{ productId: string, delta: number }>} deltas
- * @returns {Promise<number>} rows affected
+ * @returns {Promise<{ rows: number, crossedZero: string[] }>}
+ * @throws {Error} statusCode 400 / expose when a delta would drive stock negative
  */
 export async function applyStockDeltas(tx, deltas) {
-  if (!deltas || !deltas.length) return 0;
+  if (!deltas || !deltas.length) return { rows: 0, crossedZero: [] };
 
   // Collapse duplicates so each product appears at most once in the VALUES list.
   const byId = new Map();
@@ -34,12 +48,31 @@ export async function applyStockDeltas(tx, deltas) {
     ([productId, delta]) => Prisma.sql`(${productId}::text, ${delta}::int)`,
   );
 
-  return tx.$executeRaw`
+  // Same `>= 0` guard and RETURNING shape as applyListingStockDeltas below.
+  // This statement used to be an unguarded $executeRaw, which was survivable
+  // only for as long as it had no callers — and it had none, which was the
+  // actual bug (see the note above this function).
+  const updated = await tx.$queryRaw`
     UPDATE products AS p
     SET stock = p.stock + v.delta
     FROM (VALUES ${Prisma.join(rows)}) AS v(id, delta)
     WHERE p.id = v.id
+      AND p.stock + v.delta >= 0
+    RETURNING p.id, p.stock AS "stockAfter", (p.stock - v.delta) AS "stockBefore"
   `;
+
+  if (updated.length !== byId.size) {
+    throw Object.assign(
+      new Error('An item in your cart just sold out. Please review your cart and try again.'),
+      { statusCode: 400, expose: true },
+    );
+  }
+
+  const crossedZero = updated
+    .filter((r) => (Number(r.stockBefore) > 0) !== (Number(r.stockAfter) > 0))
+    .map((r) => r.id);
+
+  return { rows: updated.length, crossedZero };
 }
 
 /**
