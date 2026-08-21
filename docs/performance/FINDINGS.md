@@ -17,14 +17,14 @@ in §Refuted, because negative results are worth as much as positive ones
 | PERF-006 | Chat inbox reads every message of every listed chat | P0 | COMPLETE |
 | PERF-007 | Celery reuses one asyncpg pool across event loops (DB-05) | P0 | COMPLETE |
 | PERF-008 | Broadcast fan-out runs inline on a Redis outage (OPS-03) | P0 | COMPLETE |
-| PERF-009 | FastAPI tables invisible to erasure (GROW-10) | P0 | TODO |
+| PERF-009 | FastAPI tables invisible to erasure (GROW-10) | P0 | COMPLETE |
 | PERF-010 | No Celery/queue/breaker observability | P0 | COMPLETE |
-| PERF-011 | 12 cron schedules on every web replica | P1 | TODO |
-| PERF-012 | Auth hot-path user read is uncached (AUTH-01) | P1 | TODO |
+| PERF-011 | 12 cron schedules on every web replica | P1 | COMPLETE |
+| PERF-012 | Auth hot-path user read is uncached (AUTH-01) | P1 | COMPLETE |
 | PERF-013 | Blocking Redis inside FastAPI `async def` | P1 | TODO |
-| PERF-014 | 403-vs-404 disagreement between farm and cycle routes | P2 | NEEDS DECISION |
-| PERF-015 | Missing composite indexes (chats, comments, posts) | P2 | TODO |
-| PERF-016 | Mobile: duplicate fetches + all 10 i18n bundles at boot | P2 | TODO |
+| PERF-014 | 403-vs-404 disagreement between farm and cycle routes | P2 | DECIDED — convention documented in utils/response.js |
+| PERF-015 | Missing composite indexes (comments, posts added; chats rejected) | P2 | COMPLETE |
+| PERF-016 | Mobile: duplicate fetches + i18n bundles at boot | P2 | COMPLETE (backfill split still open) |
 | PERF-017 | Stale "422" comments contradict the 400 contract | P3 | TODO |
 
 ---
@@ -318,6 +318,33 @@ reproduced. Recorded rather than fixed, to keep that change focused.
 
 ---
 
+## PERF-019 — Offset pagination: audited, deliberately not converted
+
+**P2 · CLOSED — see TABLES.md §21**
+
+25 `skip:` sites remain and none was converted. Keyset is already applied where
+lists are genuinely deep (20 admin routers + AgriStore). The rest are per-user
+lists bounded by one person's activity, plus one platform-wide feed that now
+costs 0.013 ms at page 1 thanks to PERF-015's index.
+
+A naive keyset on that feed measured **worse than OFFSET** — 16.16 ms against
+8.97 ms — because it sorts `isPinned DESC, createdAt DESC` and a row-value
+comparison cannot seek a mixed-direction multi-column index. Revisit only if a
+Community screen ships in the farmer app.
+
+---
+
+## PERF-020 — The i18n backfill is still eager
+
+**P2 · TODO**
+
+`shared/i18n/lang/_backfill.js` is 676 KB — larger than all seven regional
+bundles combined — and is still evaluated at every cold start, because it is one
+generated module keyed by language and `en` needs its share of it. Splitting it
+per language means changing the generator, not the consumer.
+
+---
+
 ## Refuted
 
 Work not worth doing, and why.
@@ -341,3 +368,15 @@ state is far cheaper than claimed — though see the alerting-bias cost in PERF-
 
 **`run_in_threadpool` positional-only risk.** False — starlette 1.0.0 uses
 `functools.partial(func, *args, **kwargs)` and accepts kwargs.
+
+**`GET /users/me` is 3 statements, not 11–12** (re-confirmed while building
+TABLES.md). Prisma folds all 8 relation `_count`s into the parent statement;
+measured at 5 buffers with `Heap Fetches: 0`.
+
+**Mobile image uploads are already correct (§43).** Both apps upload
+sequentially in a `for … await` loop, with a URI-keyed retry cache in the seller
+app — exactly what §43 prescribes. No `Promise.all` over uploads exists.
+
+**The `chats` composites are not worth their write cost.** `updatedAt` is bumped
+on every message, so two composites on it would be rewritten on the hottest
+write in the chat system, to speed up sorting one user's few dozen chats.
