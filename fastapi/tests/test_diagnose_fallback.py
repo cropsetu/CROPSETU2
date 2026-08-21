@@ -34,7 +34,13 @@ class _Cfg:
 
 
 def _run(monkeypatch, call_impl):
-    monkeypatch.setattr(dda, "get_feature_config", lambda feature: _Cfg())
+    # `lambda feature: _Cfg()` until WI-11 gave get_feature_config a
+    # `model_override` kwarg (the admin AI-Models choice, forwarded per request
+    # by the Express scan client). The agent passes it, so the old stub raised
+    # TypeError before either assertion in this file could run — the no-fallback
+    # policy these tests exist to protect has been unverified since.
+    monkeypatch.setattr(dda, "get_feature_config",
+                        lambda feature, model_override=None: _Cfg())
     monkeypatch.setattr(dda, "call_llm_vision", call_impl)
     iq = {"enhancement_notes": "degraded", "quality_score": 0.5, "usable": True}
     return asyncio.run(dda.run_disease_diagnosis_agent(

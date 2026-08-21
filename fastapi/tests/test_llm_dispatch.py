@@ -1,8 +1,8 @@
 """
 Unit tests for agents/llm_dispatch.py — the flat per-feature LLM config.
 
-CropSetu is Gemini-only. Covers:
-  - _detect_provider accepts gemini-* and rejects everything else
+CropSetu routes per-feature by model-id prefix (WI-11). Covers:
+  - _detect_provider maps gemini-*/gpt-*/claude-*/llama-* and rejects the rest
   - get_feature_config reads AI_<FEATURE>_* env vars correctly
   - defaults (all Gemini) are used when env vars are unset
 """
@@ -23,7 +23,7 @@ from agents.llm_dispatch import (
 )
 
 
-# ── Provider detection (Gemini-only) ─────────────────────────────────────────
+# ── Provider detection (prefix-routed, WI-11) ─────────────────────────────────────────
 
 class TestDetectProvider:
     def test_gemini_prefix_routes_to_gemini(self):
@@ -33,9 +33,21 @@ class TestDetectProvider:
     def test_case_insensitive(self):
         assert _detect_provider("Gemini-2.5-Flash", None) == "gemini"
 
-    def test_non_gemini_models_raise(self):
-        for bad in ("claude-haiku-4-5-20251001", "gpt-4o", "llama-3.3-70b-versatile",
-                    "deepseek-chat", "grok-2", "whisper-large-v3-turbo", "", "foo-mystery"):
+    def test_supported_prefixes_route_to_their_provider(self):
+        # WI-11 (docs/WI11-model-routing.md) made the dispatch multi-provider so
+        # the admin "AI Models" dropdowns actually route traffic. This file was
+        # written four days before that landed and still asserted every one of
+        # these raised ConfigError — the commit that made them route is even
+        # titled "fix stale Gemini-only docs".
+        assert _detect_provider("gpt-4o", None) == "openai"
+        assert _detect_provider("claude-haiku-4-5-20251001", None) == "anthropic"
+        assert _detect_provider("llama-3.3-70b-versatile", None) == "groq"
+        assert _detect_provider("mixtral-8x7b", None) == "groq"
+
+    def test_unknown_prefixes_raise(self):
+        # An unroutable id must fail at config time, not at call time with an
+        # empty credential against an endpoint that does not exist.
+        for bad in ("deepseek-chat", "grok-2", "whisper-large-v3-turbo", "", "foo-mystery"):
             with pytest.raises(ConfigError):
                 _detect_provider(bad, None)
 
@@ -67,14 +79,24 @@ class TestGetFeatureConfig:
         assert cfg.api_key == "test-key-12345"
         assert cfg.provider == "gemini"
 
-    def test_non_gemini_model_is_rejected_by_provider(self, monkeypatch):
-        # A stray non-Gemini model id loads but fails fast when its provider is
-        # resolved, rather than silently calling an unsupported endpoint.
+    def test_non_gemini_model_routes_to_its_own_provider(self, monkeypatch):
+        # Previously asserted that a claude-* model raised on `cfg.provider`.
+        # Since WI-11 it resolves to anthropic, which is the whole point of the
+        # admin model dropdowns.
         monkeypatch.setenv("AI_TEXT_CHAT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         cfg = get_feature_config("TEXT_CHAT")
         assert cfg.model == "claude-sonnet-4-6"
+        assert cfg.provider == "anthropic"
+
+    def test_unroutable_model_still_fails_fast(self, monkeypatch):
+        # The property the old test was reaching for, kept: a model id that maps
+        # to NO provider must be a configuration error. It surfaces at LOAD time
+        # (get_feature_config resolves the provider to pick the right API key),
+        # which is earlier and better than at call time.
+        monkeypatch.setenv("AI_TEXT_CHAT_MODEL", "foo-mystery")
         with pytest.raises(ConfigError):
-            _ = cfg.provider
+            _ = get_feature_config("TEXT_CHAT").provider
 
     def test_unknown_feature_raises(self):
         with pytest.raises(ValueError, match="Unknown AI feature"):

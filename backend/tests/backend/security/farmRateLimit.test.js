@@ -18,8 +18,23 @@ import request from 'supertest';
 import { rateLimiter, resetRateLimitStore } from '../../../src/middleware/rateLimit.js';
 
 // Same config objects the real routes use (kept in sync with the route files).
-const FARM_WRITE  = { windowMs: 15 * 60 * 1000, max: 40,  prefix: 'farm:write' };
-const CYCLE_WRITE = { windowMs: 15 * 60 * 1000, max: 120, prefix: 'cycle:write' };
+//
+// The PREFIX is uniquified per run. These used the production prefixes verbatim,
+// which made the suite non-hermetic the moment REDIS_URL is set — and it is set,
+// in .env and in CI. `resetRateLimitStore()` in beforeEach clears only the
+// IN-MEMORY half (it documents itself as "No-op against Redis"), so
+// `rl:cycle:write:u1` survived in Redis for the full 15-minute window and
+// carried counts between runs, between suites, and between developers sharing a
+// Redis. Worse, a transient Redis error mid-test drops the remaining requests
+// onto the in-memory store, splitting one budget across two counters so neither
+// reaches the cap and nothing is ever throttled — which is exactly how this
+// failed once during a full-suite run.
+//
+// A fresh namespace per run cannot collide with anything, so the window under
+// test always starts empty whichever store is serving it.
+const RUN = `test-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+const FARM_WRITE  = { windowMs: 15 * 60 * 1000, max: 40,  prefix: `farm:write:${RUN}` };
+const CYCLE_WRITE = { windowMs: 15 * 60 * 1000, max: 120, prefix: `cycle:write:${RUN}` };
 
 // Minimal app that fakes auth (req.user from header) and applies the limiter
 // exactly as the route does: keyed on user id, IP fallback.

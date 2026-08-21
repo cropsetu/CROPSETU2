@@ -1,0 +1,205 @@
+# CropSetu CI
+#
+# The repository had no CI at all. Every suite in it now passes, which is the
+# only moment at which adding CI is cheap — a green baseline is what makes a red
+# build mean something. See docs/performance/BASELINE.md for the numbers each
+# job is expected to reproduce.
+#
+# Every command below is the same one a developer runs locally; none of them is
+# CI-only. If a job here fails, it fails on a laptop too.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch cancels the first — nothing here is a deploy.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Express API ─────────────────────────────────────────────────────────────
+  # Needs a real Postgres: the suite is integration-heavy and asserts against
+  # actual constraints, isolation levels and serialization conflicts. Mocking
+  # the database would delete the property most of these tests exist to check.
+  backend:
+    name: backend (jest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cropsetu
+          POSTGRES_PASSWORD: cropsetu
+          # Named _test on purpose. tests/fixtures/setup.js REFUSES to run
+          # against a database whose name does not end in _test, because
+          # cleanupTestData() ends every suite with an unfiltered deleteMany
+          # across ~20 tables. That guard is load-bearing, not decoration.
+          POSTGRES_DB: cropsetu_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://cropsetu:cropsetu@localhost:5432/cropsetu_test
+      REDIS_URL: redis://localhost:6379
+      # Test-only values. JWT_SECRET must be >= 32 chars and
+      # FIELD_ENCRYPTION_KEY exactly 64 hex chars, or config/env.js aborts at
+      # import — deliberately, so PII can never be written unencrypted.
+      JWT_SECRET: ci-only-jwt-secret-not-used-anywhere-else-0123456789
+      FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install
+        working-directory: backend
+        run: npm ci
+
+      # push, not `migrate deploy`: prisma/migrations is incomplete (65
+      # CREATE TABLE for 90 models), so it cannot build a fresh database.
+      # Documented in the Dockerfile and in docs/performance/BASELINE.md §5.
+      - name: Create the test schema
+        working-directory: backend
+        run: npx prisma db push --skip-generate
+
+      # --runInBand is REQUIRED, not a preference. Parallel jest workers
+      # truncate one shared Postgres schema and deadlock (40P01), which turns a
+      # green suite into ~19 failed suites of pure noise. See BASELINE.md §4.
+      - name: Test
+        working-directory: backend
+        run: npm test -- --runInBand
+
+  # ── FastAPI AI service ──────────────────────────────────────────────────────
+  # Hermetic: verified to pass with an empty environment, no .env and no network.
+  fastapi:
+    name: fastapi (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'   # matches README's documented local setup
+          cache: pip
+          cache-dependency-path: fastapi/requirements.txt
+
+      - name: Install
+        working-directory: fastapi
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Test
+        working-directory: fastapi
+        run: python -m pytest tests -q
+
+  # ── Mobile logic + shared ───────────────────────────────────────────────────
+  # frontend/jest.config.js roots include ../shared, so this one runner covers
+  # the shared package too — there is no second suite to add.
+  mobile:
+    name: mobile + shared (jest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Test
+        working-directory: frontend
+        run: npx jest
+
+  # ── Admin SPA ───────────────────────────────────────────────────────────────
+  # Builds as well as typechecks: the Dockerfile builds this SPA into the
+  # backend image, so a build break here breaks the backend deploy, not just
+  # the admin panel.
+  admin:
+    name: admin (typecheck + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install
+        working-directory: admin
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: admin
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: admin
+        run: npm run build
+        env:
+          VITE_API_URL: /api/v1
+
+  # ── Schema ──────────────────────────────────────────────────────────────────
+  # No database needed; `prisma validate` is static. Cheap, and it catches a
+  # malformed schema before the backend job spends two minutes reaching it.
+  schema:
+    name: prisma schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install
+        working-directory: backend
+        run: npm ci
+
+      - name: Validate
+        working-directory: backend
+        run: npx prisma validate
+        env:
+          DATABASE_URL: postgresql://unused:unused@localhost:5432/unused
