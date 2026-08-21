@@ -49,6 +49,70 @@ export const RETENTION_POLICY = [
     key: 'mspRates', model: 'mSPRate', dateField: 'createdAt', days: 1095,
     description: 'Government MSP rates whose rows were created more than ~3 crop years ago.',
   },
+
+  // ── Added for claude.md §26 ────────────────────────────────────────────────
+  // The sweep covered seven categories and none of the fastest-growing tables.
+  // What follows is only the data that is regenerable, log-shaped, or terminal
+  // transient state. See the note at the bottom of this file for the tables
+  // that were deliberately left OUT, which is the more important half.
+  {
+    // The single fastest-growing table in the system: a public price feed
+    // re-fetched all day, ten pages of 500 records per state. It also already
+    // carries an `expiresAt` that nothing has ever read.
+    //
+    // Pruned on priceDate, not fetchedAt, because what matters is how old the
+    // PRICE is, not when we happened to collect it. A year is deliberately far
+    // more than anything reads — the deepest query in the app looks back seven
+    // days (mandi.routes.js) — so this bounds growth without pre-deciding what a
+    // future trend feature may want.
+    key: 'mandiPrices', model: 'mandiPrice', dateField: 'priceDate', days: 365,
+    description: 'Mandi price rows whose price date is more than a year old.',
+  },
+  {
+    // Server 5xx captured for the admin error viewer. Forensic value falls off
+    // a cliff after a few weeks; the viewer itself pages by recency.
+    key: 'errorLogs', model: 'errorLog', dateField: 'createdAt', days: 90,
+    description: 'Captured server errors older than 90 days.',
+  },
+  {
+    // Pure telemetry — one row per external-API probe. The admin health table
+    // summarises the last 24 hours and nothing reads further back.
+    key: 'apiHealthLogs', model: 'aPIHealthLog', dateField: 'timestamp', days: 30,
+    description: 'External-API health probe rows older than 30 days.',
+  },
+  {
+    // TERMINAL reservations only. A HELD row is live inventory — units removed
+    // from a shelf that nobody has returned — and deleting one loses stock with
+    // no trace. The order it belonged to is a separate row and is untouched.
+    key: 'stockReservations', model: 'stockReservation', dateField: 'createdAt', days: 90,
+    extraWhere: { status: { in: ['CONSUMED', 'RELEASED', 'EXPIRED'] } },
+    description: 'Settled stock reservations older than 90 days. Never HELD.',
+  },
 ];
+
+/**
+ * Deliberately NOT swept, and why.
+ *
+ * claude.md §26 lists these as unbounded, and they are. Adding a TTL to them is
+ * a product or legal decision, not an engineering one, and §26 says as much:
+ * never delete legally or financially important records without an explicit
+ * policy. Recording the reasoning here so the omission reads as a decision
+ * rather than an oversight.
+ *
+ *   chat_messages,          A farmer's conversation with a seller is THEIR
+ *   group_messages,         content and often their only record of what was
+ *   direct_messages,        agreed about a price or a delivery. Deleting it on a
+ *   ai_messages,            timer is a product promise being quietly withdrawn.
+ *   voice_messages          All are already hard-deleted on DPDP erasure.
+ *
+ *   orders, payments,       Financial records. Retention here is a statutory
+ *   settlements             question (books of account), not a storage one.
+ *
+ *   ai_scan_diagnoses       FastAPI-owned, created outside Prisma, so this sweep
+ *                           cannot see it at all. Tracked separately.
+ *
+ * chat_messages is the one to revisit first if growth becomes a problem — but as
+ * archival to object storage, not deletion.
+ */
 
 export const MS_PER_DAY = 24 * 60 * 60 * 1000;

@@ -75,3 +75,68 @@ describe('RETENTION_POLICY integrity', () => {
     expect(typeof prisma.mSPRate.deleteMany).toBe('function');
   });
 });
+
+// ── Coverage of the tables that actually grow (claude.md §26) ────────────────
+// The sweep covered seven categories and none of the fastest-growing tables.
+// These pin both halves of the decision: what was added, and what was
+// deliberately left out — because the omissions are the part that would
+// otherwise read as an oversight and get "fixed" by someone in a hurry.
+describe('§26 coverage', () => {
+  const byKey = Object.fromEntries(RETENTION_POLICY.map((p) => [p.key, p]));
+
+  test('the regenerable and log-shaped tables are swept', () => {
+    expect(byKey.mandiPrices).toMatchObject({ model: 'mandiPrice', dateField: 'priceDate' });
+    expect(byKey.errorLogs).toMatchObject({ model: 'errorLog', dateField: 'createdAt' });
+    expect(byKey.apiHealthLogs).toMatchObject({ model: 'aPIHealthLog', dateField: 'timestamp' });
+  });
+
+  test('mandi prices are aged on the PRICE date, not on when we fetched them', () => {
+    // fetchedAt says when we collected a row; priceDate says how old the price
+    // is. Only the second is what a farmer or a trend chart cares about.
+    expect(byKey.mandiPrices.dateField).toBe('priceDate');
+  });
+
+  test('the mandi window is far deeper than anything that reads it', () => {
+    // The deepest read in the app looks back 7 days (mandi.routes.js). Keeping a
+    // year means this bounds growth without pre-deciding what a future trend
+    // feature may want.
+    expect(byKey.mandiPrices.days).toBeGreaterThanOrEqual(365);
+  });
+
+  test('stock reservations are only swept once TERMINAL', () => {
+    // A HELD row is live inventory — units off a shelf that nobody returned.
+    // Deleting one loses stock with no trace.
+    const statuses = byKey.stockReservations.extraWhere.status.in;
+    expect(statuses).toEqual(expect.arrayContaining(['CONSUMED', 'RELEASED', 'EXPIRED']));
+    expect(statuses).not.toContain('HELD');
+  });
+
+  test("a user's own messages are NOT on a deletion timer", () => {
+    // Conversations are the farmer's record of what was agreed about a price or
+    // a delivery. Expiring them on a timer withdraws a product promise quietly.
+    // They are already hard-deleted on DPDP erasure, which is the right lever.
+    const models = RETENTION_POLICY.map((p) => p.model);
+    for (const m of ['chatMessage', 'groupMessage', 'directMessage', 'aIMessage', 'voiceMessage']) {
+      expect(models).not.toContain(m);
+    }
+  });
+
+  test('financial records are NOT on a deletion timer', () => {
+    // Statutory retention, not a storage question.
+    const models = RETENTION_POLICY.map((p) => p.model);
+    for (const m of ['order', 'orderItem', 'payment', 'paymentIntent', 'settlement']) {
+      expect(models).not.toContain(m);
+    }
+  });
+
+  test('every policy still names a real Prisma delegate', () => {
+    for (const p of RETENTION_POLICY) {
+      expect(typeof prisma[p.model]?.deleteMany).toBe('function');
+    }
+  });
+
+  test('only the entry that needs a status filter has one', () => {
+    const withExtra = RETENTION_POLICY.filter((p) => p.extraWhere);
+    expect(withExtra.map((p) => p.key)).toEqual(['stockReservations']);
+  });
+});

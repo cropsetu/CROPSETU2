@@ -34,7 +34,12 @@ export async function runRetentionSweep({ now = new Date(), dryRun = false } = {
   const results = {};
 
   for (const p of RETENTION_POLICY) {
-    const where = { [p.dateField]: { lt: cutoffs[p.key] } };
+    // `extraWhere` narrows a category beyond its age. Only one entry needs it
+    // today and it is the reason it exists: stock reservations may be purged
+    // once they reach a TERMINAL state, but a HELD row is live inventory — it is
+    // units removed from a shelf that nobody has returned yet, and deleting one
+    // loses stock silently.
+    const where = { [p.dateField]: { lt: cutoffs[p.key] }, ...(p.extraWhere || {}) };
     try {
       if (dryRun) {
         results[p.key] = await prisma[p.model].count({ where });
