@@ -77,13 +77,40 @@ async function recordConsents({ userId, purposes, granted = true, policyVersion 
   });
 }
 
-/** Effective consent state for a user: purpose -> latest record. */
+/**
+ * Effective consent state for a user: purpose -> latest record.
+ *
+ * The latest row PER PURPOSE is picked in SQL. This used to read every consent
+ * row the user had ever written and reduce them in JavaScript — and the table is
+ * append-only by design (that is what makes it DPDP §5 proof), so the cost of
+ * answering "may we send this farmer a promotion?" grew with how long they had
+ * been a customer and how often they had changed their mind. There are about a
+ * dozen purposes; a two-year account that had toggled a few of them read
+ * hundreds of rows into Node to produce a dozen answers, and parsed a Date for
+ * every one of them on the way.
+ *
+ * DISTINCT ON is bounded by the number of purposes instead. The predicate is
+ * `userId = $1`, which the existing @@index([userId, purpose]) serves, so the
+ * scan was never the expensive part — the transfer and the reduce were.
+ *
+ * `id DESC` is a tiebreaker, not decoration: two rows written in the same
+ * transaction share a createdAt, and without it which one counts as current
+ * would be whatever order the heap happened to return. For a record of consent
+ * that has to be defensible, "it depends" is not an acceptable answer.
+ *
+ * reduceEffectiveConsents stays exported and unit-tested: it is the same rule,
+ * and keeping it is what lets the two be compared.
+ */
 export async function getEffectiveConsents(userId) {
-  const rows = await prisma.consentRecord.findMany({
-    where:   { userId },
-    orderBy: { createdAt: 'asc' },
-  });
-  return reduceEffectiveConsents(rows);
+  const rows = await prisma.$queryRaw`
+    SELECT DISTINCT ON ("purpose") *
+    FROM "consent_records"
+    WHERE "userId" = ${userId}
+    ORDER BY "purpose", "createdAt" DESC, "id" DESC
+  `;
+  const latest = {};
+  for (const r of rows) latest[r.purpose] = r;
+  return latest;
 }
 
 /** True only if the user's latest record for `purpose` is a grant. */

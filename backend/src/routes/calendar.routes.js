@@ -106,16 +106,28 @@ router.get('/:id', authenticate, async (req, res) => {
   });
   if (!calendar) return sendError(res, 'Calendar not found', 404);
 
-  // Sync overdue status in real-time
+  // Sync overdue status in real-time.
+  //
+  // This was one awaited UPDATE per overdue task, in a loop, on a GET — so
+  // opening the calendar screen cost a database round trip for every task whose
+  // date had passed, serially. A season's calendar is generated with a task per
+  // agronomic stage, so the cost grew with how long the farmer had been away:
+  // the longer since they last opened it, the slower it opened. One statement
+  // now, regardless.
   const now = new Date();
-  for (const task of calendar.tasks) {
-    if (task.status === 'upcoming' && new Date(task.scheduledDate) < now) {
-      await prisma.cropCalendarTask.update({
-        where: { id: task.id },
-        data:  { status: 'overdue' },
-      }).catch(() => {});
-      task.status = 'overdue';
-    }
+  const overdueIds = calendar.tasks
+    .filter((t) => t.status === 'upcoming' && new Date(t.scheduledDate) < now)
+    .map((t) => t.id);
+
+  if (overdueIds.length) {
+    await prisma.cropCalendarTask.updateMany({
+      where: { id: { in: overdueIds } },
+      data:  { status: 'overdue' },
+    }).catch(() => {});
+    // Set membership, not overdueIds.includes(t.id): that is O(n) per task and
+    // this loop already runs over every task (claude.md §22.1).
+    const flipped = new Set(overdueIds);
+    for (const t of calendar.tasks) if (flipped.has(t.id)) t.status = 'overdue';
   }
 
   return sendSuccess(res, calendar);

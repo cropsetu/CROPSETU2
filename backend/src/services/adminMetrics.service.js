@@ -7,6 +7,7 @@
  * the requested window so the dashboard stays cheap on large tables.
  */
 import prisma from '../config/db.js';
+import { cacheGet, cacheSet } from '../config/redis.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -16,7 +17,28 @@ function sinceDays(days) {
 }
 
 /** KPI snapshot for the dashboard cards. `days` scopes the "new/active/window" figures. */
+/**
+ * How long a dashboard read may be stale.
+ *
+ * getDashboardMetrics fires sixteen aggregates in one Promise.all, and several
+ * are unbounded whole-table reads — user.count(), order.groupBy(['status']),
+ * booking.count(). At a hundred thousand users those are sequential scans, and
+ * an admin leaving the dashboard open re-ran all sixteen on every refresh.
+ *
+ * Thirty seconds, because nobody is making a decision on the difference between
+ * a signup count from now and one from half a minute ago, and because the
+ * numbers on this page are already windowed over thirty DAYS. Cheap to shorten
+ * if that ever stops being true (claude.md §29).
+ */
+const DASHBOARD_TTL_SEC = 30;
+
 export async function getDashboardMetrics({ days = 30 } = {}) {
+  // Keyed on `days`, which is a query parameter — without it a 7-day view would
+  // be served the 30-day numbers for half a minute, which is worse than slow.
+  const key = `admin:metrics:dashboard:${days}`;
+  const hit = await cacheGet(key);
+  if (hit) return hit;
+
   const since = sinceDays(days);
 
   const [
@@ -58,7 +80,7 @@ export async function getDashboardMetrics({ days = 30 } = {}) {
     apiHealthSummary(24),
   ]);
 
-  return {
+  const payload = {
     windowDays: Number.isFinite(days) && days > 0 ? Math.min(days, 365) : 30,
     users: {
       total: usersTotal,
@@ -89,6 +111,12 @@ export async function getDashboardMetrics({ days = 30 } = {}) {
     },
     apiHealth,
   };
+
+  // Write-behind: a failed cache write must never fail the dashboard, and
+  // cacheSet already swallows a Redis outage. With Redis down every read simply
+  // computes, exactly as it did before.
+  await cacheSet(key, payload, DASHBOARD_TTL_SEC);
+  return payload;
 }
 
 function countMap(rows, key) {
