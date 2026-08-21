@@ -3,7 +3,7 @@
  * All AI, market, and planner endpoints hit the same Express backend (port 3001).
  * Auth token is injected automatically via the existing api.js interceptors.
  */
-import api, { aiApi, getAccessToken } from '@cropsetu/shared/services/api';
+import api, { aiApi, getAccessToken, forceRefreshAccessToken } from '@cropsetu/shared/services/api';
 import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_BASE_URL } from '@cropsetu/shared/constants/config';
@@ -366,6 +366,69 @@ export async function getMarketCrops() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Native multipart upload to /ai/voice, with the 401 recovery axios does for
+ * everything else.
+ *
+ * Android's New Architecture silently drops file:// URIs from FormData, which
+ * is why voice cannot go through axios on native and has to use
+ * FileSystem.uploadAsync. The cost of leaving the axios pipeline is that the
+ * response interceptor — the thing that refreshes an expired access token and
+ * replays the request — is not there either.
+ *
+ * Access tokens live fifteen minutes. A farmer who opens the app, talks for
+ * thirty seconds and hits an expired token got a bare 401: the recording was
+ * thrown away and they had to say the whole thing again, while every other
+ * screen in the app refreshed silently. On a voice-first product for users who
+ * may not read, that is the worst request in the app to make someone repeat.
+ *
+ * So the refresh-and-replay is done by hand here. Once only — a second 401
+ * after a fresh token means the session is genuinely gone, and retrying past
+ * that just delays the login prompt.
+ *
+ * The Idempotency-Key is deliberately the SAME on the replay: it is one logical
+ * voice turn, and minting a new one would be the writeQueue bug again — a turn
+ * that reached the server and charged a credit would charge a second.
+ */
+async function nativeVoiceUpload({ audioUri, params, idemKey }) {
+  const send = async (token) => FileSystem.uploadAsync(
+    `${API_BASE_URL}/ai/voice`,
+    audioUri,
+    {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName:  'audio',
+      mimeType:   'audio/m4a',
+      headers:    { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Idempotency-Key': idemKey },
+      parameters: params,
+    },
+  );
+
+  let result = await send(await getAccessToken());
+
+  if (result.status === 401) {
+    // Resolves to null when the session genuinely cannot be renewed, which is
+    // the signal to stop and let the 401 surface as a 401.
+    const fresh = await forceRefreshAccessToken();
+    if (fresh) result = await send(fresh);
+  }
+
+  if (result.status < 200 || result.status >= 300) {
+    let errBody;
+    try { errBody = JSON.parse(result.body); } catch { errBody = {}; }
+    const e = new Error(errBody?.error?.message || `HTTP ${result.status}`);
+    e.status = result.status;
+    // Mirror the axios error shape so screen mappers (humanReadableVoiceError)
+    // can read err.response.data.error.message — otherwise the server's
+    // specific message (e.g. the credit-exhausted line) is unreachable on
+    // native and the generic fallback shows instead.
+    e.response = { status: result.status, data: errBody };
+    throw e;
+  }
+
+  return JSON.parse(result.body).data;
+}
+
+/**
  * Send a voice recording to FarmMind AI.
  * Backend transcribes with Groq Whisper, then answers with FarmMind.
  * @param {string}      audioUri       Local file URI (m4a / wav / mp3)
@@ -405,35 +468,12 @@ export async function sendVoiceMessage(audioUri, conversationId = null, farmProf
   // ── Native (iOS + Android) path ─────────────────────────────────────────────
   // Android New Architecture (OkHttp/Turbo) silently drops file:// URIs in
   // FormData — same issue as scanCropImage. Use FileSystem.uploadAsync instead.
-  const token = await getAccessToken();
   const params = { farmProfile: JSON.stringify(farmProfile) };
   if (conversationId) params.conversationId = conversationId;
   if (language) params.language = language;
 
-  const uploadResult = await FileSystem.uploadAsync(
-    `${API_BASE_URL}/ai/voice`,
-    audioUri,
-    {
-      httpMethod:  'POST',
-      uploadType:  FileSystem.FileSystemUploadType.MULTIPART,
-      fieldName:   'audio',
-      mimeType:    'audio/m4a',
-      headers:     { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Idempotency-Key': idemKey },
-      parameters:  params,
-    },
-  );
-
-  if (uploadResult.status < 200 || uploadResult.status >= 300) {
-    let errBody;
-    try { errBody = JSON.parse(uploadResult.body); } catch { errBody = {}; }
-    const e = new Error(errBody?.error?.message || `HTTP ${uploadResult.status}`);
-    e.status = uploadResult.status;
-    e.response = { status: uploadResult.status, data: errBody };
-    throw e;
-  }
-
-  const json = JSON.parse(uploadResult.body);
-  return json.data; // { transcription, reply, type, card, conversationId }
+  // { transcription, reply, type, card, conversationId }
+  return nativeVoiceUpload({ audioUri, params, idemKey });
 }
 
 /**
@@ -476,39 +516,12 @@ export async function sendVoiceChatMessage(audioUri, language = 'hi-IN', convers
     return data.data;
   }
 
-  const token = await getAccessToken();
   const params = { farmProfile: JSON.stringify(farmProfile), language };
   if (conversationId) params.conversationId = conversationId;
   if (tts) params.tts = 'true';
   if (streamId) params.streamId = streamId;
 
-  const uploadResult = await FileSystem.uploadAsync(
-    `${API_BASE_URL}/ai/voice`,
-    audioUri,
-    {
-      httpMethod: 'POST',
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-      fieldName: 'audio',
-      mimeType: 'audio/m4a',
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Idempotency-Key': idemKey },
-      parameters: params,
-    },
-  );
-
-  if (uploadResult.status < 200 || uploadResult.status >= 300) {
-    let errBody;
-    try { errBody = JSON.parse(uploadResult.body); } catch { errBody = {}; }
-    const e = new Error(errBody?.error?.message || `HTTP ${uploadResult.status}`);
-    e.status = uploadResult.status;
-    // Mirror the axios error shape so screen mappers (humanReadableVoiceError) can
-    // read err.response.data.error.message — otherwise the server's specific message
-    // (e.g. the credit-exhausted line) is unreachable on native and the generic
-    // fallback shows instead.
-    e.response = { status: uploadResult.status, data: errBody };
-    throw e;
-  }
-
-  return JSON.parse(uploadResult.body).data;
+  return nativeVoiceUpload({ audioUri, params, idemKey });
 }
 
 /**
