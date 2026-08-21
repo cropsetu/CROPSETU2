@@ -5,6 +5,64 @@ verified** — code written is not completion (`claude.md` §4.3).
 
 ---
 
+## PERF-010 — A missing scan worker, and an open circuit, were both invisible
+
+```
+ID:        PERF-010
+Feature:   Observability (claude.md §35, §55, §56)
+Priority:  P0 — makes everything after it measurable
+Status:    COMPLETE — verified
+```
+
+Two degradations the system could not observe about itself.
+
+**No worker deployed.** `fastapi/railway.json` switches web and worker roles off one
+`$ROLE` variable, so running one without the other is a single mistake — and then every
+scan is accepted, queued and never run while `/health` stays green. Nothing could tell.
+
+The signal is deliberately a **pair**: queue depth, and how long since *any* worker last
+finished a task. Depth alone is a busy afternoon; staleness alone is a quiet one. Both
+at once means work is arriving and nothing is consuming it — the shape of a missing
+worker, and of a wedged one. The threshold sits above `task_time_limit` so one long scan
+running alone cannot trip it, and an idle fleet with an empty queue reads as idle. A
+signal that cries wolf from the day it ships is ignored by the week after.
+
+Deliberately **not** `celery_app.control.ping()` — that broadcasts over the broker and
+blocks for its whole timeout, inside async handlers that already carry five blocking
+Redis round-trips per scan poll (PERF-013). Two Redis reads instead, needing no
+cooperation from a worker that may not exist. The worker half is one `SETEX` in the
+task's existing `finally`, so success, soft timeout and hard failure all count — a
+worker failing every task is still alive and still draining, which is a failure-*rate*
+problem and a different signal.
+
+Verified end to end against a real Redis and a real `TestClient`:
+
+| scenario | `/health` |
+|---|---|
+| worker alive, queue empty | `ok` |
+| worker alive, queue busy | `ok` |
+| **scans queued, no worker** | **`degraded`** |
+| no worker, nothing queued | `ok` |
+
+**Breaker state.** `breakerStates()` has existed and been exported since the circuit
+breakers shipped, and **nothing had ever called it** — an OPEN circuit on Gemini,
+Sarvam, Razorpay or FastAPI was computed, kept, and displayed nowhere.
+`/admin/ops/status` now carries it and names *why* it is amber rather than only that it
+is: `ai_service_unreachable`, `queue_unavailable`, `scans_queued_no_worker`,
+`breaker_open:<name>`. `HALF_OPEN` stays healthy — that is a recovery probe, not a
+fault. That route already fetched FastAPI's `/health/details`, so the worker verdict
+reaches the admin panel with no new plumbing, and it stops treating a 200 from the AI
+service as proof the AI service works.
+
+**Tests.** 21 — `fastapi/tests/test_worker_health.py` (10) and
+`backend/tests/backend/unit/opsStatusVerdict.test.js` (11). The verdict was extracted as
+an exported pure function so it can be pinned without standing up an authenticated admin
+request.
+
+**Rollback.** `git revert 4735e03`.
+
+---
+
 ## PERF-007 — The scan worker lost every diagnosis after its first
 
 ```

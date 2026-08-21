@@ -18,7 +18,7 @@ in §Refuted, because negative results are worth as much as positive ones
 | PERF-007 | Celery reuses one asyncpg pool across event loops (DB-05) | P0 | COMPLETE |
 | PERF-008 | Broadcast fan-out runs inline on a Redis outage (OPS-03) | P0 | TODO |
 | PERF-009 | FastAPI tables invisible to erasure (GROW-10) | P0 | TODO |
-| PERF-010 | No Celery/queue/breaker observability | P0 | TODO |
+| PERF-010 | No Celery/queue/breaker observability | P0 | COMPLETE |
 | PERF-011 | 12 cron schedules on every web replica | P1 | TODO |
 | PERF-012 | Auth hot-path user read is uncached (AUTH-01) | P1 | TODO |
 | PERF-013 | Blocking Redis inside FastAPI `async def` | P1 | TODO |
@@ -167,7 +167,7 @@ via asyncpg and absent from `schema.prisma`, so neither the retention sweep nor
 
 ## PERF-010 — Queue depth, Celery heartbeat and breaker state are not exposed
 
-**P0 · TODO**
+**P0 · COMPLETE — see COMPLETED.md**
 
 FastAPI reports healthy while zero Celery workers are deployed and every crop scan
 queues forever. There is no worker liveness signal anywhere. Circuit-breaker state
