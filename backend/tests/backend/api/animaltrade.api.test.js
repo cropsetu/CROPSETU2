@@ -560,6 +560,49 @@ describe('chat', () => {
     expect(JSON.stringify(res.body)).not.toContain(s.user.phone);
   });
 
+  // The inbox used to build these two fields with Prisma includes that did not
+  // compile to bounded SQL: `messages: { take: 1 }` emitted no LIMIT and sliced
+  // in JavaScript, and the unread `_count` aggregated the WHOLE chat_messages
+  // table before joining. Both were rewritten; these pin the behaviour so a
+  // future include cannot quietly reintroduce either.
+  it('reports the newest message per chat, not the oldest or an arbitrary one', async () => {
+    const { b, chatId } = await openChat();
+    for (const text of ['first', 'second', 'third']) {
+      await request(app).post(`${API}/chats/${chatId}/messages`).set(b.headers).send({ text });
+    }
+
+    const res = await request(app).get(`${API}/chats/my`).set(b.headers);
+    expect(res.status).toBe(200);
+    const row = res.body.data.find((r) => r.id === chatId);
+    expect(row.lastMessage.text).toBe('third');
+    expect(row.lastMessage.mine).toBe(true);
+  });
+
+  it('counts only the OTHER side\'s unread messages, and only for this chat', async () => {
+    const { s, b, chatId } = await openChat();
+    // A second, unrelated chat whose unread messages must not leak into the
+    // first one's count — the old aggregate grouped the entire table.
+    const { b: other, chatId: otherChat } = await openChat();
+    await request(app).post(`${API}/chats/${otherChat}/messages`).set(other.headers).send({ text: 'elsewhere' });
+
+    await request(app).post(`${API}/chats/${chatId}/messages`).set(s.headers).send({ text: 'from seller 1' });
+    await request(app).post(`${API}/chats/${chatId}/messages`).set(s.headers).send({ text: 'from seller 2' });
+    await request(app).post(`${API}/chats/${chatId}/messages`).set(b.headers).send({ text: 'from me' });
+
+    const res = await request(app).get(`${API}/chats/my`).set(b.headers);
+    const row = res.body.data.find((r) => r.id === chatId);
+    // Two from the seller; the buyer's own message never counts as unread.
+    expect(row.unreadCount).toBe(2);
+  });
+
+  it('reports zero unread and no last message for a chat with none', async () => {
+    const { b, chatId } = await openChat();
+    const res = await request(app).get(`${API}/chats/my`).set(b.headers);
+    const row = res.body.data.find((r) => r.id === chatId);
+    expect(row.unreadCount).toBe(0);
+    expect(row.lastMessage).toBeNull();
+  });
+
   it('sanitises HTML out of a message', async () => {
     const { b, chatId } = await openChat();
     const res = await request(app).post(`${API}/chats/${chatId}/messages`).set(b.headers)

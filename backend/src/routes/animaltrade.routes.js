@@ -311,6 +311,80 @@ function parseFilters(req, blockedIds) {
   };
 }
 
+// ── Chat list helpers ────────────────────────────────────────────────────────
+/**
+ * The newest message of each of `chatIds`, as a Map(chatId → message).
+ *
+ * Replaces a Prisma `messages: { orderBy: { createdAt: 'desc' }, take: 1 }`
+ * include, which does NOT push the take into SQL. Prisma emits
+ *
+ *   SELECT … FROM chat_messages WHERE "chatId" IN ($1…$30) ORDER BY "createdAt" DESC
+ *
+ * with no LIMIT at all, and slices to one per chat in JavaScript. Measured on a
+ * 30-chat inbox of 40 messages each: 1,200 rows read to render 30 — and the
+ * multiplier is the message history itself, so the inbox got slower for exactly
+ * the users who use it most.
+ *
+ * LATERAL, not DISTINCT ON. Both return one row per chat, but DISTINCT ON has
+ * to sort every matching message first and no index can serve it — measured on
+ * a 15,000-row table it still sorted 6,000 rows even with seq scans disabled.
+ * The LATERAL form is N independent top-1 lookups, each served by the existing
+ * @@index([chatId, createdAt DESC, id DESC]) whose column order the inner
+ * ORDER BY deliberately matches:
+ *
+ *   DISTINCT ON  3.616 ms   Seq Scan + Sort of 6,000 rows
+ *   LATERAL      0.163 ms   Nested Loop over chat_messages_chatId_createdAt_id_idx
+ *
+ * The shape matters more than the 22x: LATERAL costs 30 index lookups whatever
+ * the message history is, so a two-year-old conversation opens as fast as a new
+ * one. `id DESC` breaks ties so two messages in the same millisecond cannot
+ * alternate between requests.
+ */
+async function lastMessagesByChat(chatIds) {
+  if (!chatIds.length) return new Map();
+  // `m.*` keeps the full column set, so callers that returned the ORM row
+  // verbatim keep their response shape. Width was never the problem — row
+  // COUNT was.
+  const rows = await prisma.$queryRaw`
+    SELECT m.*
+    FROM unnest(${chatIds}::text[]) AS t(cid)
+    CROSS JOIN LATERAL (
+      SELECT * FROM "chat_messages"
+      WHERE "chatId" = t.cid
+      ORDER BY "createdAt" DESC, "id" DESC
+      LIMIT 1
+    ) m
+  `;
+  return new Map(rows.map((r) => [r.chatId, r]));
+}
+
+/**
+ * Unread-message count per chat for `me`, as a Map(chatId → count).
+ *
+ * Replaces a `_count: { select: { messages: { where: … } } }` include. Prisma
+ * compiles that to a LEFT JOIN against a subquery that is NOT correlated to the
+ * listed chats:
+ *
+ *   LEFT JOIN (SELECT "chatId", COUNT(*) FROM chat_messages
+ *              WHERE "senderId" <> $1 AND "readAt" IS NULL
+ *              GROUP BY "chatId") …
+ *
+ * so every unread message in the SYSTEM is scanned and grouped on every inbox
+ * open, and the rows belonging to other people are then thrown away by the join.
+ * EXPLAIN confirms it: `Seq Scan on chat_messages … Rows Removed by Filter: 600`
+ * against a table of 1,200. Scoping the aggregate to the chats actually being
+ * listed makes the cost proportional to the page instead of to the platform.
+ */
+async function unreadCountsByChat(chatIds, me) {
+  if (!chatIds.length) return new Map();
+  const rows = await prisma.chatMessage.groupBy({
+    by: ['chatId'],
+    where: { chatId: { in: chatIds }, senderId: { not: me }, readAt: null },
+    _count: { _all: true },
+  });
+  return new Map(rows.map((r) => [r.chatId, r._count._all]));
+}
+
 // ── Chat inbox (must be registered BEFORE /:id to win path matching) ─────────
 // GET /chats/my — every chat the current user is part of (as buyer OR seller),
 // across ALL their animal listings. Used to render the "Chat with Seller"
@@ -330,24 +404,30 @@ router.get('/chats/my', authenticate, async (req, res) => {
         // contact dump that never required a deliberate reveal.
         buyer:  { select: { id: true, name: true, avatar: true } },
         seller: { select: { id: true, name: true, avatar: true } },
-        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-        _count: { select: { messages: { where: { senderId: { not: me }, readAt: null } } } },
       },
       orderBy: { updatedAt: 'desc' },
       take: limit,
     });
 
+    // Both of these were Prisma includes above. Neither compiled to SQL that
+    // was bounded by the page — see the helpers for the plans they emitted.
+    const chatIds = chats.map((c) => c.id);
+    const [lastByChat, unreadByChat] = await Promise.all([
+      lastMessagesByChat(chatIds),
+      unreadCountsByChat(chatIds, me),
+    ]);
+
     const rows = chats.map((c) => {
       const isBuyer = c.buyerId === me;
       const counterpart = isBuyer ? c.seller : c.buyer;
-      const last = c.messages[0] || null;
+      const last = lastByChat.get(c.id) || null;
       return {
         id: c.id,
         listingId: c.listingId,
         listing: c.listing,
         role: isBuyer ? 'buyer' : 'seller',
         counterpart,
-        unreadCount: c._count?.messages ?? 0,
+        unreadCount: unreadByChat.get(c.id) ?? 0,
         lastMessage: last ? {
           text: last.text,
           imageUrl: last.imageUrl,
@@ -1150,13 +1230,21 @@ router.get('/:id/chats', authenticate, async (req, res) => {
       where: { listingId: listing.id },
       include: {
         buyer: { select: { id: true, name: true, avatar: true } },
-        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { updatedAt: 'desc' },
       take: parsePageSize(req.query.limit, 50, 100),
     });
 
-    return sendSuccess(res, chats);
+    // Same unbounded-include problem as the inbox, on a page that lists up to
+    // 100 chats rather than 30. The response shape is preserved exactly: a
+    // `messages` array holding at most the newest message.
+    const lastByChat = await lastMessagesByChat(chats.map((c) => c.id));
+    const rows = chats.map((c) => {
+      const last = lastByChat.get(c.id);
+      return { ...c, messages: last ? [last] : [] };
+    });
+
+    return sendSuccess(res, rows);
   } catch (err) {
     return sendServerError(res, err, 'Failed to load chats');
   }
