@@ -364,6 +364,37 @@ describe('Harvest, sale, completion & financials', () => {
     expect(s.totals.netProfitInr).toBe(57700);
     expect(s.byCycle[0].cropName).toBe('Cotton');
   });
+
+  test('the per-cycle breakdown reconciles with the totals it belongs to', async () => {
+    // The gap this closes: the old assertions checked `totals` and never looked
+    // at `byCycle`, and the two were computed differently. `totals` used
+    // Decimal .plus(); byCycle used a raw `+` across four Decimal columns —
+    // which CONCATENATES, because Decimal.prototype.valueOf() returns a string.
+    //
+    // For this cycle's own data (2300 recorded, three costs still null) the
+    // shipped value was 2300000, a thousand times the truth, in the same
+    // response as a correct total of 2300. A farmer reading their own financial
+    // summary saw a total that could not add up from its own rows.
+    //
+    // Asserting the RELATIONSHIP rather than the number is the point: it holds
+    // whatever the fixture costs are, and it is what a divergent second
+    // implementation always breaks.
+    const res = await request(app)
+      .get(`${API}/farms/${farmAId}/financial-summary?year=2025`)
+      .set(farmer.headers);
+
+    const s = res.body.data;
+    const summed = s.byCycle.reduce((n, c) => n + Number(c.totalCostInr), 0);
+    expect(summed).toBe(Number(s.totals.totalCostInr));
+    expect(Number(s.byCycle[0].totalCostInr)).toBe(2300);
+
+    // Unrecorded costs are null in the database and mean zero here, not a
+    // string that lengthens the number.
+    for (const c of s.byCycle) {
+      expect(Number.isFinite(Number(c.totalCostInr))).toBe(true);
+      expect(Number(c.totalCostInr)).toBeLessThanOrEqual(Number(s.totals.totalCostInr));
+    }
+  });
 });
 
 // ── Reads: list, detail, insights ───────────────────────────────────────────

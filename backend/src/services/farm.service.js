@@ -178,6 +178,19 @@ export async function getFarmFinancialSummary(farmerId, farmId, { season, year }
       totalAreaAcres: Math.round(totals.areaSum * 100) / 100,
       cycleCount: cycles.length,
     },
+    // Same D()/.plus() arithmetic as the totals above, and for the same reason
+    // twice over.
+    //
+    // This line used to be a raw `+` across the four cost columns. They are all
+    // Decimal, and Decimal.prototype.valueOf() returns a STRING, so `+` was
+    // CONCATENATING them: a cycle costing 12000 + 8000 + 5000 + 2000 reported a
+    // total cost of 12,000,800,050,002,000. The totals block a few lines up got
+    // it right, so the response contained a correct total alongside a
+    // per-cycle breakdown that could not add up to it — on a farmer's own
+    // financial summary.
+    //
+    // It never threw, because concatenation is a perfectly valid `+`. That is
+    // what makes this class of bug worth a comment rather than a silent fix.
     byCycle: cycles.map((c) => ({
       cycleId: c.id,
       cropName: c.cropName,
@@ -186,7 +199,11 @@ export async function getFarmFinancialSummary(farmerId, farmId, { season, year }
       status: c.status,
       areaAcres: c.areaAllocatedAcres,
       grossIncomeInr: c.grossIncomeInr || 0,
-      totalCostInr: (c.totalInputCostInr || 0) + (c.laborCostInr || 0) + (c.machineryCostInr || 0) + (c.otherCostInr || 0),
+      totalCostInr: D(c.totalInputCostInr)
+        .plus(D(c.laborCostInr))
+        .plus(D(c.machineryCostInr))
+        .plus(D(c.otherCostInr))
+        .toDecimalPlaces(2),
       netProfitInr: c.netProfitInr || 0,
       profitPerAcreInr: c.profitPerAcreInr || 0,
     })),
