@@ -50,3 +50,31 @@ if (process.env.DATABASE_URL) {
   }
   process.env.DATABASE_URL = testUrl;
 }
+
+/**
+ * Cap the per-file connection pool.
+ *
+ * Jest gives every test FILE its own module registry, so each one constructs its
+ * own PrismaClient — and config/db.js sizes that pool for a production replica
+ * (DB_CONNECTION_LIMIT, default 12). Nothing in the suite ever calls
+ * $disconnect, and `beforeExit` only fires when the process ends, so those pools
+ * accumulate across all ~104 files inside the single --runInBand process.
+ *
+ * Measured: a full run peaked at 89 of Postgres's 100 max_connections. That is
+ * eleven from the ceiling, so anything else touching the database — a dev server,
+ * a second terminal, a psql session — pushed a run over it, and whichever suite
+ * happened to be opening a connection at that moment failed. It presented as
+ * three different DB-backed suites each failing once, never reproducibly, which
+ * is exactly what an environmental ceiling looks like from the inside.
+ *
+ * 2 is right rather than merely smaller: --runInBand executes one test at a time,
+ * so a file needs one connection for the query in flight and one for a
+ * concurrent-behaviour test that deliberately opens a second. Suites that assert
+ * real contention (booking-concurrency, the review race) still get it, because
+ * that contention is between HTTP requests sharing one client, not between pools.
+ *
+ * Set DB_CONNECTION_LIMIT explicitly to override.
+ */
+if (!process.env.DB_CONNECTION_LIMIT) {
+  process.env.DB_CONNECTION_LIMIT = '2';
+}

@@ -278,6 +278,17 @@ export async function cleanupTestData() {
     prisma.pushToken.deleteMany(),
     prisma.user.deleteMany(),
   ]);
+
+  // Hand the pool back. Jest gives every test FILE its own module registry, so
+  // each one builds its own PrismaClient, and `beforeExit` in config/db.js only
+  // fires when the whole process ends — so without this the pools accumulate
+  // across all ~104 files inside the single --runInBand process. Measured before
+  // any of this: a full run peaked at 89 of Postgres's 100 max_connections.
+  //
+  // Safe here because every caller invokes cleanupTestData from afterAll, i.e.
+  // once its file has finished. Prisma reconnects lazily if anything does run
+  // afterwards, so the worst case is one reconnect rather than a failure.
+  await prisma.$disconnect().catch(() => {});
 }
 
 export { prisma };
