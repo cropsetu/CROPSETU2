@@ -1,37 +1,63 @@
-import os from 'node:os';
 import { PrismaClient } from '@prisma/client';
 import { ENV } from './env.js';
 import logger from '../utils/logger.js';
 
-// ── Connection pool sizing for the 1000-concurrent-user target ───────────────
+// ── Connection pool sizing ───────────────────────────────────────────────────
 // Prisma opens ONE pool per app instance and reads its size from the connection
 // URL. Prisma's own default is tiny (num_cpus*2+1) and starves under concurrent
 // load: once every connection is checked out, further queries queue up to
 // `pool_timeout` seconds and then error, hanging the WHOLE API (login, profile,
 // everything) — not just the slow route that drained the pool.
 //
-// 1000 concurrent USERS does NOT mean 1000 DB connections. Queries here are short
-// and most hot reads are cached, so a modest pool serves high concurrency. We
-// default to (cpus*2+1) with a floor of 20 so small 2-vCPU prod boxes still get
-// enough headroom to pass the k6 load test (500 browse + 50 seller VUs) without
-// pool exhaustion. Override per-deploy with DB_CONNECTION_LIMIT.
+// PINNED, not derived (DB-01). The old default was max(os.cpus().length*2+1, 20),
+// and Node's os.cpus() reports the HOST's core count, not the container's cgroup
+// CPU quota — so one replica on a shared 32-core Railway host silently claimed 65
+// connections against a default max_connections of 100. The pool size has to be a
+// number we CHOSE, because every other tier's headroom is computed against it.
 //
-// IMPORTANT (overlaps SCALE-4): total server-side connections =
-// (app instances) × connection_limit, and PostgreSQL's default max_connections
-// is 100. Keep instances × connection_limit comfortably under that. For true
-// 1000-connection fan-out, front Postgres with a pooler (PgBouncer in
-// transaction mode, or Prisma Accelerate) and point DATABASE_URL at it.
-const DEFAULT_CONNECTION_LIMIT = Math.max(os.cpus().length * 2 + 1, 20);
+// Sizing by Little's law (L = λ × W) at the 300 req/s peak target:
+//   fast path  300 req/s × ~4 queries/req = 1200 q/s × ~2 ms      ≈ 2.4 busy
+//   slow tail  1% of those at ~250 ms (bounded geo scans, trigram
+//              probes, admin aggregates)  = 12 q/s × 0.25 s       ≈ 3.0 busy
+//   fleet ≈ 5.4 busy; ×2 so queueing stays negligible             ≈ 11 fleet-wide
+//   → ~3 per replica at 4 replicas, for the HTTP path.
+// The SAME per-replica pool also serves the in-process BullMQ worker
+// (ENV.QUEUE_CONCURRENCY, default 5) and the in-process node-cron schedules
+// (~2 concurrent long holders, e.g. the mandi sync). 3 + 5 + 2 = 10, rounded to 12.
+//
+// Ceiling: max_connections 100 − 3 superuser reserve − 10 FastAPI asyncpg
+// − 10 Celery asyncpg − 5 ops headroom = 72 for Express → 6 replicas at 12.
+// Raise DB_CONNECTION_LIMIT only together with that arithmetic, and past ~6
+// replicas only once a pooler (PgBouncer in transaction mode) fronts DATABASE_URL.
+const DEFAULT_CONNECTION_LIMIT = 12;
+const DEFAULT_POOL_TIMEOUT     = 20;
+
+/**
+ * Read a positive-integer env override, or fall back loudly.
+ *
+ * A malformed value used to be interpolated into the URL verbatim
+ * (`connection_limit=abc`), which fails at the first query rather than at boot.
+ */
+function intEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) {
+    logger.warn('[Prisma] Ignoring invalid %s=%j; using %d', name, raw, fallback);
+    return fallback;
+  }
+  return n;
+}
 
 // String-appended (not URL-reparsed) so a password with special chars is untouched.
 function withPool(url) {
   if (!url) return url;
   let out = url;
   if (!/[?&]connection_limit=/.test(out)) {
-    out += (out.includes('?') ? '&' : '?') + `connection_limit=${process.env.DB_CONNECTION_LIMIT || DEFAULT_CONNECTION_LIMIT}`;
+    out += (out.includes('?') ? '&' : '?') + `connection_limit=${intEnv('DB_CONNECTION_LIMIT', DEFAULT_CONNECTION_LIMIT)}`;
   }
   if (!/[?&]pool_timeout=/.test(out)) {
-    out += (out.includes('?') ? '&' : '?') + `pool_timeout=${process.env.DB_POOL_TIMEOUT || '20'}`;
+    out += (out.includes('?') ? '&' : '?') + `pool_timeout=${intEnv('DB_POOL_TIMEOUT', DEFAULT_POOL_TIMEOUT)}`;
   }
   return out;
 }

@@ -47,8 +47,26 @@ ENV PRISMA_HIDE_UPDATE_MESSAGE=1
 # which would mismatch the $PORT the app actually listens on. With none, Railway
 # routes to the PORT env var it injects (which the server binds to).
 
-# Push schema to the DB (no migration history yet) then start. Railway's
-# startCommand overrides this if set; kept so the image runs standalone too.
-# `;` (not `&&`) + timeout: run the schema push, but ALWAYS start node even if the
-# push stalls or fails — node listening is what the healthcheck needs.
-CMD ["sh", "-c", "timeout 60 npx prisma db push --skip-generate; node src/server.js"]
+# Start only. Schema changes are applied deliberately, never on container boot.
+#
+# This used to run `timeout 60 npx prisma db push --skip-generate;` first, on
+# EVERY boot of EVERY replica. Three reasons that is gone (DB-06):
+#
+#  1. It was already a no-op in production. `ai_scan_diagnoses` and
+#     `ai_scan_feedback` are created by FastAPI via asyncpg and do not exist in
+#     schema.prisma, so a non-interactive `db push` sees two tables it wants to
+#     DROP, refuses with a data-loss error, and exits non-zero — swallowed by the
+#     `;`. It never applied anything.
+#  2. Worse, that refusal is the only thing that saved those two tables. Had they
+#     ever been empty, `db push` would have DROPPED them without asking.
+#  3. It serialises deploys. The migrate engine takes a session-scoped advisory
+#     lock, so N replicas restarting queue behind each other — and that same lock
+#     is what makes schema commands incompatible with PgBouncer transaction
+#     pooling, so this had to go before a pooler can be introduced (DB-03).
+#
+# NOTE: `migrate deploy` is NOT the replacement. prisma/migrations is badly
+# incomplete — 65 CREATE TABLE for 90 models, 23 CREATE TYPE for 43 enums — so it
+# cannot build a fresh database and would fail on the first table against the
+# existing one. Re-baselining that history is a separate, deliberate task. Until
+# then schema changes follow the established manual path (prisma/manual/*.sql).
+CMD ["sh", "-c", "node src/server.js"]
