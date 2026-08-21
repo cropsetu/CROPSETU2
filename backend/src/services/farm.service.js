@@ -147,8 +147,17 @@ export async function getFarmFinancialSummary(farmerId, farmId, { season, year }
   });
 
   // Sum money columns (Decimal) exactly — plain += would string-concatenate.
+  //
+  // Every operand goes through D(), including the ones being added. All four
+  // cost columns are `Decimal?` in the schema, and Decimal.plus(null) THROWS —
+  // so passing the raw column made this endpoint 500 for any cycle that had not
+  // recorded a labour, machinery or other cost yet, which is the state every
+  // cycle starts in. D() maps null to 0, which is what an unrecorded cost means.
   const totals = cycles.reduce((acc, c) => {
-    const cost = D(c.totalInputCostInr).plus(c.laborCostInr).plus(c.machineryCostInr).plus(c.otherCostInr);
+    const cost = D(c.totalInputCostInr)
+      .plus(D(c.laborCostInr))
+      .plus(D(c.machineryCostInr))
+      .plus(D(c.otherCostInr));
     acc.grossIncome = acc.grossIncome.plus(D(c.grossIncomeInr));
     acc.totalCost = acc.totalCost.plus(cost);
     acc.netProfit = acc.netProfit.plus(D(c.netProfitInr));

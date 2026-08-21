@@ -473,7 +473,7 @@ describe('Booking flow', () => {
     expect(res.status).toBe(409);
   });
 
-  test('422 — endDate before startDate', async () => {
+  test('400 — endDate before startDate', async () => {
     const res = await request(app)
       .post('/api/v1/rent/bookings')
       .set(renter.headers)
@@ -488,7 +488,7 @@ describe('Booking flow', () => {
     expect(res.status).toBe(400);
   });
 
-  test('422 — missing listing id', async () => {
+  test('400 — missing listing id', async () => {
     const res = await request(app)
       .post('/api/v1/rent/bookings')
       .set(renter.headers)

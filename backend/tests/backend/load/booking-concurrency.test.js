@@ -122,33 +122,73 @@ describe('Booking concurrency — same slot', () => {
 });
 
 describe('Review rating consistency under concurrent updates', () => {
+  // Each reviewer needs a DELIVERED order item for the product: the review route
+  // anchors a rating to a verified purchase (agristore.routes.js — "You can only
+  // review a product you have received"), and rightly so, because the resulting
+  // rating is what orders the storefront and feeds the buy box.
+  //
+  // The original test posted five reviews from five users who had bought
+  // nothing, so after that check shipped every request 403'd and ratingCount
+  // stayed 0. It was reported as a failing assertion about averages, which is
+  // not what was wrong with it.
+  async function deliveredBuyer(product, i) {
+    const buyer = await createTestUser({ name: `Reviewer ${i}` });
+    const order = await prisma.order.create({
+      data: {
+        userId: buyer.user.id,
+        status: 'DELIVERED',
+        totalAmount: product.price,
+        subtotal: product.price,
+        deliveryAddress: { line1: 'Test', city: 'Pune', state: 'Maharashtra', pincode: '411001' },
+        items: {
+          create: {
+            productId:  product.id,
+            quantity:   1,
+            unitPrice:  product.price,
+            totalPrice: product.price,
+            sellerId:   product.sellerId,
+            status:     'DELIVERED',
+          },
+        },
+      },
+      include: { items: true },
+    });
+    return { buyer, orderItemId: order.items[0].id };
+  }
+
   test('concurrent reviews maintain correct average', async () => {
     const seller = await createTestSeller();
     const category = await createTestCategory();
     const product = await createTestProduct(seller.user.id, category.id);
 
-    const reviewers = await Promise.all(
-      Array.from({ length: 5 }, (_, i) =>
-        createTestUser({ name: `Reviewer ${i}` })
-      )
-    );
-
     const ratings = [1, 2, 3, 4, 5];
+    // Provisioned serially: five concurrent nested creates on the same product
+    // would be measuring the fixture, not the route.
+    const buyers = [];
+    for (let i = 0; i < ratings.length; i++) buyers.push(await deliveredBuyer(product, i));
 
-    await Promise.all(
-      reviewers.map((r, i) =>
+    const results = await Promise.all(
+      buyers.map(({ buyer, orderItemId }, i) =>
         request(app)
           .post(`/api/v1/agristore/products/${product.id}/review`)
-          .set(r.headers)
-          .send({ rating: ratings[i], comment: `Rating ${ratings[i]}` })
+          .set(buyer.headers)
+          .send({ rating: ratings[i], comment: `Rating ${ratings[i]}`, orderItemId })
       )
     );
+
+    // Every review must be accepted — a 403 here means the fixture stopped
+    // producing a verified purchase, and the assertions below would then be
+    // measuring nothing.
+    expect(results.map(r => r.status)).toEqual([201, 201, 201, 201, 201]);
 
     const finalProduct = await prisma.product.findUnique({ where: { id: product.id } });
 
-    // Average of [1,2,3,4,5] = 3.0
-    // Due to transaction isolation, this should be accurate
+    // The denormalised counters on `products` are recomputed by an aggregate
+    // inside each review's transaction. Five concurrent reviewers must still
+    // leave the count at five and the average at mean([1,2,3,4,5]) — anything
+    // less is a lost update, and it is this pair of columns that ranks the
+    // storefront.
     expect(finalProduct.ratingCount).toBe(5);
-    expect(finalProduct.rating).toBeCloseTo(3.0, 1);
+    expect(Number(finalProduct.rating)).toBeCloseTo(3.0, 1);
   });
 });

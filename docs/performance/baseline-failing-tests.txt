@@ -1,0 +1,38 @@
+Activity logging — fertilizer / pesticide / irrigation › 404 — cannot log on another farmer's cycle
+Booking concurrency — same slot › 10 concurrent bookings: at most 1 should succeed
+Cart operations › 400 — add to cart exceeding stock
+Cart operations › 400 — add to cart with quantity 0
+Crop cycle creation — POST /api/v1/farms/:id/cycles › 400 — allocated area cannot exceed farm size
+DELETE /api/v1/users/me › 200 — erases PII, deactivates the account and revokes tokens
+Data integrity › order total matches sum of items
+Deletion — cycles & farms › 404 — another farmer cannot delete the cycle
+GET /api/v1/agristore/products › 400 — limit exceeding 50 rejected
+GET /api/v1/agristore/products › 400 — page=0 rejected
+GET /api/v1/agristore/products/:id › 404 — non-existent id
+Harvest, sale, completion & financials › 200 — farm financial summary aggregates the season
+POST /api/v1/agristore/products/:id/review › 400 — rating = 0
+POST /api/v1/agristore/products/:id/review › 400 — rating out of range
+POST /api/v1/auth/refresh › 422 — missing userId
+POST /api/v1/auth/send-otp › 422 — missing phone field
+POST /api/v1/auth/send-otp › 422 — phone starting with 0-5 rejected
+POST /api/v1/auth/send-otp › 422 — phone with 11 digits rejected
+POST /api/v1/auth/send-otp › 422 — phone with 9 digits rejected
+POST /api/v1/auth/send-otp › 422 — phone with letters rejected
+POST /api/v1/auth/send-otp › security — SQL injection in phone field rejected
+POST /api/v1/auth/verify-otp › 422 — OTP with 5 digits rejected
+POST /api/v1/auth/verify-otp › 422 — missing OTP
+POST /api/v1/users/me/push-token › 422 — invalid platform
+POST /api/v1/users/me/push-token › 422 — invalid token format
+PUT /api/v1/users/me › 422 — invalid Aadhaar (not 12 digits)
+PUT /api/v1/users/me › 422 — invalid GST format
+PUT /api/v1/users/me › 422 — invalid IFSC format
+PUT /api/v1/users/me › 422 — invalid language
+PUT /api/v1/users/me › 422 — invalid pincode (not 6 digits)
+PUT /api/v1/users/me/farm › 422 — cropTypes with more than 20 items
+PUT /api/v1/users/me/farm › 422 — negative landAcres
+Review rating consistency under concurrent updates › concurrent reviews maintain correct average
+SQL Injection resistance › product name field handles: ' OR ''='
+Seller product CRUD › 400 — missing required fields
+Seller product CRUD › 400 — negative stock rejected
+Seller product CRUD › 400 — price = 0 rejected
+warmMarketCache › skips cleanly when GEMINI_API_KEY is unset (no pointless calls)

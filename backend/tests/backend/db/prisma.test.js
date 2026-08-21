@@ -5,6 +5,7 @@
 import prisma from '../../../src/config/db.js';
 import { buildUser, randomPhone } from '../../fixtures/factories.js';
 import { cleanupTestData } from '../../fixtures/setup.js';
+import { D, sumD } from '../../../src/utils/money.js';
 
 afterAll(async () => {
   await cleanupTestData();
@@ -216,7 +217,13 @@ describe('Data integrity', () => {
       include: { items: true },
     });
 
-    const itemTotal = order.items.reduce((sum, i) => sum + i.totalPrice, 0);
-    expect(order.totalAmount).toBe(itemTotal);
+    // Money columns come back as Prisma.Decimal, and this used to sum them with
+    // `sum + i.totalPrice` starting from 0 — which is the exact trap
+    // src/utils/money.js documents: Decimal.valueOf() returns a string, so `+`
+    // CONCATENATES. It produced "0500" and compared it to a Decimal with toBe(),
+    // so the assertion could not have passed whatever the data said. Summed
+    // through the production helper, and compared as exact decimal strings.
+    const itemTotal = sumD(order.items, (i) => i.totalPrice);
+    expect(D(order.totalAmount).equals(itemTotal)).toBe(true);
   });
 });

@@ -282,12 +282,16 @@ describe('Activity logging — fertilizer / pesticide / irrigation', () => {
     expect(res.body.data.irrigationLogs[0].method).toBe('drip');
   });
 
-  test("404 — cannot log on another farmer's cycle", async () => {
+  test("403 — cannot log on another farmer's cycle", async () => {
     const res = await request(app)
       .post(`${API}/cycles/${cycleId}/fertilizer`)
       .set(other.headers)
       .send({ productName: 'DAP' });
-    expect(res.status).toBe(404);
+    // 403, not 404: the ownership guard deliberately separates "not yours"
+    // from "does not exist", which is the acceptance criterion pinned by
+    // tests/backend/security/cycleOwnership.test.js. This asserted 404 and had
+    // never passed.
+    expect(res.status).toBe(403);
   });
 });
 
@@ -410,9 +414,13 @@ describe('Deletion — cycles & farms', () => {
     throwawayCycleId = res.body.data.id;
   });
 
-  test("404 — another farmer cannot delete the cycle", async () => {
+  test("403 — another farmer cannot delete the cycle", async () => {
     const res = await request(app).delete(`${API}/cycles/${throwawayCycleId}`).set(other.headers);
-    expect(res.status).toBe(404);
+    // 403, not 404: the ownership guard deliberately separates "not yours"
+    // from "does not exist", which is the acceptance criterion pinned by
+    // tests/backend/security/cycleOwnership.test.js. This asserted 404 and had
+    // never passed.
+    expect(res.status).toBe(403);
   });
 
   test('200 — owner deletes the cycle, then it is gone', async () => {

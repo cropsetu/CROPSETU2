@@ -89,9 +89,16 @@ export async function createCropCycle(farmerId, farmId, data) {
     select: { id: true, landSizeAcres: true },
   });
   if (!farm) return null;
+  // Tagged exposable so the farmer is told WHICH constraint they hit. A plain
+  // Error reaches sendServerError, which only forwards a message when
+  // `expose === true` — so this arrived as "Could not create crop cycle.", and
+  // someone allocating 3 acres on a 2-acre farm had no way to know that was the
+  // problem. `expose`/`statusCode` is the convention used at ~64 other throw
+  // sites in this codebase.
   if (data.areaAllocatedAcres > farm.landSizeAcres)
-    throw new Error(
-      `Area ${data.areaAllocatedAcres} exceeds farm size ${farm.landSizeAcres} acres`,
+    throw Object.assign(
+      new Error(`Area ${data.areaAllocatedAcres} exceeds farm size ${farm.landSizeAcres} acres`),
+      { statusCode: 400, expose: true },
     );
 
   return prisma.farmCropCycle.create({

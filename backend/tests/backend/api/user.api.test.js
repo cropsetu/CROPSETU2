@@ -123,31 +123,31 @@ describe('PUT /api/v1/users/me', () => {
     expect(res.body.data.district).toBe('Nashik');
   });
 
-  test('422 — invalid pincode (not 6 digits)', async () => {
+  test('400 — invalid pincode (not 6 digits)', async () => {
     const res = await request(app)
       .put('/api/v1/users/me')
       .set(farmer.headers)
       .send({ pincode: '1234' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
-  test('422 — invalid language', async () => {
+  test('400 — invalid language', async () => {
     const res = await request(app)
       .put('/api/v1/users/me')
       .set(farmer.headers)
       .send({ language: 'french' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
-  test('422 — invalid GST format', async () => {
+  test('400 — invalid GST format', async () => {
     const res = await request(app)
       .put('/api/v1/users/me')
       .set(farmer.headers)
       .send({ gstNumber: 'INVALID_GST' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('200 — valid GST number accepted', async () => {
@@ -169,22 +169,22 @@ describe('PUT /api/v1/users/me', () => {
     expect(res.body.data.gstOptOut).toBe(true);
   });
 
-  test('422 — invalid Aadhaar (not 12 digits)', async () => {
+  test('400 — invalid Aadhaar (not 12 digits)', async () => {
     const res = await request(app)
       .put('/api/v1/users/me')
       .set(farmer.headers)
       .send({ aadharNumber: '12345' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
-  test('422 — invalid IFSC format', async () => {
+  test('400 — invalid IFSC format', async () => {
     const res = await request(app)
       .put('/api/v1/users/me')
       .set(farmer.headers)
       .send({ bankIfsc: 'NOTVALID' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('XSS — HTML stripped from name', async () => {
@@ -253,23 +253,23 @@ describe('PUT /api/v1/users/me/farm', () => {
     expect(res.body.data.cropTypes).toContain('Wheat');
   });
 
-  test('422 — cropTypes with more than 20 items', async () => {
+  test('400 — cropTypes with more than 20 items', async () => {
     const crops = Array.from({ length: 21 }, (_, i) => `Crop${i}`);
     const res = await request(app)
       .put('/api/v1/users/me/farm')
       .set(farmer.headers)
       .send({ cropTypes: crops });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
-  test('422 — negative landAcres', async () => {
+  test('400 — negative landAcres', async () => {
     const res = await request(app)
       .put('/api/v1/users/me/farm')
       .set(farmer.headers)
       .send({ landAcres: -10 });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 });
 
@@ -287,16 +287,16 @@ describe('POST /api/v1/users/me/push-token', () => {
     expect(res.status).toBe(200);
   });
 
-  test('422 — invalid token format', async () => {
+  test('400 — invalid token format', async () => {
     const res = await request(app)
       .post('/api/v1/users/me/push-token')
       .set(farmer.headers)
       .send({ token: 'not-a-push-token', platform: 'ios' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
-  test('422 — invalid platform', async () => {
+  test('400 — invalid platform', async () => {
     const res = await request(app)
       .post('/api/v1/users/me/push-token')
       .set(farmer.headers)
@@ -305,7 +305,7 @@ describe('POST /api/v1/users/me/push-token', () => {
         platform: 'windows',
       });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 });
 
@@ -390,7 +390,7 @@ describe('DELETE /api/v1/users/me', () => {
       name: 'Erase Me', village: 'Testpur', district: 'Pune', state: 'Maharashtra',
     });
     // Personal rows that must be hard-deleted by the cascade.
-    await prisma.pushToken.create({ data: { userId: user.id, token: `ExponentPushToken[${user.id}]` } });
+    await prisma.pushToken.create({ data: { userId: user.id, token: `ExponentPushToken[${user.id}]`, platform: 'android' } });
     await seedOtpSession(user.phone);
 
     const res = await request(app)

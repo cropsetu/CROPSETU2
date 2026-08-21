@@ -72,6 +72,13 @@ const idemCycle = idempotency('cycle_write');  // dedupe duplicate cycle writes 
 // read-only detail and financials endpoints, which previously loaded a cycle by
 // id with no owner scope. The per-route services still scope writes by farmerId,
 // so this is also defense-in-depth for the mutating routes.
+//
+// 403-for-yours-vs-404-for-absent is an explicit acceptance criterion, pinned
+// by tests/backend/security/cycleOwnership.test.js. Note that it differs from
+// the sibling farm routes, which answer 404 for a farm the caller does not own
+// (farm.routes.js never calls sendForbidden). The two conventions coexist
+// deliberately here rather than being reconciled in passing; the difference is
+// recorded in docs/performance/FINDINGS.md as PERF-014.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function requireCycleOwner(req, res, next) {
   // Defer malformed ids to each route's param('cycleId').isUUID() → clean 400.
@@ -135,7 +142,12 @@ router.post('/farms/:farmId/cycles', wl, idemCycle, [param('farmId').isUUID(), b
   try {
     const cycle = await createCropCycle(req.user.id, req.params.farmId, req.body);
     return cycle ? sendCreated(res, cycle) : sendNotFound(res, 'Farm');
-  } catch (e) { return sendServerError(res, e, 'Could not create crop cycle.', 400); }
+    // No forced 400: that turned EVERY failure here into a client error,
+    // including a Prisma outage, so a real server fault was reported to the
+    // farmer as "your request was bad" and never showed up as a 5xx anywhere.
+    // The one business rejection this can raise (area exceeds farm size) now
+    // carries its own statusCode, which sendServerError reads.
+  } catch (e) { return sendServerError(res, e, 'Could not create crop cycle.'); }
 });
 
 // Get cycle detail

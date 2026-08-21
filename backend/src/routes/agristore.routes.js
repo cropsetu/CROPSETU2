@@ -2671,7 +2671,29 @@ router.post(
       return sendError(res, 'You can only review a product you have received.', 403);
     }
 
-    const review = await prisma.$transaction(async (tx) => {
+    // Serializable, because this is a read-modify-write of a denormalised
+    // counter and the read is an aggregate over a table the racers are all
+    // inserting into. Under the default Read Committed each concurrent reviewer
+    // takes its own snapshot of `reviews`, counts the subset that had committed
+    // by then, and writes that stale total over the product — last writer wins,
+    // with an undercount. Five simultaneous reviews reproducibly left
+    // ratingCount at 3, and `rating`/`ratingCount` are what order the storefront
+    // and feed the buy box, so the discarded ratings are not cosmetic.
+    //
+    // Retried for the same reason checkout is: losing a serialization race is a
+    // normal event here, not a server error, and the replay re-runs the
+    // aggregate against the winner's committed row.
+    //
+    // A larger attempt budget than checkout's default 3, because the contention
+    // shape is different. Checkout racers conflict only when they want the same
+    // listing; every reviewer of one product conflicts with every other by
+    // construction, since they all rewrite the same counter row. With N
+    // simultaneous reviewers one of them can lose N-1 times before it is the
+    // only writer left, so a budget of 3 turns the fifth reviewer's 409-shaped
+    // retry into a 500. Six covers realistic same-product concurrency; the
+    // backoff is 25 ms × attempt + jitter, so the worst case is a few hundred
+    // milliseconds on a request that is already writing.
+    const review = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
       // Keyed on the ORDER ITEM. The old @@unique([userId, productId]) meant a
       // buyer who bought the same seed from two Kendras could rate only one.
       const r = await tx.review.upsert({
@@ -2694,7 +2716,7 @@ router.post(
       });
 
       return r;
-    });
+    }, { isolationLevel: 'Serializable' }), { attempts: 6 });
 
     // Product rating orders the storefront; seller rating feeds the buy box.
     await invalidateCatalogCaches();

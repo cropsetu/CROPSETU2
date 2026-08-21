@@ -69,13 +69,13 @@ describe('GET /api/v1/agristore/products', () => {
   test('400 — limit exceeding 50 rejected', async () => {
     const res = await request(app)
       .get('/api/v1/agristore/products?limit=100');
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('400 — page=0 rejected', async () => {
     const res = await request(app)
       .get('/api/v1/agristore/products?page=0');
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('200 — SQL injection in search returns empty, no crash', async () => {
@@ -102,10 +102,23 @@ describe('GET /api/v1/agristore/products/:id', () => {
     expect(res.body.data.reviews).toBeDefined();
   });
 
-  test('404 — non-existent id', async () => {
+  // Split into the two cases the farm suite already distinguishes correctly
+  // (see farm.api.test.js: "valid-but-unknown UUID" vs "malformed id"). This
+  // was one test that sent the literal string 'non-existent-id' and expected
+  // 404. That string is not an id at all, and middleware/uuidParams.js rejects
+  // a non-UUID with 400 BEFORE the query — deliberately, so a malformed id
+  // cannot reach Prisma and turn into a P2023 500 or a timing probe. So the
+  // test was asserting 404 on the one input that can never produce one.
+  test('404 — valid UUID that matches no product', async () => {
+    const res = await request(app)
+      .get('/api/v1/agristore/products/11111111-1111-4111-8111-111111111111');
+    expect(res.status).toBe(404);
+  });
+
+  test('400 — malformed product id is rejected before the query', async () => {
     const res = await request(app)
       .get('/api/v1/agristore/products/non-existent-id');
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(400);
   });
 });
 
@@ -148,7 +161,7 @@ describe('Cart operations', () => {
       .set(farmer.headers)
       .send({ productId, quantity: 0 });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('400 — add to cart exceeding stock', async () => {
@@ -157,7 +170,7 @@ describe('Cart operations', () => {
       .set(farmer.headers)
       .send({ productId, quantity: 999 });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('404 — add non-existent product to cart', async () => {
@@ -389,7 +402,7 @@ describe('Seller product CRUD', () => {
       .set(seller.headers)
       .send({ name: 'No Price Product' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('400 — price = 0 rejected', async () => {
@@ -401,7 +414,7 @@ describe('Seller product CRUD', () => {
         price: 0, stock: 10, unit: 'kg',
       });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('400 — negative stock rejected', async () => {
@@ -413,7 +426,7 @@ describe('Seller product CRUD', () => {
         price: 100, stock: -5, unit: 'kg',
       });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('IDOR — seller cannot update another seller\'s product', async () => {
@@ -559,7 +572,7 @@ describe('POST /api/v1/agristore/products/:id/review', () => {
       .set(farmer.headers)
       .send({ rating: 6 });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('400 — rating = 0', async () => {
@@ -568,7 +581,7 @@ describe('POST /api/v1/agristore/products/:id/review', () => {
       .set(farmer.headers)
       .send({ rating: 0 });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('401 — unauthenticated review rejected', async () => {

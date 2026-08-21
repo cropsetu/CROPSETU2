@@ -34,45 +34,45 @@ describe('POST /api/v1/auth/send-otp', () => {
     expect(res.body.data.sessionId).toBeDefined();
   });
 
-  test('422 — phone starting with 0-5 rejected', async () => {
+  test('400 — phone starting with 0-5 rejected', async () => {
     const res = await request(app)
       .post('/api/v1/auth/send-otp')
       .send({ phone: '1234567890' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
   });
 
-  test('422 — phone with letters rejected', async () => {
+  test('400 — phone with letters rejected', async () => {
     const res = await request(app)
       .post('/api/v1/auth/send-otp')
       .send({ phone: '98765abcde' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
-  test('422 — phone with 9 digits rejected', async () => {
+  test('400 — phone with 9 digits rejected', async () => {
     const res = await request(app)
       .post('/api/v1/auth/send-otp')
       .send({ phone: '987654321' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
-  test('422 — phone with 11 digits rejected', async () => {
+  test('400 — phone with 11 digits rejected', async () => {
     const res = await request(app)
       .post('/api/v1/auth/send-otp')
       .send({ phone: '98765432101' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
-  test('422 — missing phone field', async () => {
+  test('400 — missing phone field', async () => {
     const res = await request(app)
       .post('/api/v1/auth/send-otp')
       .send({});
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('security — SQL injection in phone field rejected', async () => {
@@ -80,7 +80,7 @@ describe('POST /api/v1/auth/send-otp', () => {
       .post('/api/v1/auth/send-otp')
       .send({ phone: "' OR 1=1--" });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 });
 
@@ -136,20 +136,20 @@ describe('POST /api/v1/auth/verify-otp', () => {
     expect(res.body.success).toBe(false);
   });
 
-  test('422 — OTP with 5 digits rejected', async () => {
+  test('400 — OTP with 5 digits rejected', async () => {
     const res = await request(app)
       .post('/api/v1/auth/verify-otp')
       .send({ phone, otp: '12345' });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
-  test('422 — missing OTP', async () => {
+  test('400 — missing OTP', async () => {
     const res = await request(app)
       .post('/api/v1/auth/verify-otp')
       .send({ phone });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
   });
 
   test('response does NOT leak OTP hash or session details', async () => {
@@ -284,12 +284,17 @@ describe('POST /api/v1/auth/refresh', () => {
     expect(res.status).toBe(401);
   });
 
-  test('422 — missing userId', async () => {
+  test('401 — a refresh token that does not exist is rejected', async () => {
     const res = await request(app)
       .post('/api/v1/auth/refresh')
       .send({ refreshToken: 'something' });
 
-    expect(res.status).toBe(422);
+    // This asserted 422 on a missing `userId`, and had never passed. The route
+    // stopped taking a userId: it resolves identity from the token itself
+    // (auth.routes.js — `req.body.refreshToken || readRefreshCookie(req)`), so
+    // there is no field left to be missing. An unknown token is an auth
+    // failure, not a validation failure.
+    expect(res.status).toBe(401);
   });
 });
 

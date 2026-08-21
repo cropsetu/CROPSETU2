@@ -9,7 +9,30 @@ let counter = 0;
 const seq = () => ++counter;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-export const randomPhone = () => `${6 + Math.floor(Math.random() * 4)}${String(Date.now()).slice(-9)}`;
+// A valid Indian mobile: leading 6-9, then 9 more digits. `users.phone` is
+// UNIQUE, so a factory that can repeat itself makes any test that creates
+// several users in quick succession fail on the constraint rather than on its
+// own assertion.
+//
+// This used to be `Date.now()`'s last 9 digits, which is a MILLISECOND clock —
+// two users built in the same millisecond got byte-identical suffixes, and the
+// only other entropy was a 1-in-4 leading digit. Every test that provisions its
+// actors in a tight loop was therefore a ~25%-per-pair coin flip, and the two
+// that provision the most — tests/backend/load/booking-concurrency.test.js and
+// the concurrent-review suite in tests/backend/db/prisma.test.js — lost it
+// every run. Those are the suites that assert the marketplace does not
+// oversell a slot and does not lose a rating update under concurrency, so the
+// two properties the money path most depends on were never actually exercised.
+//
+// The 9 digits now come from a per-process counter offset by a random base:
+// unique by construction within a run (the counter cannot repeat until 1e9),
+// and distinct across parallel jest workers because each picks its own base.
+const PHONE_BASE = Math.floor(Math.random() * 1e9);
+let phoneSeq = 0;
+export const randomPhone = () => {
+  const suffix = (PHONE_BASE + phoneSeq++) % 1e9;
+  return `${6 + Math.floor(Math.random() * 4)}${String(suffix).padStart(9, '0')}`;
+};
 export const randomId = () => crypto.randomUUID();
 
 // ── User ─────────────────────────────────────────────────────────────────────

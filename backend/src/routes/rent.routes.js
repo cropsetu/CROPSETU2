@@ -54,6 +54,7 @@ import { stripHtml } from '../utils/encrypt.js';
 import { archiveResource } from '../services/softDelete.service.js';
 import { auditLog } from '../services/audit.service.js';
 import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
+import { withSerializableRetry } from '../utils/txRetry.js';
 import {
   NS_MACHINERY, NS_LABOUR, RENT_TTL_SEC,
   MACHINERY_LIST_SELECT, MACHINERY_DETAIL_SELECT,
@@ -1285,8 +1286,20 @@ router.post(
 
     // [FIX #1] Wrap conflict check + booking create in a Serializable transaction
     // to prevent double-booking when concurrent requests hit the same slot.
+    //
+    // The isolation level is what makes double-booking impossible; the retry is
+    // what makes losing that race survivable. Ten clients hitting one slot all
+    // read "no conflict" and all try to insert, so Postgres aborts nine with
+    // SQLSTATE 40001 — and without a replay every one of those nine answered
+    // 500 "Booking failed", which is both wrong (nothing failed on the server)
+    // and harmful (a 5xx is what the mobile client retries, so the losers came
+    // straight back). Replaying re-reads the slot and returns the truthful 409.
+    //
+    // tests/backend/load/booking-concurrency.test.js asserts exactly this and
+    // had never once executed: the phone factory it provisions its ten racers
+    // with collided on `users.phone` before the first request was ever sent.
     try {
-      const booking = await prisma.$transaction(async (tx) => {
+      const booking = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
         const conflictWhere = {
           status: { in: ['PENDING', 'CONFIRMED', 'ACTIVE'] },
           OR: [
@@ -1372,7 +1385,7 @@ router.post(
         });
       }, {
         isolationLevel: 'Serializable', // prevents concurrent double-bookings
-      });
+      }));
 
       // Notify the listing owner (fire-and-forget, outside the critical transaction)
       const listingName  = booking.machineryListing?.name || booking.labourListing?.name || 'your listing';

@@ -27,7 +27,7 @@ const WARM_BATCH = 4; // combos preloaded per batch
 
 /**
  * Preload the hot mandi-price keys into the in-process cache.
- * @returns {Promise<{ok:number, fail:number, total:number, skipped?:boolean}>}
+ * @returns {Promise<{ok:number, fail:number, total:number}>}
  */
 export async function warmMarketCache() {
   const total = HOT_MARKET_COMBOS.length;
