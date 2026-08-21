@@ -195,6 +195,20 @@ router.post('/:id/join', authenticate, async (req, res) => {
   const group = await prisma.group.findUnique({ where: { id: req.params.id } });
   if (!group) return sendNotFound(res, 'Group');
 
+  // Joining is for PUBLIC groups. Discovery (line 43) already lists only
+  // `isPublic: true`, so a private group's id is not handed out — but an id is
+  // not a secret, and a group that WAS public keeps the same one after an admin
+  // makes it private (admin/community.routes.js). Making a group private is a
+  // moderation action; it has to stop new people walking in, not merely hide the
+  // group from a list.
+  //
+  // There is no invite mechanism in the schema, so a private group is
+  // creator-and-admin managed until one exists. Nothing regresses today: no
+  // client in frontend/, seller-app/ or admin/ calls this endpoint at all.
+  if (group.isPublic === false) {
+    return sendForbidden(res, 'This group is private.');
+  }
+
   const existing = await prisma.groupMember.findUnique({
     where: { groupId_userId: { groupId: group.id, userId: req.user.id } },
   });

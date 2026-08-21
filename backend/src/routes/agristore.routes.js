@@ -2651,12 +2651,28 @@ router.put(
   }
 );
 
+// Statuses an order item can hold. Mirrors the transition endpoint's own
+// isIn([...]) plus PENDING, which is the schema default a new item starts at.
+const SELLER_ORDER_STATUSES = ['PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED'];
+
 router.get('/seller/orders', authenticate, requireRole(...SELLER_ROLES), async (req, res) => {
   const page  = parsePageNumber(req.query.page);
   const limit = parsePageSize(req.query.limit, 15, 50);
+
+  // The seller app sends `&status=<chip>` (seller-app OrdersScreen.js) and this
+  // route ignored it, so every chip — Pending, Confirmed, Shipped, Delivered,
+  // Cancelled — returned the same unfiltered list. A Kendra with a hundred
+  // delivered orders tapping "Pending" to find what to pack got all hundred.
+  //
+  // Validated against a known set rather than passed through: an unrecognised
+  // value must show everything, not silently match nothing and look like an
+  // empty shop.
+  const status = SELLER_ORDER_STATUSES.includes(req.query.status) ? req.query.status : null;
+  const where = { sellerId: req.user.id, ...(status ? { status } : {}) };
+
   const [items, total] = await Promise.all([
     prisma.orderItem.findMany({
-      where: { sellerId: req.user.id },
+      where,
       include: {
         product: { select: { id: true, name: true, images: true } },
         order: {
@@ -2671,7 +2687,9 @@ router.get('/seller/orders', authenticate, requireRole(...SELLER_ROLES), async (
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.orderItem.count({ where: { sellerId: req.user.id } }),
+    // Counted with the SAME predicate — otherwise the filtered page reports the
+    // unfiltered total and the list pages into rows the filter excludes.
+    prisma.orderItem.count({ where }),
   ]);
 
   // The unit sold lives on the VARIANT now, not on the product row.
