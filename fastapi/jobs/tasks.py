@@ -255,3 +255,14 @@ def run_diagnosis_task(self, *, payload: dict) -> dict:
         raise
     finally:
         _cleanup(temp_paths)
+        # The only evidence anywhere that a worker exists and is consuming the
+        # queue. In `finally` on purpose: success, soft timeout and hard failure
+        # all count, because a worker failing every task is still alive and
+        # still draining — that is a failure-RATE problem, a different signal.
+        # What worker_health() looks for is work waiting while nothing at all
+        # finishes, which is the shape of no worker being deployed.
+        try:
+            from jobs.queue import mark_task_completed
+            mark_task_completed()
+        except Exception:  # noqa: BLE001
+            pass  # observability must never fail a task

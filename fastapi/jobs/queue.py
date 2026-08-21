@@ -306,6 +306,84 @@ def job_was_enqueued(job_id: str) -> bool:
         return True
 
 
+# ── Worker liveness (claude.md §35) ──────────────────────────────────────────
+# A healthy FastAPI process says nothing about whether any Celery worker exists.
+# Deploy the web role without the worker role and every scan is accepted, queued
+# and never run, while /health stays green and the farmer watches a spinner until
+# the client gives up. Nothing in this service could observe that.
+#
+# Deliberately NOT celery_app.control.ping(). That broadcasts over the broker and
+# blocks for its whole timeout, inside async handlers that already have five
+# blocking Redis round-trips per scan poll. These two facts cost one Redis read
+# each and need no cooperation from a worker that may not exist:
+#
+#   depth               LLEN on the broker list — how many scans are waiting
+#   seconds_since_done  age of the marker every worker writes when a task ends
+#
+# Neither alone is a fault. Together they are: a queue that is not empty while
+# nothing has completed recently means work is arriving and nothing is doing it,
+# which is exactly the "no worker deployed" case and also covers a worker that is
+# wedged rather than absent.
+_HEARTBEAT_KEY = "celery:worker:last_completion"
+_HEARTBEAT_TTL = 24 * 3600           # long, so an idle fleet still reports a date
+_DEFAULT_QUEUE = os.environ.get("CELERY_TASK_QUEUE", "celery")
+
+# How stale a completion may be, with work waiting, before this reads as stuck.
+# Above the 300s task_time_limit, so one legitimately long scan running alone
+# cannot trip it.
+_STUCK_AFTER_SEC = int(os.environ.get("CELERY_STUCK_AFTER_SEC", "600"))
+
+
+def mark_task_completed() -> None:
+    """Record that a worker finished a task. Called from jobs/tasks.py."""
+    if not _redis_available():
+        return
+    try:
+        _redis.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, str(time.time()))
+    except Exception as exc:  # noqa: BLE001
+        _mark_redis_down("heartbeat", exc)
+
+
+def worker_health() -> dict:
+    """
+    Queue depth and worker liveness, as plain data for the health routes.
+
+    Never raises and never blocks on a worker: an unreachable Redis reports
+    `available: False` rather than turning an ops read into an outage.
+    """
+    if not _redis_available():
+        return {"available": False, "reason": "redis unavailable"}
+    try:
+        depth = int(_redis.llen(_DEFAULT_QUEUE) or 0)
+        raw = _redis.get(_HEARTBEAT_KEY)
+    except Exception as exc:  # noqa: BLE001
+        _mark_redis_down("worker_health", exc)
+        return {"available": False, "reason": "redis unavailable"}
+
+    last = None
+    age = None
+    if raw:
+        try:
+            last = float(raw)
+            age = max(0.0, time.time() - last)
+        except (TypeError, ValueError):
+            last = None
+
+    # Work waiting and nothing finishing. `age is None` counts as stuck only
+    # when the queue is non-empty — a fleet that has never run a task and has
+    # nothing to run is idle, not broken.
+    stuck = depth > 0 and (age is None or age > _STUCK_AFTER_SEC)
+
+    return {
+        "available": True,
+        "queue": _DEFAULT_QUEUE,
+        "depth": depth,
+        "last_completion_epoch": last,
+        "seconds_since_completion": None if age is None else round(age, 1),
+        "stuck": stuck,
+    }
+
+
 # ── Enqueue + status ─────────────────────────────────────────────────────────
 
 def enqueue_diagnosis(payload: dict, *, idempotency_key: str | None = None) -> str:

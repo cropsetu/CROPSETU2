@@ -41,6 +41,11 @@ from security.auth import verify_signed_request
 from config import API_HOST, API_PORT, DATABASE_URL
 from rate_limit import make_limiter
 from db_pool import get_shared_pool, close_shared_pool
+# worker_health does blocking Redis reads (the jobs.queue client is the sync
+# library), so it is called through run_in_threadpool rather than inline — this
+# is a health route, not a place to stall the event loop.
+from starlette.concurrency import run_in_threadpool
+from jobs.queue import worker_health
 from services.http_clients import close_all as close_http_clients
 from routes.chat            import router as chat_router
 from routes.scan            import router as scan_router
@@ -269,8 +274,14 @@ async def health():
     from safety.invariants import check_invariants, CRITICAL
     db_ok = await _db_ok()
     crit = [i for i in check_invariants() if i["severity"] == CRITICAL]
+    # A backed-up queue with no worker consuming it makes this service useless
+    # for scans even though the process is perfectly healthy, so it belongs in
+    # the status. It does NOT belong in a liveness verdict — restarting the web
+    # role cannot conjure a worker, and fastapi/railway.json declares no
+    # healthcheckPath, so this is read by operators rather than by a supervisor.
+    worker = await run_in_threadpool(worker_health)
     return {
-        "status":  "ok" if (db_ok and not crit) else "degraded",
+        "status":  "ok" if (db_ok and not crit and not worker.get("stuck")) else "degraded",
         "service": "CropGuard AI",
     }
 
@@ -297,10 +308,17 @@ async def health_details():
         from data.crop_disease_whitelist import WHITELIST_VERSION as _wl_version
     except Exception:
         _wl_version = "unknown"
+    _worker = await run_in_threadpool(worker_health)
     return {
-        "status":   "ok" if (db_ok and not _crit) else "degraded",
+        "status":   "ok" if (db_ok and not _crit and not _worker.get("stuck")) else "degraded",
         "service":  "CropGuard AI",
         "database": "connected" if db_ok else "unreachable",
+        # Queue depth, and how long since ANY worker last finished a task. The
+        # pair is the signal: depth alone is a busy afternoon, staleness alone is
+        # a quiet one, both together means scans are arriving and nothing is
+        # running them. Reports available:false rather than raising when Redis
+        # is down, so an ops read never becomes an outage.
+        "worker":   _worker,
         "prompts":           _prompts(),
         "chains_fast":       _chains("fast"),
         "chains_best":       _chains("best"),

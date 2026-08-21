@@ -1,6 +1,6 @@
 /**
  * Admin Ops — feature flags, external-API health, queue stats, job inspection,
- * and the server error log.
+ * circuit-breaker state, and the server error log.
  *   /api/v1/admin/flags          GET list / PATCH :key (toggle)
  *   /api/v1/admin/health         GET external-API health (APIHealthLog summary)
  *   /api/v1/admin/queues         GET BullMQ job counts
@@ -23,6 +23,7 @@ import { getQueueStats, getRecentJobs, retryJob, isKnownQueue } from '../../queu
 import redis from '../../config/redis.js';
 import { getSigned } from '../../utils/fastapi-signed.js';
 import { getBudgetSummary } from '../../services/settings.service.js';
+import { breakerStates, CIRCUIT_STATES } from '../../resilience/circuitBreaker.js';
 import { keysetList } from '../../utils/adminList.js';
 import { adminAudit, listParams, sendList } from './_helpers.js';
 
@@ -56,10 +57,51 @@ async function probe(name, fn, timeoutMs = 4000) {
   }
 }
 
+/**
+ * Turn the probe results into one light, plus the reasons behind it.
+ *
+ * Extracted and exported so the verdict can be tested without standing up an
+ * authenticated admin request — it is the part with actual logic in it.
+ *
+ * `down` is reserved for the core: without Postgres or Redis the marketplace
+ * itself is unusable. Everything else is `degraded`, because an operator has to
+ * be able to tell "the whole app is down" from "AI is down" at a glance.
+ */
+export function statusVerdict({ database, redisStatus, aiService, queues, breakers }) {
+  // An OPEN breaker means a dependency is being refused calls RIGHT NOW.
+  // breakerStates() has existed and been exported since the breakers shipped and
+  // nothing ever called it, so an open circuit on Gemini, Sarvam, Razorpay or
+  // FastAPI was knowable and shown nowhere.
+  const openBreakers = (breakers?.breakers || [])
+    .filter((b) => b?.state === CIRCUIT_STATES.OPEN)
+    .map((b) => b.name);
+
+  // The AI service ANSWERING is not the same as the AI service WORKING: it
+  // reports healthy with no Celery worker deployed, while every scan queues
+  // forever. /health/details now carries that verdict, so honour it rather than
+  // treating a 200 as proof.
+  const scansStuck = aiService?.detail?.worker?.stuck === true;
+
+  const coreOk = Boolean(database?.ok) && Boolean(redisStatus?.ok);
+  if (!coreOk) return { overall: 'down', degradedBecause: [] };
+
+  const degradedBecause = [
+    ...(aiService?.ok ? [] : ['ai_service_unreachable']),
+    ...(queues?.ok ? [] : ['queue_unavailable']),
+    ...(scansStuck ? ['scans_queued_no_worker'] : []),
+    ...openBreakers.map((n) => `breaker_open:${n}`),
+  ];
+
+  return {
+    overall: degradedBecause.length ? 'degraded' : 'healthy',
+    degradedBecause,
+  };
+}
+
 statusRouter.get('/status', async (_req, res) => {
   try {
     const DAY = 24 * 60 * 60 * 1000;
-    const [database, redisStatus, aiService, queues, budget, recentErrors, disabledFlags] = await Promise.all([
+    const [database, redisStatus, aiService, queues, budget, recentErrors, disabledFlags, breakers] = await Promise.all([
       probe('database', async () => {
         await prisma.$queryRaw`SELECT 1`;
         return {};
@@ -84,20 +126,21 @@ statusRouter.get('/status', async (_req, res) => {
         const off = await prisma.featureFlag.findMany({ where: { isEnabled: false }, select: { featureKey: true, disabledReason: true } });
         return { disabled: off };
       }),
+      // Circuit-breaker state (claude.md §56). breakerStates() has existed and
+      // been exported since the breakers shipped, and nothing had ever called
+      // it — so an OPEN breaker on Gemini, Sarvam, Razorpay or FastAPI was
+      // knowable and never shown anywhere. In-process, so no await and no
+      // failure mode; the probe wrapper is kept only for a uniform shape.
+      probe('breakers', async () => ({ breakers: breakerStates() })),
     ]);
 
-    // One overall light. `degraded` rather than `down` when only the AI service is
-    // out: the marketplace keeps working without it, and an operator needs to tell
-    // "the whole app is down" apart from "AI is down" at a glance.
-    const core = [database, redisStatus];
-    const overall = core.every((c) => c.ok)
-      ? (aiService.ok && queues.ok ? 'healthy' : 'degraded')
-      : 'down';
+    const { overall, degradedBecause } = statusVerdict({ database, redisStatus, aiService, queues, breakers });
 
     return sendSuccess(res, {
       overall,
       checkedAt: new Date().toISOString(),
-      checks: { database, redis: redisStatus, aiService, queues, budget, errors: recentErrors, flags: disabledFlags },
+      degradedBecause,
+      checks: { database, redis: redisStatus, aiService, queues, budget, errors: recentErrors, flags: disabledFlags, breakers },
     });
   } catch (err) {
     return sendServerError(res, err, 'Failed to load system status');
