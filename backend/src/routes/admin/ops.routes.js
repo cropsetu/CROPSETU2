@@ -24,6 +24,8 @@ import redis from '../../config/redis.js';
 import { getSigned } from '../../utils/fastapi-signed.js';
 import { getBudgetSummary } from '../../services/settings.service.js';
 import { breakerStates, CIRCUIT_STATES } from '../../resilience/circuitBreaker.js';
+import { reauthStats } from '../../socket/socketReauth.js';
+import { inlineStats } from '../../queue/jobQueue.js';
 import { keysetList } from '../../utils/adminList.js';
 import { adminAudit, listParams, sendList } from './_helpers.js';
 
@@ -101,7 +103,7 @@ export function statusVerdict({ database, redisStatus, aiService, queues, breake
 statusRouter.get('/status', async (_req, res) => {
   try {
     const DAY = 24 * 60 * 60 * 1000;
-    const [database, redisStatus, aiService, queues, budget, recentErrors, disabledFlags, breakers] = await Promise.all([
+    const [database, redisStatus, aiService, queues, budget, recentErrors, disabledFlags, breakers, realtime] = await Promise.all([
       probe('database', async () => {
         await prisma.$queryRaw`SELECT 1`;
         return {};
@@ -132,6 +134,12 @@ statusRouter.get('/status', async (_req, res) => {
       // knowable and never shown anywhere. In-process, so no await and no
       // failure mode; the probe wrapper is kept only for a uniform shape.
       probe('breakers', async () => ({ breakers: breakerStates() })),
+      // Two more counters that would otherwise be computed and shown nowhere,
+      // which is how breakerStates() spent its whole life. Neither is a fault
+      // on its own: sockets evicted means revocation is reaching live
+      // connections, and jobs shed means the queue fail-open path is protecting
+      // the request path. Both are rates an operator wants to see move.
+      probe('realtime', async () => ({ socketReauth: reauthStats(), inlineQueue: inlineStats() })),
     ]);
 
     const { overall, degradedBecause } = statusVerdict({ database, redisStatus, aiService, queues, breakers });
@@ -140,7 +148,7 @@ statusRouter.get('/status', async (_req, res) => {
       overall,
       checkedAt: new Date().toISOString(),
       degradedBecause,
-      checks: { database, redis: redisStatus, aiService, queues, budget, errors: recentErrors, flags: disabledFlags, breakers },
+      checks: { database, redis: redisStatus, aiService, queues, budget, errors: recentErrors, flags: disabledFlags, breakers, realtime },
     });
   } catch (err) {
     return sendServerError(res, err, 'Failed to load system status');

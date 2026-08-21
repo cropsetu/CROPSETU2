@@ -11,6 +11,7 @@ import prisma from './config/db.js';
 import redis, { beginRedisShutdown, getRedisMemoryMetrics, reconnectDelay } from './config/redis.js';
 import { setSocketAdapterHealthy } from './socket/adapterHealth.js';
 import { registerChatSocket } from './socket/chat.socket.js';
+import { startSocketReauth, stopSocketReauth } from './socket/socketReauth.js';
 import { seedDefaultFlags, initFlagInvalidationSubscriber, stopFlagInvalidationSubscriber } from './services/featureFlag.service.js';
 import { warmAllCaches } from './services/cacheWarmer.service.js';
 import { checkCacheAlerts } from './utils/cacheMetrics.js';
@@ -163,6 +164,15 @@ try {
 }
 
 registerChatSocket(io);
+
+// The handshake is the ONLY place a socket's credentials are checked, and a
+// socket is not a request — once open it stays open. Without this, a ban, a
+// logout-all, a KYC role flip or a DPDP erasure lands on the victim's NEXT
+// handshake, which for a phone on a kitchen shelf may be tomorrow, while the
+// live socket keeps carrying AI and voice turns that spend provider money.
+// Fails open on purpose, unlike the handshake: refusing a new connection is
+// recoverable in seconds, disconnecting every live one is not.
+startSocketReauth(io);
 
 // Expose io to Express route handlers via `req.app.get('io')` so HTTP-sent
 // chat messages can be broadcast on the socket bus for real-time delivery.
@@ -473,6 +483,7 @@ async function shutdown(signal) {
     await closeQueues();
     await closeProducerConnection();
     beginRedisShutdown(); // suppress the close/end outage alert for this intentional quit
+    stopSocketReauth();
     await Promise.allSettled([
       stopFlagInvalidationSubscriber(),
       prisma.$disconnect(),
