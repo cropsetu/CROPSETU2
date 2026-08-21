@@ -446,3 +446,210 @@ app — exactly what §43 prescribes. No `Promise.all` over uploads exists.
 **The `chats` composites are not worth their write cost.** `updatedAt` is bumped
 on every message, so two composites on it would be rewritten on the hottest
 write in the chat system, to speed up sorting one user's few dozen chats.
+
+
+---
+
+## PERF-022 — The two scan tables Prisma cannot see had no retention
+
+**P1 · COMPLETE**
+
+Component: `backend/src/services/retention.service.js`, `constants/retention.js`
+
+`ai_scan_diagnoses` and `ai_scan_feedback` were the only tables in the §26 growth
+list with no retention at all. Structural, not an oversight: the sweep is a loop
+over `prisma[p.model].deleteMany()`, and both tables are created by the FastAPI
+service through asyncpg and are absent from `schema.prisma`, so there is no
+delegate to name. The policy file said as much and left them "tracked
+separately", which meant not tracked. They are also the wrong tables to leave
+unbounded — one row per crop scan, each carrying a full diagnosis payload.
+
+Fixed with raw SQL beside the loop rather than inside it, so the data-driven
+table stays data-driven. Existence probe runs BEFORE any statement, the same
+shape `erasure.service.js` needed: Postgres aborts a whole transaction on a
+missing relation (25P02), so a deployment where the AI service has never booted
+must not lose the other eleven categories to these two.
+
+Window is 365 days, deliberately longer than the log-shaped categories: these
+rows are the only record of what the pipeline decided (model, prompt hash,
+confidence, safety blockers), which is what a disputed diagnosis is investigated
+from and what a prompt change is evaluated against.
+
+Verified against a live database: absent tables skip and the other eleven
+categories still complete; present tables delete exactly the rows past the line
+(364 days survives, 366 does not); a second run deletes nothing.
+
+---
+
+## PERF-023 — §27: the payload split, answered with arithmetic
+
+**P3 · CLOSED — do not split**
+
+`diagnosis_repo.py` carried a comment claiming it stripped `_safety` from the
+payload "so the JSONB isn't bloated". It stripped nothing, and the strip would
+have been a no-op: the report's `treatment` section is built from an explicit key
+allowlist in `report_generator_agent`, and `_safety` is not on it.
+
+Measured a real report — three chemicals, two blockers, two warnings, four
+differentials — by building it offline (the generator is template-based, no LLM):
+
+| section | KB | % |
+|---|---:|---:|
+| annex_page | 3.4 | 21.5% |
+| treatment | 3.0 | 18.6% |
+| detailed_guidance_page | 2.5 | 15.4% |
+| dispensing_sheet_page | 1.7 | 10.5% |
+| meta | 1.5 | 9.1% |
+| farmer_summary_page | 1.3 | 7.9% |
+| weather_outlook | 1.1 | 6.8% |
+| **total** | **15.9** | |
+
+At 100,000 scans/year that is **1.5 GB/year** before TOAST compression, and with
+PERF-022 it is a ceiling rather than a slope. The object-storage split §27 asks
+about would buy about a gigabyte and cost every debugging session a round trip to
+a bucket. **Rejected.**
+
+The one genuine duplication (blocker/warning lists under both `meta.safety` for
+the mobile badge and `annex_page` for the PDF) is 0.41 KB — 2.6% — and reshaping
+a document two clients parse is not worth that.
+
+If it ever does bite: `annex_page` + `weather_outlook.raw_forecast` are 28% of
+the payload and nothing queries them. That is the first cut, not the column.
+
+---
+
+## PERF-024 — The offline write queue minted a new Idempotency-Key per retry
+
+**P1 · COMPLETE**
+
+Component: `frontend/src/services/writeQueue.js`, `farmApi.js`, `shared/services/api.js`
+
+`writeQueue.js` promised that "api.js attaches an Idempotency-Key that survives
+retries, so a retry never double-applies". It did not. api.js mints the key in a
+request interceptor guarded by `!config.headers['Idempotency-Key']` — which makes
+the key survive a retransmission of the SAME config object, i.e. the 401-refresh
+replay, and nothing else. A `withWrite` retry calls `fn()` again and builds a
+request from scratch: no header, fresh key.
+
+So the retry produced exactly the failure the comment ruled out. Farmer on a
+village connection saves a farm; the POST commits; the response is lost; axios
+times out; the retry lands under an unrelated key; they have two farms. Same for
+update and delete.
+
+The key belongs to the logical write, so `withWrite` mints one up front and hands
+it to every attempt as an axios config. A callback that ignores that argument
+gets a dev-time warning. Backoff also gained jitter (§46) — a tower coming back
+after an outage releases every phone under it at once, and a fixed 400/800/1600
+grid turns that into a synchronised wave.
+
+Six tests. Verified: restoring per-attempt keys fails the first and passes five.
+
+---
+
+## PERF-025 — Uploads were cut off while Cloudinary was still receiving them
+
+**P1 · COMPLETE**
+
+Component: `backend/src/app.js`, `config/env.js`
+
+Both rental screens raise their own axios timeout to 120 s to post a video. The
+server still tore the socket down at 30 s. That 30 s is an INACTIVITY timeout, so
+it survives the upload itself — bytes keep arriving — and fires during the one
+window where the client socket is legitimately idle: after multer has buffered
+the file and while Express streams it to Cloudinary.
+
+A large video would upload completely, start landing in Cloudinary, and have the
+connection destroyed underneath it. The farmer sees a network error at ~30 s,
+well inside their app's budget, retries, and sends the whole file again — while
+the first copy carries on and lands as an orphan nothing references. Double
+bandwidth on a metered connection, double storage.
+
+Same asymmetry `/ai/*` already had fixed. Raised per-prefix so the Slowloris
+default stays on every other route, and sized just above the client's 120 s so
+the client always gives up first and owns the retry.
+
+Test patches `IncomingMessage.setTimeout` to record what each path actually gets,
+which asserts the middleware RAN rather than reading router internals — a
+mount-order change is exactly how this regresses.
+
+---
+
+## PERF-026 — Native voice upload could not recover from an expired token
+
+**P1 · COMPLETE**
+
+Component: `frontend/src/services/aiApi.js`
+
+Android's New Architecture drops `file://` URIs from FormData, so both native
+voice paths use `FileSystem.uploadAsync` instead of axios. Leaving the axios
+pipeline also left behind its response interceptor — the thing that refreshes an
+expired access token and replays the request.
+
+Access tokens live fifteen minutes. A farmer who opened the app, talked for
+thirty seconds and hit an expired token got a bare 401: the recording was
+discarded and they had to say the whole thing again, while every other screen
+refreshed silently. On a voice-first product built for people who may not read,
+that is the worst request in the app to make someone repeat.
+
+Both call sites were the same forty lines with different parameters; they are one
+helper now that does the refresh-and-replay by hand. Once only. Non-401s are not
+retried — "out of AI credits" is a real answer. The replay reuses the SAME key,
+so a turn that already charged a credit does not charge a second.
+
+Seven tests. Verified: removing the refresh block fails five, passes two.
+
+---
+
+## PERF-027 — `npm test` did not mean what CI meant
+
+**P0 · COMPLETE**
+
+Component: `backend/package.json`, `.github/workflows/ci.yml`
+
+`npm test` produced **143 failures**; the same suites with `--runInBand` produced
+zero. The code was never the difference.
+
+Every DB-backed suite truncates all tables in `afterAll` against ONE shared
+database. At jest's default worker count, seven do that concurrently: workers
+delete each other's fixtures mid-test and deadlock in the cleanup transaction
+(40P01). `tests/fixtures/setup.js` already assumed "the single --runInBand
+process" in its own comment; nothing enforced it.
+
+The CI workflow passed the flag, so CI was right and the local command was wrong
+— the worst arrangement, because the failures are stable (the same 143 twice) and
+read as a real regression worth hunting through the diff for.
+
+Moved the guarantee into the jest config as `maxWorkers: 1`, where it also covers
+`npx jest <file>` — the way a single suite gets run while debugging, and the
+invocation that would still have been wrong.
+
+This also explains the "three suites failed once each, never reproduced" note
+that closed the previous PROGRESS.md. Same family, and now enforced rather than
+hoped for.
+
+---
+
+## PERF-028 — `reviews.@@index([userId])` is prefix-subsumed
+
+**P3 · DROP-CANDIDATE, not dropped**
+
+Its justification cited a `[userId, productId]` unique that does not exist; the
+real one is `[userId, orderItemId]`, whose leading column already serves
+`WHERE userId = ?`.
+
+Measured on a 200k-row replica, 5,000 users, for the query that runs
+(`admin/activity.routes.js:258`):
+
+| | plan | time |
+|---|---|---|
+| with the index | Bitmap Index Scan on `reviews_userId_idx` | 0.071 ms |
+| without it | Bitmap Index Scan on the composite | 0.069 ms |
+
+Same plan shape, one extra buffer. **Not dropped**: §18 says not to drop a
+production index on a structural argument alone, and `reviews` is written once
+per order item, so this is not the write amplification §18 is aimed at. The
+evidence now lives in the schema comment so the call is made on production
+statistics rather than on a claim that was wrong about its own schema.
+
+This is the first of the ~40 suspected redundant indexes to be *proven* rather
+than suspected. The rest remain blocked on `pg_stat_user_indexes`.

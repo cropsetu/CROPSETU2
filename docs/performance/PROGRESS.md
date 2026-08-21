@@ -2,7 +2,8 @@
 
 ## Current Item
 
-PERF-021 — feature-by-feature sweep (claude.md §71), audit in progress.
+PERF-021 — feature-by-feature sweep (claude.md §71). Working the findings it
+produced; §18, §27, §32, §46, §58 and §62–64 are now answered.
 
 ## Status
 
@@ -13,7 +14,7 @@ environment with mocked AI providers (load testing, §62/§63).
 
 ## Current Feature
 
-Realtime / Socket.IO authentication.
+Data growth (§26/§27), offline behaviour (§46) and the test harness itself.
 
 ## What was discovered
 
@@ -90,9 +91,9 @@ docs      docs/performance/TABLES.md (new) — §14, §66, §67, §68, §69
 
 | Suite | Before | After |
 |---|---|---|
-| backend (`npm test -- --runInBand`) | 7–8 suites / 37–38 failing | **104 suites / 0 failing, 1230 passing** |
+| backend (`npm test`, no flags) | 7–8 suites / 37–38 failing → then 143 failing in parallel | **108 suites / 0 failing, 1275 passing** |
 | fastapi (`pytest tests`) | 4 failing / 311 passing | **337 passing** |
-| frontend + shared (`npx jest`) | 9 suites / 175 passing | **12 suites / 199 passing** |
+| frontend + shared (`npx jest`) | 9 suites / 175 passing | **14 suites / 212 passing** |
 | admin (`tsc --noEmit`, `vite build`) | green | green |
 
 Two new suites were confirmed to **fail with the fix reverted** and pass with it
@@ -130,29 +131,56 @@ Behavioural, measured locally — no production telemetry is available:
 - i18n: seven regional bundles (692 KB) no longer evaluated at cold start.
 - Backend suite wall clock: ~30 s, unchanged.
 
+## Recently completed (this session)
+
+| ID | What | Verified by |
+|---|---|---|
+| PERF-022 | Retention for the two FastAPI-owned scan tables | live DB: absent/present/idempotent |
+| PERF-023 | §27 payload split — measured and **rejected**, 15.9 KB/report | offline report build |
+| PERF-024 | Write queue minted a new Idempotency-Key per retry | revert → 1 of 6 fails |
+| PERF-025 | Uploads cut off mid-Cloudinary at 30 s | revert → 2 of 5 fail |
+| PERF-026 | Native voice could not recover from an expired token | revert → 5 of 7 fail |
+| PERF-027 | `npm test` ≠ CI; 143 spurious failures | 143 → 0 |
+| PERF-028 | `reviews` index prefix-subsumed — proven, not dropped | EXPLAIN, 200k rows |
+
 ## Next item
 
 The §71 sweep's surviving findings, then the two blocked items.
 
 **Blocked on something this environment does not have — not on effort:**
-- **§18 index drops** need `pg_stat_user_indexes` from production. ~40 of 282
-  index declarations look prefix-subsumed or duplicated, and not one is safe to
-  drop on structural grounds alone.
-- **§62/§63 load testing** needs a staging environment and mocked AI providers,
-  so a run does not spend real Gemini money. This is the largest remaining gap:
-  every capacity figure in these documents is derived from query plans and code
-  paths, never measured under concurrent load.
+- **§18 index drops** need `pg_stat_user_indexes` from production. ~40 of 284
+  index declarations look prefix-subsumed or duplicated. One of them
+  (`reviews.userId`, PERF-028) is now *proven* subsumed by query plan rather than
+  suspected — and still not dropped, because §18 is explicit that a structural
+  argument alone is not enough for a production index.
+- **§62/§63 load testing under AI load** still needs mocked providers so a run
+  does not spend real Gemini money. The read paths ARE now measured — see
+  `LOAD-AND-PROFILE.md`: 5,028 rps on the storefront at 100 concurrent, zero
+  errors to 2,000 concurrent, DB connections flat at 13. The AI path is the one
+  scenario deliberately omitted rather than approximated.
 
 **Known and deliberately deferred:** PERF-020 (the 676 KB i18n backfill is still
 eager — splitting it means changing the generator), and the Expo receipt-polling
 half of §45.
 
-## A note on the test suite
+## A note on the test suite — now resolved (PERF-027)
 
-Three DB-backed suites each failed once during this work — `inputValidation`,
-`auth.api`, `shopPayment` — and none reproduced, roughly three failures in
-thirty full runs. The cause is not known. It is most likely shared-schema
-contention between suites, the same family as the `randomPhone` collision fixed
-in PERF-001, but that is a hypothesis and nothing has confirmed it. Worth
-chasing before the CI added in PERF-002 trains anyone to re-run rather than
-read.
+The previous version of this section recorded three DB-backed suites each
+failing once, never reproducing, cause unknown, hypothesis "shared-schema
+contention between suites".
+
+The hypothesis was right and the mechanism is now known. Every DB-backed suite
+truncates all tables in `afterAll` against one shared database. Nothing enforced
+serial execution: the CI workflow passed `--runInBand`, the `test` script did
+not. Running `npm test` plainly produced **143 failures**, stably — the same 143
+twice, which reads as a real regression rather than a harness problem, and cost
+an hour of hunting through a diff before the flag explained it.
+
+`maxWorkers: 1` now lives in the jest config, so `npm test`, `npx jest <file>`
+and CI all mean the same thing. The intermittent single-suite failures were the
+mild version of the same collision.
+
+**Method note worth keeping:** the tell was that the failure count was
+*identical* across runs while the failing *suite* set changed. Deterministic
+count plus non-deterministic attribution is a harness signature, not a code
+signature.
