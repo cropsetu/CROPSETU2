@@ -1161,6 +1161,20 @@ async function validateCartForCheckout(tx, userId, { reservedByListing = null } 
       if (!l || (l.status !== 'ACTIVE' && !passableForHolder)) {
         throw Object.assign(new Error(`"${label}" is no longer available from this seller`), { statusCode: 400, expose: true });
       }
+      // The CATALOG row, not just the seller's offer.
+      //
+      // Admin deactivation writes products.isActive=false and status=REJECTED
+      // (admin/catalog.routes.js), and every seller_listing under it stays
+      // ACTIVE — nothing cascades. So this branch checked the offer, found it
+      // healthy, and sold a product an admin had pulled. The legacy branch below
+      // has always checked `p.isActive`; the post-split path never did.
+      //
+      // This is not a tidiness point in a shop that sells pesticides and seed:
+      // deactivation is how a recalled or unlicensed product is taken off the
+      // shelf, and it has to hold on every path that can take money.
+      if (item.product && (item.product.isActive === false || item.product.status !== 'APPROVED')) {
+        throw Object.assign(new Error(`"${label}" is no longer available`), { statusCode: 400, expose: true });
+      }
       if (l.stockQty + alreadyHeld < item.quantity) {
         throw Object.assign(new Error(`Insufficient stock for ${label}`), { statusCode: 400, expose: true });
       }

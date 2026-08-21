@@ -130,12 +130,27 @@ async function getOrCreateCredits(userId) {
   // Check if monthly free refill is due. The setting lookup is resolved lazily
   // here (only when a refill is actually due) so the dominant hot path —
   // existing user, no refill — pays zero settings cost.
-  if (new Date() >= new Date(credit.freeRefillDate)) {
+  const now = new Date();
+  if (now >= new Date(credit.freeRefillDate)) {
     const tierConfig = TIER_CONFIG[credit.tier] || TIER_CONFIG.free;
     // Free tier draws the live admin grant; paid tiers keep their static table value.
     const grant = credit.tier === 'free' ? await liveFreeMonthlyCredits() : tierConfig.monthlyCredits;
-    credit = await prisma.aICredit.update({
-      where: { userId },
+
+    // Compare-and-set, not read-then-write.
+    //
+    // This was `if (due) { update({ where: { userId } }) }` — the check and the
+    // increment were separate statements, so on the 1st of the month every
+    // request that arrived before the first one committed read the same stale
+    // freeRefillDate, all passed the check, and all incremented. Opening the app
+    // with three screens each firing an AI call granted the month's credits
+    // three times. getOrCreateCredits runs on every AI request, so this is not a
+    // rare window: it is exactly as wide as the app's own startup fan-out.
+    //
+    // Putting freeRefillDate in the WHERE makes the date the lock: the first
+    // updateMany to commit moves it forward, and every concurrent one then
+    // matches zero rows.
+    const { count } = await prisma.aICredit.updateMany({
+      where: { userId, freeRefillDate: { lte: now } },
       data: {
         balance: { increment: grant },
         lifetimeEarned: { increment: grant },
@@ -143,16 +158,21 @@ async function getOrCreateCredits(userId) {
       },
     });
 
-    // Log the refill transaction
-    await prisma.aICreditTransaction.create({
-      data: {
-        creditId: credit.id,
-        amount: grant,
-        balanceAfter: credit.balance,
-        type: 'free_refill',
-        description: `Monthly ${tierConfig.label} refill: +${grant} credits`,
-      },
-    }).catch(e => console.warn('[AICredit] Refill transaction log failed: %s', e.message));
+    credit = await prisma.aICredit.findUnique({ where: { userId } });
+
+    // Only the caller that actually performed the refill logs it. Logging on a
+    // lost race would put a grant in the ledger that never reached a balance.
+    if (count > 0) {
+      await prisma.aICreditTransaction.create({
+        data: {
+          creditId: credit.id,
+          amount: grant,
+          balanceAfter: credit.balance,
+          type: 'free_refill',
+          description: `Monthly ${tierConfig.label} refill: +${grant} credits`,
+        },
+      }).catch(e => console.warn('[AICredit] Refill transaction log failed: %s', e.message));
+    }
   }
 
   return credit;
