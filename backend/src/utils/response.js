@@ -79,6 +79,31 @@ export function sendServerError(res, err, fallback = 'Something went wrong. Plea
   return sendError(res, message, status);
 }
 
+/**
+ * ── 403 or 404 for a resource the caller does not own? ───────────────────────
+ *
+ * The convention, written here because this is where the choice is actually
+ * made, and because the two answers have been "fixed" toward each other before.
+ *
+ *   404  the resource does not exist, OR the caller could not have known it
+ *        exists. Scoped reads land here naturally: `findFirst({ id, userId })`
+ *        returns null for both cases and cannot tell them apart, which is why
+ *        the farm routes answer 404 throughout. That is a byproduct of the
+ *        query, not a competing policy — and it is the safer byproduct, so it
+ *        stays.
+ *
+ *   403  the resource is real, the caller can see that it is real, and they
+ *        still may not act on it. This is the dominant answer in the codebase
+ *        (~34 sites) and it is the honest one for anything PUBLIC: an animal
+ *        listing has a URL anybody can open, so "not found" on someone else's
+ *        listing would be a lie the client can immediately disprove.
+ *
+ * The existence-oracle argument for always answering 404 does not buy much
+ * here: every id is a UUIDv4, so an attacker cannot enumerate them, and a
+ * caller holding one already knows it exists. Do NOT convert 403s to 404s
+ * wholesale on that reasoning — tests/backend/security/cycleOwnership.test.js
+ * pins the split deliberately.
+ */
 export function sendNotFound(res, resource = 'Resource') {
   return sendError(res, `${resource} not found`, 404);
 }

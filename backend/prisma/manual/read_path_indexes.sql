@@ -1,0 +1,73 @@
+-- Two read-path indexes (claude.md §17).
+--
+-- Applied the deliberate way, like every other schema change in this repo:
+-- prisma/migrations is incomplete (65 CREATE TABLE for 90 models) so
+-- `migrate deploy` cannot be used, and the Dockerfile no longer runs
+-- `db push` on boot. Run this by hand against production, then confirm
+-- schema.prisma matches (both indexes ARE declared there, so a later
+-- `db push` in development will not drop them).
+--
+--   psql "$DATABASE_URL" -f prisma/manual/read_path_indexes.sql
+--
+-- CONCURRENTLY so neither takes a write lock on a live table. That means each
+-- statement must run OUTSIDE a transaction — psql -f does this correctly by
+-- default; do NOT wrap this file in BEGIN/COMMIT.
+--
+-- Both are IF NOT EXISTS, so re-running is a no-op. If a CONCURRENTLY build is
+-- interrupted it leaves an INVALID index behind: check with
+--   SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;
+-- and DROP it before re-running.
+
+-- ── comments: threaded replies ───────────────────────────────────────────────
+-- Prisma's nested `replies` include (community.routes.js — the post detail
+-- screen) emits:
+--
+--   SELECT … FROM comments WHERE "parentId" IN ($1…$n) ORDER BY "createdAt" ASC
+--
+-- `comments` carried indexes on postId, (postId, createdAt) and authorId, and
+-- NOTHING on parentId — so every post opened sequentially scanned the entire
+-- comments table across all posts.
+--
+-- Measured on 100,000 comments (40 parents requested):
+--   before  Seq Scan            5,109 buffers   8.305 ms
+--   after   Bitmap Index Scan     346 buffers   0.791 ms
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "comments_parentId_createdAt_idx"
+  ON "comments" ("parentId", "createdAt");
+
+-- ── posts: the community feed ────────────────────────────────────────────────
+--   SELECT … FROM posts WHERE "deletedAt" IS NULL
+--   ORDER BY "isPinned" DESC, "createdAt" DESC LIMIT $1
+--
+-- Without a matching index Postgres scans every post and top-N sorts the whole
+-- live set for each page — an unauthenticated surface, so it is reachable
+-- without an account.
+--
+-- Measured on 80,000 posts (5% soft-deleted):
+--   before  Seq Scan + sort     8,001 buffers  13.072 ms
+--   after   Index Scan, no sort   344 buffers   0.137 ms
+--
+-- Deliberately NOT partial. `WHERE "deletedAt" IS NULL` measures better still
+-- (27 buffers, 0.020 ms) but Prisma cannot declare a partial index, so it would
+-- exist only here and `prisma db push` would drop it without saying so. If the
+-- feed ever becomes hot enough to want those last few buffers, add the partial
+-- variant AND a note in schema.prisma explaining why db push must not be run.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "posts_isPinned_createdAt_idx"
+  ON "posts" ("isPinned" DESC, "createdAt" DESC);
+
+-- ── Deliberately NOT added ───────────────────────────────────────────────────
+-- chats (buyerId, updatedAt DESC) + (sellerId, updatedAt DESC), which the audit
+-- proposed for the inbox sort. Two reasons it is not here:
+--
+--   1. The set being sorted is one user's own chats — tens of rows, not
+--      thousands. Sorting tens of rows is not a cost worth an index.
+--   2. `chats.updatedAt` is bumped on EVERY message, so both composites would
+--      be rewritten on every message sent. That is write amplification on the
+--      hottest write in the chat system, to speed up a sort of tens of rows.
+--
+-- The inbox's real problems were the unbounded message read and the
+-- uncorrelated unread count, and both were fixed in code rather than with an
+-- index (see animaltrade.routes.js — lastMessagesByChat / unreadCountsByChat).
+--
+-- No index is DROPPED here either. claude.md §18 requires pg_stat_user_indexes
+-- from production before dropping anything, and this environment has no
+-- production statistics.

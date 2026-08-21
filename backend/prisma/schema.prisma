@@ -1093,6 +1093,16 @@ model Post {
   @@index([scope, district])
   @@index([createdAt])
   @@index([deletedAt])
+  // The feed: WHERE "deletedAt" IS NULL ORDER BY "isPinned" DESC, "createdAt" DESC.
+  // Without it Postgres seq-scans every post and top-N sorts the whole live set
+  // for each page. Measured at 80k posts: 13.1 ms / 8,001 buffers -> 0.14 ms /
+  // 344, and the sort disappears entirely.
+  //
+  // NOT partial. `WHERE "deletedAt" IS NULL` would be faster still (0.02 ms, 27
+  // buffers) but Prisma cannot express a partial index, so it would live only in
+  // manual SQL and `prisma db push` would silently drop it. Surviving db push is
+  // worth more than the last tenth of a millisecond.
+  @@index([isPinned(sort: Desc), createdAt(sort: Desc)])
   // Trigram GIN — community search OR (title/description ILIKE).
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "posts_title_trgm")
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "posts_description_trgm")
@@ -1143,6 +1153,12 @@ model Comment {
   @@index([postId])
   @@index([postId, createdAt])
   @@index([authorId])
+  // Threaded replies. Prisma's nested `replies` include emits
+  // WHERE "parentId" IN (…) ORDER BY "createdAt" ASC, and there was no parentId
+  // index at all — so opening one post's comments sequentially scanned the whole
+  // comments table, for every post, on every open. Measured at 100k rows:
+  // Seq Scan 8.3 ms / 5,109 buffers -> Bitmap Index Scan 0.79 ms / 346.
+  @@index([parentId, createdAt])
   @@map("comments")
 }
 
