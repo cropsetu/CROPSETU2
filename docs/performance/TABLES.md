@@ -58,7 +58,20 @@ Seeded volumes used: 100,000 comments · 80,000 posts · 15,000 chat messages ·
 | `chats` | `WHERE buyerId=$1 OR sellerId=$1 ORDER BY updatedAt DESC` | sellerId, buyerId | sorts one user's own chats — tens of rows | **rejected**: `updatedAt` is bumped on every message, so two composites would be rewritten on the hottest write in chat, to sort tens of rows | **rejected** |
 | `chat_messages` | last message per chat | chatId, (chatId,createdAt), (chatId,createdAt DESC,id DESC) | — | already served the LATERAL seek | ok |
 | `products` | `ORDER BY viewCount DESC` | none names viewCount | — | nothing increments `viewCount`; no client sends `?sort=popularity` | **drop the sort, not add an index** |
+| `reviews` | `WHERE userId=$1 ORDER BY createdAt DESC LIMIT N` | userId, (userId,orderItemId) unique, productId, sellerId | Bitmap Index Scan on `reviews_userId_idx`, **0.071 ms** | dropping `@@index([userId])` → planner uses the composite's leading column, **0.069 ms**, same plan, +1 buffer | **DROP-CANDIDATE**, not dropped |
 | any | redundant / prefix-subsumed | ~40 of 282 candidates | — | **NOT dropped** — §18 requires `pg_stat_user_indexes` from production, which this environment does not have | blocked |
+
+The `reviews` row is the one prefix-subsumed index proven rather than suspected:
+measured on a 200k-row replica of the shape, 5,000 distinct users. Its stated
+justification in `schema.prisma` cited a `[userId, productId]` unique that does
+not exist — the real one is `[userId, orderItemId]`, whose leading column
+already covers the lookup.
+
+It stays anyway. §18 says not to drop a production index on a structural
+argument alone, and the win is small in the direction that matters: `reviews` is
+written once per order item, so this is not the write amplification §18 is
+aimed at. The comment now carries the plan output so the call can be made on
+production statistics instead of on a claim about the schema that was wrong.
 
 ---
 

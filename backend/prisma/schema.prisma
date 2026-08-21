@@ -766,8 +766,27 @@ model Review {
   @@unique([userId, orderItemId])
   @@index([productId])
   @@index([sellerId])
-  // Buyer review history: WHERE userId = ?. A dedicated single-column index for
-  // the by-user lookup (previously covered by the [userId, productId] unique).
+  // DROP-CANDIDATE (claude.md §18), kept for now — read this before "cleaning
+  // it up" in either direction.
+  //
+  // The justification here used to say this replaced coverage "previously
+  // covered by the [userId, productId] unique". There is no such unique; the
+  // one above is [userId, orderItemId], and userId is its LEADING column, so it
+  // already serves WHERE userId = ? as a prefix. This index is subsumed.
+  //
+  // Measured on a 200k-row replica of this shape (5k users), for the actual
+  // query — admin/activity.routes.js:258, WHERE userId ORDER BY createdAt DESC
+  // LIMIT N:
+  //   with this index:     Bitmap Index Scan on reviews_userId_idx, 0.071 ms
+  //   without it:          Bitmap Index Scan on the composite, 0.069 ms
+  // Same plan shape, one extra buffer read because the composite is wider.
+  //
+  // NOT dropped, because §18 says not to drop production indexes on a
+  // structural argument alone and the win here is genuinely small: reviews is
+  // written once per order item, so the write amplification this costs is
+  // nothing like the hot tables §18 is aimed at. The evidence is recorded so
+  // the decision can be made on pg_stat_user_indexes from production rather
+  // than on a comment that was wrong about its own schema.
   @@index([userId])
   @@map("reviews")
 }
