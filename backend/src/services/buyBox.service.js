@@ -115,30 +115,72 @@ function normLowerIsBetter(value, min, max) {
  * @returns {Promise<{winner: ?object, offers: object[], weights: object}>}
  */
 export async function rankOffersForVariant(variantId, buyer = {}) {
+  const byVariant = await rankOffersForVariants([variantId], buyer);
+  return byVariant.get(variantId);
+}
+
+/** The seller projection every ranking needs. One place, so the two cannot drift. */
+const OFFER_INCLUDE = {
+  seller: {
+    select: {
+      id: true, name: true, district: true, taluka: true, state: true,
+      sellerProfile: {
+        select: {
+          rating: true, ratingCount: true, cancellationRate: true,
+          onTimeDispatchRate: true, returnRate: true, metricsUpdatedAt: true,
+        },
+      },
+    },
+  },
+};
+
+/**
+ * Rank the eligible offers for MANY variants in one database round trip
+ * (claude.md §24).
+ *
+ * A product page renders every pack size a product is sold in, and each of those
+ * is a variant with its own set of competing Kendra offers. Ranking them one at
+ * a time meant a six-pack-size product cost six full offer queries — each
+ * joining seller and sellerProfile — to render one screen. The count scaled with
+ * how many ways a seed is packaged, which is a catalogue decision, not a
+ * traffic one.
+ *
+ * The SCORING still has to happen per variant and cannot be merged: the price
+ * and SLA terms are min-max normalised WITHIN a variant's own offer set, so a
+ * ₹200 offer is cheap among 5 kg bags and expensive among 1 kg ones. Only the
+ * fetch is shared.
+ *
+ * @returns {Promise<Map<string, {winner: ?object, offers: object[], weights: object}>>}
+ */
+export async function rankOffersForVariants(variantIds, buyer = {}) {
+  const ids = [...new Set((variantIds || []).filter(Boolean))];
+  const out = new Map();
+  if (!ids.length) return out;
+
   const cfg = await weights();
 
-  const listings = await prisma.sellerListing.findMany({
+  const all = await prisma.sellerListing.findMany({
     where: {
-      variantId,
+      variantId: { in: ids },
       status: 'ACTIVE',
       stockQty: { gt: 0 },
       ...listingGeoWhere(buyer),
     },
-    include: {
-      seller: {
-        select: {
-          id: true, name: true, district: true, taluka: true, state: true,
-          sellerProfile: {
-            select: {
-              rating: true, ratingCount: true, cancellationRate: true,
-              onTimeDispatchRate: true, returnRate: true, metricsUpdatedAt: true,
-            },
-          },
-        },
-      },
-    },
+    include: OFFER_INCLUDE,
   });
 
+  const grouped = new Map(ids.map((id) => [id, []]));
+  for (const l of all) grouped.get(l.variantId)?.push(l);
+
+  // Every requested variant gets an entry, including the ones with no eligible
+  // offer — callers index by id and a missing key would read as an error rather
+  // than as "nobody near you sells this pack size".
+  for (const id of ids) out.set(id, scoreOffers(grouped.get(id) || [], cfg));
+  return out;
+}
+
+/** Score and order one variant's offer set. Pure given `cfg`. */
+function scoreOffers(listings, cfg) {
   if (!listings.length) return { winner: null, offers: [], weights: cfg };
 
   const prices = listings.map((l) => Number(l.sellingPrice));
@@ -200,32 +242,33 @@ export async function rankOffersForVariant(variantId, buyer = {}) {
 }
 
 /**
- * Cached wrapper. The cache key includes the buyer's geography because
- * eligibility — and therefore the winner — genuinely differs per district; a
- * globally-shared entry would serve a Nagpur buyer a Kendra that cannot sell to
- * them.
- */
-async function getBuyBox(variantId, buyer = {}) {
-  const identity = JSON.stringify([
-    variantId,
-    (buyer.district || '').toLowerCase(),
-    (buyer.taluka   || '').toLowerCase(),
-    (buyer.village  || '').toLowerCase(),
-    (buyer.state    || '').toLowerCase(),
-  ]);
-  const { data } = await cachedListing(NS_BUYBOX, identity, BUYBOX_TTL, async () => ({
-    data: await rankOffersForVariant(variantId, buyer),
-  }));
-  return data;
-}
-
-/**
  * Product-level buy box: the best offer across ALL of a product's variants, plus
  * the per-variant breakdown. This is what the product page and the storefront
  * card render — a card shows "from ₹1,150", which is the cheapest eligible offer
  * on any pack size, not the cheapest on an arbitrarily-chosen one.
  */
 export async function getProductBuyBox(productId, buyer = {}) {
+  // Cached per PRODUCT, not per variant.
+  //
+  // This used to call the per-variant cached wrapper once per pack size, so a
+  // six-variant product cost six Redis reads warm and six offer queries cold.
+  // One entry per (product, geography) is strictly better on both: one read
+  // warm, one query cold. The namespace is unchanged, so invalidateBuyBox()
+  // still orphans these by bumping the same version counter.
+  const identity = JSON.stringify([
+    'product', productId,
+    (buyer.district || '').toLowerCase(),
+    (buyer.taluka   || '').toLowerCase(),
+    (buyer.village  || '').toLowerCase(),
+    (buyer.state    || '').toLowerCase(),
+  ]);
+  const { data } = await cachedListing(NS_BUYBOX, identity, BUYBOX_TTL, async () => ({
+    data: await computeProductBuyBox(productId, buyer),
+  }));
+  return data;
+}
+
+async function computeProductBuyBox(productId, buyer = {}) {
   const variants = await prisma.productVariant.findMany({
     where: { productId },
     select: { id: true, attributes: true, unit: true, gtin: true, sku: true, isDefault: true },
@@ -233,10 +276,11 @@ export async function getProductBuyBox(productId, buyer = {}) {
   });
   if (!variants.length) return { winner: null, variants: [], offerCount: 0, lowestPrice: null };
 
-  const ranked = await Promise.all(variants.map(async (v) => {
-    const r = await getBuyBox(v.id, buyer);
+  const byVariant = await rankOffersForVariants(variants.map((v) => v.id), buyer);
+  const ranked = variants.map((v) => {
+    const r = byVariant.get(v.id);
     return { variant: v, winner: r.winner, offers: r.offers };
-  }));
+  });
 
   const withOffers = ranked.filter((r) => r.winner);
   const best = withOffers.reduce(

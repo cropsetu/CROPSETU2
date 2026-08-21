@@ -76,7 +76,7 @@ import {
   searchCatalog, findCatalogDuplicate, normalizeProductKey, resolveCanonicalProductId,
 } from '../services/catalogMatch.service.js';
 import {
-  getProductBuyBox, rankOffersForVariant, cheapestOfferByProduct, listingGeoWhere,
+  getProductBuyBox, rankOffersForVariant, rankOffersForVariants, cheapestOfferByProduct, listingGeoWhere,
   invalidateBuyBox, syncListingStockStatus,
 } from '../services/buyBox.service.js';
 import { transitionTimestampFor } from '../services/sellerMetrics.service.js';
@@ -684,15 +684,20 @@ router.get('/products/:id/offers', optionalAuth, async (req, res) => {
     ? variants.filter((v) => v.id === req.query.variantId)
     : variants;
 
-  const groups = await Promise.all(wanted.map(async (v) => {
-    const { offers } = await rankOffersForVariant(v.id, buyer);
+  // One query for every pack size, not one per pack size (claude.md §24). This
+  // endpoint returns EVERY offer on every variant, so it was the worst case of
+  // the per-variant ranking: a six-variant product cost six full offer queries,
+  // each joining seller and sellerProfile, to answer one request.
+  const byVariant = await rankOffersForVariants(wanted.map((v) => v.id), buyer);
+  const groups = wanted.map((v) => {
+    const { offers } = byVariant.get(v.id);
     return {
       variant: v,
       offers: offers.map(toOffer),
       winnerListingId: offers[0]?.id ?? null,
       lowestPrice: offers.length ? Math.min(...offers.map((o) => Number(o.sellingPrice))) : null,
     };
-  }));
+  });
 
   return sendSuccess(res, {
     productId,
