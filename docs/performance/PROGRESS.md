@@ -6,7 +6,14 @@ PERF-005 — Socket handshake auth is strictly weaker than HTTP auth (RT-02)
 
 ## Status
 
-TODO — not started. PERF-001 through PERF-004 and PERF-006 are COMPLETE and verified.
+TODO — not started. Nine items are COMPLETE and verified: PERF-001 → 004, 006 → 008,
+010, plus the CI in 002.
+
+PERF-005 is deliberately still the head of the queue rather than skipped. It is the
+last P0 that is not self-contained: the adversarial pass showed that hardening the
+handshake alone produces a client reconnect storm, so it needs a `shared/` change
+landed with it. Everything ahead of it in this session was chosen because it could be
+finished and verified in one piece.
 
 ## Current Feature
 
@@ -61,14 +68,23 @@ PERF-004  backend/src/utils/stockBatch.js
           backend/tests/backend/api/shopLegacyStock.api.test.js (new)
 PERF-006  backend/src/routes/animaltrade.routes.js
           backend/tests/backend/api/animaltrade.api.test.js
+PERF-007  fastapi/db_pool.py, fastapi/jobs/tasks.py
+          fastapi/tests/test_db_pool_event_loop.py (new)
+PERF-008  backend/src/utils/mapLimit.js (new), backend/src/queue/{jobQueue,processors}.js
+          backend/src/services/adminBroadcast.service.js, backend/src/config/env.js
+          backend/tests/backend/unit/{mapLimit,jobQueue}.test.js
+PERF-010  fastapi/jobs/queue.py, fastapi/jobs/tasks.py, fastapi/main.py
+          backend/src/routes/admin/ops.routes.js
+          fastapi/tests/test_worker_health.py (new)
+          backend/tests/backend/unit/opsStatusVerdict.test.js (new)
 ```
 
 ## Tests
 
 | Suite | Before | After |
 |---|---|---|
-| backend (`npm test -- --runInBand`) | 7–8 suites / 37–38 failing | **95 suites / 0 failing, 1123 passing** |
-| fastapi (`pytest tests`) | 4 failing / 311 passing | **315 passing** |
+| backend (`npm test -- --runInBand`) | 7–8 suites / 37–38 failing | **97 suites / 0 failing, 1145 passing** |
+| fastapi (`pytest tests`) | 4 failing / 311 passing | **330 passing** |
 | frontend + shared (`npx jest`) | 9 suites / 175 passing | unchanged, green |
 | admin (`tsc --noEmit`, `vite build`) | green | green |
 
@@ -88,6 +104,12 @@ Behavioural, measured locally — no production telemetry is available:
   `LATERAL` **0.163 ms**, and now O(page) rather than O(message history).
 - Chat inbox unread count: 7,474 rows / 2,075 buffers / 12.1 ms → 4,771 / 581 / 5.5 ms,
   and now O(page) rather than O(all unread messages on the platform).
+- Celery scan persistence: **1 of 30 tasks succeeded → 30 of 30**, Postgres backends
+  flat at 3 (a naive per-task pool rebuild reached 29).
+- "Scans queued, no worker" is now the only one of four worker states that reports
+  `degraded`; it previously reported `ok`.
+- Admin broadcast fan-out: 5,000 concurrent enqueues → bounded to 25; the inline
+  fail-open path is capped and sheds best-effort work instead of the API.
 - Backend suite wall clock: ~30 s, unchanged.
 
 ## Next item

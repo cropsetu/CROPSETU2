@@ -16,7 +16,7 @@ in §Refuted, because negative results are worth as much as positive ones
 | PERF-005 | Socket handshake auth is weaker than HTTP auth (RT-02) | P0 | TODO |
 | PERF-006 | Chat inbox reads every message of every listed chat | P0 | COMPLETE |
 | PERF-007 | Celery reuses one asyncpg pool across event loops (DB-05) | P0 | COMPLETE |
-| PERF-008 | Broadcast fan-out runs inline on a Redis outage (OPS-03) | P0 | TODO |
+| PERF-008 | Broadcast fan-out runs inline on a Redis outage (OPS-03) | P0 | COMPLETE |
 | PERF-009 | FastAPI tables invisible to erasure (GROW-10) | P0 | TODO |
 | PERF-010 | No Celery/queue/breaker observability | P0 | COMPLETE |
 | PERF-011 | 12 cron schedules on every web replica | P1 | TODO |
@@ -121,7 +121,7 @@ raises "Event loop is closed" and must be handled.
 
 ## PERF-008 — A Redis outage moves the broadcast fan-out onto the request path
 
-**P0 · TODO · Component:** `backend/src/queue/jobQueue.js:52-67`
+**P0 · COMPLETE — see COMPLETED.md · Component:** `backend/src/queue/jobQueue.js:52-67`
 
 **Evidence.** `enqueue()` fails open by running the job inline with no concurrency
 bound. One admin broadcast fans out to **5,000** recipients — and 5,000 is the shipped

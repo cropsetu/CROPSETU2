@@ -5,6 +5,61 @@ verified** — code written is not completion (`claude.md` §4.3).
 
 ---
 
+## PERF-008 — A Redis outage became an API outage
+
+```
+ID:        PERF-008
+Feature:   Queue fail-open / admin broadcast
+Priority:  P0 — a dependency outage cascading into a total outage
+Status:    COMPLETE — verified
+```
+
+`enqueue()` fails open by running the job inline when Redis is gone — right for
+*one* job, catastrophic for a fan-out. `broadcastNotification` called it once per
+recipient inside `Promise.allSettled` over the whole list, and the recipient cap is
+**5,000 by shipped default** (`settings.service.js`: `default: 5000, max: 5000`), not a
+worst case. With Redis down that put 5,000 jobs × 3 DB operations on the request path
+at once, against a Prisma pool of 12. Everything else queued behind them until
+`pool_timeout` and errored.
+
+**Two bounds, because either alone is insufficient.**
+
+The *fan-out* is bounded regardless of Redis — 5,000 simultaneous enqueues is 5,000
+simultaneous Redis writes even on the happy path. `mapLimit` is a worker pool over a
+shared cursor rather than fixed batches, so one slow recipient cannot stall the rest,
+and it returns `allSettled`'s shape in input order so callers count unchanged.
+
+The *inline path* is bounded too, since the broadcast is not the only thing that could
+ever fan out. Below the ceiling, behaviour is identical. At it, **best-effort** jobs are
+shed with a line each; anything not explicitly marked best-effort still runs inline,
+because correctness outranks latency and a dropped critical side-effect is a silent data
+problem.
+
+### The trap
+
+Criticality lives in a **sibling** map, not on the `PROCESSORS` values. The obvious
+shape — `{ run, critical }` per value — would have broken **every queued job in
+production**: `worker.js` does not go through `getProcessor`, it reads
+`PROCESSORS[queue]?.[job.name]` and calls the value directly. An object is not callable,
+nothing covers `worker.js`, and CI would have stayed green to deploy. Jobs absent from
+the map are treated as **critical**, so one added later without thought cannot become
+silently droppable.
+
+`sent` in `BroadcastLog` has always meant *accepted for delivery*, not delivered — the
+Expo push happens later in a worker. A shed job was not accepted, so it counts as
+failed; counting it as sent would persist a number for deliveries nobody attempted.
+
+The suite's `ENV` mock was two keys, so a bare read for the new knob would have resolved
+`undefined` and quietly disabled the bound in the very tests meant to prove it. Both the
+mock and the read now guard against that.
+
+**Tests.** 11 new — `mapLimit.test.js` (6) and the extended `jobQueue.test.js` (5). The
+two shed cases fail with the bound removed.
+
+**Rollback.** `git revert 6d1ff69`.
+
+---
+
 ## PERF-010 — A missing scan worker, and an open circuit, were both invisible
 
 ```
