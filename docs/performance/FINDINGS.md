@@ -653,3 +653,58 @@ statistics rather than on a claim that was wrong about its own schema.
 
 This is the first of the ~40 suspected redundant indexes to be *proven* rather
 than suspected. The rest remain blocked on `pg_stat_user_indexes`.
+
+
+---
+
+## PERF-029 — Decimal `+` concatenates: two live wrong-number bugs
+
+**P0 · COMPLETE**
+
+Component: `backend/src/routes/mandi.routes.js`, `services/mandiPrice.service.js`,
+`services/farm.service.js`
+
+`Decimal.prototype.valueOf()` returns a **string**, so `a + b` on two Prisma
+Decimals is string concatenation. It never throws and never produces NaN — it
+produces a plausible-looking integer, which is why both instances shipped.
+
+| Site | Input | Reported | Should be |
+|---|---|---|---|
+| `/mandi/prices/:c/trend` `stats.avg30` | 1200, 1300, 1400 | **40,004,333,800** | 1,300 |
+| ↳ `stats.priceVsAvgPercent` | as above | **−100%** | +8% |
+| farm financial summary `byCycle[].totalCostInr` | 12000+8000+5000+2000 | **12,000,800,050,002,000** | 27,000 |
+
+The farm one is the sharper case: the `totals` block in the *same response* uses
+`D().plus()` and is correct, so the summary showed a total that could not add up
+from its own rows. On the existing fixture (2300 recorded, three costs null) the
+shipped figure was 2,300,000 against a stated total of 2,300 — and the test
+asserted `totals` while never looking at `byCycle`.
+
+**Swept the whole backend.** `-`, `*` and `/` are safe: they force numeric
+coercion. Only `+` prefers `valueOf`'s string. `Math.abs(decimal)` also coerces
+correctly. Every other Decimal sum already used `.plus()` or `Number()`.
+
+**What catches it:** not a type assertion — the value is a finite number. The
+invariants that work are *a mean cannot fall outside the range it averaged* and
+*a breakdown must sum to its total*. Both are now asserted.
+
+---
+
+## PERF-030 — `/mandi/prices/:commodity/trend` was unbounded
+
+**P1 · COMPLETE**
+
+`getPriceTrend` had no `take`, and `market` is a `contains` match rather than the
+single market the endpoint's contract implies — `?market=a` matches nearly every
+market name in India.
+
+Measured on an Agmarknet-shaped dataset (400 markets reporting one commodity
+daily for a year): **146,000 rows, 15.2 MB**, then 146,000 Decimals summed on the
+event loop.
+
+Capped at `min(days × 4, 1000)`. The scan is now **descending with a reverse
+afterwards**, which is the part that matters: capping an ascending scan would
+drop the NEWEST rows — the ones `currentPrice` and `avg7` are computed from — so
+a truncated window would quietly report last year's price as today's. A
+`truncated` flag reports when the cap bit, rather than serving a shortened window
+as a whole one.

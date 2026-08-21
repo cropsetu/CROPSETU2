@@ -14,7 +14,8 @@ environment with mocked AI providers (load testing, §62/§63).
 
 ## Current Feature
 
-Data growth (§26/§27), offline behaviour (§46) and the test harness itself.
+Data growth (§26/§27), offline behaviour (§46), the test harness, and a
+correctness sweep for Decimal arithmetic that came out of the mandi work.
 
 ## What was discovered
 
@@ -142,6 +143,8 @@ Behavioural, measured locally — no production telemetry is available:
 | PERF-026 | Native voice could not recover from an expired token | revert → 5 of 7 fail |
 | PERF-027 | `npm test` ≠ CI; 143 spurious failures | 143 → 0 |
 | PERF-028 | `reviews` index prefix-subsumed — proven, not dropped | EXPLAIN, 200k rows |
+| PERF-029 | Decimal `+` concatenates — two live wrong-number bugs | revert → fails in both files |
+| PERF-030 | Mandi trend unbounded: 146k rows / 15.2 MB | revert → 2 of 6 fail |
 
 ## Next item
 
