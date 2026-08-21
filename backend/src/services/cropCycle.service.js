@@ -158,8 +158,17 @@ export async function createCropCycle(farmerId, farmId, data) {
  *
  * @returns {Promise<{rows: object[], total: number}>}
  */
-export async function listCropCycles(farmId, filters = {}, { page = 1, limit = 20 } = {}) {
-  const where = { farmId };
+export async function listCropCycles(farmId, farmerId, filters = {}, { page = 1, limit = 20 } = {}) {
+  // Scoped to the CALLER, not just to the farm.
+  //
+  // This was `where = { farmId }` with the id taken straight from the URL, and
+  // the route has no ownership guard of its own — requireCycleOwner only covers
+  // /cycles/:cycleId, not /farms/:farmId/cycles. So any authenticated farmer
+  // holding another farmer's farm id could read their whole cropping history:
+  // what they grow, how much land they put to it, what they spent on seed and
+  // what they sold it for. In a marketplace where those same farmers may be
+  // bidding against each other, that is commercially sensitive, not just private.
+  const where = { farmId, farmerId };
   if (filters.season) where.season = filters.season;
   if (filters.year) where.year = parseInt(filters.year);
   if (filters.status) where.status = filters.status;
@@ -204,7 +213,48 @@ export async function getCropCycleDetail(cycleId) {
   });
 }
 
-export async function updateCropCycle(cycleId, farmerId, data) {
+/**
+ * Fields a farmer may set on their own crop cycle.
+ *
+ * An ALLOWLIST, because `data` used to be the request body handed straight to
+ * prisma.update. The `where` is correctly scoped to the caller, so this was
+ * never a way to touch someone else's row — but it was a way to write any column
+ * on your own, and three of those matter:
+ *
+ *   farmId    re-parents the cycle onto ANOTHER farmer's farm, where it then
+ *             shows up in their cycle list and their financial summary.
+ *   farmerId  hands the cycle to someone else outright.
+ *   grossIncomeInr / netProfitInr / profitPerAcreInr / totalInputCostInr
+ *             are DERIVED by computeFinancials() from the logged costs and
+ *             sales. Letting the client post them directly means the numbers a
+ *             farmer sees, and any aggregate built on them, stop being
+ *             reconcilable with the entries underneath.
+ *
+ * Growth stage, harvest and sale have their own endpoints that derive values and
+ * timestamp transitions, so they are deliberately not here either.
+ */
+const CYCLE_UPDATABLE = new Set([
+  // identity of the crop, as the farmer described it
+  'cropName', 'cropNameMr', 'cropNameHi', 'cropCategory', 'variety',
+  'isHybrid', 'isOrganic', 'season', 'year', 'seasonLabel',
+  // planting
+  'areaAllocatedAcres', 'sowingDate', 'expectedHarvestDate', 'actualHarvestDate',
+  // seed
+  'seedName', 'seedBrand', 'seedSource', 'seedQuantityKg', 'seedCostPerKgInr',
+  'seedTotalCostInr', 'seedTreatment', 'seedTreatmentProduct', 'seedPurchaseDate',
+  'seedReceiptUrl',
+  // costs the farmer enters by hand
+  'laborCostInr', 'machineryCostInr', 'otherCostInr',
+  // free-form
+  'notes', 'photos', 'status',
+]);
+
+export async function updateCropCycle(cycleId, farmerId, rawData) {
+  const data = {};
+  for (const [k, v] of Object.entries(rawData || {})) {
+    if (CYCLE_UPDATABLE.has(k)) data[k] = v;
+  }
+
   for (const f of [
     "areaAllocatedAcres",
     "seedQuantityKg",

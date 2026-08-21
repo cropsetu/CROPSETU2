@@ -100,13 +100,46 @@ commentsRouter.delete('/:id', [param('id').isUUID(), body('reason').optional().i
   try {
     const before = await prisma.comment.findUnique({ where: { id: req.params.id }, select: { id: true, postId: true, authorId: true } });
     if (!before) return sendNotFound(res, 'Comment');
-    // Delete the comment and keep the post's commentCount roughly consistent.
-    await prisma.$transaction([
-      prisma.comment.delete({ where: { id: req.params.id } }),
-      prisma.post.update({ where: { id: before.postId }, data: { commentCount: { decrement: 1 } } }).catch(() => {}),
-    ].filter(Boolean));
-    await adminAudit(req, ADMIN_ACTIONS.COMMENT_DELETE, 'Comment', before.id, { before, metadata: { reason: req.body.reason ?? null } });
-    return sendSuccess(res, { id: before.id, deleted: true });
+
+    // This never worked, and it did damage every time it was tried.
+    //
+    // It was the ARRAY form of $transaction with `.catch(() => {})` on the
+    // second element. A PrismaPromise is lazy; attaching .catch() materialises
+    // it, so the decrement RAN IMMEDIATELY and outside the transaction, and the
+    // array was then left holding a plain Promise, which $transaction refuses
+    // with "All elements of the array need to be Prisma Client promises".
+    //
+    // So the request 500'd, the comment stayed, and commentCount went down by
+    // one. Reproduced: 3 -> 2 with the comment still present. An admin clicking
+    // delete five times on a spam comment left it there and the post's count
+    // five lower.
+    //
+    // The interactive form runs the whole thing inside one transaction and
+    // rolls back as a unit.
+    const removed = await prisma.$transaction(async (tx) => {
+      // Replies go with the parent. Comment.parent is an optional relation with
+      // no onDelete, so Prisma's default is SetNull — deleting a parent would
+      // have PROMOTED its replies to top-level comments, leaving answers to
+      // removed content standing on their own as if they were original posts.
+      // For a moderation action that is the wrong outcome; a thread is one unit.
+      const replies = await tx.comment.deleteMany({ where: { parentId: before.id } });
+      await tx.comment.delete({ where: { id: before.id } });
+
+      const total = replies.count + 1;
+      // GREATEST(0, …) because commentCount has already been corrupted by every
+      // previous failed attempt on this post, and a negative count would render
+      // as "-3 comments".
+      await tx.$executeRaw`
+        UPDATE "posts" SET "commentCount" = GREATEST(0, "commentCount" - ${total})
+        WHERE id = ${before.postId}
+      `;
+      return total;
+    });
+
+    await adminAudit(req, ADMIN_ACTIONS.COMMENT_DELETE, 'Comment', before.id, {
+      before, metadata: { reason: req.body.reason ?? null, removed },
+    });
+    return sendSuccess(res, { id: before.id, deleted: true, removed });
   } catch (err) {
     return sendServerError(res, err, 'Failed to delete comment');
   }

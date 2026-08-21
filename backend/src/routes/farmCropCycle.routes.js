@@ -106,7 +106,7 @@ router.get('/farms/:farmId/cycles', [
   try {
     const page  = Math.max(parseInt(req.query.page || '1', 10) || 1, 1);
     const limit = parsePageSize(req.query.limit, 20, 50);
-    const { rows, total } = await listCropCycles(req.params.farmId, req.query, { page, limit });
+    const { rows, total } = await listCropCycles(req.params.farmId, req.user.id, req.query, { page, limit });
     return sendSuccess(res, rows, 200, paginationMeta(total, page, limit));
   }
   catch (e) { logger.error({ err: e }, '[CropCycle] list'); return sendError(res, 'Failed', 500); }
