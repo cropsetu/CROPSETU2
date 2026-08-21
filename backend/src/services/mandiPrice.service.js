@@ -217,8 +217,10 @@ export async function persistToDB(records) {
  * independent of that index existing — this still works before the migration is
  * applied.
  *
- * The inequality predicate keeps it cheap: mandi_prices carries five indexes, so
- * rewriting unchanged rows every sync would be pure write amplification.
+ * The inequality predicate keeps it cheap: mandi_prices carries SEVEN indexes
+ * (five @@index, the primary key, and the natural-key unique the dedup migration
+ * adds), so every rewritten row costs seven index updates. Touching unchanged
+ * rows on every sync would be pure write amplification.
  */
 async function updateRevisedPrices(rows) {
   if (!rows.length) return;

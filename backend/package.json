@@ -41,6 +41,18 @@
   "jest": {
     "testEnvironment": "node",
     "transform": {},
+    "_comment_maxWorkers": [
+      "REQUIRED, not a tuning knob. Every DB-backed suite truncates all tables",
+      "in afterAll (tests/fixtures/setup.js cleanupTestData) against ONE shared",
+      "database. Run in parallel, jest workers delete each other's fixtures",
+      "mid-test and deadlock in the cleanup transaction: a full run produced 143",
+      "failures that had nothing to do with the code, and the same 143 twice, so",
+      "it reads as a real regression rather than a harness problem.",
+      "It lives HERE rather than as a --runInBand flag on the test script so it",
+      "also covers `npx jest <file>` — the way a single suite actually gets run",
+      "while debugging, and the invocation that would otherwise still be wrong."
+    ],
+    "maxWorkers": 1,
     "setupFiles": [
       "<rootDir>/tests/fixtures/jest.env.js"
     ],

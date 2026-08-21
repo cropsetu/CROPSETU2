@@ -86,6 +86,11 @@ jobs:
         working-directory: backend
         run: npx prisma db push --skip-generate
 
+      # Redundant with `maxWorkers: 1` in backend/package.json's jest config,
+      # which is where the guarantee now lives so `npx jest <file>` gets it too.
+      # Kept explicit here because a CI log that shows the flag is easier to
+      # trust than one where the reader has to go find the config.
+      #
       # --runInBand is REQUIRED, not a preference. Parallel jest workers
       # truncate one shared Postgres schema and deadlock (40P01), which turns a
       # green suite into ~19 failed suites of pure noise. See BASELINE.md §4.
