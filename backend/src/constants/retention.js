@@ -14,6 +14,8 @@
  * `dateField` — the timestamp column the cutoff is applied to
  * `days`      — rows older than (now - days) are purged
  */
+export const AI_SCAN_RETENTION_DAYS = 365;
+
 export const RETENTION_POLICY = [
   {
     key: 'otpSessions', model: 'otpSession', dateField: 'createdAt', days: 1,
@@ -88,8 +90,32 @@ export const RETENTION_POLICY = [
     extraWhere: { status: { in: ['CONSUMED', 'RELEASED', 'EXPIRED'] } },
     description: 'Settled stock reservations older than 90 days. Never HELD.',
   },
+  {
+    // No `model`: this one is handled by sweepAiScanTables in the service,
+    // because the tables are FastAPI-owned and have no Prisma delegate. It is
+    // listed here so retentionCutoffs() computes its cutoff with all the others
+    // and nothing has to know a second date convention.
+    key: 'aiScanDiagnoses', model: null, dateField: 'created_at', days: AI_SCAN_RETENTION_DAYS,
+    description: 'FastAPI crop-scan diagnosis + feedback rows older than a year.',
+  },
 ];
 
+/**
+ * Window for the FastAPI-owned scan tables.
+ *
+ * Not an entry in RETENTION_POLICY above, because that table is data-driven on
+ * `prisma[model]` and these two have no Prisma delegate — they are created by
+ * the AI service through asyncpg and are absent from schema.prisma. The sweep
+ * handles them separately (retention.service.js, sweepAiScanTables); this is
+ * where the WINDOW lives so every retention decision is still in one file.
+ *
+ * A year, and longer than the other log-shaped categories on purpose. These rows
+ * are the only record of what the pipeline actually decided — which model, which
+ * prompt hash, what confidence, which safety blockers fired. That is what a
+ * disputed diagnosis is investigated from, and what a prompt or model change is
+ * evaluated against (eval/replay.py). Ninety days would make a seasonal
+ * comparison impossible; forever is what §26 exists to prevent.
+ */
 /**
  * Deliberately NOT swept, and why.
  *
@@ -108,8 +134,8 @@ export const RETENTION_POLICY = [
  *   orders, payments,       Financial records. Retention here is a statutory
  *   settlements             question (books of account), not a storage one.
  *
- *   ai_scan_diagnoses       FastAPI-owned, created outside Prisma, so this sweep
- *                           cannot see it at all. Tracked separately.
+ *   (ai_scan_diagnoses and ai_scan_feedback WERE in this list. They are
+ *    swept now — see AI_SCAN_RETENTION_DAYS above and sweepAiScanTables.)
  *
  * chat_messages is the one to revisit first if growth becomes a problem — but as
  * archival to object storage, not deletion.

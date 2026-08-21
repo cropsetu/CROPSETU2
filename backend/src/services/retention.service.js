@@ -34,6 +34,10 @@ export async function runRetentionSweep({ now = new Date(), dryRun = false } = {
   const results = {};
 
   for (const p of RETENTION_POLICY) {
+    // A null model is a category this loop cannot serve: the table has no Prisma
+    // delegate because it is not in schema.prisma. It still carries a cutoff so
+    // every retention window lives in one file — the sweep for it runs below.
+    if (!p.model) continue;
     // `extraWhere` narrows a category beyond its age. Only one entry needs it
     // today and it is the reason it exists: stock reservations may be purged
     // once they reach a TERMINAL state, but a HELD row is live inventory — it is
@@ -54,5 +58,61 @@ export async function runRetentionSweep({ now = new Date(), dryRun = false } = {
     }
   }
 
+  // ── Tables Prisma cannot see ─────────────────────────────────────────────
+  // ai_scan_diagnoses and ai_scan_feedback are created by the FastAPI service
+  // through asyncpg and are absent from schema.prisma, so RETENTION_POLICY
+  // structurally cannot name them — `prisma[p.model]` has no delegate to call.
+  // They were therefore the only tables in §26's list with NO retention at all,
+  // while carrying a full diagnosis payload per scan.
+  //
+  // Same shape as the erasure service's handling of the same two tables: probe
+  // for existence FIRST, because Postgres aborts a whole transaction on a
+  // missing relation and a deployment where the AI service has never booted must
+  // still complete its sweep.
+  Object.assign(results, await sweepAiScanTables(cutoffs.aiScanDiagnoses, dryRun));
+
   return results;
+}
+
+/**
+ * Age out the FastAPI-owned scan tables.
+ *
+ * Kept beside the policy table rather than inside it so the data-driven loop
+ * stays data-driven: every other category is a Prisma delegate and a column
+ * name, and pretending these two are the same shape would mean teaching the
+ * loop about raw SQL for a special case of two.
+ */
+async function sweepAiScanTables(cutoff, dryRun) {
+  const out = {};
+  const tables = ['ai_scan_feedback', 'ai_scan_diagnoses'];
+
+  let present = [];
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT c.name FROM unnest(${tables}::text[]) AS c(name)
+      WHERE to_regclass('public.' || c.name) IS NOT NULL
+    `;
+    present = rows.map((r) => r.name);
+  } catch (err) {
+    logger.error({ err }, '[Retention] could not determine AI scan tables');
+    return { aiScanDiagnoses: { error: err.message } };
+  }
+
+  for (const table of tables) {
+    if (!present.includes(table)) { out[table] = { skipped: 'absent' }; continue; }
+    try {
+      if (dryRun) {
+        const [{ n }] = await prisma.$queryRawUnsafe(
+          `SELECT count(*)::int AS n FROM "${table}" WHERE created_at < $1`, cutoff);
+        out[table] = n;
+      } else {
+        out[table] = await prisma.$executeRawUnsafe(
+          `DELETE FROM "${table}" WHERE created_at < $1`, cutoff);
+      }
+    } catch (err) {
+      logger.error({ err, table }, '[Retention] purge failed for AI scan table');
+      out[table] = { error: err.message };
+    }
+  }
+  return out;
 }

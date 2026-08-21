@@ -10,7 +10,7 @@ process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://localhost/x
 process.env.JWT_SECRET = 'a'.repeat(32);
 
 const { retentionCutoffs } = await import('../../../src/services/retention.service.js');
-const { RETENTION_POLICY, MS_PER_DAY } = await import('../../../src/constants/retention.js');
+const { RETENTION_POLICY, MS_PER_DAY, AI_SCAN_RETENTION_DAYS } = await import('../../../src/constants/retention.js');
 const { default: prisma } = await import('../../../src/config/db.js');
 
 describe('retentionCutoffs', () => {
@@ -57,7 +57,9 @@ describe('RETENTION_POLICY integrity', () => {
   });
 
   test('every model maps to a real Prisma delegate with deleteMany + count', () => {
-    for (const p of RETENTION_POLICY) {
+    // `model: null` is a category the Prisma-driven loop deliberately cannot
+    // serve — see the ai_scan_diagnoses tests below.
+    for (const p of RETENTION_POLICY.filter((x) => x.model)) {
       const delegate = prisma[p.model];
       expect(delegate).toBeDefined();
       expect(typeof delegate.deleteMany).toBe('function');
@@ -129,8 +131,9 @@ describe('§26 coverage', () => {
     }
   });
 
-  test('every policy still names a real Prisma delegate', () => {
+  test('every policy either names a real Prisma delegate or is explicitly not one', () => {
     for (const p of RETENTION_POLICY) {
+      if (p.model === null) continue;
       expect(typeof prisma[p.model]?.deleteMany).toBe('function');
     }
   });
@@ -138,5 +141,50 @@ describe('§26 coverage', () => {
   test('only the entry that needs a status filter has one', () => {
     const withExtra = RETENTION_POLICY.filter((p) => p.extraWhere);
     expect(withExtra.map((p) => p.key)).toEqual(['stockReservations']);
+  });
+});
+
+
+// ── The two tables Prisma cannot see (claude.md §26, §27) ───────────────────
+// ai_scan_diagnoses and ai_scan_feedback are created by the FastAPI service
+// through asyncpg and are absent from schema.prisma. They were the only tables
+// in the §26 list with no retention AT ALL, and the reason was structural, not
+// an oversight: the sweep is a loop over `prisma[p.model]`, and there is no
+// delegate to name. These pin the shape of the fix so the next person who
+// "tidies up" the null model understands what it is load-bearing for.
+describe('FastAPI-owned scan tables', () => {
+  const entry = RETENTION_POLICY.find((p) => p.key === 'aiScanDiagnoses');
+
+  test('the category exists and carries a cutoff like every other', () => {
+    expect(entry).toBeDefined();
+    expect(retentionCutoffs(new Date('2026-06-08T00:00:00.000Z')).aiScanDiagnoses.toISOString())
+      .toBe('2025-06-08T00:00:00.000Z'); // 365 days
+  });
+
+  test('it names NO Prisma model, on purpose', () => {
+    // If this ever becomes a string, either the table was added to
+    // schema.prisma (fine — then delete sweepAiScanTables) or someone guessed a
+    // delegate name that does not exist and the loop will throw at 2am.
+    expect(entry.model).toBeNull();
+    expect(prisma.aiScanDiagnosis).toBeUndefined();
+  });
+
+  test('it uses the snake_case column the AI service actually wrote', () => {
+    // Prisma models here use createdAt; this table is not a Prisma model and its
+    // column is created_at. Getting this wrong deletes nothing, silently.
+    expect(entry.dateField).toBe('created_at');
+  });
+
+  test('the window is longer than the log-shaped categories', () => {
+    // These rows are the only record of what the pipeline decided — model,
+    // prompt hash, confidence, safety blockers. A season is the minimum useful
+    // comparison window; 90 days would make one impossible.
+    const errorLogs = RETENTION_POLICY.find((p) => p.key === 'errorLogs');
+    expect(entry.days).toBeGreaterThan(errorLogs.days);
+    expect(entry.days).toBe(AI_SCAN_RETENTION_DAYS);
+  });
+
+  test('the window is a single source of truth', () => {
+    expect(AI_SCAN_RETENTION_DAYS).toBe(365);
   });
 });
