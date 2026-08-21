@@ -5,6 +5,65 @@ verified** — code written is not completion (`claude.md` §4.3).
 
 ---
 
+## PERF-007 — The scan worker lost every diagnosis after its first
+
+```
+ID:        PERF-007
+Feature:   Crop scan persistence (Celery worker → asyncpg)
+Priority:  P0 — silent data loss on the flagship feature
+Status:    COMPLETE — verified
+```
+
+`db_pool.py` caches one asyncpg pool per process. `jobs/tasks.py` ran each Celery
+task under its own `asyncio.run(...)`, justified by a comment claiming Celery workers
+are *"process-per-task (prefork pool)"*.
+
+**Prefork is process-per-WORKER.** A child handles tasks back to back for its whole
+life, and `worker_max_tasks_per_child` is set nowhere in this repo. `asyncio.run`
+closes its loop on return, so from the second task onward the pool held connections
+belonging to a loop that no longer existed. Reproduced against live Postgres using
+the repo's own `db_pool`:
+
+```
+task 1: OK
+task 2: InterfaceError: cannot perform operation: another operation is in progress
+task 3: InterfaceError: cannot perform operation: another operation is in progress
+```
+
+`diagnosis_repo.record_diagnosis` catches that and logs *"continuing without"*. So
+nothing user-facing broke and nothing alerted — the farmer got their diagnosis, and
+the row was simply never written. **Every crop scan after the first one a worker
+process handled went unrecorded.** That also reframes PERF-009: `ai_scan_diagnoses`
+has been missing most of its rows, not merely unreachable by erasure.
+
+### Why loop-awareness alone was the wrong fix
+
+Measured, not assumed. Rebuilding the pool per task leaves the previous pool's server
+side connected:
+
+| | Postgres backends after 20 tasks |
+|---|---|
+| rebuild-per-task | **29** |
+| one loop per process | **3** |
+
+29 would exhaust the 10-connection Celery budget faster than the bug it replaced. The
+worker now keeps **one event loop per process**, which is what a "shared pool" always
+implied. 30 tasks: 30 succeeded, connections flat at 3 (previously 1 of 30).
+
+Loop-awareness stays as defence in depth — `eval/replay.py` drives the same pool
+through its own `asyncio.run`. A pool whose loop is gone is **dropped, not closed**:
+awaiting `close()` raises the very error being avoided, and it has no live sockets to
+release. `close_shared_pool` closes only on the pool's own loop, so uvicorn shutdown
+still releases connections and a foreign-loop teardown no longer raises.
+
+**Tests.** `fastapi/tests/test_db_pool_event_loop.py` — 5 tests, no database
+(`asyncpg.create_pool` stubbed; what is under test is which pool reaches which loop).
+Two fail against the original implementation.
+
+**Rollback.** `git revert 75ab1ed`.
+
+---
+
 ## PERF-006 — The chat inbox read every message of every chat it listed
 
 ```

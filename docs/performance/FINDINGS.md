@@ -15,7 +15,7 @@ in §Refuted, because negative results are worth as much as positive ones
 | PERF-004 | Legacy products can be oversold without limit | P0 | COMPLETE |
 | PERF-005 | Socket handshake auth is weaker than HTTP auth (RT-02) | P0 | TODO |
 | PERF-006 | Chat inbox reads every message of every listed chat | P0 | COMPLETE |
-| PERF-007 | Celery reuses one asyncpg pool across event loops (DB-05) | P0 | TODO |
+| PERF-007 | Celery reuses one asyncpg pool across event loops (DB-05) | P0 | COMPLETE |
 | PERF-008 | Broadcast fan-out runs inline on a Redis outage (OPS-03) | P0 | TODO |
 | PERF-009 | FastAPI tables invisible to erasure (GROW-10) | P0 | TODO |
 | PERF-010 | No Celery/queue/breaker observability | P0 | TODO |
@@ -100,7 +100,7 @@ a bounded PK probe. See PERF-012.
 
 ## PERF-007 — Celery reuses one asyncpg pool across `asyncio.run` event loops
 
-**P0 · TODO · Component:** `fastapi/db_pool.py:15-26`, `fastapi/jobs/tasks.py`
+**P0 · COMPLETE — see COMPLETED.md · Component:** `fastapi/db_pool.py:15-26`, `fastapi/jobs/tasks.py`
 
 **Evidence.** Reproduced end-to-end against a live Postgres using the repo's own
 `db_pool.py`: task 1 succeeds, tasks 2 and 3 raise `RuntimeError: Event loop is
@@ -289,6 +289,22 @@ message. No index is dropped without `pg_stat_user_indexes` from production.
 - `geoPageIds` has **four** callers, not three, and `animaltrade.routes.js:607` pays
   for a `COUNT` it discards — a `withTotal: false` option is a smaller, safer win than
   rewriting the window count.
+
+---
+
+## PERF-018 — `_init_lock` in diagnosis_repo can bind to a dead loop
+
+**P3 · TODO · Component:** `fastapi/persistence/diagnosis_repo.py:100`
+
+`_init_lock = asyncio.Lock()` is module-level. Python 3.10+ binds a lock to a
+loop lazily, on first await, and raises *"is bound to a different event loop"* if
+later awaited from another. `_ensure_schema` short-circuits on `_initialised`, so
+this can only bite when the FIRST schema init fails and a later call retries on a
+different loop — and `record_diagnosis` would swallow the raise, exactly as it
+swallowed PERF-007.
+
+Much less likely now that the Celery worker keeps one loop (PERF-007), and not
+reproduced. Recorded rather than fixed, to keep that change focused.
 
 ---
 
