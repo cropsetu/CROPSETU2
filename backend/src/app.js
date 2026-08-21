@@ -227,6 +227,28 @@ app.use(`${API}/ai/chat`, socketTimeout(ENV.AI_CHAT_SOCKET_TIMEOUT_MS));
 app.use(`${API}/ai/voice`, socketTimeout(ENV.AI_CHAT_SOCKET_TIMEOUT_MS));
 app.use(`${API}/ai/soil-card-ocr`, socketTimeout(ENV.AI_CHAT_SOCKET_TIMEOUT_MS));
 
+// Uploads had the same asymmetry the AI routes did, and it costs money twice.
+//
+// Both rental screens raise their OWN axios timeout to 120 s to post a video,
+// because that is what a 40 MB file takes on a rural connection. The server
+// still tore the socket down at 30 s. That 30 s is an INACTIVITY timeout, so it
+// survives the upload itself — bytes keep arriving — and then fires during the
+// part where the client socket is legitimately idle: after multer has buffered
+// the file and while Express streams it to Cloudinary.
+//
+// So a large video would upload completely, start landing in Cloudinary, and
+// have the connection destroyed underneath it. The farmer sees a network error
+// at ~30 s, well inside their app's 120 s budget, and retries — sending the
+// whole file a second time, while the first copy carries on and lands in
+// Cloudinary as an orphan nothing references. Double the bandwidth, double the
+// storage, and a farmer on a metered connection paying for both.
+//
+// Sized just ABOVE the client's 120 s (as AI_CHAT's 130 s sits above its
+// client's 125 s) so the client is always the one to give up first and owns the
+// retry decision. The server's job here is only to not kill a request that is
+// still doing legitimate work.
+app.use(`${API}/upload`, socketTimeout(ENV.UPLOAD_SOCKET_TIMEOUT_MS));
+
 app.use(`${API}/upload`, skipMultipart(express.json({ limit: '10mb' })));
 // Single-image crop scan JSON payload.
 //

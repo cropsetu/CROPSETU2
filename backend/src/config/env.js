@@ -370,6 +370,10 @@ export const ENV = {
   // (ai.routes.js). Keep these above those numbers if the budgets move.
   AI_SCAN_SOCKET_TIMEOUT_MS: parseInt(process.env.AI_SCAN_SOCKET_TIMEOUT_MS || '310000', 10),
   AI_CHAT_SOCKET_TIMEOUT_MS: parseInt(process.env.AI_CHAT_SOCKET_TIMEOUT_MS || '130000', 10),
+  // Sits just above the 120 s both rental screens set on their video POST, so
+  // the client gives up first and owns the retry. Below this the server killed
+  // the socket while Cloudinary was still receiving the file — see app.js.
+  UPLOAD_SOCKET_TIMEOUT_MS: parseInt(process.env.UPLOAD_SOCKET_TIMEOUT_MS || '130000', 10),
   // Per-USER upload ceilings (AI-08). The upload routes had authentication and
   // nothing else: no per-user quota, no per-route limit, no record of who
   // uploaded what — so one authenticated account could push 8 MB images or
