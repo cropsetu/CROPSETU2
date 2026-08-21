@@ -27,7 +27,7 @@ Classified all 38. They were not 38 problems:
 
 | Group | Count | Verdict |
 |---|---:|---|
-| Assertions expecting HTTP 422 from `validate()`, which ships 400 | 28 | **Stale tests** |
+| Assertions expecting HTTP 422 from `validate()`, which ships 400 | 27 | **Stale tests** |
 | Test fixture: `randomPhone()` collides | 2 suites blocked | **Fixture defect, hiding 2 real ones** |
 | `0 + Decimal` string concatenation in a test | 1 | **Stale test** |
 | `pushToken.create()` missing required `platform` | 1 | **Stale test** |
@@ -144,3 +144,115 @@ that any client branches on was altered.
 
 `git revert` the commit. The test-only changes are inert; the four code changes
 are independent of each other and can be reverted individually.
+
+---
+
+## PERF-004 — Legacy products could be oversold without limit
+
+```
+ID:        PERF-004
+Feature:   AgriStore checkout (pre-backfill / DUAL-READ branch)
+Priority:  P0 — money and stock (claude.md §51, §52)
+Status:    COMPLETE — verified
+```
+
+A product predating the catalog split has no variants, so no `seller_listing`, so no
+`listingId` on its cart row. Checkout takes the DUAL-READ branch, where stock lives on
+`products.stock` and the listing-targeted statement cannot reach it.
+
+That branch validated `p.stock < item.quantity` and recorded **no decrement anywhere**.
+`applyStockDeltas` — the only function in the codebase that writes `products.stock` —
+had **zero call sites**; its own docstring called it "retained only for the dual-write
+window". So the check ran forever against a number no order had ever moved, and the
+last unit could be sold again and again. **20 of 67 products** in the dev database have
+no variants, all active and APPROVED, with a legacy cart row already present.
+
+The buyer-cancel handler claimed in a comment that pre-backfill items were "restored by
+the legacy path below". No such path existed, there or anywhere.
+
+**Fixed.** `validateCartForCheckout` now returns `productDeltas`; both checkout paths
+apply them inside the same Serializable transaction that validated them; both cancel
+paths restore them. `applyStockDeltas` gained the `stock + delta >= 0` guard and
+`RETURNING` shape its listing sibling already had — not `GREATEST(..., 0)`, because
+clamping turns an oversell into a successful order for the wrong quantity.
+
+On the paid path the product decrement deliberately runs **outside** the `consumed`
+check: that flag means the *listing* reservation from `/orders/initiate` was converted,
+and a pre-backfill line never had one.
+
+**Tests.** `backend/tests/backend/api/shopLegacyStock.api.test.js` — 4 tests, confirmed
+to fail with the decrement removed. The fixture asserts the product genuinely has no
+variants, so the suite cannot drift onto the listing path and keep passing.
+
+**Found by** the adversarial pass over the load audit, which noted no audit dimension
+had opened this branch.
+
+**Rollback.** `git revert f326cfa`.
+
+---
+
+## PERF-003 — `mark_read` let a stranger clear someone else's unread badge
+
+```
+ID:        PERF-003
+Feature:   Socket.IO chat
+Priority:  P0 — security (claude.md §54, object-level authorization)
+Status:    COMPLETE — verified
+```
+
+`mark_read` was the only handler in `chat.socket.js` that took a `chatId` off the wire
+and acted on it without checking membership. `join_chat` and `send_message` both check,
+ten and thirty lines above it.
+
+Any authenticated socket could name any chat id and set `readAt` across every message
+in it that it had not sent. The harm lands on the victim: their unread count drops to
+zero on messages they never opened, and a farmer who misses a buyer's enquiry that way
+gets no signal at all. It also emitted `messages_read` into a room the caller had never
+joined. The `read` token bucket throttled this to ~5/s; it never prevented it.
+
+**Fixed** with the same `findFirst` on `buyerId`/`sellerId` its neighbours use.
+
+**Tests.** `backend/tests/backend/security/socketChatOwnership.test.js` — the first
+socket test in the repository, which is precisely why a missing check surrounded by
+present ones went unnoticed. Confirmed to fail with the guard removed.
+
+**Rollback.** `git revert 173620b`.
+
+---
+
+## PERF-002 — CI that actually runs
+
+```
+ID:        PERF-002
+Feature:   Repository infrastructure
+Priority:  P0 — claude.md §60
+Status:    COMPLETE — verified
+```
+
+There was no `.github/` directory. Nothing ran any suite on any push, so "the tests
+pass" was an assertion about someone's laptop.
+
+Five jobs, each running the exact command a developer runs locally: backend jest
+against real Postgres + Redis, FastAPI pytest, the frontend runner (whose config
+already roots `../shared`, so one job covers both), admin typecheck **and** build, and
+`prisma validate`. The admin build is not redundant — the Dockerfile compiles that SPA
+into the backend image, so a break there breaks the backend deploy.
+
+Two details are load-bearing: the CI database is named `cropsetu_test` because the
+fixtures refuse any name not ending in `_test` (`cleanupTestData` wipes ~20 tables),
+and the runner is pinned to `--runInBand` because parallel workers deadlock on `40P01`.
+
+**What adding it caught.** FastAPI was at 4 failed / 311 passed, all four stale in the
+same way — they predate WI-11, which made the LLM dispatch multi-provider. Two asserted
+every non-Gemini model raises `ConfigError`, when the commit that made them route is
+titled *"fix stale Gemini-only docs"*. The other two **never ran at all**: their stub
+for `get_feature_config` was a one-argument lambda, so WI-11's `model_override` kwarg
+raised `TypeError` before either assertion executed — meaning the no-cross-model-
+fallback policy for crop diagnosis had been unverified this whole time. Now 315/315.
+
+Simulating the CI environment before trusting it also caught a real flake:
+`farmRateLimit` used the production rate-limit prefixes verbatim, so with `REDIS_URL`
+set the keys landed in shared Redis for a full 15-minute window while the `beforeEach`
+reset clears only the in-memory half. Namespaced per run.
+
+**Rollback.** `git revert 9c9112e`.
