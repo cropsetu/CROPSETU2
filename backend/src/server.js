@@ -220,238 +220,263 @@ async function start() {
       inProcessWorkers = startWorkers();
     }
 
-    // ── Cache warming ───────────────────────────────────────────────────────
-    // Preload the hottest mandi-price keys so the first post-deploy user hits a
-    // warm cache instead of paying the cold Groq latency. Fired right after
-    // listen and NON-BLOCKING so it never delays readiness; warming completes
-    // within seconds, and the single-flight guard means a user racing in during
-    // the warm window still triggers only one recompute. A scheduled re-warm
-    // (just under the 30-min cache TTL) keeps hot keys from lapsing to cold
-    // during quiet periods.
-    if (ENV.CACHE_WARMING_ENABLED) {
-      warmAllCaches().catch(e => logger.warn('[CacheWarm] startup warm failed: %s', e.message));
-      cron.schedule('*/25 * * * *', () => {
-        warmAllCaches().catch(e => logger.warn('[CacheWarm] scheduled warm failed: %s', e.message));
-      });
-    }
-
-    // ── AgriPredict cron jobs ───────────────────────────────────────────────
-    const AI_BASE = ENV.AI_BACKEND_URL || 'http://localhost:8001';
-
-    // Helper: fire a single sync trigger (non-blocking)
-    async function triggerMandiSync(commodity, state, maxPages = 3) {
-      return fetch(`${AI_BASE}/agripredict/sync/trigger`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ commodity, state, district: null, max_pages: maxPages }),
-        signal:  AbortSignal.timeout(8_000),
-      }).catch(e => logger.warn('[AgriPredict] Sync trigger %s/%s failed: %s', commodity, state, e.message));
-    }
-
-    // ── Startup auto-seed: if mandi_prices table is empty, seed top combos ──
-    // Leader-locked so that when several instances boot against an empty DB only
-    // ONE fires the seed sync triggers (others would each fan out 50 requests to
-    // FastAPI on the same empty table). Short TTL — this is a one-shot boot job.
-    const mandiCount = await prisma.mandiPrice.count().catch(() => 0);
-    if (mandiCount === 0) {
-      await withLeaderLock('mandi-startup-seed', async () => {
-        logger.info('[AgriPredict] DB empty — seeding top commodity/state combos at startup');
-        const SEED_COMBOS = [
-          ...['Tomato','Onion','Potato'].flatMap(c =>
-            ['Maharashtra','Madhya Pradesh','Karnataka','Andhra Pradesh','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
-          ),
-          ...['Wheat','Bajra'].flatMap(c =>
-            ['Punjab','Haryana','Uttar Pradesh','Rajasthan','Madhya Pradesh'].map(s => ({ commodity: c, state: s }))
-          ),
-          ...['Soyabean','Cotton'].flatMap(c =>
-            ['Maharashtra','Madhya Pradesh','Gujarat','Rajasthan','Telangana'].map(s => ({ commodity: c, state: s }))
-          ),
-          ...['Rice'].flatMap(c =>
-            ['West Bengal','Andhra Pradesh','Tamil Nadu','Punjab','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
-          ),
-          ...['Maize','Gram','Arhar/Tur'].flatMap(c =>
-            ['Karnataka','Madhya Pradesh','Maharashtra','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
-          ),
-        ];
-        // Fire in parallel batches of 10 (avoid overwhelming FastAPI with 50+ concurrent requests)
-        const BATCH_SIZE = 10;
-        for (let i = 0; i < SEED_COMBOS.length; i += BATCH_SIZE) {
-          const batch = SEED_COMBOS.slice(i, i + BATCH_SIZE);
-          await Promise.allSettled(batch.map(({ commodity, state }) => triggerMandiSync(commodity, state, 5)));
-        }
-        logger.info('[AgriPredict] Startup seed: %d sync jobs queued', SEED_COMBOS.length);
-      }, { ttlMs: 10 * 60 * 1000 });
-    } else {
-      logger.info('[AgriPredict] DB has %d mandi price records — skipping startup seed', mandiCount);
-    }
-
-    // Daily at 6:00 AM IST (00:30 UTC) — refresh all 15 agricultural states × top 5 crops.
-    // Leader-locked: only one instance fans the ~75 sync triggers out to FastAPI per day.
-    cron.schedule('30 0 * * *', () => withLeaderLock('mandi-daily-sync', async () => {
-      logger.info('[AgriPredict] Daily sync started → FastAPI');
-      const DAILY_COMBOS = [
-        ...['Tomato','Onion','Potato','Wheat','Soyabean'].flatMap(c =>
-          ['Maharashtra','Punjab','Madhya Pradesh','Uttar Pradesh','Karnataka',
-           'Andhra Pradesh','Rajasthan','Gujarat','Telangana','Tamil Nadu',
-           'Bihar','West Bengal','Haryana','Odisha','Chhattisgarh'].map(s => ({ commodity: c, state: s }))
-        ),
-      ];
-      // Batch to avoid flooding FastAPI
-      const BATCH_SIZE = 10;
-      for (let i = 0; i < DAILY_COMBOS.length; i += BATCH_SIZE) {
-        const batch = DAILY_COMBOS.slice(i, i + BATCH_SIZE);
-        await Promise.allSettled(batch.map(({ commodity, state }) => triggerMandiSync(commodity, state, 2)));
-      }
-      logger.info('[AgriPredict] Daily sync: %d triggers sent to FastAPI', DAILY_COMBOS.length);
-    }));
-
-    // 1st of every month at 1:00 AM UTC — purge expired prediction caches.
-    // Leader-locked so a single instance issues the DELETE (others would race the same rows).
-    cron.schedule('0 1 1 * *', () => withLeaderLock('prediction-cache-purge', async () => {
-      logger.info('[AgriPredict] Monthly cache expiry check');
-      const expired = await prisma.predictionCache.deleteMany({
-        where: { expiresAt: { lt: new Date() } },
-      });
-      logger.info('[AgriPredict] Deleted %d expired prediction caches', expired.count);
-    }));
-
-    // ── Cache observability alerting ────────────────────────────────────────
-    // Every 5 min, evaluate the windowed cache hit rate + Redis memory and emit a
-    // loud [ALERT] log if either breaches its threshold (see utils/cacheMetrics.js).
-    // Metrics themselves are scraped from /readyz; this is the alerting half.
-    cron.schedule('*/5 * * * *', () => {
-      try {
-        checkCacheAlerts({
-          hitRateFloor: ENV.CACHE_HIT_RATE_ALERT_THRESHOLD,
-          memPctCeil:   ENV.REDIS_MEMORY_ALERT_PCT,
-          memPct:       getRedisMemoryMetrics().used_memory_pct,
-        });
-      } catch (err) { logger.warn('[CacheMetrics] alert check failed: %s', err.message); }
-    });
-
-    // ── Seller dashboard stats rollup refresh (CACHE-6) ─────────────────────
-    // Every 5 min, re-warm the precomputed seller-stats rollups for sellers who
-    // recently loaded their dashboard, so those reads keep hitting precomputed
-    // aggregates instead of re-running the ever-growing revenue SUM per load.
-    // Leader-locked so a single instance does the recompute fan-out per tick;
-    // refreshing slightly more often than the 10-min cache TTL keeps entries warm.
-    cron.schedule('*/5 * * * *', () => withLeaderLock('seller-stats-refresh', async () => {
-      try {
-        const result = await refreshActiveSellerStats();
-        if (result.refreshed) logger.info({ ...result }, '[SellerStats] rollup refresh complete');
-      } catch (err) { logger.warn('[SellerStats] rollup refresh failed: %s', err.message); }
-    }));
-
-    // ── Seller fulfillment metrics refresh (CATALOG-SPLIT §2) ───────────────
-    // Hourly. These are the DERIVED aggregates behind buy-box weights w2/w4 —
-    // seller rating, cancellation rate, on-time dispatch, return rate. They are
-    // never computed per request: the buy box runs on every product-page load.
-    // Hourly (not every 5 min like the dashboard rollup) because the inputs are
-    // order outcomes and reviews, which move on the scale of days; the job also
-    // bumps the buy-box cache namespace, so running it hot would churn it.
-    // Leader-locked: it fans out across every active seller.
-    cron.schedule('7 * * * *', () => withLeaderLock('seller-metrics-refresh', async () => {
-      try {
-        const result = await refreshAllSellerMetrics();
-        if (result.refreshed) logger.info({ ...result }, '[SellerMetrics] refresh complete');
-      } catch (err) { logger.warn('[SellerMetrics] refresh failed: %s', err.message); }
-    }));
-
     // Count serialization conflicts (two buyers racing for the same stock).
     // Injected rather than imported inside txRetry so that utility keeps no
     // service dependency — see the note there.
+    //
+    // Deliberately ABOVE the CRON_ENABLED gate. This is not a schedule — it is a
+    // per-process metric hook, and it sat in the middle of the cron region. A
+    // gate drawn around that region would have silently stopped every
+    // CRON_ENABLED=false replica from recording INVENTORY_CONFLICT, which is
+    // precisely the replica taking the checkout traffic that produces them.
     setSerializableConflictObserver(() => recordEvent(SHOP_EVENTS.INVENTORY_CONFLICT));
 
-    // ── Stock-reservation expiry sweep ──────────────────────────────────────
-    // Every 2 minutes. An abandoned payment sheet produces NO signal — no
-    // webhook, no client call — so without this the units a buyer reserved and
-    // walked away from stay off the shelf indefinitely. The other three release
-    // paths (confirm-failure, webhook, reconciler) handle the cases that do
-    // signal; this is the backstop for the case that does not, and it runs often
-    // because held stock is stock nobody else can buy.
-    cron.schedule('*/2 * * * *', () => withLeaderLock('shop-reservation-sweep', async () => {
-      try {
-        const r = await sweepExpiredReservations();
-        if (r.released || r.orphaned) logger.info({ ...r }, '[Reservation] expiry sweep released held stock');
-      } catch (err) { logger.warn('[Reservation] expiry sweep failed: %s', err.message); }
-    }));
-
-    // ── Shop health alerting ────────────────────────────────────────────────
-    // Every 5 minutes, on the same windowed-delta contract as the cache alerts:
-    // checkout failure rate, product-list p95, and any captured payment with no
-    // order (which alerts on a single occurrence — there is no acceptable rate
-    // for money held against nothing). NOT leader-locked: these are per-process
-    // in-memory counters, so every instance must evaluate its own.
-    cron.schedule('*/5 * * * *', () => {
-      try { checkShopAlerts(); }
-      catch (err) { logger.warn('[Shop] alert check failed: %s', err.message); }
-    });
-
-    // ── Payment reconciliation (SHOP-HARDENING) ─────────────────────────────
-    // Every 10 minutes. A payment can be captured while the app is being killed,
-    // losing signal, or backgrounded on a village connection — the /confirm call
-    // that would have told us never happens. This sweeps PaymentIntents that
-    // never reached a terminal state and ASKS RAZORPAY what actually happened,
-    // because the client that would have told us is gone.
+    // ── Scheduled jobs ──────────────────────────────────────────────────────
+    // ONE contiguous gate around every schedule, not several (claude.md §34).
     //
-    // It deliberately does NOT auto-create orders for orphaned captures: the cart
-    // is long gone and stock may have sold, so an invented order would ship
-    // something nobody chose. Those are logged at ERROR for a human to refund.
-    // Leader-locked — N instances hitting the gateway with the same intents
-    // would be both wasteful and rate-limited.
-    cron.schedule('*/10 * * * *', () => withLeaderLock('shop-payment-reconcile', async () => {
-      try {
-        const stats = await reconcilePendingPayments({ olderThanMinutes: 10 });
-        if (stats.scanned) logger.info({ ...stats }, '[ShopPayment] reconciliation complete');
-        if (stats.orphanedPaid) {
-          logger.error({ count: stats.orphanedPaid }, '[ShopPayment] ALERT: captured payments with no order — manual refund needed');
-        }
-      } catch (err) { logger.warn('[ShopPayment] reconciliation failed: %s', err.message); }
-    }));
-
-    // ── Agri-chemical batch expiry sweep ────────────────────────────────────
-    // Daily at 3:10 AM UTC. Marks lots EXPIRING_SOON inside the alert window and
-    // EXPIRED past their date, which is what takes expired stock out of the sale
-    // gate. Selling an expired pesticide is a regulatory failure, not a stale
-    // cache — so this runs on a schedule rather than lazily on read.
-    cron.schedule('10 3 * * *', () => withLeaderLock('shop-batch-expiry-sweep', async () => {
-      try {
-        const result = await sweepBatchExpiry();
-        if (result.expired || result.expiringSoon) {
-          logger.info({ ...result }, '[Compliance] batch expiry sweep complete');
-        }
-      } catch (err) { logger.warn('[Compliance] batch expiry sweep failed: %s', err.message); }
-    }));
-
-    // ── Data-retention sweep (DPDP minimisation) ────────────────────────────
-    // Daily at 2:30 AM UTC — purge transient/log data past its retention window
-    // (OTP sessions, expired tokens, old notifications, voice transcripts, AI
-    // usage logs, aged audit logs). See constants/retention.js for the policy.
-    // Leader-locked so a single instance runs the cross-table purge per day
-    // (the deletes are idempotent, but coordinating avoids N instances racing them).
-    cron.schedule('30 2 * * *', () => withLeaderLock('retention-sweep', async () => {
-      try {
-        const purged = await runRetentionSweep();
-        logger.info({ purged }, '[Retention] Daily sweep complete');
-      } catch (err) {
-        logger.error({ err }, '[Retention] Daily sweep failed');
+    // Two things inside this region are not schedules and would break if it were
+    // split or drawn carelessly. `AI_BASE` and `triggerMandiSync` are declared
+    // near the top and called by the daily-sync cron three hundred lines below —
+    // both are block-scoped in an ES module, so gating those two ranges
+    // separately throws ReferenceError on the 00:30 tick rather than at boot,
+    // which is the worst time to find out. And the serialization-conflict metric
+    // observer sat in the middle of this region; it has been hoisted above the
+    // gate, because a CRON_ENABLED=false replica is the one taking the checkout
+    // traffic whose conflicts it counts.
+    //
+    // The startup mandi seed is inside deliberately: it is a one-shot boot job
+    // that fans ~50 requests out to FastAPI, and only the scheduler should do it.
+    if (ENV.CRON_ENABLED) {
+      // ── Cache warming ───────────────────────────────────────────────────────
+      // Preload the hottest mandi-price keys so the first post-deploy user hits a
+      // warm cache instead of paying the cold Groq latency. Fired right after
+      // listen and NON-BLOCKING so it never delays readiness; warming completes
+      // within seconds, and the single-flight guard means a user racing in during
+      // the warm window still triggers only one recompute. A scheduled re-warm
+      // (just under the 30-min cache TTL) keeps hot keys from lapsing to cold
+      // during quiet periods.
+      if (ENV.CACHE_WARMING_ENABLED) {
+        warmAllCaches().catch(e => logger.warn('[CacheWarm] startup warm failed: %s', e.message));
+        cron.schedule('*/25 * * * *', () => {
+          warmAllCaches().catch(e => logger.warn('[CacheWarm] scheduled warm failed: %s', e.message));
+        });
       }
-    }));
 
-    // ── Animal-listing expiry sweep ─────────────────────────────────────────
-    // Hourly. Livestock sells within days; an ad left up for months is the main
-    // source of "I called and it was sold ages ago" complaints, which is what
-    // makes buyers stop trusting the marketplace. Expired rows go INACTIVE (a
-    // reversible state — the seller can renew from My Listings), never deleted.
-    // Leader-locked so one instance does the sweep.
-    cron.schedule('15 * * * *', () => withLeaderLock('animal-listing-expiry', async () => {
-      try {
-        const expired = await expireStaleAnimalListings();
-        if (expired > 0) logger.info('[AnimalTrade] expired %d stale listings', expired);
-      } catch (err) {
-        logger.error({ err }, '[AnimalTrade] expiry sweep failed');
+      // ── AgriPredict cron jobs ───────────────────────────────────────────────
+      const AI_BASE = ENV.AI_BACKEND_URL || 'http://localhost:8001';
+
+      // Helper: fire a single sync trigger (non-blocking)
+      async function triggerMandiSync(commodity, state, maxPages = 3) {
+        return fetch(`${AI_BASE}/agripredict/sync/trigger`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ commodity, state, district: null, max_pages: maxPages }),
+          signal:  AbortSignal.timeout(8_000),
+        }).catch(e => logger.warn('[AgriPredict] Sync trigger %s/%s failed: %s', commodity, state, e.message));
       }
-    }));
+
+      // ── Startup auto-seed: if mandi_prices table is empty, seed top combos ──
+      // Leader-locked so that when several instances boot against an empty DB only
+      // ONE fires the seed sync triggers (others would each fan out 50 requests to
+      // FastAPI on the same empty table). Short TTL — this is a one-shot boot job.
+      const mandiCount = await prisma.mandiPrice.count().catch(() => 0);
+      if (mandiCount === 0) {
+        await withLeaderLock('mandi-startup-seed', async () => {
+          logger.info('[AgriPredict] DB empty — seeding top commodity/state combos at startup');
+          const SEED_COMBOS = [
+            ...['Tomato','Onion','Potato'].flatMap(c =>
+              ['Maharashtra','Madhya Pradesh','Karnataka','Andhra Pradesh','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
+            ),
+            ...['Wheat','Bajra'].flatMap(c =>
+              ['Punjab','Haryana','Uttar Pradesh','Rajasthan','Madhya Pradesh'].map(s => ({ commodity: c, state: s }))
+            ),
+            ...['Soyabean','Cotton'].flatMap(c =>
+              ['Maharashtra','Madhya Pradesh','Gujarat','Rajasthan','Telangana'].map(s => ({ commodity: c, state: s }))
+            ),
+            ...['Rice'].flatMap(c =>
+              ['West Bengal','Andhra Pradesh','Tamil Nadu','Punjab','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
+            ),
+            ...['Maize','Gram','Arhar/Tur'].flatMap(c =>
+              ['Karnataka','Madhya Pradesh','Maharashtra','Uttar Pradesh'].map(s => ({ commodity: c, state: s }))
+            ),
+          ];
+          // Fire in parallel batches of 10 (avoid overwhelming FastAPI with 50+ concurrent requests)
+          const BATCH_SIZE = 10;
+          for (let i = 0; i < SEED_COMBOS.length; i += BATCH_SIZE) {
+            const batch = SEED_COMBOS.slice(i, i + BATCH_SIZE);
+            await Promise.allSettled(batch.map(({ commodity, state }) => triggerMandiSync(commodity, state, 5)));
+          }
+          logger.info('[AgriPredict] Startup seed: %d sync jobs queued', SEED_COMBOS.length);
+        }, { ttlMs: 10 * 60 * 1000 });
+      } else {
+        logger.info('[AgriPredict] DB has %d mandi price records — skipping startup seed', mandiCount);
+      }
+
+      // Daily at 6:00 AM IST (00:30 UTC) — refresh all 15 agricultural states × top 5 crops.
+      // Leader-locked: only one instance fans the ~75 sync triggers out to FastAPI per day.
+      cron.schedule('30 0 * * *', () => withLeaderLock('mandi-daily-sync', async () => {
+        logger.info('[AgriPredict] Daily sync started → FastAPI');
+        const DAILY_COMBOS = [
+          ...['Tomato','Onion','Potato','Wheat','Soyabean'].flatMap(c =>
+            ['Maharashtra','Punjab','Madhya Pradesh','Uttar Pradesh','Karnataka',
+             'Andhra Pradesh','Rajasthan','Gujarat','Telangana','Tamil Nadu',
+             'Bihar','West Bengal','Haryana','Odisha','Chhattisgarh'].map(s => ({ commodity: c, state: s }))
+          ),
+        ];
+        // Batch to avoid flooding FastAPI
+        const BATCH_SIZE = 10;
+        for (let i = 0; i < DAILY_COMBOS.length; i += BATCH_SIZE) {
+          const batch = DAILY_COMBOS.slice(i, i + BATCH_SIZE);
+          await Promise.allSettled(batch.map(({ commodity, state }) => triggerMandiSync(commodity, state, 2)));
+        }
+        logger.info('[AgriPredict] Daily sync: %d triggers sent to FastAPI', DAILY_COMBOS.length);
+      }));
+
+      // 1st of every month at 1:00 AM UTC — purge expired prediction caches.
+      // Leader-locked so a single instance issues the DELETE (others would race the same rows).
+      cron.schedule('0 1 1 * *', () => withLeaderLock('prediction-cache-purge', async () => {
+        logger.info('[AgriPredict] Monthly cache expiry check');
+        const expired = await prisma.predictionCache.deleteMany({
+          where: { expiresAt: { lt: new Date() } },
+        });
+        logger.info('[AgriPredict] Deleted %d expired prediction caches', expired.count);
+      }));
+
+      // ── Cache observability alerting ────────────────────────────────────────
+      // Every 5 min, evaluate the windowed cache hit rate + Redis memory and emit a
+      // loud [ALERT] log if either breaches its threshold (see utils/cacheMetrics.js).
+      // Metrics themselves are scraped from /readyz; this is the alerting half.
+      cron.schedule('*/5 * * * *', () => {
+        try {
+          checkCacheAlerts({
+            hitRateFloor: ENV.CACHE_HIT_RATE_ALERT_THRESHOLD,
+            memPctCeil:   ENV.REDIS_MEMORY_ALERT_PCT,
+            memPct:       getRedisMemoryMetrics().used_memory_pct,
+          });
+        } catch (err) { logger.warn('[CacheMetrics] alert check failed: %s', err.message); }
+      });
+
+      // ── Seller dashboard stats rollup refresh (CACHE-6) ─────────────────────
+      // Every 5 min, re-warm the precomputed seller-stats rollups for sellers who
+      // recently loaded their dashboard, so those reads keep hitting precomputed
+      // aggregates instead of re-running the ever-growing revenue SUM per load.
+      // Leader-locked so a single instance does the recompute fan-out per tick;
+      // refreshing slightly more often than the 10-min cache TTL keeps entries warm.
+      cron.schedule('*/5 * * * *', () => withLeaderLock('seller-stats-refresh', async () => {
+        try {
+          const result = await refreshActiveSellerStats();
+          if (result.refreshed) logger.info({ ...result }, '[SellerStats] rollup refresh complete');
+        } catch (err) { logger.warn('[SellerStats] rollup refresh failed: %s', err.message); }
+      }));
+
+      // ── Seller fulfillment metrics refresh (CATALOG-SPLIT §2) ───────────────
+      // Hourly. These are the DERIVED aggregates behind buy-box weights w2/w4 —
+      // seller rating, cancellation rate, on-time dispatch, return rate. They are
+      // never computed per request: the buy box runs on every product-page load.
+      // Hourly (not every 5 min like the dashboard rollup) because the inputs are
+      // order outcomes and reviews, which move on the scale of days; the job also
+      // bumps the buy-box cache namespace, so running it hot would churn it.
+      // Leader-locked: it fans out across every active seller.
+      cron.schedule('7 * * * *', () => withLeaderLock('seller-metrics-refresh', async () => {
+        try {
+          const result = await refreshAllSellerMetrics();
+          if (result.refreshed) logger.info({ ...result }, '[SellerMetrics] refresh complete');
+        } catch (err) { logger.warn('[SellerMetrics] refresh failed: %s', err.message); }
+      }));
+
+      // ── Stock-reservation expiry sweep ──────────────────────────────────────
+      // Every 2 minutes. An abandoned payment sheet produces NO signal — no
+      // webhook, no client call — so without this the units a buyer reserved and
+      // walked away from stay off the shelf indefinitely. The other three release
+      // paths (confirm-failure, webhook, reconciler) handle the cases that do
+      // signal; this is the backstop for the case that does not, and it runs often
+      // because held stock is stock nobody else can buy.
+      cron.schedule('*/2 * * * *', () => withLeaderLock('shop-reservation-sweep', async () => {
+        try {
+          const r = await sweepExpiredReservations();
+          if (r.released || r.orphaned) logger.info({ ...r }, '[Reservation] expiry sweep released held stock');
+        } catch (err) { logger.warn('[Reservation] expiry sweep failed: %s', err.message); }
+      }));
+
+      // ── Shop health alerting ────────────────────────────────────────────────
+      // Every 5 minutes, on the same windowed-delta contract as the cache alerts:
+      // checkout failure rate, product-list p95, and any captured payment with no
+      // order (which alerts on a single occurrence — there is no acceptable rate
+      // for money held against nothing). NOT leader-locked: these are per-process
+      // in-memory counters, so every instance must evaluate its own.
+      cron.schedule('*/5 * * * *', () => {
+        try { checkShopAlerts(); }
+        catch (err) { logger.warn('[Shop] alert check failed: %s', err.message); }
+      });
+
+      // ── Payment reconciliation (SHOP-HARDENING) ─────────────────────────────
+      // Every 10 minutes. A payment can be captured while the app is being killed,
+      // losing signal, or backgrounded on a village connection — the /confirm call
+      // that would have told us never happens. This sweeps PaymentIntents that
+      // never reached a terminal state and ASKS RAZORPAY what actually happened,
+      // because the client that would have told us is gone.
+      //
+      // It deliberately does NOT auto-create orders for orphaned captures: the cart
+      // is long gone and stock may have sold, so an invented order would ship
+      // something nobody chose. Those are logged at ERROR for a human to refund.
+      // Leader-locked — N instances hitting the gateway with the same intents
+      // would be both wasteful and rate-limited.
+      cron.schedule('*/10 * * * *', () => withLeaderLock('shop-payment-reconcile', async () => {
+        try {
+          const stats = await reconcilePendingPayments({ olderThanMinutes: 10 });
+          if (stats.scanned) logger.info({ ...stats }, '[ShopPayment] reconciliation complete');
+          if (stats.orphanedPaid) {
+            logger.error({ count: stats.orphanedPaid }, '[ShopPayment] ALERT: captured payments with no order — manual refund needed');
+          }
+        } catch (err) { logger.warn('[ShopPayment] reconciliation failed: %s', err.message); }
+      }));
+
+      // ── Agri-chemical batch expiry sweep ────────────────────────────────────
+      // Daily at 3:10 AM UTC. Marks lots EXPIRING_SOON inside the alert window and
+      // EXPIRED past their date, which is what takes expired stock out of the sale
+      // gate. Selling an expired pesticide is a regulatory failure, not a stale
+      // cache — so this runs on a schedule rather than lazily on read.
+      cron.schedule('10 3 * * *', () => withLeaderLock('shop-batch-expiry-sweep', async () => {
+        try {
+          const result = await sweepBatchExpiry();
+          if (result.expired || result.expiringSoon) {
+            logger.info({ ...result }, '[Compliance] batch expiry sweep complete');
+          }
+        } catch (err) { logger.warn('[Compliance] batch expiry sweep failed: %s', err.message); }
+      }));
+
+      // ── Data-retention sweep (DPDP minimisation) ────────────────────────────
+      // Daily at 2:30 AM UTC — purge transient/log data past its retention window
+      // (OTP sessions, expired tokens, old notifications, voice transcripts, AI
+      // usage logs, aged audit logs). See constants/retention.js for the policy.
+      // Leader-locked so a single instance runs the cross-table purge per day
+      // (the deletes are idempotent, but coordinating avoids N instances racing them).
+      cron.schedule('30 2 * * *', () => withLeaderLock('retention-sweep', async () => {
+        try {
+          const purged = await runRetentionSweep();
+          logger.info({ purged }, '[Retention] Daily sweep complete');
+        } catch (err) {
+          logger.error({ err }, '[Retention] Daily sweep failed');
+        }
+      }));
+
+      // ── Animal-listing expiry sweep ─────────────────────────────────────────
+      // Hourly. Livestock sells within days; an ad left up for months is the main
+      // source of "I called and it was sold ages ago" complaints, which is what
+      // makes buyers stop trusting the marketplace. Expired rows go INACTIVE (a
+      // reversible state — the seller can renew from My Listings), never deleted.
+      // Leader-locked so one instance does the sweep.
+      cron.schedule('15 * * * *', () => withLeaderLock('animal-listing-expiry', async () => {
+        try {
+          const expired = await expireStaleAnimalListings();
+          if (expired > 0) logger.info('[AnimalTrade] expired %d stale listings', expired);
+        } catch (err) {
+          logger.error({ err }, '[AnimalTrade] expiry sweep failed');
+        }
+      }));
+    } else {
+      logger.info('[Cron] CRON_ENABLED=false — this replica serves traffic only');
+    }
 
     httpServer.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {

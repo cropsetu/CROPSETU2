@@ -212,6 +212,21 @@ export const ENV = {
   // still run. See queue/jobQueue.js.
   QUEUE_INLINE_MAX_CONCURRENCY: parseInt(process.env.QUEUE_INLINE_MAX_CONCURRENCY || '5', 10),
 
+  // Does THIS replica run the scheduled jobs? (claude.md §34)
+  //
+  // Twelve node-cron schedules are registered on every process that boots
+  // server.js, which today means every latency-serving web replica. Nine take a
+  // Redis leader lock so only one actually does the work, but all twelve still
+  // wake up, and the three that are NOT leader-locked genuinely multiply by
+  // replica count. Cron work also shares the same Prisma pool as the HTTP path,
+  // so a long sweep competes with requests for connections.
+  //
+  // Defaults to TRUE so a single-service deploy — which is what this is today,
+  // and what a developer runs locally — keeps working with no new configuration.
+  // Set CRON_ENABLED=false on the web replicas and true on one dedicated
+  // scheduler to separate the tiers.
+  CRON_ENABLED: process.env.CRON_ENABLED !== 'false',
+
   JWT_SECRET: (() => {
     const secret = required('JWT_SECRET');
     // [FIX #9] Enforce minimum secret length for HS256 security
