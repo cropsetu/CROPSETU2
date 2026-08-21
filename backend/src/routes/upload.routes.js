@@ -6,12 +6,15 @@
 import { Router } from 'express';
 import { uploadBuffer, uploadVideoBuffer, createVideoUploader } from '../config/cloudinary.js';
 import { authenticate } from '../middleware/auth.js';
+import { imageUploadLimit, videoUploadLimit } from '../middleware/uploadLimit.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { ENV } from '../config/env.js';
 
 const router = Router();
 
-router.post('/image', authenticate, async (req, res) => {
+
+
+router.post('/image', authenticate, imageUploadLimit, async (req, res) => {
   const { base64 } = req.body;
   if (!base64 || typeof base64 !== 'string') {
     return sendError(res, 'base64 image data is required', 400);
@@ -59,7 +62,9 @@ router.post('/image', authenticate, async (req, res) => {
 // ── POST /upload/video ────────────────────────────────────────────────────────
 const videoUpload = createVideoUploader();
 
-router.post('/video', authenticate, (req, res, next) => {
+// The limiter runs BEFORE multer on purpose: a rejected request must not first
+// buffer a 100 MB video into this process's memory.
+router.post('/video', authenticate, videoUploadLimit, (req, res, next) => {
   videoUpload(req, res, (err) => {
     if (err) return sendError(res, err.message || 'Video upload error', 400);
     next();

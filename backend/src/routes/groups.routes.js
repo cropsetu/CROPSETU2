@@ -20,6 +20,7 @@ import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { auditAction, AUDIT_ACTIONS } from '../services/audit.service.js';
 import { validate } from '../middleware/validate.js';
 import { createUploader, uploadFiles } from '../config/cloudinary.js';
+import { imageUploadLimit } from '../middleware/uploadLimit.js';
 import prisma from '../config/db.js';
 import {
   sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, paginationMeta, parsePageSize, parsePageNumber,
@@ -106,6 +107,7 @@ router.get('/my', authenticate, async (req, res) => {
 router.post(
   '/',
   authenticate,
+  imageUploadLimit,
   (req, res, next) => avatarUpload(req, res, (err) => { if (err) return sendError(res, err.message, 400); next(); }),
   [
     body('name').trim().isLength({ min: 3, max: 60 }),
@@ -164,6 +166,7 @@ router.get('/:id', authenticate, async (req, res) => {
 router.put(
   '/:id',
   authenticate,
+  imageUploadLimit,
   (req, res, next) => avatarUpload(req, res, (err) => { if (err) return sendError(res, err.message, 400); next(); }),
   async (req, res) => {
     const membership = await prisma.groupMember.findUnique({

@@ -42,6 +42,7 @@ import { rateLimiter, clientIp } from '../middleware/rateLimit.js';
 import { idempotency } from '../middleware/idempotency.js';
 import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import { createUploader, uploadFiles } from '../config/cloudinary.js';
+import { imageUploadLimit } from '../middleware/uploadLimit.js';
 import prisma from '../config/db.js';
 import {
   sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendServerError,
@@ -744,6 +745,7 @@ router.post(
   authenticate,
   createLimit,
   idemAnimalCreate,
+  imageUploadLimit,
   (req, res, next) => {
     imageUpload(req, res, (err) => {
       if (err) {
@@ -855,6 +857,7 @@ router.put(
   '/:id',
   authenticate,
   writeLimit,
+  imageUploadLimit,
   (req, res, next) => imageUpload(req, res, (err) => {
     if (err) return sendError(res, err.message, 400);
     const problem = validateUploads(req.files || []);

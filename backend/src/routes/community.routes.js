@@ -16,6 +16,7 @@ import { authenticate, optionalAuth } from '../middleware/auth.js';
 import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
 import { createUploader, uploadFiles } from '../config/cloudinary.js';
+import { imageUploadLimit } from '../middleware/uploadLimit.js';
 import prisma from '../config/db.js';
 import {
   sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, paginationMeta, parsePageNumber, parsePageSize,
@@ -131,6 +132,7 @@ router.get('/posts/:id', optionalAuth, async (req, res) => {
 router.post(
   '/posts',
   authenticate,
+  imageUploadLimit,
   (req, res, next) => postImageUpload(req, res, (err) => {
     if (err) return sendError(res, err.message, 400);
     next();
