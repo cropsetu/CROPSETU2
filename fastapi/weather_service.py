@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 
 import httpx
@@ -27,14 +28,63 @@ _BASE = "https://api.open-meteo.com/v1/forecast"
 _WEATHER_TTL_SECONDS = 30 * 60
 _WEATHER_NAMESPACE = "weather:om"
 
-try:
-    import redis as _redis_lib
-    _redis = _redis_lib.Redis(host="localhost", port=6379, db=0, socket_connect_timeout=2)
-    _redis.ping()
-    _REDIS_OK = True
-except Exception:
-    _redis = None
-    _REDIS_OK = False
+# The shared half of this cache had never actually been shared in production.
+#
+# The client was built as Redis(host="localhost"), which is only where Redis
+# lives on a developer's laptop. On Railway the ping() at import failed, the flag
+# latched False for the life of the process, and every lookup silently fell
+# through to the 200-entry per-process dict below. So each uvicorn worker and
+# each Celery worker kept its own small cache, the 0.1°-bucket sharing that this
+# whole design exists for happened only within one process, and Open-Meteo saw
+# far more traffic than the comment above claims — against a free tier of 10k
+# requests a day. orchestrator.py imports this, so every crop scan paid it.
+#
+# Same env vars as security/spend.py and services/idempotency.py, so all three
+# land on one instance rather than three opinions about where Redis is.
+_REDIS_URL = (os.environ.get("RATE_LIMIT_STORAGE_URI")
+              or os.environ.get("REDIS_URL", "")).strip()
+
+_redis = None
+_redis_ok = False
+_redis_next_probe = 0.0
+_REDIS_RETRY_SEC = 30
+
+if _REDIS_URL:
+    try:
+        import redis as _redis_lib
+        _redis = _redis_lib.Redis.from_url(_REDIS_URL, socket_connect_timeout=2)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[Weather] redis client unavailable (%s) — per-process cache only", exc)
+else:
+    logger.info("[Weather] no REDIS_URL — per-process cache only (expected in dev)")
+
+
+def _redis_available() -> bool:
+    """
+    Health with a re-probe, not a latch.
+
+    The previous flag was decided once at import. A Redis blip while a Celery
+    worker forked therefore dropped that worker onto the in-memory cache for its
+    entire life, with nothing to say so — the same failure jobs/queue.py and
+    security/spend.py both had to fix.
+    """
+    global _redis_ok, _redis_next_probe
+    if _redis is None:
+        return False
+    if _redis_ok:
+        return True
+    now = time.monotonic()
+    if now < _redis_next_probe:
+        return False
+    _redis_next_probe = now + _REDIS_RETRY_SEC
+    try:
+        _redis.ping()
+        _redis_ok = True
+        logger.info("[Weather] shared cache available")
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
 
 _MEM: dict[str, tuple[dict, float]] = {}
 _MEM_MAX = 200
@@ -45,7 +95,7 @@ def _cache_key(lat: float, lon: float) -> str:
 
 
 def _cache_get(key: str) -> dict | None:
-    if _REDIS_OK:
+    if _redis_available():
         try:
             raw = _redis.get(key)
             if raw:
@@ -62,7 +112,7 @@ def _cache_get(key: str) -> dict | None:
 
 
 def _cache_set(key: str, value: dict) -> None:
-    if _REDIS_OK:
+    if _redis_available():
         try:
             _redis.setex(key, _WEATHER_TTL_SECONDS, json.dumps(value))
             return
