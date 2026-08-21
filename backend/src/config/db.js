@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { ENV } from './env.js';
 import logger from '../utils/logger.js';
+import { attachAuthCacheInvalidation } from '../services/authCache.js';
 
 // ── Connection pool sizing ───────────────────────────────────────────────────
 // Prisma opens ONE pool per app instance and reads its size from the connection
@@ -81,6 +82,12 @@ if (ENV.IS_DEV) {
     }
   });
 }
+
+// Invalidate the auth cache on ANY write to a user's auth-relevant columns.
+// Registered here, on the shared client, rather than at each of the nine
+// tokenVersion write sites — seven of which do not go through bumpTokenVersion,
+// and none of which is the site somebody adds next year.
+attachAuthCacheInvalidation(prisma);
 
 // Graceful shutdown
 process.on('beforeExit', async () => {

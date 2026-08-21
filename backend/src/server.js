@@ -13,6 +13,7 @@ import { setSocketAdapterHealthy } from './socket/adapterHealth.js';
 import { registerChatSocket } from './socket/chat.socket.js';
 import { startSocketReauth, stopSocketReauth } from './socket/socketReauth.js';
 import { seedDefaultFlags, initFlagInvalidationSubscriber, stopFlagInvalidationSubscriber } from './services/featureFlag.service.js';
+import { initAuthCacheSubscriber, stopAuthCacheSubscriber } from './services/authCache.js';
 import { warmAllCaches } from './services/cacheWarmer.service.js';
 import { checkCacheAlerts } from './utils/cacheMetrics.js';
 import { runRetentionSweep } from './services/retention.service.js';
@@ -211,6 +212,11 @@ async function start() {
     // Subscribe for cross-instance feature-flag invalidations (no-op if Redis is
     // down — flags then converge via the in-process TTL).
     initFlagInvalidationSubscriber();
+
+    // Cross-instance auth-cache invalidation. Without it a ban still lands, but
+    // only on THIS replica immediately and on the others when their entry ages
+    // out — so it is the difference between milliseconds and the TTL.
+    initAuthCacheSubscriber();
 
     // ── Job queue workers (in-process) ──────────────────────────────────────
     // Process queued heavy work (notification delivery, etc.) in this process so
@@ -511,6 +517,7 @@ async function shutdown(signal) {
     stopSocketReauth();
     await Promise.allSettled([
       stopFlagInvalidationSubscriber(),
+      stopAuthCacheSubscriber(),
       prisma.$disconnect(),
       redis.quit().catch(() => {}),
     ]);

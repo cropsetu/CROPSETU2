@@ -9,6 +9,7 @@ import { verifyAccessToken } from '../utils/jwt.js';
 import { sendUnauthorized, sendForbidden, sendError } from '../utils/response.js';
 import { isAccessTokenDenylisted } from '../services/tokenDenylist.service.js';
 import prisma from '../config/db.js';
+import { getCachedAuth, setCachedAuth } from '../services/authCache.js';
 
 // Exactly: scheme "Bearer", one space, then a single non-whitespace token.
 // Rejects missing/empty tokens, wrong schemes, extra spaces, and extra parts.
@@ -55,11 +56,28 @@ export async function authenticate(req, res, next) {
   // Validate against the live account: reject tokens for missing/disabled users
   // and tokens whose embedded version is behind the user's current
   // tokenVersion (bumped on security-sensitive changes like a phone change).
+  //
+  // Cached for a few seconds (services/authCache.js). This is a primary-key
+  // probe, so the win is not throughput — it is removing 1-2.5 ms of serial
+  // latency from 100% of traffic, and removing Postgres from the critical path
+  // of AUTHENTICATION itself. Invalidation is a Prisma hook on the users table
+  // rather than a call at each of the nine tokenVersion write sites, seven of
+  // which do not go through the helper.
+  //
+  // A cache HIT deliberately does not consult the database, which is the point:
+  // during a Postgres stall, requests from recently-seen users keep working
+  // instead of every one of them 503-ing.
   try {
-    const user = await prisma.user.findUnique({
-      where:  { id: payload.sub },
-      select: { tokenVersion: true, isActive: true },
-    });
+    let user = getCachedAuth(payload.sub);
+    if (!user) {
+      user = await prisma.user.findUnique({
+        where:  { id: payload.sub },
+        select: { tokenVersion: true, isActive: true },
+      });
+      // Only a real row is cached. A miss must stay a miss, or a mistyped id
+      // would be remembered as "no such user" for the TTL.
+      if (user) setCachedAuth(payload.sub, user);
+    }
     if (!user || user.isActive === false) {
       return sendUnauthorized(res, 'Account not found or inactive');
     }

@@ -26,6 +26,7 @@ import { getBudgetSummary } from '../../services/settings.service.js';
 import { breakerStates, CIRCUIT_STATES } from '../../resilience/circuitBreaker.js';
 import { reauthStats } from '../../socket/socketReauth.js';
 import { inlineStats } from '../../queue/jobQueue.js';
+import { authCacheStats } from '../../services/authCache.js';
 import { keysetList } from '../../utils/adminList.js';
 import { adminAudit, listParams, sendList } from './_helpers.js';
 
@@ -139,7 +140,7 @@ statusRouter.get('/status', async (_req, res) => {
       // on its own: sockets evicted means revocation is reaching live
       // connections, and jobs shed means the queue fail-open path is protecting
       // the request path. Both are rates an operator wants to see move.
-      probe('realtime', async () => ({ socketReauth: reauthStats(), inlineQueue: inlineStats() })),
+      probe('realtime', async () => ({ socketReauth: reauthStats(), inlineQueue: inlineStats(), authCache: authCacheStats() })),
     ]);
 
     const { overall, degradedBecause } = statusVerdict({ database, redisStatus, aiService, queues, breakers });

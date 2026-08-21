@@ -30,6 +30,7 @@ jest.unstable_mockModule('../../../src/services/tokenDenylist.service.js', () =>
 }));
 
 const { authenticate } = await import('../../../src/middleware/auth.js');
+const { resetAuthCache } = await import('../../../src/services/authCache.js');
 const { signAccessToken } = await import('../../../src/utils/jwt.js');
 
 /** Capture whatever the middleware sends, without an HTTP server. */
@@ -67,6 +68,18 @@ beforeAll(() => {
 beforeEach(() => {
   findUnique.mockReset();
   denylisted.mockReset().mockResolvedValue(false);
+  // Every case here drives the SAME user id through a different account state —
+  // deactivated, missing, tokenVersion bumped, healthy. That was safe while the
+  // middleware read the database on every request; it is not now that a
+  // short-TTL cache sits in front of it, because the "tokenVersion: 3" case
+  // would otherwise still be in the cache when the happy path runs and 401 it.
+  //
+  // Resetting alongside the mocks is the same isolation the mocks already get.
+  // It is NOT working around the cache: in production these transitions are
+  // Prisma writes, and the invalidation hook on the users table clears the entry
+  // for each one. Here they are mock return values that never touch Prisma, so
+  // nothing could have observed them.
+  resetAuthCache();
 });
 
 describe('authenticate — database unavailable', () => {

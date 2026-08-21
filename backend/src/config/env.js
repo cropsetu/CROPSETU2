@@ -227,6 +227,13 @@ export const ENV = {
   // scheduler to separate the tiers.
   CRON_ENABLED: process.env.CRON_ENABLED !== 'false',
 
+  // Auth hot-path cache (claude.md §9). 15 s is 1.7% of the access token's own
+  // 900 s lifetime, so a revocation missed by BOTH the Prisma invalidation hook
+  // and the Redis broadcast still lands well inside a window that already
+  // exists. Raise only with that arithmetic in mind.
+  AUTH_CACHE_TTL_MS: parseInt(process.env.AUTH_CACHE_TTL_MS || '15000', 10),
+  AUTH_CACHE_MAX:    parseInt(process.env.AUTH_CACHE_MAX || '50000', 10),
+
   JWT_SECRET: (() => {
     const secret = required('JWT_SECRET');
     // [FIX #9] Enforce minimum secret length for HS256 security
