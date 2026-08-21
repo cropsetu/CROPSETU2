@@ -15,7 +15,7 @@ import { uuidParamGuard } from '../middleware/uuidParams.js';
 import { validate } from '../middleware/validate.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { isEnabled } from '../services/featureFlag.service.js';
-import { getMandiPrices, getPriceTrend, getNearbyMandiNames } from '../services/mandiPrice.service.js';
+import { getMandiPrices, getPriceTrend, getNearbyMandiNames, TREND_ROW_CAP } from '../services/mandiPrice.service.js';
 import { sanitizeSearch } from '../utils/sanitizeSearch.js';
 import prisma from '../config/db.js';
 
@@ -106,16 +106,30 @@ router.get('/prices/:commodity/trend', authenticate, trendQueryRules, validate, 
   const trend = await getPriceTrend(commodity, market, days);
   if (!trend.length) return sendError(res, `${days} दिनों में ${commodity} के लिए ${market} में कोई डेटा नहीं मिला`, 404);
 
-  // Calculate moving average
-  const prices = trend.map(t => t.modalPrice);
-  const avg7   = prices.slice(-7).reduce((a, b) => a + b, 0) / Math.min(7, prices.length);
-  const avg30  = prices.reduce((a, b) => a + b, 0) / prices.length;
+  // Moving averages.
+  //
+  // Number() is not decoration. `modalPrice` is a Prisma Decimal, and
+  // Decimal.prototype.valueOf() returns a STRING — so `reduce((a, b) => a + b, 0)`
+  // was string concatenation, not addition. Three prices of 1200/1300/1400 came
+  // out of this as an average of 40,004,333,800 and a "100% below average"
+  // verdict, on the screen a farmer uses to decide when to sell.
+  //
+  // Prices here are at most eight digits and are being averaged for a chart, so
+  // a float is the right type; the Decimal matters in the database and at the
+  // payment boundary, not in a mean.
+  const prices = trend.map(t => Number(t.modalPrice)).filter(n => Number.isFinite(n));
+  const avg7   = prices.slice(-7).reduce((a, b) => a + b, 0) / Math.min(7, prices.length || 1);
+  const avg30  = prices.reduce((a, b) => a + b, 0) / (prices.length || 1);
   const currentPrice = prices[prices.length - 1] || 0;
   const priceVsAvg   = currentPrice && avg30 ? Math.round(((currentPrice - avg30) / avg30) * 100) : null;
 
   return sendSuccess(res, {
     commodity, market, days,
     trend,
+    // `market` is a substring match, so a wide one can hit the row cap. Say so
+    // rather than serving a silently shortened window as if it were the whole
+    // one — the averages below are over what was returned.
+    truncated: trend.length >= TREND_ROW_CAP,
     stats: { currentPrice, avg7: Math.round(avg7), avg30: Math.round(avg30), priceVsAvgPercent: priceVsAvg },
     attribution: 'स्रोत: data.gov.in, भारत सरकार',
   });

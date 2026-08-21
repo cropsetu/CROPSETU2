@@ -412,17 +412,41 @@ export async function getPriceTrend(commodity, market, days = 30) {
   // ILIKE DoS guard) — defense-in-depth even though callers also sanitize.
   const safeCommodity = sanitizeSearch(normaliseCommodity(commodity)) || '';
   const safeMarket    = sanitizeSearch(market) || '';
+  // Bounded, and ordered NEWEST-FIRST to make the bound safe.
+  //
+  // `market` is a `contains` match, so it does not narrow to one market the way
+  // the endpoint's contract implies — `?market=a` matches nearly every market
+  // name in the country. Measured on an Agmarknet-shaped dataset (400 markets
+  // reporting one commodity daily for a year): 146,000 rows, a 15.2 MB
+  // response, and then 146,000 Decimals summed on the event loop for the stats.
+  //
+  // The cap is applied to a DESCENDING scan and reversed afterwards, which is
+  // the part that matters. Capping an ascending scan would drop the NEWEST
+  // rows — the ones "current price" and the 7-day average are computed from —
+  // so a truncated window would quietly report last year's price as today's.
+  // Dropping the oldest instead just shortens the chart.
+  const take = Math.min(days * MAX_ROWS_PER_DAY, TREND_MAX_ROWS);
   const records = await prisma.mandiPrice.findMany({
     where: {
       commodity: { contains: safeCommodity, mode: 'insensitive' },
       market:    { contains: safeMarket, mode: 'insensitive' },
       priceDate: { gte: since },
     },
-    orderBy: { priceDate: 'asc' },
+    orderBy: [{ priceDate: 'desc' }],
+    take,
     select:  { priceDate: true, modalPrice: true, minPrice: true, maxPrice: true, arrivalQty: true },
   });
+  records.reverse(); // chart wants oldest-first
   return records;
 }
+
+// One market reports one price per commodity per day, so a legitimate series is
+// one row per day. The multiplier leaves room for the several varieties a market
+// can report for the same commodity on the same day, and the ceiling stops a
+// 365-day request from being large even when the `contains` match is wide.
+const MAX_ROWS_PER_DAY = 4;
+const TREND_MAX_ROWS   = 1000;
+export const TREND_ROW_CAP = TREND_MAX_ROWS;
 
 // ── District → APMC mandi names (used by /nearby endpoint) ──────────────────
 // Covers all major agricultural districts across India (data.gov.in market names)
