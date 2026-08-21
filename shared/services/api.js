@@ -151,9 +151,17 @@ function attachInterceptors(instance) {
     }
 
     // Idempotency-Key on mutations that must not double-apply. Set once per
-    // config so the 401-refresh replay (and writeQueue retries that reuse this
-    // config) carry the SAME key — the backend idempotency middleware then
-    // dedupes duplicates. `/animals` is here because a slow POST on a village
+    // config, so the 401-refresh replay — which re-sends this same config
+    // object — carries the SAME key and the backend idempotency middleware
+    // dedupes it.
+    //
+    // That is the ONLY retry this covers. A caller that builds a new request to
+    // retry (writeQueue did) gets a fresh config, no header, and a fresh key —
+    // which is not idempotent at all. Such callers must mint their own key and
+    // pass it in a config; the `!config.headers[...]` guard below then leaves
+    // it alone. writeQueue.js and the checkout screen both do this.
+    //
+    // `/animals` is here because a slow POST on a village
     // connection is exactly the case where a farmer taps Publish twice and ends
     // up with the same buffalo listed twice.
     if (MUTATING.has((config.method || 'get').toUpperCase())) {

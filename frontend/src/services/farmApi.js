@@ -22,8 +22,12 @@ export async function listFarms() {
   return res.data;
 }
 
-export async function createFarm(farmData) {
-  const { data: res } = await api.post('/farms', farmData);
+// `config` carries the Idempotency-Key that writeQueue mints once per logical
+// write, so all of its retries arrive under one key. Without forwarding it,
+// api.js mints a fresh key per attempt and a timed-out-but-committed POST comes
+// back as a second farm. See writeQueue.js.
+export async function createFarm(farmData, config) {
+  const { data: res } = await api.post('/farms', farmData, config);
   return res.data;
 }
 
@@ -32,13 +36,13 @@ export async function getFarm(farmId) {
   return res.data;
 }
 
-export async function updateFarm(farmId, fields) {
-  const { data: res } = await api.patch(`/farms/${farmId}`, fields);
+export async function updateFarm(farmId, fields, config) {
+  const { data: res } = await api.patch(`/farms/${farmId}`, fields, config);
   return res.data;
 }
 
-export async function deleteFarm(farmId) {
-  const { data: res } = await api.delete(`/farms/${farmId}`);
+export async function deleteFarm(farmId, config) {
+  const { data: res } = await api.delete(`/farms/${farmId}`, config);
   return res.data;
 }
 

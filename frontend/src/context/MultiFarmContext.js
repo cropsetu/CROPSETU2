@@ -73,7 +73,7 @@ export function MultiFarmProvider({ children }) {
     setFarms(p => [...p, optimistic]);
     setActiveFarmId(prev => prev || tid);
     try {
-      const farm = await withWrite(() => farmApi.createFarm(data), { label: 'createFarm' });
+      const farm = await withWrite((cfg) => farmApi.createFarm(data, cfg), { label: 'createFarm' });
       setFarms(p => p.map(f => (f.id === tid ? farm : f)));
       setActiveFarmId(prev => (prev === tid || !prev ? farm.id : prev));
       return farm;
@@ -88,7 +88,7 @@ export function MultiFarmProvider({ children }) {
     let prevSnapshot;
     setFarms(p => { prevSnapshot = p; return p.map(f => (f.id === id ? { ...f, ...fields } : f)); });
     try {
-      const updated = await withWrite(() => farmApi.updateFarm(id, fields), { label: 'updateFarm' });
+      const updated = await withWrite((cfg) => farmApi.updateFarm(id, fields, cfg), { label: 'updateFarm' });
       setFarms(p => p.map(f => (f.id === id ? { ...f, ...updated } : f)));
       return updated;
     } catch (e) {
@@ -107,7 +107,7 @@ export function MultiFarmProvider({ children }) {
       return rem;
     });
     try {
-      await withWrite(() => farmApi.deleteFarm(id), { label: 'deleteFarm' });
+      await withWrite((cfg) => farmApi.deleteFarm(id, cfg), { label: 'deleteFarm' });
     } catch (e) {
       if (prevSnapshot) setFarms(prevSnapshot);      // rollback
       setActiveFarmId(prevActive);
