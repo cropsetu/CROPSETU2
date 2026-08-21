@@ -164,6 +164,26 @@ try {
   logger.warn('[ALERT][Socket.IO] Redis adapter unavailable — using in-memory adapter, cross-instance delivery is DOWN (%s)', err?.message || 'no redis');
 }
 
+// ── Runtime profiling (claude.md §58) ────────────────────────────────────────
+// Off unless PROFILE=1. Event-loop delay, ELU, heap, RSS, GC and CPU, sampled
+// from Node's own built-ins — no profiler dependency and no agent. The point is
+// to sample WHILE load is applied: a flamegraph of one request says nothing
+// about whether the loop is being blocked at 500 concurrent.
+if (process.env.PROFILE === '1') {
+  import('../scripts/profile.js')
+    .then(({ startProfiling }) => {
+      const stop = startProfiling({
+        intervalMs: Number(process.env.PROFILE_INTERVAL_MS) || 1000,
+        out: process.env.PROFILE_OUT || null,
+      });
+      process.on('SIGTERM', stop);
+      process.on('SIGINT', stop);
+      logger.info('[Profile] sampling every %dms -> %s',
+        Number(process.env.PROFILE_INTERVAL_MS) || 1000, process.env.PROFILE_OUT || 'stdout');
+    })
+    .catch((err) => logger.warn('[Profile] could not start: %s', err.message));
+}
+
 registerChatSocket(io);
 
 // The handshake is the ONLY place a socket's credentials are checked, and a
