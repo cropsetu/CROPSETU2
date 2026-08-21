@@ -9,7 +9,15 @@
  *
  * deliverUserNotification({ userId, type, title, body, data, category }) — the work:
  *   1. Inserts a row in the Notification table (in-app inbox / unread badge).
- *   2. Looks up all PushToken rows for the user and sends an Expo push.
+ *   2. Looks up all PushToken rows for the user and sends an Expo push, and
+ *      DELETES any token Expo reports as DeviceNotRegistered.
+ *
+ * Not done: the second, asynchronous half of Expo's delivery contract. A ticket
+ * only says the message was accepted; the RECEIPT, fetched at least fifteen
+ * minutes later with getPushNotificationReceiptsAsync, is where a device that
+ * has since become unregistered is usually reported. Doing that properly needs
+ * ticket ids persisted and a scheduled job to collect them, so it is a separate
+ * piece of work — this handles the subset Expo tells us about immediately.
  *
  * Failures in either step are logged but never thrown — push is best-effort.
  *
@@ -97,13 +105,47 @@ export async function deliverUserNotification({
 
     if (!messages.length) return;
 
+    // Expo answers with one TICKET per message, in the order sent. That reply
+    // used to be thrown away, which is how a token outlives the app it belongs
+    // to: uninstall the app, or let the token rotate, and the row stays in
+    // push_tokens forever while every future notification builds a message for
+    // a device that can never receive one. Expo's own guidance is to delete a
+    // token the moment it reports DeviceNotRegistered.
+    const dead = [];
     const chunks = expo.chunkPushNotifications(messages);
     for (const chunk of chunks) {
       try {
-        await expo.sendPushNotificationsAsync(chunk);
+        const tickets = await expo.sendPushNotificationsAsync(chunk);
+        tickets.forEach((ticket, i) => {
+          if (ticket?.status !== 'error') return;
+          const reason = ticket.details?.error;
+          if (reason === 'DeviceNotRegistered') {
+            // chunkPushNotifications preserves order within a chunk, and the
+            // ticket array is parallel to it — so index i is chunk[i]'s device.
+            dead.push(chunk[i].to);
+          } else {
+            // Anything else (MessageTooBig, MessageRateExceeded, InvalidCredentials)
+            // is about this SEND, not this device. Logged, never acted on by
+            // deleting a token — losing a live device is worse than a lost push.
+            logger.warn('[push] Expo rejected a message (%s): %s', reason || 'unknown', ticket.message);
+          }
+        });
       } catch (err) {
         logger.warn('[push] Expo chunk send failed: %s', err.message);
       }
+    }
+
+    if (dead.length) {
+      // Best-effort: failing to prune must never surface as a failed
+      // notification. `token` is unique, so this cannot touch another user's row
+      // even if two accounts somehow shared one.
+      const { count } = await prisma.pushToken
+        .deleteMany({ where: { token: { in: dead } } })
+        .catch((err) => {
+          logger.warn('[push] pruning dead tokens failed: %s', err.message);
+          return { count: 0 };
+        });
+      if (count) logger.info('[push] pruned %d unregistered device token(s)', count);
     }
   } catch (err) {
     logger.warn('[push] sendPushToUser failed: %s', err.message);
