@@ -13,7 +13,7 @@ in §Refuted, because negative results are worth as much as positive ones
 | PERF-002 | CI that actually runs | P0 | COMPLETE |
 | PERF-003 | `mark_read` chat IDOR | P0 | COMPLETE |
 | PERF-004 | Legacy products can be oversold without limit | P0 | COMPLETE |
-| PERF-005 | Socket handshake auth is weaker than HTTP auth (RT-02) | P0 | TODO |
+| PERF-005 | Socket handshake auth is weaker than HTTP auth (RT-02) | P0 | COMPLETE |
 | PERF-006 | Chat inbox reads every message of every listed chat | P0 | COMPLETE |
 | PERF-007 | Celery reuses one asyncpg pool across event loops (DB-05) | P0 | COMPLETE |
 | PERF-008 | Broadcast fan-out runs inline on a Redis outage (OPS-03) | P0 | COMPLETE |
@@ -31,7 +31,7 @@ in §Refuted, because negative results are worth as much as positive ones
 
 ## PERF-005 — Socket handshake auth is strictly weaker than HTTP auth
 
-**P0 · TODO · Component:** `backend/src/socket/chat.socket.js:43-53`
+**P0 · COMPLETE — see COMPLETED.md · Component:** `backend/src/socket/chat.socket.js:43-53`
 
 **Evidence.** The handshake verifies the JWT signature and nothing else. HTTP
 (`middleware/auth.js:36-68`) additionally checks the Redis `jti` denylist, `isActive`,

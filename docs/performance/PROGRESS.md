@@ -2,18 +2,12 @@
 
 ## Current Item
 
-PERF-005 — Socket handshake auth is strictly weaker than HTTP auth (RT-02)
+None in progress — PERF-005 closed the last of the self-contained P0s.
 
 ## Status
 
-TODO — not started. Nine items are COMPLETE and verified: PERF-001 → 004, 006 → 008,
-010, plus the CI in 002.
-
-PERF-005 is deliberately still the head of the queue rather than skipped. It is the
-last P0 that is not self-contained: the adversarial pass showed that hardening the
-handshake alone produces a client reconnect storm, so it needs a `shared/` change
-landed with it. Everything ahead of it in this session was chosen because it could be
-finished and verified in one piece.
+Ten items COMPLETE and verified: PERF-001 → 008 and PERF-010. Every P0 on the original
+list is now either done or reclassified.
 
 ## Current Feature
 
@@ -77,15 +71,19 @@ PERF-010  fastapi/jobs/queue.py, fastapi/jobs/tasks.py, fastapi/main.py
           backend/src/routes/admin/ops.routes.js
           fastapi/tests/test_worker_health.py (new)
           backend/tests/backend/unit/opsStatusVerdict.test.js (new)
+PERF-005  backend/src/socket/chat.socket.js, backend/src/socket/socketReauth.js (new)
+          backend/src/server.js, shared/services/{api,socket}.js
+          backend/tests/backend/security/{socketHandshakeAuth,socketReauth}.test.js (new)
+          frontend/src/services/__tests__/socketAuthRetry.test.js (new)
 ```
 
 ## Tests
 
 | Suite | Before | After |
 |---|---|---|
-| backend (`npm test -- --runInBand`) | 7–8 suites / 37–38 failing | **97 suites / 0 failing, 1145 passing** |
+| backend (`npm test -- --runInBand`) | 7–8 suites / 37–38 failing | **99 suites / 0 failing, 1174 passing** |
 | fastapi (`pytest tests`) | 4 failing / 311 passing | **330 passing** |
-| frontend + shared (`npx jest`) | 9 suites / 175 passing | unchanged, green |
+| frontend + shared (`npx jest`) | 9 suites / 175 passing | **10 suites / 182 passing** |
 | admin (`tsc --noEmit`, `vite build`) | green | green |
 
 Two new suites were confirmed to **fail with the fix reverted** and pass with it
@@ -110,15 +108,24 @@ Behavioural, measured locally — no production telemetry is available:
   `degraded`; it previously reported `ok`.
 - Admin broadcast fan-out: 5,000 concurrent enqueues → bounded to 25; the inline
   fail-open path is capped and sheds best-effort work instead of the API.
+- A banned or logged-out user could previously hold a socket indefinitely; the
+  handshake now refuses one and the sweep closes an existing one within a tick.
 - Backend suite wall clock: ~30 s, unchanged.
 
 ## Next item
 
-**PERF-005** (socket handshake auth). Read the reconnect-storm trap in `FINDINGS.md`
-first — it makes this a `shared/` change, not a backend-only one, and it is the reason
-this item was not simply picked up after PERF-006.
+No P0 remains. The highest-value open items, in order:
 
-Fully independent alternatives, in order of value:
-**PERF-007** (Celery asyncpg pool across event loops — reproduced, correctness),
-**PERF-010** (queue/Celery/breaker observability — makes everything after it
-measurable), **PERF-008** (queue fail-open fan-out — read the `worker.js` trap first).
+**PERF-009** — FastAPI tables invisible to erasure. Note PERF-007 reframes it: most of
+those rows were never written in the first place, so the compliance question and the
+data question are now different sizes than the audit assumed.
+
+**PERF-011** — move the 12 cron schedules off the latency-serving tier. Read the two
+traps first: gating `:228-244` and `:278-444` separately throws `ReferenceError` because
+`triggerMandiSync` is defined in the first and called in the second, and
+`setSerializableConflictObserver` sits in that range and is not a cron.
+
+**PERF-015** — the composite indexes, each already confirmed by EXPLAIN. Needs
+`pg_stat_user_indexes` from production before anything is dropped.
+
+**PERF-014** still needs a human decision rather than an implementation.

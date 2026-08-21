@@ -5,6 +5,75 @@ verified** — code written is not completion (`claude.md` §4.3).
 
 ---
 
+## PERF-005 — A socket never had to prove who it was
+
+```
+ID:        PERF-005
+Feature:   Socket.IO authentication (RT-02)
+Priority:  P0 — security
+Status:    COMPLETE — verified
+```
+
+The handshake verified the JWT signature and nothing else. HTTP additionally
+checks the Redis jti denylist, `isActive` and `tokenVersion`. So a banned farmer, a
+logged-out one, or one whose `tokenVersion` had moved could still open a socket —
+and sockets carry AI and voice turns that spend provider money, not only chat.
+
+### Why hardening it alone would have made things worse
+
+`getValidAccessToken` returns the **current** token untouched whenever it is more than
+30 s from expiry — the right answer to *"do I have something usable?"* and the wrong one
+to *"the server just refused this"*. A server can refuse a perfectly unexpired token:
+denylisted jti, or a `tokenVersion` moved by a role/KYC/scope change. The socket client
+called it on rejection, got the same refused token back, read it as "session alive" and
+reconnected — every 1–5 s, `reconnectionAttempts: Infinity`, for the token's remaining
+fifteen minutes. Each attempt would now cost a Redis read **and** a database query.
+
+So `forceRefreshAccessToken` was added alongside it, and the reasons collapse to **two**
+categories rather than three. The client cannot distinguish "revoked" from "stale" from
+"banned"; what it *can* determine is whether the session can still mint a token, and
+that single answer is correct for all of them. A denylisted jti is therefore reported as
+`Token stale`, not `Invalid token` — logging out one device revokes that access token
+while the refresh lineage survives.
+
+The second category matters more: when the **database** lookup fails the handshake
+answers `Authentication unavailable` and the client keeps reconnecting without touching
+the session. Answering that like an auth failure would turn one Postgres stall into a
+fleet-wide logout — the incident the HTTP path answers 503 rather than 401 to prevent.
+The connection still fails closed; only the **session** is left alone.
+
+### The second half — established sockets
+
+A socket is not a request: once open it stays open, so the above lands on the victim's
+*next* handshake. `socket/socketReauth.js` re-checks live sockets on a timer.
+
+A **sweep**, not pub/sub, and the reason is countable: 9 sites write `tokenVersion` and
+only 2 go through `bumpTokenVersion`; the admin ban writes `isActive` without touching
+it at all. A publish hook in the helper would have missed ban, force-logout and DPDP
+erasure. Cost is one `findMany` over the *distinct* users on this process plus one
+pipelined denylist check **per tick** — ten sockets across three users is one query
+naming three ids, and a test says so.
+
+It fails **open**, in deliberate opposition to the handshake: refusing a new connection
+is recoverable in seconds, tearing down every live one is not. It does not enforce the
+token's `exp` — clients refresh over HTTP without re-handshaking, so that would force
+the fleet to reconnect every fifteen minutes for no security gain.
+
+`reauthStats()` and `inlineStats()` are wired into `/admin/ops/status` rather than left
+exported and uncalled — which is exactly how `breakerStates()` spent its life until
+PERF-010.
+
+**Tests.** 36 — 14 handshake, 15 sweep, 7 client. The four client cases fail against the
+previous `getValidAccessToken` behaviour.
+
+**Note.** One full-suite run during this work failed `inputValidation` once and did not
+reproduce in five subsequent full runs. That suite is DB-backed and part of the
+historically flaky set; recorded rather than assumed away.
+
+**Rollback.** `git revert adb5406 816dcdb`.
+
+---
+
 ## PERF-008 — A Redis outage became an API outage
 
 ```
