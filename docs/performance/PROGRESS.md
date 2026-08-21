@@ -6,7 +6,7 @@ PERF-005 — Socket handshake auth is strictly weaker than HTTP auth (RT-02)
 
 ## Status
 
-TODO — not started. PERF-001 through PERF-004 are COMPLETE and verified.
+TODO — not started. PERF-001 through PERF-004 and PERF-006 are COMPLETE and verified.
 
 ## Current Feature
 
@@ -65,7 +65,7 @@ PERF-004  backend/src/utils/stockBatch.js
 
 | Suite | Before | After |
 |---|---|---|
-| backend (`npm test -- --runInBand`) | 7–8 suites / 37–38 failing | **95 suites / 0 failing, 1120 passing** |
+| backend (`npm test -- --runInBand`) | 7–8 suites / 37–38 failing | **95 suites / 0 failing, 1123 passing** |
 | fastapi (`pytest tests`) | 4 failing / 311 passing | **315 passing** |
 | frontend + shared (`npx jest`) | 9 suites / 175 passing | unchanged, green |
 | admin (`tsc --noEmit`, `vite build`) | green | green |
@@ -82,13 +82,19 @@ Behavioural, measured locally — no production telemetry is available:
 - `GET /farms/:id/financial-summary` with any unrecorded cost: **500 → 200**.
 - Legacy product stock after an order: **unchanged → decremented**; the last unit can
   no longer be sold twice.
+- Chat inbox last-message lookup: **6,000 rows read → 30**; `DISTINCT ON` 3.616 ms →
+  `LATERAL` **0.163 ms**, and now O(page) rather than O(message history).
+- Chat inbox unread count: 7,474 rows / 2,075 buffers / 12.1 ms → 4,771 / 581 / 5.5 ms,
+  and now O(page) rather than O(all unread messages on the platform).
 - Backend suite wall clock: ~30 s, unchanged.
 
 ## Next item
 
 **PERF-005** (socket handshake auth). Read the reconnect-storm trap in `FINDINGS.md`
-first — it makes this a `shared/` change, not a backend-only one.
+first — it makes this a `shared/` change, not a backend-only one, and it is the reason
+this item was not simply picked up after PERF-006.
 
-If a smaller, fully-independent step is wanted first, **PERF-006** (the chat inbox
-loading every message of every listed chat) is the larger raw win and has no client
-coupling at all.
+Fully independent alternatives, in order of value:
+**PERF-007** (Celery asyncpg pool across event loops — reproduced, correctness),
+**PERF-010** (queue/Celery/breaker observability — makes everything after it
+measurable), **PERF-008** (queue fail-open fan-out — read the `worker.js` trap first).

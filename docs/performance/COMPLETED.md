@@ -5,6 +5,55 @@ verified** — code written is not completion (`claude.md` §4.3).
 
 ---
 
+## PERF-006 — The chat inbox read every message of every chat it listed
+
+```
+ID:        PERF-006
+Feature:   AnimalTrade chat inbox — GET /animals/chats/my
+Priority:  P0 — unbounded in table size
+Status:    COMPLETE — verified
+```
+
+Two Prisma includes, neither compiling to SQL bounded by the page.
+
+**`messages: { take: 1 }` emits no `LIMIT`.** Prisma slices to one per chat in
+JavaScript. Measured on a 30-chat inbox with 200 messages each: **6,000 rows read to
+render 30.** The multiplier is the conversation history, so the inbox got slower for
+exactly the people who use it most.
+
+**The unread `_count` cost does not depend on the user at all.** It compiles to a
+LEFT JOIN against a subquery with no correlation to the listed chats — every unread
+message on the *platform* is scanned and grouped, then the other people's rows are
+discarded by the join.
+
+### Measured (15,000-row table, other users' traffic present)
+
+| | rows read | buffers | exec |
+|---|---:|---:|---:|
+| unread count — before | 7,474 | 2,075 | 12.1 ms |
+| unread count — after | 4,771 | 581 | 5.5 ms |
+| last message — `DISTINCT ON` | sorts 6,000 | 627 | 3.616 ms |
+| last message — **`LATERAL`** | **30** | 365 | **0.163 ms** |
+
+`LATERAL`, not `DISTINCT ON`: both return one row per chat, but `DISTINCT ON` must
+sort every matching message and **no index can serve it** — it still sorted 6,000 rows
+with `enable_seqscan = off`. `LATERAL` is N independent top-1 lookups on the existing
+`@@index([chatId, createdAt DESC, id DESC])`. The shape matters more than the 22×: it
+costs 30 index lookups whatever the history is, so a two-year-old conversation opens
+as fast as a new one. `id DESC` breaks ties so two messages in the same millisecond
+cannot alternate between requests.
+
+The seller's per-listing chat list had the same include on a page listing up to 100
+chats and shares the helper; its response keeps the full message row.
+
+**Tests.** Three, in `animaltrade.api.test.js`: the newest message is the one reported,
+unread counts exclude your own messages and do not leak from a neighbouring chat, and
+an empty chat reports zero.
+
+**Rollback.** `git revert ccd2c53`.
+
+---
+
 ## PERF-001 — Restore the regression signal, and fix what it was hiding
 
 ```
