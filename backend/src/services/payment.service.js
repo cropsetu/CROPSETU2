@@ -224,8 +224,15 @@ export async function fetchOrderPayments(providerOrderId) {
     }, { isFailure: httpFailure });
     return Array.isArray(data?.items) ? data.items : [];
   } catch (err) {
-    logger.warn('[Payment] fetchOrderPayments(%s) failed: %s', providerOrderId, err.message);
-    return [];
+    // NULL, not []. An empty array is a real answer from the gateway — "this
+    // order was never paid" — and the reconciler acts on it by EXPIRING the
+    // intent and releasing the held stock. Returning [] here made a Razorpay
+    // outage, a timeout, or an open circuit breaker look exactly like that
+    // answer, so a farmer who had genuinely paid could have their intent marked
+    // terminally EXPIRED and their reservation released. Null means "we do not
+    // know", and the caller must leave the intent alone until we do.
+    logger.error('[ALERT][Payment] fetchOrderPayments(%s) failed, treating as UNKNOWN: %s', providerOrderId, err.message);
+    return null;
   }
 }
 

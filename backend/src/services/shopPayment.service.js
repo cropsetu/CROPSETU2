@@ -209,15 +209,34 @@ export async function reconcilePendingPayments({ olderThanMinutes = 10, limit = 
     take: limit,
   });
 
-  const stats = { scanned: stale.length, paid: 0, failed: 0, expired: 0, orphanedPaid: 0 };
+  // `unknown` counts intents the gateway could not answer for this pass. It is
+  // not a failure to fix here — it is the signal that reconciliation is blind,
+  // which matters because the alternative (guessing) loses money.
+  const stats = { scanned: stale.length, paid: 0, failed: 0, expired: 0, orphanedPaid: 0, unknown: 0 };
   if (!stale.length || isMockPayments()) return stats;
 
   for (const intent of stale) {
     try {
       // Ask the gateway. This is the whole point — the client is gone.
+      //
+      // `null` from either fetcher means WE COULD NOT ASK — a timeout, a 5xx, an
+      // open circuit breaker — which is not the same as the gateway telling us
+      // there is no payment. Conflating the two is how a paid intent got marked
+      // EXPIRED and its stock released during a Razorpay outage: no `captured`,
+      // no `failed`, straight to the expiry branch below. Skip instead; the
+      // intent stays selectable and the next pass asks again.
       const payments = intent.providerPaymentId
-        ? [await fetchPayment(intent.providerPaymentId)].filter(Boolean)
+        ? await fetchPayment(intent.providerPaymentId).then((p) => (p ? [p] : null))
         : await fetchOrderPayments(intent.providerOrderId);
+
+      if (payments === null) {
+        stats.unknown += 1;
+        logger.error({
+          intentId: intent.id,
+          providerOrderId: intent.providerOrderId,
+        }, '[ALERT][ShopPayment] RECONCILE: gateway unreachable — intent left untouched');
+        continue;
+      }
 
       const captured = payments.find((p) => p?.status === 'captured' || p?.status === 'authorized');
 
