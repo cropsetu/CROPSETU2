@@ -244,8 +244,27 @@ async def record_diagnosis(
             logger.debug("[Persistence] DB pool unavailable — skipping write")
             return
         row = _summary_row(params=params, images=images, report=report)
-        # Strip _safety from the payload so the JSONB isn't bloated with
-        # the same data the columns already hold.
+        # The whole report goes in. An earlier comment here claimed to strip
+        # `_safety` first; it never did, and it would have been a no-op if it
+        # had — the report's `treatment` section is built from an explicit key
+        # allowlist in report_generator_agent, and `_safety` is not on it. It
+        # never reaches this function.
+        #
+        # There IS one real duplication: the blocker/warning lists appear under
+        # both meta.safety (which the mobile app reads for its badge) and
+        # annex_page (which the PDF reads). Measured on a busy report — three
+        # chemicals, two blockers, two warnings, four differentials — that is
+        # 0.41 KB of a 15.9 KB payload, 2.6%. Not worth reshaping a document two
+        # clients parse.
+        #
+        # Nor is the object-storage split (claude.md §27) worth it at this size:
+        # 15.9 KB × 100,000 scans is 1.5 GB/year BEFORE TOAST compression, and
+        # with the year-long retention sweep that is a ceiling rather than a
+        # slope. Splitting it would buy about a gigabyte and cost every
+        # debugging session a second round trip to a bucket. If it ever does
+        # bite, the first things to move are annex_page and
+        # weather_outlook.raw_forecast (28% of the payload between them, and the
+        # two parts nothing queries) — not the whole column.
         payload = json.dumps(report, default=str)
 
         pool = await get_shared_pool()
