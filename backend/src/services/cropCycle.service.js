@@ -293,14 +293,6 @@ export async function advanceGrowthStage(cycleId, farmerId, stage) {
 }
 
 export async function addFertilizer(cycleId, farmerId, entry) {
-  const cycle = await prisma.farmCropCycle.findFirst({
-    where: { id: cycleId, farmerId },
-    select: { fertilizersUsed: true },
-  });
-  if (!cycle) return null;
-  const existing = Array.isArray(cycle.fertilizersUsed)
-    ? cycle.fertilizersUsed
-    : [];
   const newEntry = {
     id: crypto.randomUUID(),
     applicationDate: entry.applicationDate || new Date().toISOString(),
@@ -312,21 +304,12 @@ export async function addFertilizer(cycleId, farmerId, entry) {
     applicationMethod: entry.applicationMethod || "broadcast",
     notes: entry.notes,
   };
-  return prisma.farmCropCycle.update({
-    where: { id: cycleId, farmerId },
-    data: { fertilizersUsed: [...existing, newEntry] },
-  });
+  const r = await appendJsonLog(cycleId, farmerId, "fertilizersUsed", newEntry);
+  if (!r.ok) return r.reason === "full" ? { error: "full" } : null;
+  return cycleAfterAppend(cycleId, farmerId);
 }
 
 export async function addPesticide(cycleId, farmerId, entry) {
-  const cycle = await prisma.farmCropCycle.findFirst({
-    where: { id: cycleId, farmerId },
-    select: { pesticidesUsed: true },
-  });
-  if (!cycle) return null;
-  const existing = Array.isArray(cycle.pesticidesUsed)
-    ? cycle.pesticidesUsed
-    : [];
   const newEntry = {
     id: crypto.randomUUID(),
     applicationDate: entry.applicationDate || new Date().toISOString(),
@@ -339,21 +322,12 @@ export async function addPesticide(cycleId, farmerId, entry) {
     sprayMethod: entry.sprayMethod || "knapsack",
     notes: entry.notes,
   };
-  return prisma.farmCropCycle.update({
-    where: { id: cycleId, farmerId },
-    data: { pesticidesUsed: [...existing, newEntry] },
-  });
+  const r = await appendJsonLog(cycleId, farmerId, "pesticidesUsed", newEntry);
+  if (!r.ok) return r.reason === "full" ? { error: "full" } : null;
+  return cycleAfterAppend(cycleId, farmerId);
 }
 
 export async function addIrrigationLog(cycleId, farmerId, entry) {
-  const cycle = await prisma.farmCropCycle.findFirst({
-    where: { id: cycleId, farmerId },
-    select: { irrigationLogs: true },
-  });
-  if (!cycle) return null;
-  const existing = Array.isArray(cycle.irrigationLogs)
-    ? cycle.irrigationLogs
-    : [];
   const newEntry = {
     date: entry.date || new Date().toISOString(),
     method: entry.method || "flood",
@@ -362,21 +336,12 @@ export async function addIrrigationLog(cycleId, farmerId, entry) {
     weatherTemp: entry.weatherTemp,
     weatherRainfall: entry.weatherRainfall,
   };
-  return prisma.farmCropCycle.update({
-    where: { id: cycleId, farmerId },
-    data: { irrigationLogs: [...existing, newEntry] },
-  });
+  const r = await appendJsonLog(cycleId, farmerId, "irrigationLogs", newEntry);
+  if (!r.ok) return r.reason === "full" ? { error: "full" } : null;
+  return cycleAfterAppend(cycleId, farmerId);
 }
 
 export async function addObservedEvent(cycleId, farmerId, entry) {
-  const cycle = await prisma.farmCropCycle.findFirst({
-    where: { id: cycleId, farmerId },
-    select: { observedEvents: true },
-  });
-  if (!cycle) return null;
-  const existing = Array.isArray(cycle.observedEvents)
-    ? cycle.observedEvents
-    : [];
   const newEntry = {
     date: entry.date || new Date().toISOString(),
     type: entry.type,
@@ -386,10 +351,9 @@ export async function addObservedEvent(cycleId, farmerId, entry) {
       ? parseFloat(entry.damageEstimatePct)
       : null,
   };
-  const updated = await prisma.farmCropCycle.update({
-    where: { id: cycleId, farmerId },
-    data: { observedEvents: [...existing, newEntry] },
-  });
+  const r = await appendJsonLog(cycleId, farmerId, "observedEvents", newEntry);
+  if (!r.ok) return r.reason === "full" ? { error: "full" } : null;
+  const updated = await cycleAfterAppend(cycleId, farmerId);
   if (["high", "critical"].includes((entry.severity || "").toLowerCase()))
     refreshInsights(cycleId, farmerId);
   return updated;

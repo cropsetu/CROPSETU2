@@ -41,6 +41,19 @@ export const LOG_COLUMNS = Object.freeze({
   laborLogs:   { cap: 2000 },
   expenseLogs: { cap: 2000 },
   incomeLogs:  { cap: 1000 },
+  // The four field logs. These appended with `[...existing, newEntry]` — a read,
+  // a spread and a write, so two entries recorded at once lost one of them, and
+  // neither was capped. Both problems are the ones appendJsonLog already solves,
+  // so they use it now rather than a second implementation.
+  //
+  // A farmer standing in a field on a weak connection, tapping again because the
+  // first attempt looked like it had not worked, is the ordinary case here — not
+  // an edge one. Losing the entry they just typed is the exact failure the
+  // atomic append was written for.
+  fertilizersUsed: { cap: 2000 },
+  pesticidesUsed:  { cap: 2000 },
+  irrigationLogs:  { cap: 2000 },
+  observedEvents:  { cap: 2000 },
 });
 
 /** Per-entry text caps. Bound the row and keep one entry from dwarfing the log. */
