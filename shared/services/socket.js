@@ -19,11 +19,31 @@
  */
 import { io } from 'socket.io-client';
 import { SOCKET_URL } from '../constants/config';
-import { getValidAccessToken } from './api';
+import { getValidAccessToken, forceRefreshAccessToken } from './api';
 
-// Server-side auth rejections (backend socket middleware). Distinguished from
-// transient network errors so we only stop retrying on a truly dead session.
-const AUTH_ERROR_MESSAGES = new Set(['Invalid token', 'Authentication required']);
+// Server-side auth rejections (backend/src/socket/chat.socket.js —
+// SOCKET_AUTH_ERRORS). Distinguished from transient network errors so we only
+// stop retrying on a truly dead session.
+//
+// 'Token stale' means the handshake refused a token that has NOT expired: its
+// jti was denylisted, or the user's tokenVersion moved because their role, KYC
+// status or team scope changed. Only a forced refresh can clear that, which is
+// why this list is answered with forceRefreshAccessToken rather than
+// getValidAccessToken — the latter hands back the same unexpired token, which
+// read as "session alive" and reconnected with it every 1-5s for the remaining
+// fifteen minutes of the token's life.
+const AUTH_ERROR_MESSAGES = new Set([
+  'Invalid token',
+  'Authentication required',
+  'Token stale',
+]);
+
+// The server could not TELL whether the token was good — its database lookup
+// failed. Not a session verdict, so it must not end the session: keep the normal
+// reconnect/backoff running and leave the tokens alone. Treating this like an
+// auth failure would turn one Postgres stall into a fleet-wide logout, which is
+// exactly the incident the HTTP path's 503-not-401 answer exists to prevent.
+const AUTH_RETRY_MESSAGES = new Set(['Authentication unavailable']);
 
 let socket = null;
 let connectPromise = null;
@@ -61,15 +81,31 @@ export async function connectSocket() {
       reconnectionDelayMax: 5000,
     });
 
-    // If the server rejects auth, the auto-reconnect's auth callback will already
-    // attempt a refresh. But if the session is truly dead (refresh fails →
-    // getValidAccessToken resolves null), stop the infinite retry loop instead of
-    // hammering the server with a token we can't renew. Transient/network errors
-    // are left alone so normal reconnection still works.
+    // Decide, per rejection, whether this session can continue at all.
+    //
+    // The auto-reconnect's auth callback re-runs getValidAccessToken on every
+    // attempt, but that only helps when the token is EXPIRING. It cannot clear a
+    // rejection of a token that is still perfectly unexpired, which is what a
+    // denylisted jti or a bumped tokenVersion produces — so this handler forces
+    // a genuinely new token, and treats "even a forced refresh failed" as the
+    // one honest end-of-session signal. Transient/network errors, and the
+    // server telling us it could not check, are left to normal reconnection.
     socket.on('connect_error', async (err) => {
-      if (!AUTH_ERROR_MESSAGES.has(err?.message)) return;
-      const fresh = await getValidAccessToken().catch(() => null);
+      const message = err?.message;
+      // The server could not validate, rather than validated-and-refused. Let
+      // the normal reconnect loop handle it; do not touch the session.
+      if (AUTH_RETRY_MESSAGES.has(message)) return;
+      if (!AUTH_ERROR_MESSAGES.has(message)) return;
+
+      // Force a NEW token. The auth callback above re-runs on every reconnect
+      // attempt, but it uses getValidAccessToken, which returns the current
+      // token unchanged while it is still unexpired — so on a jti/tokenVersion
+      // rejection every retry would replay the token the server just refused.
+      const fresh = await forceRefreshAccessToken().catch(() => null);
       if (!fresh) {
+        // The session cannot be renewed. This is the only reliable "it is over"
+        // signal the client has, and it is the same one whatever the server
+        // said — which is why the reasons collapse to two categories.
         socket.io.opts.reconnection = false;
         resetSocket();
       }

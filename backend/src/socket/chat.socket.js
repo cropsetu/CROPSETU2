@@ -28,6 +28,7 @@
  */
 import { verifyAccessToken } from '../utils/jwt.js';
 import prisma from '../config/db.js';
+import { isAccessTokenDenylisted } from '../services/tokenDenylist.service.js';
 import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
 import { createConnectionLimiter, onLimited } from './socketRateLimit.js';
@@ -38,18 +39,87 @@ import { cancelVoiceStream, cancelVoiceStreamsForUser } from '../services/voiceS
 // as users' last sockets disconnect, so it stays bounded.
 const connections = new ConnectionRegistry({ maxPerUser: ENV.SOCKET_MAX_CONN_PER_USER });
 
+/**
+ * Handshake rejection reasons, as the client reads them.
+ *
+ * The strings are a contract with shared/services/socket.js, which decides
+ * whether to keep reconnecting from them. Two categories, not three:
+ *
+ *   RE-AUTH  the token is no good — force a refresh and retry with a new one;
+ *            if the refresh itself fails, the session really is over and the
+ *            client stops. This covers a revoked jti and a bumped tokenVersion
+ *            as well as a bad signature, because in every one of those cases
+ *            "can this session mint a fresh token?" is the right question, and
+ *            it is the only one the client can actually answer.
+ *   RETRY    we could not tell — the DATABASE failed, not the token. Keep
+ *            reconnecting and leave the session alone. This is the socket
+ *            analogue of answering 503 rather than 401 on the HTTP path
+ *            (middleware/auth.js), where a Postgres stall logging every farmer
+ *            out was a real incident.
+ */
+export const SOCKET_AUTH_ERRORS = Object.freeze({
+  MISSING:     'Authentication required',
+  INVALID:     'Invalid token',
+  STALE:       'Token stale',
+  UNAVAILABLE: 'Authentication unavailable',
+});
+
 export function registerChatSocket(io) {
   // ── Auth middleware ─────────────────────────────────────────────────────────
-  io.use((socket, next) => {
+  // This used to verify the SIGNATURE and nothing else, while the HTTP path
+  // (middleware/auth.js) additionally checked the Redis jti denylist, isActive
+  // and tokenVersion. So a banned user, a logged-out user, or one whose
+  // tokenVersion had been bumped could still open a socket and keep it — and
+  // sockets carry AI and voice turns that spend provider money, not just chat.
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
-    if (!token) return next(new Error('Authentication required'));
+    if (!token) return next(new Error(SOCKET_AUTH_ERRORS.MISSING));
+
+    let payload;
     try {
-      const payload = verifyAccessToken(token);
-      socket.userId = payload.sub;
-      next();
+      payload = verifyAccessToken(token);
     } catch {
-      next(new Error('Invalid token'));
+      return next(new Error(SOCKET_AUTH_ERRORS.INVALID));
     }
+    // A well-formed token must carry a string subject; anything else would
+    // otherwise turn into a database error below (mirrors auth.js).
+    if (!payload || typeof payload.sub !== 'string' || !payload.sub) {
+      return next(new Error(SOCKET_AUTH_ERRORS.INVALID));
+    }
+
+    // Cross-instance revocation. STALE rather than INVALID: a denylisted jti
+    // does not always mean the session is over — logging out one device revokes
+    // that access token while the refresh lineage survives — so the honest
+    // instruction is "re-mint and come back", and a client whose refresh fails
+    // stops anyway. Fails open when Redis is down, exactly as HTTP does.
+    if (await isAccessTokenDenylisted(payload.jti)) {
+      return next(new Error(SOCKET_AUTH_ERRORS.STALE));
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where:  { id: payload.sub },
+        select: { tokenVersion: true, isActive: true },
+      });
+      if (!user || user.isActive === false) {
+        return next(new Error(SOCKET_AUTH_ERRORS.INVALID));
+      }
+      if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) {
+        return next(new Error(SOCKET_AUTH_ERRORS.STALE));
+      }
+    } catch (err) {
+      // Fail CLOSED on the connection but not on the session: refuse this
+      // handshake, and tell the client to retry rather than to give up.
+      logger.warn('[Socket] auth lookup failed for %s: %s', payload.sub, err.message);
+      return next(new Error(SOCKET_AUTH_ERRORS.UNAVAILABLE));
+    }
+
+    socket.userId = payload.sub;
+    // Kept for the periodic re-check: an established socket is otherwise never
+    // re-authenticated, so a ban lands only on the next handshake.
+    socket.data = socket.data || {};
+    socket.data.auth = { jti: payload.jti, tv: payload.tv ?? 0 };
+    next();
   });
 
   io.on('connection', async (socket) => {

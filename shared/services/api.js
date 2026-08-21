@@ -401,6 +401,31 @@ export async function getValidAccessToken() {
   try { return await performRefresh(); } catch { return null; }
 }
 
+/**
+ * Mint a NEW access token, whatever the current one looks like.
+ *
+ * getValidAccessToken above returns the existing token untouched whenever it is
+ * more than TOKEN_REFRESH_SKEW_MS from expiry — which is the right answer for
+ * "do I have something usable?" and the wrong one for "the server just refused
+ * this token". A server can reject a perfectly unexpired token: its jti was
+ * denylisted, or the user's tokenVersion moved because their role, KYC status or
+ * team scope changed.
+ *
+ * The socket wrapper used getValidAccessToken on rejection, got the same
+ * unexpired token back, read it as "session alive" and reconnected with it —
+ * every one to five seconds, for the rest of the token's fifteen-minute life.
+ * Hardening the socket handshake without this would have turned each of those
+ * attempts into a Redis read plus a database query.
+ *
+ * Resolves to null when the session genuinely cannot be renewed, which is the
+ * only signal a caller needs to stop retrying. Shares performRefresh's in-flight
+ * dedupe and jittered cooldown, so a fleet reconnecting at once does not become
+ * a refresh storm.
+ */
+export async function forceRefreshAccessToken() {
+  try { return await performRefresh(); } catch { return null; }
+}
+
 attachInterceptors(api);
 attachInterceptors(aiApi);
 
