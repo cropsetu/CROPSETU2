@@ -204,6 +204,13 @@ export const ENV = {
   QUEUE_ENABLED:           process.env.QUEUE_ENABLED !== 'false',
   QUEUE_INPROCESS_WORKER:  process.env.QUEUE_INPROCESS_WORKER !== 'false',
   QUEUE_CONCURRENCY:       parseInt(process.env.QUEUE_CONCURRENCY || '5', 10),
+  // Ceiling on jobs run INLINE when Redis is down (the enqueue fail-open path).
+  // One admin broadcast calls enqueue() once per recipient, 5,000 by default, so
+  // without a bound a Redis outage put 5,000 jobs x 3 DB operations on the
+  // request path at once against a Prisma pool of 12 — turning a cache outage
+  // into an API outage. Best-effort jobs are shed above this; critical ones
+  // still run. See queue/jobQueue.js.
+  QUEUE_INLINE_MAX_CONCURRENCY: parseInt(process.env.QUEUE_INLINE_MAX_CONCURRENCY || '5', 10),
 
   JWT_SECRET: (() => {
     const secret = required('JWT_SECRET');

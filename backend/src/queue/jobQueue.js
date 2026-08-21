@@ -17,7 +17,7 @@ import { ENV } from '../config/env.js';
 import redis from '../config/redis.js';
 import logger from '../utils/logger.js';
 import { getProducerConnection } from './connection.js';
-import { QUEUE_NAMES, runJobInline } from './processors.js';
+import { QUEUE_NAMES, runJobInline, isBestEffort } from './processors.js';
 
 export { QUEUE_NAMES };
 
@@ -55,15 +55,68 @@ export async function enqueue(queueName, jobName, data, opts = {}) {
     if (ENV.QUEUE_ENABLED) {
       logger.warn('[Queue] Redis unavailable — running %s/%s inline', queueName, jobName);
     }
-    return runJobInline(queueName, jobName, data);
+    return runInlineBounded(queueName, jobName, data);
   }
   try {
     const job = await getQueue(queueName).add(jobName, data, opts);
     return { enqueued: true, jobId: job.id };
   } catch (err) {
     logger.warn('[Queue] enqueue %s/%s failed (%s) — running inline', queueName, jobName, err.message);
-    return runJobInline(queueName, jobName, data);
+    return runInlineBounded(queueName, jobName, data);
   }
+}
+
+// ── Bounding the fail-open path ──────────────────────────────────────────────
+// Failing open is right for ONE job: a dev box with no Redis, or a single order
+// notification, should still work. It is catastrophic for a fan-out. One admin
+// broadcast calls enqueue() once per recipient — 5,000 by shipped default — so a
+// Redis outage moved 5,000 jobs onto the request path at once, each costing
+// three database operations, against a Prisma pool of twelve. Every request in
+// the process then queues behind them until pool_timeout and errors. The Redis
+// outage becomes an API outage, which is precisely what claude.md §33 says must
+// not happen.
+//
+// So the inline path gets a ceiling. Below it, behaviour is exactly as before.
+// At it, BEST-EFFORT jobs are shed with a loud line rather than queued
+// unboundedly; anything not explicitly marked best-effort still runs inline,
+// because correctness outranks latency (claude.md §3.1) and a dropped critical
+// side-effect is a silent data problem.
+//
+// Read with a fallback rather than straight off ENV: tests mock config/env.js
+// with a two-key object, so a bare `ENV.QUEUE_INLINE_MAX` would be undefined and
+// silently disable the bound in exactly the suite meant to prove it.
+const INLINE_MAX = Math.max(1, Number(ENV.QUEUE_INLINE_MAX_CONCURRENCY) || 5);
+let _inlineActive = 0;
+let _inlineShed = 0;
+
+async function runInlineBounded(queueName, jobName, data) {
+  if (_inlineActive >= INLINE_MAX && isBestEffort(queueName, jobName)) {
+    _inlineShed += 1;
+    // Every shed job, not a sample: this is a fail-open path degrading into a
+    // fail-fast one, and §55 exists because that used to be invisible.
+    logger.warn(
+      '[Queue] inline capacity %d reached — SHED best-effort %s/%s (%d shed since boot)',
+      INLINE_MAX, queueName, jobName, _inlineShed,
+    );
+    return { enqueued: false, ranInline: false, shed: true };
+  }
+  _inlineActive += 1;
+  try {
+    return await runJobInline(queueName, jobName, data);
+  } finally {
+    _inlineActive -= 1;
+  }
+}
+
+/** Inline fail-open counters, for the Ops dashboard and tests. */
+export function inlineStats() {
+  return { max: INLINE_MAX, active: _inlineActive, shedSinceBoot: _inlineShed };
+}
+
+/** Test helper: forget the shed counter between cases. */
+export function _resetInlineStats() {
+  _inlineActive = 0;
+  _inlineShed = 0;
 }
 
 /**

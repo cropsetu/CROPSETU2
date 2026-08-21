@@ -25,6 +25,31 @@ export const PROCESSORS = Object.freeze({
   },
 });
 
+/**
+ * Which jobs may be DROPPED rather than run on the request path.
+ *
+ * A SIBLING map on purpose. The obvious shape — making each PROCESSORS value
+ * `{ run, critical }` — would break every queued job in production, because
+ * worker.js does not go through getProcessor: it reads
+ * `PROCESSORS[queueName]?.[job.name]` and calls the value directly
+ * (worker.js:28-34). An object is not callable, and no test covers worker.js,
+ * so CI would have stayed green all the way to deploy.
+ *
+ * Anything absent is treated as CRITICAL. A job added later without a thought
+ * about its criticality must not become silently droppable.
+ */
+export const BEST_EFFORT = Object.freeze({
+  // A push notification. Losing one during a Redis outage is a farmer missing
+  // one alert; running five thousand of them inline instead takes the API down
+  // for everyone, farmer and seller alike, for the length of the outage.
+  [QUEUE_NAMES.NOTIFICATIONS]: Object.freeze({ 'user-notification': true }),
+});
+
+/** True when this job may be shed under load instead of run inline. */
+export function isBestEffort(queueName, jobName) {
+  return BEST_EFFORT[queueName]?.[jobName] === true;
+}
+
 /** Look up a handler; throws if the (queue, job) pair is unregistered. */
 export function getProcessor(queueName, jobName) {
   const fn = PROCESSORS[queueName]?.[jobName];

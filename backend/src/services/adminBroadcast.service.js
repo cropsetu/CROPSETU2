@@ -10,12 +10,18 @@
  */
 import prisma from '../config/db.js';
 import { sendPushToUser } from './push.service.js';
+import { mapLimit } from '../utils/mapLimit.js';
 import { getSetting } from './settings.service.js';
 
 // Hard safety ceiling on a single broadcast's fan-out. The runtime
 // `broadcast.maxRecipients` AppSetting may LOWER this (ops tuning) but can never
 // raise it above the ceiling — unbounded fan-out stays impossible.
 const MAX_RECIPIENTS = 5000;
+// How many deliveries are enqueued at once. Enqueue is a single Redis write, so
+// this is not about the queue's own throughput — it is the ceiling on how much
+// damage the fail-open path can do when Redis is NOT there and every one of
+// these becomes an inline job on the request path.
+const FANOUT_CONCURRENCY = 25;
 
 /** Build the User where-clause for an audience filter (active users only). */
 function audienceWhere({ district, state, role, crop } = {}) {
@@ -53,11 +59,18 @@ export async function broadcastNotification({ filters, type = 'SYSTEM', title, b
     take: cap,
   });
 
-  // Enqueue each delivery; a rejected enqueue is a best-effort "failed" signal.
-  const results = await Promise.allSettled(
-    recipients.map(({ id }) => sendPushToUser({ userId: id, type, title, body, data })),
-  );
-  const sent = results.filter((r) => r.status === 'fulfilled').length;
+  // Enqueue each delivery, BOUNDED. This was Promise.allSettled over the whole
+  // recipient list, which starts every task in one tick — 5,000 concurrent Redis
+  // writes on the happy path, and with Redis down 5,000 concurrent inline jobs
+  // of three database operations each against a pool of twelve.
+  const results = await mapLimit(recipients, FANOUT_CONCURRENCY,
+    ({ id }) => sendPushToUser({ userId: id, type, title, body, data }));
+
+  // `sent` has always meant ACCEPTED FOR DELIVERY, not delivered — the Expo push
+  // happens later in a worker. A job the queue SHED was not accepted, so it
+  // belongs in `failed` alongside a thrown enqueue; counting it as sent would
+  // put a number in BroadcastLog that no one ever tried to deliver.
+  const sent = results.filter((r) => r.status === 'fulfilled' && r.value?.shed !== true).length;
   const failed = results.length - sent;
   const capped = estimated > recipients.length;
 
