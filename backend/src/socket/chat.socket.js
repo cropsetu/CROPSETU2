@@ -80,7 +80,13 @@ export function registerChatSocket(io) {
       data: { isOnline: true, lastSeenAt: new Date() },
     }).catch(() => {});
 
-    io.emit('user_online', { userId });
+    // No presence broadcast. `io.emit` reaches EVERY socket in the fleet (the
+    // Redis adapter republishes it to every node), so it cost O(connections)
+    // per connect/disconnect — the only O(N²)-shaped behaviour in the system.
+    // Nothing consumed it: no client in frontend/, seller-app/, admin/ or
+    // shared/ ever registered a `user_online`/`user_offline` handler. The row
+    // above still records presence, and the REST endpoints that actually
+    // surface it (animalListing.service.js, user.routes.js) read it from there.
 
     // ── Animal Trade Chat ──────────────────────────────────────────────────────
     onLimited(socket, allow, 'join_chat', 'join', async ({ chatId }) => {
@@ -260,7 +266,7 @@ export function registerChatSocket(io) {
           where: { id: userId },
           data: { isOnline: false, lastSeenAt: new Date() },
         }).catch(() => {});
-        io.emit('user_offline', { userId, lastSeenAt: new Date() });
+        // No presence broadcast on disconnect either — see the connect handler.
       }
     });
   });

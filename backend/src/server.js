@@ -8,7 +8,8 @@ import Redis from 'ioredis';
 import app from './app.js';
 import { ENV } from './config/env.js';
 import prisma from './config/db.js';
-import redis, { beginRedisShutdown, getRedisMemoryMetrics } from './config/redis.js';
+import redis, { beginRedisShutdown, getRedisMemoryMetrics, reconnectDelay } from './config/redis.js';
+import { setSocketAdapterHealthy } from './socket/adapterHealth.js';
 import { registerChatSocket } from './socket/chat.socket.js';
 import { seedDefaultFlags, initFlagInvalidationSubscriber, stopFlagInvalidationSubscriber } from './services/featureFlag.service.js';
 import { warmAllCaches } from './services/cacheWarmer.service.js';
@@ -53,6 +54,10 @@ let inProcessWorkers = [];
 // pile up open connections. keepAlive must exceed the LB's idle timeout
 // (Railway: 60 s) to avoid 502s under keepalive races; headersTimeout must
 // exceed keepAliveTimeout per Node docs.
+// NOTE: this is the DEFAULT socket inactivity timeout. The long AI routes raise
+// it per-request in app.js (`socketTimeout`), because 30 s sits far below the
+// 55–300 s budgets those paths were written against and was silently truncating
+// them — see AI_SCAN_SOCKET_TIMEOUT_MS / AI_CHAT_SOCKET_TIMEOUT_MS in env.js.
 httpServer.timeout          = 30_000;
 httpServer.keepAliveTimeout = 65_000;
 httpServer.headersTimeout   = 70_000;
@@ -98,13 +103,63 @@ try {
     new Promise((_, reject) => setTimeout(() => reject(new Error('connect timed out')), 5000)),
   ]);
   io.adapter(createAdapter(pubClient, subClient));
+
+  // The `retryStrategy: () => null` above exists ONLY to bound the BOOT connect:
+  // without it ioredis retries forever and the top-level await never settles, so
+  // the process never listens and the deploy healthcheck fails with no logs.
+  //
+  // But it stays in force after a successful connect, which meant the adapter
+  // NEVER reconnected: one blip — a Redis restart, a brief partition — and
+  // cross-instance delivery was dead for the life of the process. Every chat
+  // message then reached only the sockets on the same replica, silently, until
+  // someone redeployed. config/redis.js:7-16 documents this exact failure for
+  // the main client ("stop reconnecting PERMANENTLY") and fixed it there; the
+  // adapter pair was missed.
+  //
+  // Now that the boot race is over, swap in the same never-give-up backoff.
+  pubClient.options.retryStrategy = reconnectDelay;
+  subClient.options.retryStrategy = reconnectDelay;
+
+  // Make the state observable instead of swallowing it. `logger.warn` reaches
+  // production now, and an adapter that is down is the difference between "chat
+  // is slow" and "chat is silently broken for everyone not on this replica".
+  // Health is derived from BOTH clients, not latched by whichever fired last:
+  // the adapter needs pub AND sub. A ready pub with a still-down sub means this
+  // replica can send but never receives, which is worse than being fully down
+  // and would have reported "ok".
+  const refreshAdapterHealth = () => {
+    setSocketAdapterHealthy(pubClient.status === 'ready' && subClient.status === 'ready');
+  };
+  refreshAdapterHealth();
+
+  for (const [name, client] of [['pub', pubClient], ['sub', subClient]]) {
+    // `close`, NOT `end`. ioredis only reaches `end` when the socket is closed
+    // manually or when retryStrategy stops returning a number
+    // (node_modules/ioredis/built/redis/event_handler.js closeHandler) — and we
+    // just installed a strategy that always returns a number, so `end` can never
+    // fire during a real outage. Listening for it would have left this flag
+    // stuck at healthy for the whole outage: precisely the invisibility this
+    // module exists to remove.
+    client.on('close', () => {
+      refreshAdapterHealth();
+      logger.warn('[ALERT][Socket.IO] Redis adapter %s client lost — cross-instance delivery is DOWN until it reconnects', name);
+    });
+    client.on('ready', () => {
+      refreshAdapterHealth();
+      logger.info('[Socket.IO] Redis adapter %s client ready', name);
+    });
+  }
+
   logger.info('[Socket.IO] Redis adapter attached');
 } catch (err) {
   pubClient?.disconnect();
   subClient?.disconnect();
-  // logger.warn is suppressed in production here (see config/redis.js), so log at
-  // info to keep the fallback visible in prod logs.
-  logger.info('[Socket.IO] Redis adapter unavailable — using in-memory adapter (%s)', err?.message || 'no redis');
+  // Falling back to the in-memory adapter means chat works within this replica
+  // and silently fails between replicas, so it is a warning, not a note.
+  // (This used to log at info only because logger.warn was suppressed in
+  // production — that gate is gone; see utils/logger.js.)
+  setSocketAdapterHealthy(false);
+  logger.warn('[ALERT][Socket.IO] Redis adapter unavailable — using in-memory adapter, cross-instance delivery is DOWN (%s)', err?.message || 'no redis');
 }
 
 registerChatSocket(io);

@@ -13,6 +13,7 @@ import { sendError } from './utils/response.js';
 import { persistErrorLog } from './utils/errorLog.js';
 import { maintenanceMode } from './middleware/maintenance.js';
 import logger from './utils/logger.js';
+import { socketAdapterStatus } from './socket/adapterHealth.js';
 import prisma from './config/db.js';
 import redis, { getRedisHealth, getRedisMemoryMetrics } from './config/redis.js';
 import { getCacheMetrics } from './utils/cacheMetrics.js';
@@ -194,9 +195,57 @@ function skipMultipart(middleware) {
 }
 
 const API = ENV.API_PREFIX;
+
+/**
+ * Raise the per-socket inactivity timeout for one route prefix.
+ *
+ * `httpServer.timeout` is 30 s (server.js) to stop stuck downstreams piling up
+ * open connections. That is far below what the AI paths were budgeted for:
+ * Express waits up to 120 s on `/ai/chat`, 55 s on voice and up to 300 s on a
+ * synchronous scan, and BOTH mobile clients were deliberately raised to 125 s /
+ * 200 s with comments explaining that a shorter timeout "aborts slow-but-
+ * successful replies mid-pipeline (and the user still gets charged)". The 30 s
+ * socket timeout silently truncated every one of them — and because the client
+ * then retries, the server was manufacturing the duplicate scans that strand a
+ * credit hold.
+ *
+ * Raised per-prefix rather than globally so the Slowloris protection stays on
+ * every other route. The header-read phase is guarded separately and
+ * unconditionally by `headersTimeout`, which is the actual Slowloris vector, so
+ * a longer body/response window here does not reopen it.
+ */
+function socketTimeout(ms) {
+  return (req, res, next) => {
+    req.setTimeout(ms);
+    res.setTimeout(ms);
+    next();
+  };
+}
+
+app.use(`${API}/ai/scan`, socketTimeout(ENV.AI_SCAN_SOCKET_TIMEOUT_MS));
+app.use(`${API}/ai/chat`, socketTimeout(ENV.AI_CHAT_SOCKET_TIMEOUT_MS));
+app.use(`${API}/ai/voice`, socketTimeout(ENV.AI_CHAT_SOCKET_TIMEOUT_MS));
+app.use(`${API}/ai/soil-card-ocr`, socketTimeout(ENV.AI_CHAT_SOCKET_TIMEOUT_MS));
+
 app.use(`${API}/upload`, skipMultipart(express.json({ limit: '10mb' })));
-// Multi-image crop scan JSON payload (up to 5 × ~8 MB base64-encoded images).
-app.use(`${API}/ai/scan/submit`, skipMultipart(express.json({ limit: '50mb' })));
+// Single-image crop scan JSON payload.
+//
+// Was 50mb, sized for a 5-image upload the pipeline no longer performs: FastAPI
+// reads `images[:1]` and the Celery task materialises only the first image, so
+// four of five were parsed and discarded. This parser is mounted by path prefix,
+// which puts it AHEAD of `authenticate` and the rate limiter — so the old
+// ceiling let an unauthenticated caller make Express buffer and parse 50 MB
+// before anything checked who they were.
+//
+// 12mb is generous for what is actually sent. Every scan image is compressed
+// client-side to <=1024px at JPEG q0.6 (shared/utils/mediaCompressor.js), which
+// lands around 100-400 KB, and base64 inflates that by ~1.37x — roughly
+// 150-550 KB on the wire. It also stays clear of FastAPI's own 8 MB-per-image
+// cap (_MAX_INLINE_BYTES_PER_IMAGE, jobs/tasks.py), whose base64 form is ~11 MB.
+// A legacy install still sending five compressed images lands near 1-3 MB, so
+// this does not 413 older app versions. Matches the /ai/chat and
+// /ai/soil-card-ocr limits below.
+app.use(`${API}/ai/scan/submit`, skipMultipart(express.json({ limit: '12mb' })));
 // In-chat image attach: a single compressed base64 image (~<1 MB). 12mb headroom
 // so an attached photo doesn't 413 against the tight global cap below.
 app.use(`${API}/ai/chat`, skipMultipart(express.json({ limit: '12mb' })));
@@ -257,6 +306,13 @@ app.get('/readyz', async (_req, res) => {
   } catch {
     checks.redis = 'down';
   }
+
+  // Cross-instance socket delivery. Reported, never a reason to fail readiness —
+  // pulling every replica out of the LB because Redis blipped would turn a
+  // degraded chat into a total outage. Worth surfacing because this failure is
+  // invisible from outside: sockets still connect and senders still see their
+  // own messages; only recipients on OTHER replicas get nothing.
+  checks.socketAdapter = socketAdapterStatus();
 
   // Expose health + cache + memory as lightweight metrics for scrapers/alerting
   // (dashboards show hit rate and memory; OPS-4 alerts on low hit rate / high

@@ -82,7 +82,12 @@ const logger = {
     console.log('[INFO]', ...scrub(args)); // eslint-disable-line no-console
   },
   warn: (...args) => {
-    if (isDev) console.warn('[WARN]', ...scrub(args)); // eslint-disable-line no-console
+    // Warnings ALWAYS log. This channel carries every fail-open degradation
+    // notice in the backend — Redis fallbacks, leader-lock misses, queue jobs
+    // running inline, cache failures, candidate-scan truncation. Gating it on
+    // isDev meant production degraded silently and an operator only learned of
+    // it through customer reports. Redaction still strips PII, as for errors.
+    console.warn('[WARN]', ...scrub(args)); // eslint-disable-line no-console
   },
   error: (...args) => {
     // Errors always log; redaction still strips any PII passed alongside them.
