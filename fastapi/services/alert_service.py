@@ -139,8 +139,26 @@ async def generate_smart_alerts(farm_context: dict) -> list[dict[str, Any]]:
         logger.warning("[AlertService] %s failed: %s", cfg.model, exc)
         return []
 
+    # AI-07: this call burned tokens whether or not it produced usable text, and
+    # none of it ever reached the daily counter — the cap only ever saw /ai/scan.
+    # Recorded BEFORE the `if not raw` early return for exactly that reason.
+    _record_alert_spend(farm_context, token_info)
+
     if not raw:
         return []
     logger.info("[AlertService] alerts via %s (%d tokens)",
                 cfg.model, token_info.get("total_tokens", 0))
     return _parse_alerts(raw)
+
+
+def _record_alert_spend(farm_context: dict, token_info: dict) -> None:
+    """Book this call's cost against the caller's daily cap. Never raises —
+    accounting must not be able to fail a farmer's alerts."""
+    try:
+        cost = float((token_info or {}).get("total_cost_usd") or 0)
+        uid = str((farm_context or {}).get("user_id") or "").strip()
+        if cost > 0 and uid:
+            from security.spend import record_spend
+            record_spend(uid, cost)
+    except Exception:  # noqa: BLE001
+        logger.warning("[AlertService] record_spend failed (non-fatal)", exc_info=False)

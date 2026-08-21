@@ -20,7 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Haptics } from '@cropsetu/shared/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import { scanCropImage } from '../../services/aiApi';
+import { scanCropImage, newIdemKey } from '../../services/aiApi';
 import { useMultiFarm } from '../../context/MultiFarmContext';
 import { listCropCycles, getCropCycle } from '../../services/farmApi';
 import { summarizeFertilizers, summarizePesticides, buildFarmHistory } from '../../utils/farmHistory';
@@ -743,7 +743,22 @@ export default function CropScanScreen({ navigation }) {
         ? [refFarm.village, refFarm.taluka, refFarm.district, refFarm.state, refFarm.pincode].filter(Boolean).join(', ')
         : [user?.village, user?.district, user?.state, user?.pincode].filter(Boolean).join(', ');
 
-      const diagnosis = await scanCropImage(imageUris, farmCtx, imageMimeTypes);
+      // One id per ATTEMPT, minted here (AI-04).
+      //
+      // The id scopes the HTTP SUBMIT, not the whole scan-and-poll. That is the
+      // thing the client actually replays without the user asking: the axios
+      // 401-refresh-and-replay resends the SAME config, so the same header goes
+      // with it and Express dedupes. Everything after submit — the 2 s poll loop
+      // — is already keyed by jobId and needs no protection.
+      //
+      // Scoping it to the whole scan instead was worse than not having it: the
+      // id outlived the submit, so a farmer who lost signal DURING polling and
+      // tapped Try again replayed the cached 200 and got the same dead jobId
+      // back, forever. A user-initiated retry is a NEW attempt and must be able
+      // to enqueue new work; only the invisible transport-level replay must not.
+      const diagnosis = await scanCropImage(
+        imageUris, farmCtx, imageMimeTypes, newIdemKey(),
+      );
       clearStepTimers();
       // Bail out if the user has navigated away while we awaited the network
       // call — prevents state-update-on-unmounted warnings + redundant nav.

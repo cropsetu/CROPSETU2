@@ -20,6 +20,28 @@ router = APIRouter(tags=["Chat"])
 # (rather than its own AbortError), and so FastAPI stops burning Gemini tokens
 # for a reply the client already abandoned. Writer(+enhancer) each have their
 # own per-call read timeout + retries; this caps the sum.
+def _record_chat_spend(request, result) -> None:
+    """Book a chat turn's cost against the caller's daily cap (AI-07).
+
+    /ai/chat, /ai/chat/stream, /ai/alerts and /ai/soil-card-ocr all burned Gemini
+    tokens that never reached the counter, so the "daily spend cap" only ever
+    measured scans — and a heavy chat user was invisible to it. Never raises:
+    accounting must not be able to fail a reply the farmer already paid for.
+
+    NOTE: this RECORDS but does not GATE. Adding check_under_cap here would make
+    chat 402 on the same counter that gates scanning, which is a product decision
+    rather than an accounting fix.
+    """
+    try:
+        cost = float(((result or {}).get("token_info") or {}).get("total_cost_usd") or 0)
+        uid = (request.headers.get("x-user-id") or "").strip()
+        if cost > 0 and uid:
+            from security.spend import record_spend
+            record_spend(uid, cost)
+    except Exception:  # noqa: BLE001
+        logger.warning("[Chat] record_spend failed (non-fatal)", exc_info=False)
+
+
 _CHAT_BUDGET_SEC = 100
 
 
@@ -48,6 +70,7 @@ async def ai_chat(request: Request):
             ),
             timeout=_CHAT_BUDGET_SEC,
         )
+        _record_chat_spend(request, result)
         return JSONResponse({"success": True, "data": result})
     except asyncio.TimeoutError:
         logger.error("[Chat] pipeline exceeded %ss budget", _CHAT_BUDGET_SEC)

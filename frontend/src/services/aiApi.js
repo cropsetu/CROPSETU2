@@ -11,7 +11,7 @@ import { API_BASE_URL } from '@cropsetu/shared/constants/config';
 // One key per *send action* (NOT per HTTP attempt) so a 401-replay / network
 // retry reuses it and the server returns the cached response instead of
 // re-calling the LLM + re-charging credits. See backend middleware/idempotency.js.
-function newIdemKey() {
+export function newIdemKey() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -131,43 +131,79 @@ const MIME_NORMALIZE = {
  * @param {string|string[]|null} mimeTypes  Optional MIME type(s) matching imageUris
  * @returns {Object} diagnosis result (after polling the worker to completion)
  */
-export async function scanCropImage(imageUris, farmContext = {}, mimeTypes = null) {
-  // ── Normalize to arrays (back-compat: a single string URI still works) ──
+export async function scanCropImage(imageUris, farmContext = {}, mimeTypes = null, operationId = null) {
+  // ── Single image, by design ────────────────────────────────────────────────
+  // The diagnosis pipeline is single-image: FastAPI validates `images[:1]`
+  // (routes/scan.py) and the Celery task materialises only "the FIRST valid
+  // image (single-image pipeline — the multi-image feature was removed)"
+  // (jobs/tasks.py). Multi-image upload shipped once (827efbf) and the backend
+  // half was removed afterwards, leaving this function advertising five while
+  // four were encoded, transmitted, parsed and silently thrown away.
+  //
+  // CropScanScreen has been single-image since 6897d45 — `setImage` sets a
+  // one-element array and neither picker enables multi-select — so in the
+  // shipped app nothing is actually wasted today. This makes that explicit so
+  // the dead capability cannot quietly come back, and so the request-size limit
+  // can be sized for what the pipeline consumes rather than what it discards.
+  //
+  // The parameter still accepts an array: the caller passes `imageUris`, and a
+  // legacy install may pass several. We take the first rather than throwing —
+  // rejecting outright would fail a scan that the server would have accepted.
   const uris  = Array.isArray(imageUris) ? imageUris : (imageUris ? [imageUris] : []);
   const mimes = Array.isArray(mimeTypes) ? mimeTypes : (mimeTypes ? [mimeTypes] : []);
-  if (uris.length === 0) throw new Error('scanCropImage: at least one image is required');
-  if (uris.length > 5)   throw new Error('scanCropImage: max 5 images per scan');
+  if (uris.length === 0) throw new Error('scanCropImage: an image is required');
+  if (uris.length > 1 && __DEV__) {
+    console.warn(
+      `[scanCropImage] ${uris.length} images supplied; the pipeline reads one. Sending the first.`,
+    );
+  }
 
-  // ── Compress + base64-encode each image. ImageManipulator handles HEIC,
+  // ── Compress + base64-encode the image. ImageManipulator handles HEIC,
   //    content:// URIs, etc., and emits JPEG. Posting JSON (not multipart)
   //    sidesteps the Android OkHttp file:// + multi-file limitation that
   //    forced the FileSystem.uploadAsync workaround for single uploads.
-  //    Same quality preset for every image regardless of count — the user
-  //    explicitly wants full resolution preserved even on 5-image scans.
-  const images = [];
-  for (let i = 0; i < uris.length; i++) {
-    const uri = uris[i];
-    try {
-      const compressed = await compressImage(uri, { needBase64: true });
-      const base64 = compressed?.base64
-        || await FileSystem.readAsStringAsync(compressed?.uri || uri, { encoding: FileSystem.EncodingType.Base64 });
-      const rawMime = mimes[i] || 'image/jpeg';
-      const mime    = MIME_NORMALIZE[rawMime] || 'image/jpeg';
-      images.push({ data: base64, mime_type: mime });
-    } catch (e) {
-      if (__DEV__) console.warn('[scanCropImage] failed to encode image', i, e?.message);
-    }
+  //
+  //    Encoding happens AFTER the single-image narrowing above, so the four
+  //    images the pipeline would have discarded are no longer compressed,
+  //    base64-inflated (~1.37x) or held in memory on a 2 GB Android at all.
+  //
+  //    The wire format stays an ARRAY of one — that is the contract FastAPI
+  //    reads (`images[:1]`), and changing it would break the server for no gain.
+  const uri     = uris[0];
+  const rawMime = mimes[0] || 'image/jpeg';
+  const mime    = MIME_NORMALIZE[rawMime] || 'image/jpeg';
+
+  let images;
+  try {
+    const compressed = await compressImage(uri, { needBase64: true });
+    const base64 = compressed?.base64
+      || await FileSystem.readAsStringAsync(compressed?.uri || uri, { encoding: FileSystem.EncodingType.Base64 });
+    images = [{ data: base64, mime_type: mime }];
+  } catch (e) {
+    if (__DEV__) console.warn('[scanCropImage] failed to encode image', e?.message);
+    throw new Error('Could not encode the image for upload');
   }
-  if (images.length === 0) throw new Error('Could not encode any images for upload');
 
   // ── Submit — Express returns a jobId in <500ms via the new JSON branch.
   //    axios handles auth header injection + refresh via interceptors, so
   //    we don't need the manual JWT refresh dance the old multipart code did.
   const SUBMIT_TIMEOUT_MS = 60_000;
+  // `operationId` identifies the SCAN, not the request (AI-04). The caller keeps
+  // it stable across retries of the same scan and mints a new one when the
+  // farmer starts another, which is the distinction the server cannot make for
+  // itself: FastAPI's body-hash fallback collapses two deliberate scans of the
+  // same photo into one job, and fails to dedupe a genuine retry because the
+  // image is re-compressed each time and hashes differently.
+  //
+  // Omitted → no header → the server's idempotency middleware fails open and
+  // behaves exactly as before, so nothing breaks for callers that do not pass it.
   const { data: submitJson } = await api.post(
     '/ai/scan/submit',
     { images, farmContext },
-    { timeout: SUBMIT_TIMEOUT_MS },
+    {
+      timeout: SUBMIT_TIMEOUT_MS,
+      ...(operationId ? { headers: { 'Idempotency-Key': operationId } } : {}),
+    },
   );
   const submitData = submitJson?.data || {};
 

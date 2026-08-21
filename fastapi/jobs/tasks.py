@@ -62,6 +62,24 @@ from jobs.queue import celery_app
 logger = logging.getLogger(__name__)
 
 
+def _release_hold(payload: dict) -> None:
+    """Give an unused spend reserve back.
+
+    A job that timed out or crashed produced nothing, so its estimate must not
+    stay counted: leaving it there locks the farmer out of scanning for the rest
+    of the UTC day for work that never ran. Never raises — a failed release must
+    not mask the original failure.
+    """
+    try:
+        hold = (payload or {}).get("spend_hold") or None
+        uid = (payload or {}).get("user_id")
+        if uid and hold:
+            from security.spend import release_spend
+            release_spend(str(uid), float(hold.get("reserved") or 0), hold.get("ymd"))
+    except Exception:  # noqa: BLE001
+        logger.warning("[Worker] spend release failed (non-fatal)", exc_info=False)
+
+
 _MIME_TO_EXT = {
     "image/jpeg": ".jpg",
     "image/png":  ".png",
@@ -173,20 +191,30 @@ def run_diagnosis_task(self, *, payload: dict) -> dict:
         # Record spend — the daily cap is CHECKED at enqueue, but this is the
         # only place that INCREMENTS it. Without this call the cap is a no-op.
         try:
-            from security.spend import record_spend
+            from security.spend import record_spend, settle_spend
             cost = float(((result.get("meta") or {}).get("pipeline_token_usage") or {}).get("total_cost_usd") or 0)
             uid = payload.get("user_id")
-            if cost > 0 and uid:
+            hold = payload.get("spend_hold") or None
+            if uid and hold:
+                # The enqueue already reserved an estimate (AI-05). Replace it
+                # with the real figure rather than adding on top, or every scan
+                # would be counted twice.
+                settle_spend(str(uid), float(hold.get("reserved") or 0), cost, hold.get("ymd"))
+            elif cost > 0 and uid:
+                # No hold: a legacy payload queued before this change, or an
+                # anonymous caller. Fall back to the old add-only accounting.
                 record_spend(str(uid), cost)
         except Exception:
-            logger.warning("[Worker] record_spend failed (non-fatal)", exc_info=False)
+            logger.warning("[Worker] spend settle failed (non-fatal)", exc_info=False)
         logger.info("[Worker] done job_id=%s confidence=%.2f", job_id, ((result.get("meta") or {}).get("confidence_score") or 0))
         return result
     except SoftTimeLimitExceeded:
         logger.error("[Worker] SOFT TIMEOUT job_id=%s — task exceeded soft limit", job_id)
+        _release_hold(payload)
         raise
     except Exception:
         logger.exception("[Worker] FAILED job_id=%s", job_id)
+        _release_hold(payload)
         raise
     finally:
         _cleanup(temp_paths)

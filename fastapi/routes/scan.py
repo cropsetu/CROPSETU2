@@ -32,7 +32,7 @@ from jobs.queue import (
 )
 from security.auth import verify_signed_request
 from security.input_sanitize import clean_user_text
-from security.spend import check_under_cap
+from security.spend import check_under_cap, SCAN_RESERVE_USD, utc_ymd
 from services import idempotency
 from rate_limit import make_limiter
 
@@ -221,11 +221,38 @@ async def ai_scan(request: Request):
 
         # Enqueue. We propagate request_id + user_id so worker logs carry
         # the same correlation tags the API request had.
+        # Reserve the estimated spend ATOMICALLY, here — the point where work is
+        # actually committed, and after the idempotency checks above have already
+        # returned for a cached result or an in-flight duplicate. Reserving at the
+        # earlier read-only check would charge replays that never queue anything.
+        #
+        # The read-only check above is a cheap early reject; THIS is the one that
+        # is race-free. Before it, N concurrent scans all read the same pre-spend
+        # total and every one passed, because the only increment happened in the
+        # worker minutes later.
+        # Reserve ONLY when we can settle it later. `spend_hold` below is set
+        # `if user_id`, and both worker branches (jobs/tasks.py) require a uid —
+        # so an anonymous reserve is taken and can never be given back. All
+        # anonymous callers share ONE bucket at the $0.10 anon cap, so four
+        # unsettled $0.03 reserves lock scanning out FLEET-WIDE for the rest of
+        # the UTC day. That would also be a regression: before the reserve
+        # existed nothing ever incremented the anon bucket, so it never blocked.
+        if user_id:
+            check_under_cap(user_id, reserve=SCAN_RESERVE_USD)
+
         payload = {
             "params":     params,
             "images":     cleaned_images,
             "request_id": request.headers.get("x-request-id") or None,
             "user_id":    user_id or None,
+            # Carries the reserve to the worker so it can settle it to the real
+            # cost, or give it back if the pipeline never produces one. `ymd`
+            # pins the UTC day so a job that finishes after midnight settles
+            # against the bucket it reserved from, not the new one.
+            "spend_hold": {
+                "reserved": SCAN_RESERVE_USD,
+                "ymd":      utc_ymd(),
+            } if user_id else None,
         }
         job_id = enqueue_diagnosis(payload, idempotency_key=cache_key)
 

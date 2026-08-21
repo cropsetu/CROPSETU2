@@ -1607,7 +1607,15 @@ function _scanSymptoms(farmCtx) {
 //   • application/json     → mobile multi-image path: { images: [{data, mime_type}], farmContext }
 //                            (skip multer; the 50 MB JSON parser is mounted in app.js)
 //   • multipart/form-data  → legacy single-image path used by web + older clients
-router.post('/scan/submit', authenticate, requireFeature('ai_scan'), aiScanLimit, (req, res, next) => {
+// `idempotency('scan_submit')` (AI-04): a scan is the most expensive duplicate in
+// the app — a second LLM pipeline run AND a second credit charge. The axios
+// 401-refresh-and-replay and ordinary mobile retries make duplicate POSTs
+// routine, and FastAPI's own body-hash fallback gets it wrong in BOTH
+// directions: two deliberate scans of a byte-identical image collapse into one
+// job, while a genuine retry of a re-compressed image does not dedupe at all.
+// Keying on a client-generated operation id fixes both. Fails OPEN when the
+// header is absent, so older installs behave exactly as before.
+router.post('/scan/submit', authenticate, requireFeature('ai_scan'), aiScanLimit, idempotency('scan_submit'), (req, res, next) => {
   const ct = String(req.headers['content-type'] || '');
   if (ct.startsWith('application/json')) return next();
   upload.single('image')(req, res, (err) => {

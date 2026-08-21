@@ -333,6 +333,34 @@ export const ENV = {
   // app.set('trust proxy', …) so req.ip — and therefore the per-IP rate-limit
   // key — is the real, unspoofable client address.
   TRUST_PROXY: parseTrustProxy(),
+  // Per-socket inactivity timeout for the long AI routes, applied per-prefix in
+  // app.js. Each must EXCEED the application-level budget for its path so the
+  // request is terminated by the code that knows how to release the credit hold,
+  // not by the transport underneath it. Scan polls to 300 s
+  // (ai.scan.fastapi.js POLL_MAX_TOTAL_MS); chat waits 120 s and voice 55 s
+  // (ai.routes.js). Keep these above those numbers if the budgets move.
+  AI_SCAN_SOCKET_TIMEOUT_MS: parseInt(process.env.AI_SCAN_SOCKET_TIMEOUT_MS || '310000', 10),
+  AI_CHAT_SOCKET_TIMEOUT_MS: parseInt(process.env.AI_CHAT_SOCKET_TIMEOUT_MS || '130000', 10),
+  // Per-USER upload ceilings (AI-08). The upload routes had authentication and
+  // nothing else: no per-user quota, no per-route limit, no record of who
+  // uploaded what — so one authenticated account could push 8 MB images or
+  // 100 MB videos bounded only by the global 200-per-15-min-per-IP limiter,
+  // which a whole NAT'd village shares.
+  //
+  // Sized against the heaviest legitimate flows rather than guessed: a seller
+  // bulk-listing a catalogue is the top of the image range, and a rent listing
+  // is <=6 photos plus one video. Hourly, so a burst recovers within the session
+  // rather than locking a user out for a day.
+  // Two tiers, because the personas differ by an order of magnitude. A FARMER
+  // uploads a handful of photos per listing; a SELLER onboarding a catalogue
+  // uploads 5 per product, so 200/hour is only 40 products and a first-time
+  // 100-SKU catalogue stalls halfway through — the limiter would be breaking the
+  // exact workflow the seller app exists for. Exempting ADMIN instead was aimed
+  // at the wrong persona: the admin catalogue tool is not who bulk-uploads.
+  UPLOAD_IMAGE_MAX_PER_HOUR:        parseInt(process.env.UPLOAD_IMAGE_MAX_PER_HOUR || '200', 10),
+  UPLOAD_IMAGE_MAX_PER_HOUR_SELLER: parseInt(process.env.UPLOAD_IMAGE_MAX_PER_HOUR_SELLER || '1000', 10),
+  UPLOAD_VIDEO_MAX_PER_HOUR:        parseInt(process.env.UPLOAD_VIDEO_MAX_PER_HOUR || '20', 10),
+  UPLOAD_VIDEO_MAX_PER_HOUR_SELLER: parseInt(process.env.UPLOAD_VIDEO_MAX_PER_HOUR_SELLER || '60', 10),
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
   RATE_LIMIT_MAX: parseInt(process.env.RATE_LIMIT_MAX || '200', 10),
   // Global per-IP limiter toggle. On by default in dev/prod; off under the
