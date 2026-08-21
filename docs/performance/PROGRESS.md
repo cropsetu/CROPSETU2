@@ -59,6 +59,8 @@ PERF-003  backend/src/socket/chat.socket.js
 PERF-004  backend/src/utils/stockBatch.js
           backend/src/routes/agristore.routes.js
           backend/tests/backend/api/shopLegacyStock.api.test.js (new)
+PERF-006  backend/src/routes/animaltrade.routes.js
+          backend/tests/backend/api/animaltrade.api.test.js
 ```
 
 ## Tests
