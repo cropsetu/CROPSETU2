@@ -141,6 +141,23 @@ export function registerChatSocket(io) {
 
     onLimited(socket, allow, 'mark_read', 'read', async ({ chatId }) => {
       if (!chatId) return;
+      // Membership check, the same one join_chat and send_message already do.
+      // Without it this handler took an arbitrary chatId from the wire and wrote
+      // readAt across a conversation the caller has nothing to do with — so a
+      // stranger could clear the unread state on someone else's chat and the
+      // real recipient's badge would quietly go to zero on messages they had
+      // never opened. Losing a buyer's enquiry that way is worse than the miss
+      // itself, because nothing surfaces that it happened. It also emitted
+      // messages_read into a room the caller had never joined, announcing their
+      // user id inside a conversation they are not part of.
+      //
+      // The 'read' rate-limit bucket throttled this to a few per second; it
+      // never prevented it.
+      const chat = await prisma.chat.findFirst({
+        where: { id: chatId, OR: [{ sellerId: userId }, { buyerId: userId }] },
+        select: { id: true },
+      });
+      if (!chat) return;
       await prisma.chatMessage.updateMany({
         where: { chatId, readAt: null, NOT: { senderId: userId } },
         data: { readAt: new Date() },
