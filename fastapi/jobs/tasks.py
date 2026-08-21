@@ -134,6 +134,43 @@ def _cleanup(paths: list[Path]) -> None:
             pass
 
 
+# ── The worker's event loop ──────────────────────────────────────────────────
+# One loop per worker PROCESS, created on first use and reused by every task
+# that process handles.
+#
+# This was `asyncio.run(...)` per task, justified by a comment claiming Celery
+# workers are "process-per-task (prefork pool)". They are not: prefork is
+# process-per-WORKER, a child handles tasks back to back for its whole life, and
+# `worker_max_tasks_per_child` is set nowhere in this repo. asyncio.run closes
+# its loop on return, so from the SECOND task onward the shared asyncpg pool
+# held connections belonging to a loop that no longer existed:
+#
+#   task 1: OK
+#   task 2: InterfaceError: cannot perform operation: another operation is in progress
+#
+# persistence/diagnosis_repo.py catches that and logs "continuing without", so
+# nothing user-facing broke and nothing alerted — every crop scan after the
+# first one a worker handled simply went unrecorded.
+#
+# db_pool.get_shared_pool() now also detects a stale loop and rebuilds, which
+# covers the other asyncio.run callers (eval/replay.py). But rebuilding is a
+# fallback, not the fix: a fresh pool per task leaves the previous pool's server
+# side connected, and Postgres went from 1 to 29 backends over 20 tasks in
+# measurement — that would exhaust the 10-connection Celery budget faster than
+# the bug it replaced. Keeping ONE loop keeps ONE pool, which is what the
+# "shared pool" in db_pool.py was always meant to be.
+_worker_loop = None
+
+
+def _run_on_worker_loop(coro):
+    """Drive `coro` to completion on this process's long-lived event loop."""
+    global _worker_loop
+    if _worker_loop is None or _worker_loop.is_closed():
+        _worker_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_worker_loop)
+    return _worker_loop.run_until_complete(coro)
+
+
 @celery_app.task(
     name="jobs.tasks.run_diagnosis_task",
     bind=True,
@@ -184,10 +221,10 @@ def run_diagnosis_task(self, *, payload: dict) -> dict:
 
     try:
         from orchestrator import run_diagnosis  # late import — heavy
-        # Celery tasks are sync. asyncio.run gives the orchestrator a
-        # private event loop per task; safe since workers are
-        # process-per-task (prefork pool).
-        result = asyncio.run(run_diagnosis(params, images))
+        # Celery tasks are sync, so the orchestrator needs a loop driven for it.
+        # ONE loop per worker process, reused across tasks — see
+        # _run_on_worker_loop for why this is not asyncio.run.
+        result = _run_on_worker_loop(run_diagnosis(params, images))
         # Record spend — the daily cap is CHECKED at enqueue, but this is the
         # only place that INCREMENTS it. Without this call the cap is a no-op.
         try:
