@@ -345,6 +345,72 @@ per language means changing the generator, not the consumer.
 
 ---
 
+## PERF-021 — The §71 feature-by-feature sweep
+
+Twelve product areas audited, each finding put through an adversarial pass. What
+follows is the surviving backlog. **Fixed** items have their evidence in the
+commit that closed them; everything else is open and ordered by severity.
+
+### Fixed in this pass
+
+| Area | Defect | Proof |
+|---|---|---|
+| MyFarm | `listCropCycles` scoped only by `farmId` — any farmer could read another's cropping history | scoped to `farmerId` |
+| MyFarm | `updateCropCycle` passed the raw body to `prisma.update` — a farmer could re-parent their cycle onto another farm, or forge the derived financials | field allowlist |
+| MyFarm | Four of eight field logs appended read-modify-write | **10 concurrent entries stored 5**; now 10 |
+| Community | Admin "delete comment" always 500'd **and** decremented `commentCount` anyway | reproduced 3 → 2 with the comment still present |
+| AgriStore | Checkout's post-split branch never checked the catalog row, so a **deactivated (recalled) product stayed purchasable** | parent-product check added |
+| AI credits | Monthly refill was read-then-write | **10 concurrent requests granted 1000 credits**; now 100 |
+| Seller app | `&status=` chip filter ignored by the backend — every chip returned the same list | verified 5 → 2/1/1/1 |
+| Groups | `join` never checked `isPublic` | blocked (no caller today — P3, fixed because it is three lines) |
+
+### Open, highest first
+
+**P1 — AI history aggregates the whole message table.** The `_count` include on
+the conversation list compiles to an uncorrelated aggregate over every message
+on the platform, and `messages: { none: … }` becomes an uncorrelated `NOT IN`.
+Same family as the chat-inbox defect fixed in PERF-006, same fix shape.
+
+**P1 — `/mandi/prices/:commodity/trend` has no `LIMIT`** and serialises the whole
+result set.
+
+**P1 — a 100 MB video is buffered whole in process memory** with no cap on how
+many can be in flight.
+
+**P1 — seller "My Products" silently stops at 20** — a cursor client against an
+offset-only endpoint.
+
+**P1 — the hourly seller-metrics refresh reads every order item of the last 180
+days into Node.**
+
+**P2 — the cart summary freezes** after a quantity change or removal: the totals
+are derived from a quote that is only refetched by `fetchCart`. Display-only —
+checkout re-quotes twice before charging — but it is the one screen whose whole
+job is a number a farmer can believe.
+
+**P2 — orphaned PAID payment intents never reach a terminal state**, so the
+reconciler re-processes them and re-fires its money alert every ten minutes with
+a count that never falls.
+
+**P2 — a seller cancelling a PAID order** restocks and closes it with no record
+that a refund is owed, and no notification to the farmer.
+
+**P2 — `GET /posts/:id/comments` returns the entire thread with no limit**;
+`GET /groups` counts every membership on the platform per page.
+
+**P2 — several list payloads ship far more than the screen renders**: 10 full
+reviews joined to users on every product open, full-resolution images into
+56×56 and 120px thumbnails, `GET /farms/:farmId` shipping every log array of
+every active cycle.
+
+**P3 — assorted**: `sort=popularity` orders by a `viewCount` nothing increments;
+`inStock=true` is filtered in JS *after* `take` and `count`, so it truncates the
+page and lies in the meta; socket `group_message` skips the sanitisation the
+HTTP route enforces; `scope=city` without a district silently shows every
+district.
+
+---
+
 ## Refuted
 
 Work not worth doing, and why.
