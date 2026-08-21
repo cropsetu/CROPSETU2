@@ -1,0 +1,738 @@
+<title>CropSetu Load Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+:root{
+  --ground:#f9fdf6; --surface:#ffffff; --surface-2:#f1f8ec;
+  --ink:#06210d; --ink-2:#3d5142; --ink-3:#57685a;
+  --rule:#d7e1d5; --rule-2:#e4efe2;
+  --accent:#005f21; --accent-2:#25873e; --gold:#a8801f;
+  --p0:#c31c1f; --p0-bg:#fdeaea;
+  --p1:#8a6100; --p1-bg:#fbf0d8;
+  --p2:#0d6aa8; --p2-bg:#e3f0f9;
+  --clear:#0a7d0a; --clear-bg:#e6f4e6;
+  --code-bg:#f1f8ec;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#06170c; --surface:#0b2113; --surface-2:#102a19;
+    --ink:#e8f3e6; --ink-2:#b3c8b6; --ink-3:#8ba490;
+    --rule:#1e3d27; --rule-2:#17321e;
+    --accent:#5cc46b; --accent-2:#31aa40; --gold:#e0af3b;
+    --p0:#ff8a86; --p0-bg:#3a1414;
+    --p1:#e0af3b; --p1-bg:#33260a;
+    --p2:#6cb8e8; --p2-bg:#0e2637;
+    --clear:#6fd36f; --clear-bg:#0f2c12;
+    --code-bg:#102a19;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#06170c; --surface:#0b2113; --surface-2:#102a19;
+  --ink:#e8f3e6; --ink-2:#b3c8b6; --ink-3:#8ba490;
+  --rule:#1e3d27; --rule-2:#17321e;
+  --accent:#5cc46b; --accent-2:#31aa40; --gold:#e0af3b;
+  --p0:#ff8a86; --p0-bg:#3a1414;
+  --p1:#e0af3b; --p1-bg:#33260a;
+  --p2:#6cb8e8; --p2-bg:#0e2637;
+  --clear:#6fd36f; --clear-bg:#0f2c12;
+  --code-bg:#102a19;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px 120px}
+.col{max-width:70ch}
+
+/* ── masthead ─────────────────────────────────────────── */
+.mast{border-bottom:1px solid var(--rule);background:var(--surface);}
+.mast-in{max-width:1180px;margin:0 auto;padding:44px 28px 0}
+.eyebrow{
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 14px
+}
+h1{
+  font-family:Fraunces,Georgia,serif;font-weight:600;font-size:clamp(2.3rem,5.2vw,3.5rem);
+  line-height:1.04;letter-spacing:-.02em;margin:0 0 18px;text-wrap:balance;
+}
+.dek{font-size:1.12rem;color:var(--ink-2);max-width:64ch;margin:0 0 32px}
+.tally{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--rule);margin-top:8px}
+.tally div{
+  flex:1 1 128px;padding:16px 20px 20px;border-right:1px solid var(--rule);
+}
+.tally div:last-child{border-right:0}
+.tally b{
+  display:block;font-family:"JetBrains Mono",monospace;font-size:1.85rem;font-weight:700;
+  line-height:1.1;font-variant-numeric:tabular-nums;letter-spacing:-.02em;
+}
+.tally span{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.t-p0 b{color:var(--p0)} .t-ok b{color:var(--accent)} .t-cl b{color:var(--clear)} .t-pd b{color:var(--ink-3)}
+
+/* ── structure ────────────────────────────────────────── */
+section{margin:76px 0 0}
+h2{
+  font-family:Fraunces,Georgia,serif;font-weight:600;font-size:1.85rem;letter-spacing:-.015em;
+  margin:0 0 6px;text-wrap:balance;
+}
+h2 .num{
+  font-family:"JetBrains Mono",monospace;font-size:.72em;font-weight:400;
+  color:var(--accent);margin-right:.6em;
+}
+h3{font-family:Fraunces,Georgia,serif;font-weight:600;font-size:1.22rem;margin:38px 0 10px;letter-spacing:-.01em}
+.sub{color:var(--ink-3);font-size:.95rem;margin:0 0 26px;max-width:70ch}
+p{margin:0 0 16px}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in oklab,var(--accent) 35%,transparent)}
+a:hover{border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+code,.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.855em}
+code{background:var(--code-bg);padding:.12em .38em;border-radius:3px;color:var(--ink)}
+hr{border:0;border-top:1px solid var(--rule);margin:0}
+
+/* ── ordered plan ─────────────────────────────────────── */
+.plan{list-style:none;counter-reset:step;padding:0;margin:0}
+.plan li{
+  counter-increment:step;position:relative;padding:20px 0 20px 62px;border-top:1px solid var(--rule);
+}
+.plan li:last-child{border-bottom:1px solid var(--rule)}
+.plan li::before{
+  content:counter(step);position:absolute;left:0;top:19px;width:34px;height:34px;
+  display:grid;place-items:center;border-radius:50%;
+  background:var(--accent);color:var(--ground);
+  font-family:"JetBrains Mono",monospace;font-size:14px;font-weight:700;
+}
+.plan h4{margin:0 0 5px;font-size:1.02rem;font-weight:700;letter-spacing:-.005em}
+.plan p{margin:0;color:var(--ink-2);font-size:.945rem}
+.plan .why{display:block;margin-top:7px;color:var(--ink-3);font-size:.875rem}
+
+/* ── finding rows ─────────────────────────────────────── */
+.ledger{border-top:1px solid var(--rule)}
+.f{
+  display:grid;grid-template-columns:96px 1fr;gap:0 20px;
+  border-bottom:1px solid var(--rule);border-left:3px solid var(--rule);
+  padding:18px 18px 18px 17px;background:var(--surface);
+}
+.f.p0{border-left-color:var(--p0)} .f.p1{border-left-color:var(--p1)} .f.p2{border-left-color:var(--p2)}
+.f-id{
+  font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:700;
+  color:var(--ink-3);letter-spacing:.02em;padding-top:2px;
+}
+.f-t{margin:0 0 7px;font-weight:700;font-size:1.005rem;line-height:1.4;letter-spacing:-.005em}
+.f-b{margin:0;color:var(--ink-2);font-size:.93rem}
+.f-e{
+  display:block;margin-top:9px;font-family:"JetBrains Mono",monospace;font-size:11.5px;
+  color:var(--ink-3);line-height:1.75;word-break:break-word;
+}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.chip{
+  font-family:"JetBrains Mono",monospace;font-size:10.5px;font-weight:500;letter-spacing:.05em;
+  text-transform:uppercase;padding:3px 8px;border-radius:3px;white-space:nowrap;
+}
+.c-p0{background:var(--p0-bg);color:var(--p0)}
+.c-p1{background:var(--p1-bg);color:var(--p1)}
+.c-p2{background:var(--p2-bg);color:var(--p2)}
+.c-ok{background:var(--clear-bg);color:var(--clear)}
+.c-hand{background:transparent;color:var(--gold);border:1px solid color-mix(in oklab,var(--gold) 45%,transparent)}
+.c-pend{background:var(--surface-2);color:var(--ink-3);border:1px solid var(--rule)}
+
+/* ── tables ───────────────────────────────────────────── */
+.scroll{overflow-x:auto;border:1px solid var(--rule);border-radius:4px;background:var(--surface);margin:0 0 10px}
+table{border-collapse:collapse;width:100%;min-width:720px;font-size:13.5px}
+th{
+  text-align:left;font-family:"JetBrains Mono",monospace;font-size:10.5px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+  padding:11px 14px;border-bottom:1px solid var(--rule);white-space:nowrap;background:var(--surface-2);
+}
+td{padding:11px 14px;border-bottom:1px solid var(--rule-2);vertical-align:top;color:var(--ink-2)}
+tr:last-child td{border-bottom:0}
+td:first-child{color:var(--ink);font-weight:600}
+td.m,th.m{font-family:"JetBrains Mono",monospace;font-size:12px;font-variant-numeric:tabular-nums}
+.num-col{text-align:right;font-variant-numeric:tabular-nums}
+caption{caption-side:bottom;text-align:left;padding:10px 2px 0;font-size:12.5px;color:var(--ink-3)}
+
+/* ── complexity block ─────────────────────────────────── */
+.cx{
+  border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:4px;
+  background:var(--surface);padding:20px 22px;margin:0 0 16px;
+}
+.cx h4{
+  margin:0 0 4px;font-size:1.06rem;font-weight:700;letter-spacing:-.005em;
+}
+.cx .cid{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--ink-3);display:block;margin-bottom:9px}
+.cx dl{display:grid;grid-template-columns:max-content 1fr;gap:7px 18px;margin:14px 0 0;font-size:.9rem}
+.cx dt{
+  font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--ink-3);padding-top:3px;
+}
+.cx dd{margin:0;color:var(--ink-2)}
+.cx dd .was{color:var(--p0)} .cx dd .now{color:var(--clear);font-weight:600}
+.arrow{color:var(--ink-3);padding:0 .45em}
+
+/* ── callout ──────────────────────────────────────────── */
+.note{
+  border:1px solid var(--rule);border-left:3px solid var(--gold);background:var(--surface);
+  padding:17px 20px;border-radius:4px;margin:0 0 18px;font-size:.945rem;color:var(--ink-2);
+}
+.note b{color:var(--ink)}
+.note.warn{border-left-color:var(--p0)}
+
+/* ── architecture diagram ─────────────────────────────── */
+.arch{width:100%;height:auto;display:block;margin:6px 0 4px}
+.arch text{font-family:"JetBrains Mono",monospace;font-size:11px;fill:var(--ink-2)}
+.arch .lbl{font-weight:700;fill:var(--ink);font-size:12px}
+.arch .box{fill:var(--surface);stroke:var(--rule);stroke-width:1.5}
+.arch .new{fill:var(--clear-bg);stroke:var(--clear);stroke-width:2}
+.arch .line{stroke:var(--rule);stroke-width:1.5;fill:none}
+.arch .tag{font-size:10px;fill:var(--clear);font-weight:700}
+
+footer{margin-top:82px;padding-top:26px;border-top:1px solid var(--rule);color:var(--ink-3);font-size:13px}
+
+@media (max-width:680px){
+  .f{grid-template-columns:1fr;gap:8px}
+  .cx dl{grid-template-columns:1fr;gap:2px 0}
+  .cx dt{padding-top:9px}
+  .plan li{padding-left:52px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<header class="mast">
+  <div class="mast-in">
+    <p class="eyebrow">Verified audit &middot; HEAD 5bc1536 &middot; feat/skeleton-convention-and-cleanup</p>
+    <h1>CropSetu Load Ledger</h1>
+    <p class="dek">Every claimed scalability, data-structure and resource bottleneck in the monorepo, re-read against the working tree and put through an adversarial pass that tried to kill it. What survived, what died, and the order to fix it in.</p>
+    <div class="tally">
+      <div class="t-pd"><b>146</b><span>Raised</span></div>
+      <div class="t-ok"><b>119</b><span>Confirmed</span></div>
+      <div class="t-cl"><b>15</b><span>Refuted</span></div>
+      <div class="t-p0"><b>23</b><span>P0 surviving</span></div>
+      <div class="t-pd"><b>12</b><span>Unverified</span></div>
+      <div class="t-cl"><b>4</b><span>Shipped</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section>
+  <div class="col">
+    <h2><span class="num">01</span>What this changes</h2>
+    <p class="sub">The repository already carried a 12,190-line <code>ARCHITECTURE.md</code> with a scaling analysis and a 54-item defect register. This audit does not restate it — it tests it.</p>
+    <p>Eleven auditors read one subsystem each; each dimension then went to a verifier instructed to <em>refute</em> its findings and to default to refuted when evidence could not be reproduced. That pass killed eleven claims and corrected roughly forty-five more, mostly arithmetic that had been overstated and line citations that had drifted.</p>
+    <p>Three conclusions differ materially from the prior document:</p>
+  </div>
+
+  <div class="ledger" style="margin-top:22px">
+    <div class="f p0">
+      <div class="f-id">RT-01</div>
+      <div>
+        <p class="f-t">The presence broadcast is not a scoping problem. It is dead weight.</p>
+        <p class="f-b">The prior prescribed scoping <code>io.emit('user_online')</code> to relationship rooms. No client subscribes to it at all — the only occurrence of <code>user_online</code> outside the backend is a doc comment. The fix is deletion, not a room design: no client contract change, no subscription bookkeeping, and the accompanying <code>users</code> write per connect goes with it.</p>
+        <span class="f-e">backend/src/socket/chat.socket.js:83, :263 &nbsp;·&nbsp; shared/services/socket.js:18 (comment only)</span>
+        <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span><span class="chip c-hand">Hand-verified</span></div>
+      </div>
+    </div>
+    <div class="f p0">
+      <div class="f-id">CRIT-01</div>
+      <div>
+        <p class="f-t">One line caps every AI request at 30 seconds, four layers below the code that budgets for 300</p>
+        <p class="f-b"><code>httpServer.timeout = 30_000</code> was added to stop Slowloris. Express waits 120&nbsp;s for <code>/ai/chat</code>, 55&nbsp;s for voice and up to 300&nbsp;s for a synchronous scan; the mobile clients were <em>deliberately</em> raised to 125&nbsp;s and 200&nbsp;s, with comments explaining that a shorter timeout "aborts slow-but-successful replies mid-pipeline (and the user still gets charged)". The socket is destroyed at 30&nbsp;s regardless. This is the manufactured trigger behind the orphaned-credit retries that were attributed to user behaviour.</p>
+        <span class="f-e">backend/src/server.js:57 &nbsp;·&nbsp; frontend/src/services/aiApi.js:166</span>
+        <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-pend">Critic finding</span><span class="chip c-hand">Hand-verified</span></div>
+      </div>
+    </div>
+    <div class="f p0">
+      <div class="f-id">AI-03</div>
+      <div>
+        <p class="f-t">The app uploads five full-resolution images per scan and the pipeline throws four away</p>
+        <p class="f-b">The client encodes up to five images to base64 at full quality — deliberately, per its own comment — into a single JSON body, which is why a 50&nbsp;MB parser exists. FastAPI validates <code>images[:1]</code> and the Celery task materialises "the FIRST valid image (single-image pipeline — the multi-image feature was removed)". Up to 80% of the largest request body in the system is encoded, transmitted, parsed and discarded.</p>
+        <span class="f-e">frontend/src/services/aiApi.js:139-160 &nbsp;·&nbsp; fastapi/routes/scan.py:72 &nbsp;·&nbsp; fastapi/jobs/tasks.py:74-76</span>
+        <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span><span class="chip c-hand">Hand-verified</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="note" style="margin-top:26px">
+      <b>Why this one matters most.</b> AI-03 makes the headline P0.5 recommendation — migrate scans to direct signed uploads — substantially less urgent. Sending one image instead of five is a client-side change of two lines that removes ~80% of the payload today, with no signing endpoint, no ownership table and no backward-compatibility window. The critic also notes the signed-upload migration would move bytes onto the Cloudinary bill to pay for images the pipeline discards, and would remove the point at which credits are debited before bytes land.
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2><span class="num">02</span>Execution order</h2>
+    <p class="sub">Ranked by what makes other work measurable, not by severity. This order differs from the prior document's, which opened with PgBouncer.</p>
+  </div>
+  <ol class="plan">
+    <li>
+      <h4>Pin <code>DB_CONNECTION_LIMIT</code> to an explicit number</h4>
+      <p><code>connection_limit</code> derives from <code>os.cpus().length * 2 + 1</code>, and Node's <code>os.cpus()</code> reads the host's CPU count, not the container's cgroup quota. On a shared 32-core Railway host a single replica claims 65 connections against an assumed <code>max_connections</code> of 100.</p>
+      <span class="why">Not the biggest problem — the reason it is first is that every other tier's arithmetic is computed against this denominator, and the denominator is currently unknown. <span class="mono">DB-01, DB-09</span></span>
+    </li>
+    <li>
+      <h4>Break the auth &rarr; 401 &rarr; refresh &rarr; logout chain</h4>
+      <p>A Prisma failure inside <code>authenticate()</code> returns 401 ("fail closed — never admit a request we couldn't validate"). The shared client turns any 401 into a refresh-and-replay costing five more statements, and cold-start session restore deletes the refresh token on <em>any</em> network error. A DB stall therefore converts into a self-amplifying stampede and then into permanent mass logout recoverable only by SMS re-auth.</p>
+      <span class="why">Separate transport failure from auth failure: return 503 when the lookup itself failed. <span class="mono">AUTH-02, CRIT-07, MOB-01</span></span>
+    </li>
+    <li>
+      <h4>Raise <code>httpServer.timeout</code> above the AI budget</h4>
+      <p>Restores the latency envelope every other layer was already written for, and stops manufacturing the double-charged retries. <span class="mono">CRIT-01</span></p>
+    </li>
+    <li>
+      <h4>Fix the Socket.IO Redis adapter <em>before</em> touching the chat poll</h4>
+      <p>The adapter's client pair is built with <code>retryStrategy: () =&gt; null</code> — it never reconnects, while the main client and BullMQ both do. One blip permanently kills cross-instance delivery until redeploy.</p>
+      <span class="why">The ordering trap: the unconditional 10&nbsp;s chat poll is the only thing currently masking this. Delete the poll first and wire waste becomes silent message loss. <span class="mono">OPS-01, RT-06, CRIT-06</span></span>
+    </li>
+    <li>
+      <h4>Make degradation visible</h4>
+      <p><code>logger.warn</code> only emits when <code>isDev</code>. 123 of 163 warn sites are fail-open degradation notices, so in production every Redis fallback, leader-lock miss, queue-inline execution and cache failure is silent. Nothing below this line can be measured until it is fixed.</p>
+      <span class="why"><span class="mono">OPS-02</span> — backend/src/utils/logger.js:84-86</span>
+    </li>
+    <li>
+      <h4>Send one image per scan</h4>
+      <p>Two lines in the client. Removes up to 80% of the system's largest request body immediately. Then re-evaluate whether signed uploads are still worth their complexity. <span class="mono">AI-03, AI-01, AI-02</span></p>
+    </li>
+    <li>
+      <h4>Delete the presence broadcast; fix the mandi upsert; cache the auth read</h4>
+      <p>Three independent, well-understood changes with no ordering constraint between them. <span class="mono">RT-01, A2-06, AUTH-01</span></p>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <div class="col">
+    <h2><span class="num">03</span>Landed</h2>
+    <p class="sub">Four changes from the top of the order, applied to the working tree and left uncommitted. Test suite before and after: <b>7 suites / 37 tests failing, identical baseline</b> — now with 1,032 passing across 89 suites, up 7 tests and 2 files from the tests added below.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Change</th><th>Files</th><th>Effect</th><th>Tests</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Delete the presence broadcast <span class="mono">RT-01</span></td>
+          <td class="m">socket/chat.socket.js</td>
+          <td>Removes the fleet's only O(connections)-per-event path. The <code>isOnline</code>/<code>lastSeenAt</code> writes stay — <code>animalListing.service.js:52</code> and <code>user.routes.js:142</code> read them.</td>
+          <td>Covered by existing socket suites</td>
+        </tr>
+        <tr>
+          <td>Un-gate <code>logger.warn</code> <span class="mono">OPS-02</span></td>
+          <td class="m">utils/logger.js</td>
+          <td>123 of 163 warn sites are fail-open notices that production discarded. <code>debug</code> stays suppressed; redaction unchanged.</td>
+          <td class="m">+3 loggerWarnVisibility</td>
+        </tr>
+        <tr>
+          <td>Bound the rate-limit fallback <span class="mono">MEM-01</span></td>
+          <td class="m">middleware/rateLimit.js</td>
+          <td><code>new Map()</code> &rarr; <code>BoundedMap({maxSize: 50_000})</code>. Deliberately no TTL: the longest window is 1 h and early expiry would hand back OTP attempts.</td>
+          <td class="m">+4 rateLimitBounded</td>
+        </tr>
+        <tr>
+          <td>Un-truncate the AI paths <span class="mono">CRIT-01</span></td>
+          <td class="m">app.js, config/env.js, server.js</td>
+          <td>Per-prefix <code>req/res.setTimeout</code> on <code>/ai/scan|chat|voice|soil-card-ocr</code>, above each path's real budget. Global 30&nbsp;s stays for every other route, so Slowloris cover is unchanged.</td>
+          <td>Config-level; no unit test added</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <div class="note" style="margin-top:18px">
+      <b>Deliberately not applied: AI-03.</b> Sending one image instead of five is the largest single payload win available, but the farmer app offers a five-image scan in its UI. Silently truncating to one changes what the product promises. The real decision is whether to restore multi-image in the pipeline or stop offering it — a product call, not an optimisation.
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2><span class="num">04</span>Confirmed P0 findings</h2>
+    <p class="sub">Survived the adversarial pass. Grouped by subsystem; the three headline items above are not repeated.</p>
+  </div>
+  <div class="ledger">
+
+    <div class="f p0"><div class="f-id">DB-05</div><div>
+      <p class="f-t">Celery reuses one module-level asyncpg pool across per-task <code>asyncio.run</code> event loops</p>
+      <p class="f-b">A pool created on one event loop and reused on another holds connections bound to a closed loop. Under load this surfaces as connection errors that look like Postgres problems and are not.</p>
+      <span class="f-e">fastapi/db_pool.py:18-26 &nbsp;·&nbsp; fastapi/jobs/tasks.py</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">DB-06</div><div>
+      <p class="f-t"><code>prisma db push</code> runs on every boot of every replica, under a session advisory lock</p>
+      <p class="f-b">The image CMD is <code>timeout 60 npx prisma db push --skip-generate; node src/server.js</code>. The semicolon makes failure non-fatal, so a rolling deploy of N replicas serialises N schema pushes behind one advisory lock — and 13 migration directories already exist, unused. This is also why the prescribed PgBouncer fix cannot be applied as written.</p>
+      <span class="f-e">Dockerfile:54 &nbsp;·&nbsp; backend/prisma/migrations/ (13 dirs)</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span><span class="chip c-p1">DB-03 blocked on this</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">A2-06</div><div>
+      <p class="f-t">Every mandi sync inserts duplicates; the dedup fallback is unreachable</p>
+      <p class="f-b"><code>upsert({ where: { id: 'dummy-will-not-match' } })</code> — <code>id</code> is a valid unique field, so the lookup always misses and the upsert always <em>creates</em>. The <code>.catch()</code> containing the real dedup logic can never fire, because the create succeeds. <code>expiresAt</code> is written and never used to delete. Five indexes are maintained on every one of those inserts.</p>
+      <span class="f-e">backend/src/services/mandiPrice.service.js:148-166 &nbsp;·&nbsp; schema.prisma model MandiPrice (no @@unique)</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span><span class="chip c-hand">Hand-verified</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">DSA-03</div><div>
+      <p class="f-t">The same sync is up to 5,000 sequential two-round-trip writes, fire-and-forget after the response</p>
+      <p class="f-b">A <code>for … await</code> loop, not batched, holding a pool connection per statement while the HTTP response has already been sent. Adding the unique constraint enables a real <code>createMany({skipDuplicates})</code>.</p>
+      <span class="f-e">backend/src/services/mandiPrice.service.js:149-166, :262</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">GROW-10</div><div>
+      <p class="f-t">Two FastAPI-owned tables are invisible to both the retention sweep and the erasure service</p>
+      <p class="f-b"><code>ai_scan_diagnoses</code> and <code>ai_scan_feedback</code> are created by FastAPI via asyncpg and never declared in the Prisma schema, so neither the retention sweep nor DPDP erasure can see them. This is a compliance finding, not a performance one.</p>
+      <span class="f-e">fastapi/persistence/diagnosis_repo.py &nbsp;·&nbsp; backend/src/services/erasure.service.js:158</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">RT-02</div><div>
+      <p class="f-t">Socket handshake auth is strictly weaker than HTTP auth, and never re-checked</p>
+      <p class="f-b">The handshake verifies the JWT signature only — no jti denylist, no <code>tokenVersion</code>, no <code>isActive</code>. An established socket is never re-authenticated, so a banned or logged-out user keeps a live channel until they disconnect. Room joins <em>are</em> ownership-checked, so there is no IDOR here.</p>
+      <span class="f-e">backend/src/socket/chat.socket.js:43-53 vs backend/src/middleware/auth.js:51-68</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span><span class="chip c-hand">Hand-verified</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">RT-04</div><div>
+      <p class="f-t">The chat poll is not a fallback — it runs alongside a healthy socket</p>
+      <p class="f-b">The 10&nbsp;s <code>setInterval</code> sits in <code>useFocusEffect</code> with no connectivity guard; the socket effect is registered separately below it. Every focused chat screen polls <em>in addition to</em> its live socket. The comment calling it a fallback describes an intent the code does not implement.</p>
+      <span class="f-e">frontend/src/screens/AnimalTrade/ChatScreen.js:42, :329-344</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span><span class="chip c-hand">Hand-verified</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">AI-01</div><div>
+      <p class="f-t">The 50&nbsp;MB scan parser runs before <code>authenticate</code> and before the rate limiter</p>
+      <p class="f-b">Body parsing is mounted by path prefix ahead of the auth middleware, so an unauthenticated caller can make Express buffer and parse up to 50&nbsp;MB before anything checks who they are or how often they have asked.</p>
+      <span class="f-e">backend/src/app.js:199 (parser) vs :330-340 (limiter) and route-level authenticate</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">AI-05</div><div>
+      <p class="f-t">The FastAPI spend cap is read-then-increment <em>across processes</em></p>
+      <p class="f-b"><code>check_under_cap</code> runs in uvicorn at enqueue; <code>record_spend</code> runs in the Celery worker at completion. A burst of concurrent scans all read the same under-cap value and all pass. The Express credit ledger remains the authoritative, atomic one — this cap is advisory at best.</p>
+      <span class="f-e">fastapi/security/spend.py:58-71, :83-84 &nbsp;·&nbsp; fastapi/jobs/tasks.py:176-182</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">AI-04</div><div>
+      <p class="f-t">No <code>Idempotency-Key</code> on scan submit — and the retry it fails to dedupe orphans a credit hold</p>
+      <p class="f-b">FastAPI falls back to keying on the canonical body hash. Two deliberate scans of a byte-identical image collapse into one job, while a genuine retry with a re-compressed image does not dedupe at all. Combined with CRIT-01, the server manufactures those retries itself.</p>
+      <span class="f-e">frontend/src/services/aiApi.js:167-171 &nbsp;·&nbsp; shared/services/api.js:159-176</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">AI-08</div><div>
+      <p class="f-t">Upload routes have authentication and nothing else</p>
+      <p class="f-b">No per-user quota, no per-route limit, no DB row attributing an asset to an owner. Bounded only by the global 200 requests / 15 min / IP. Orphaned assets are unreclaimable and unaccounted for erasure.</p>
+      <span class="f-e">backend/src/routes/upload.routes.js &nbsp;·&nbsp; backend/src/app.js:197</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">OPS-03</div><div>
+      <p class="f-t"><code>enqueue()</code> fails open by running the job inline, and one broadcast fans out 5,000 of them</p>
+      <p class="f-b">A Redis outage moves notification delivery onto the request path with no concurrency bound. Redis outage &rarr; inline fan-out &rarr; latency spike &rarr; timeouts &rarr; client retries.</p>
+      <span class="f-e">backend/src/queue/jobQueue.js:52-67 &nbsp;·&nbsp; backend/src/queue/processors.js:14-26</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-ok">Confirmed</span></div>
+    </div></div>
+
+    <div class="f p0"><div class="f-id">CRIT-02</div><div>
+      <p class="f-t">The payment reconciler poisons its own queue</p>
+      <p class="f-b">Orphaned paid intents never reach a terminal state, are re-queried against Razorpay forever and occupy the FIFO head. An entire subsystem — the Razorpay webhook and the payment-intent reconciler — that no dimension had opened.</p>
+      <span class="f-e">backend/src/services/shopPayment.service.js &nbsp;·&nbsp; backend/src/routes/shopWebhooks.routes.js</span>
+      <div class="chips"><span class="chip c-p0">P0</span><span class="chip c-pend">Critic finding &middot; unverified</span></div>
+    </div></div>
+
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2><span class="num">05</span>Complexity report</h2>
+    <p class="sub">The reporting format the brief requires, for the changes where complexity is the argument.</p>
+  </div>
+
+  <div class="cx">
+    <h4>Socket presence broadcast</h4>
+    <span class="cid">RT-01 &middot; backend/src/socket/chat.socket.js:83, :263</span>
+    <dl>
+      <dt>Current</dt><dd><code>io.emit('user_online')</code> on connect, <code>io.emit('user_offline')</code> on disconnect, each preceded by a <code>users</code> UPDATE.</dd>
+      <dt>Time</dt><dd><span class="was">O(C)</span> per event, C = all connected sockets fleet-wide, amplified by the Redis adapter publishing to every node <span class="arrow">&rarr;</span> <span class="now">O(0)</span></dd>
+      <dt>Space</dt><dd>O(1) event state <span class="arrow">&rarr;</span> unchanged</dd>
+      <dt>Problem</dt><dd>At 3,000 concurrent sockets, every connect and disconnect writes 3,000 frames plus one row update. No client has ever listened.</dd>
+      <dt>Proposal</dt><dd>Delete both emits and the paired <code>isOnline</code> write. Re-introduce scoped rooms only when a screen actually needs presence.</dd>
+      <dt>CPU</dt><dd>Removes the fleet's only O(C)-per-event path and one Postgres write per connection.</dd>
+      <dt>Risk</dt><dd>None identified — no subscriber exists. Verified by grep across all four clients.</dd>
+      <dt>Tests</dt><dd>Socket integration test asserting no broadcast on connect; existing <code>connectionLimiter</code> tests unaffected.</dd>
+    </dl>
+  </div>
+
+  <div class="cx">
+    <h4>Authentication hot path</h4>
+    <span class="cid">AUTH-01 &middot; backend/src/middleware/auth.js:51-68</span>
+    <dl>
+      <dt>Current</dt><dd>Per authenticated request, serially: HS256 verify &rarr; Redis <code>GET</code> on the jti denylist &rarr; <code>SELECT tokenVersion, isActive FROM users WHERE id=$1</code>. No cache.</dd>
+      <dt>Time</dt><dd><span class="was">Q = a&middot;R</span> user SELECTs/sec (240/s at R=300, a=0.8), each O(log n) on the PK <span class="arrow">&rarr;</span> <span class="now">&lt;25/s</span> at a 15&nbsp;s TTL with &gt;90% hit rate</dd>
+      <dt>Space</dt><dd>0 bytes retained <span class="arrow">&rarr;</span> <span class="now">bounded</span> ~256 B/entry, hard ceiling ~13 MB at maxSize 50,000; ~1 MB at realistic concurrency</dd>
+      <dt>Problem</dt><dd>Honest finding: at the stated scale this is <em>not</em> a throughput bottleneck — 240 qps of a PK probe is under 2% pool occupancy. What it actually does is double the statement count of every cheap read, add 1&ndash;2.5&nbsp;ms of serial latency to 100% of traffic, and make Postgres a hard availability dependency of authentication itself.</dd>
+      <dt>Proposal</dt><dd><code>BoundedMap({maxSize: 50_000, ttlMs: 15_000})</code> — the primitive already exists at <code>backend/src/utils/boundedMap.js</code> with LRU + lazy TTL, currently used at only 2 of ~16 sites that want it. Leave the denylist GET uncached so single-device logout stays instant. Invalidate cross-instance by cloning the existing Redis pub/sub pattern from <code>featureFlag.service.js:116-152</code>.</dd>
+      <dt>Staleness</dt><dd>1&ndash;3&nbsp;ms with pub/sub healthy; 15&nbsp;s worst case with Redis down, against an access-token TTL of 900&nbsp;s that already exists by design — 1.7% of the current window.</dd>
+      <dt>Risk</dt><dd>Makes the eight scattered <code>tokenVersion</code> write sites a correctness requirement rather than a stylistic nit. Enumerate them before shipping.</dd>
+      <dt>Tests</dt><dd>Hit/miss/expiry unit tests; an integration test asserting a <code>tokenVersion</code> bump invalidates within the window.</dd>
+    </dl>
+  </div>
+
+  <div class="cx">
+    <h4>Mandi price persistence</h4>
+    <span class="cid">A2-06 + DSA-03 &middot; backend/src/services/mandiPrice.service.js:148-166</span>
+    <dl>
+      <dt>Current</dt><dd>R sequential <code>await</code>ed upserts against a never-matching <code>where</code>, each therefore an INSERT, fire-and-forget after the response is sent.</dd>
+      <dt>Time</dt><dd><span class="was">O(R) round trips</span>, R up to 5,000 per sync <span class="arrow">&rarr;</span> <span class="now">O(R/1000)</span> batched statements</dd>
+      <dt>Space</dt><dd>Table grows <span class="was">without bound</span> at R rows per sync, duplicating the same <code>(commodity, market, priceDate)</code> forever <span class="arrow">&rarr;</span> <span class="now">bounded by distinct business keys &times; retention window</span></dd>
+      <dt>Proposal</dt><dd>Ordered, and the order matters: (1) dedup existing rows in SQL, keeping the freshest per key; (2) add <code>@@unique([commodity, market, priceDate])</code> — this <em>will</em> fail while duplicates exist; (3) replace the loop with <code>createMany({skipDuplicates})</code> plus a targeted update; (4) use the <code>expiresAt</code> column that is already written; (5) revisit partitioning only once the deduped table justifies it.</dd>
+      <dt>DB</dt><dd>Removes R&times;5 index entries per sync on the fastest-growing table. Read paths keep the same five indexes.</dd>
+      <dt>Risk</dt><dd>Step 2 against a live duplicated table fails hard. It must follow step 1, and the boot-time <code>db push</code> (DB-06) will retry it on every replica start.</dd>
+      <dt>Tests</dt><dd>Upsert idempotency test; a dedup migration test over a fixture with known duplicates.</dd>
+    </dl>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2><span class="num">06</span>Index report</h2>
+    <p class="sub">Query-shape evidence, not schema inference. No index is proposed without the exact WHERE and ORDER BY it serves. Drops need <code>pg_stat_user_indexes</code> from production first — this environment has no production stats.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Table</th><th>Query shape</th><th>Existing</th><th>Problem</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td>chats</td><td class="m">WHERE buyerId=$1 OR sellerId=$1 ORDER BY updatedAt DESC</td><td class="m">[sellerId], [buyerId]</td><td>Full sort of the user's chat set on every inbox open</td><td>ADD [buyerId, updatedAt DESC] + [sellerId, updatedAt DESC]</td></tr>
+        <tr><td>comments</td><td class="m">WHERE parentId IN (…) ORDER BY createdAt ASC</td><td class="m">[postId], [postId, createdAt]</td><td>Seq Scan of the whole comments table on every thread open</td><td>ADD [parentId, createdAt]</td></tr>
+        <tr><td>posts</td><td class="m">WHERE deletedAt IS NULL ORDER BY isPinned DESC, createdAt DESC</td><td class="m">[deletedAt], [category], 2 GIN</td><td>Sorts the whole live post set; paired COUNT(*) repeats it</td><td>ADD partial (isPinned DESC, createdAt DESC) WHERE deletedAt IS NULL</td></tr>
+        <tr><td>animal_listings</td><td class="m">WHERE status='ACTIVE' AND animal ILIKE $1 ORDER BY createdAt DESC</td><td class="m">[status, animal, createdAt DESC]</td><td>ILIKE is not btree-indexable, so the purpose-built composite degenerates to its <code>status</code> prefix — and nearly every row is ACTIVE</td><td>KEEP the index, FIX the query (normalise at write, drop <code>mode:'insensitive'</code>)</td></tr>
+        <tr><td>chat_messages</td><td class="m">nested take:1 last-message + unread _count per listed chat</td><td class="m">[chatId], [chatId, createdAt]</td><td>Reads every message of every listed chat, twice per inbox open</td><td>ADD partial (chatId, senderId) WHERE readAt IS NULL</td></tr>
+        <tr><td>order_items</td><td class="m">WHERE sellerId=$1 ORDER BY orders.createdAt DESC</td><td class="m">[sellerId], [sellerId, orderId]</td><td>Sorts on a joined table's column — no index can serve it</td><td>FIX the query to sort on an OrderItem column</td></tr>
+        <tr><td>direct_messages</td><td class="m">WHERE (sender,receiver) OR (receiver,sender) ORDER BY createdAt DESC</td><td class="m">[senderId,receiverId], [receiverId,senderId], [receiverId,readAt]</td><td>Both composites stop one column short of the sort</td><td>WIDEN in place to include createdAt — free, but the feature has no client (see §09)</td></tr>
+        <tr><td>products</td><td class="m">ORDER BY viewCount DESC</td><td class="m">none of the 19 names viewCount</td><td>Sorts by a column nothing increments — every product is 0</td><td>DROP the sort. No client sends it; <code>/agristore/filters</code> still advertises it</td></tr>
+        <tr><td>products, users, ai_*</td><td class="m">n/a</td><td class="m">6 indexes byte-identical to an existing @unique</td><td>Pure write amplification, provably redundant by structure</td><td>DROP — this tier needs no production stats to justify</td></tr>
+        <tr><td>seller_listings</td><td class="m">geo eligibility gate on every storefront cache miss</td><td class="m">[district], [taluka]</td><td>Unusable by the ILIKE the gate actually emits</td><td>DROP-CANDIDATE — confirm with pg_stat first</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="sub" style="margin-top:12px">Roughly 40 of the 282 <code>@@index</code> declarations are prefix-subsumed or byte-identical duplicates. Six are safe to drop on structural grounds alone; the rest need production scan counts.</p>
+</section>
+
+<section>
+  <div class="col">
+    <h2><span class="num">07</span>API cost profile</h2>
+    <p class="sub">Per-request cost read from the code, for the endpoints that will carry the load. Every authenticated row already includes the 4 Redis round trips and 1 Postgres query that <code>authenticate</code> adds before any handler runs.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Endpoint</th><th class="m">DB</th><th class="m">Redis</th><th>Payload</th><th>Pagination</th><th>Cached</th><th>Problem</th></tr></thead>
+      <tbody>
+        <tr><td>GET /agristore/cart</td><td class="m">13</td><td class="m">4&ndash;6</td><td>~5 KB/line</td><td>none</td><td>no</td><td>Full-ORM priced quote, fired on every app launch to render a badge count</td></tr>
+        <tr><td>GET /users/me</td><td class="m">11&ndash;12</td><td class="m">4</td><td>~2&ndash;3 KB</td><td>n/a</td><td>no</td><td>8 relation COUNTs on a profile read</td></tr>
+        <tr><td>GET /agristore/products/:id</td><td class="m">9 + 3V</td><td class="m">4 + 2V</td><td>~12&ndash;20 KB</td><td>reviews take:10</td><td>no</td><td>Per-variant buy-box lookups; not cached at all</td></tr>
+        <tr><td>GET /agristore/products/:id/offers</td><td class="m">1 + 3V = 19</td><td class="m">1</td><td>all offers, all variants</td><td>none</td><td>no</td><td>19 statements per request for a 6-variant product</td></tr>
+        <tr><td>POST /agristore/orders/confirm</td><td class="m">25&ndash;35</td><td class="m">6+</td><td>~2&ndash;4 KB</td><td>n/a</td><td>no</td><td>Correct by design — Serializable txn, must not be weakened</td></tr>
+        <tr><td>GET /animals (nearby)</td><td class="m">4&ndash;5</td><td class="m">7&ndash;8</td><td>~14 KB / 20</td><td>OFFSET in SQL geo</td><td>30 s, bypassed when authed</td><td>Haversine + sort executed twice per request (page + COUNT)</td></tr>
+        <tr><td>GET /agristore/products (home)</td><td class="m">0 warm / 5 cold</td><td class="m">6</td><td>~18 KB / 20</td><td>OFFSET</td><td>60 s</td><td>Warm path is genuinely good</td></tr>
+        <tr><td>GET /ai/scan/job/:jobId</td><td class="m">1/poll</td><td class="m">4/poll</td><td>~150 B</td><td>n/a</td><td>no</td><td>150 polls per scan &times; (1 DB + 4 Redis + 1 signed FastAPI call)</td></tr>
+        <tr><td>POST /ai/scan/submit</td><td class="m">6&ndash;10</td><td class="m">8+</td><td><b>up to 50 MB in</b></td><td>n/a</td><td>no</td><td>4 of 5 images discarded downstream (AI-03)</td></tr>
+        <tr><td>GET /admin/metrics</td><td class="m">16 aggregates + take:1000</td><td class="m">4</td><td>~2 KB</td><td>n/a</td><td>no</td><td>7 unbounded full-table scans; trivially cacheable at 10&ndash;30 s</td></tr>
+        <tr><td>GET /admin/activity/users/:id</td><td class="m">15</td><td class="m">1</td><td>7 counts + 35 rows</td><td>n/a</td><td>no</td><td>Bounded and admin-only — do not optimise before user-facing paths</td></tr>
+        <tr><td>GET /consent</td><td class="m">1, unbounded rows</td><td class="m">1</td><td>grows with account age</td><td>n/a</td><td>no</td><td>Reduces the whole append-only history in JS</td></tr>
+      </tbody>
+      <caption>V = variants per product. Compression is enabled globally at <code>app.js:170</code>.</caption>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2><span class="num">08</span>Data-structure audit</h2>
+    <p class="sub">Only entries where collection size or call frequency makes the structure matter. Small bounded loops are not listed.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Site</th><th>Operation</th><th class="m">Now</th><th class="m">Proposed</th><th>P</th></tr></thead>
+      <tbody>
+        <tr><td class="m">mandiPrice.service.js:149</td><td>DB sync, up to 5,000 records</td><td class="m">O(R) sequential upserts</td><td class="m">O(R/1000) createMany</td><td>P0</td></tr>
+        <tr><td class="m">jobs/tasks.py:142 + disease_detection</td><td>one scan in the Celery worker</td><td class="m">4&ndash;5 simultaneous copies of the image</td><td class="m">free payload['images'] after materialise</td><td>P2</td></tr>
+        <tr><td class="m">security/spend.py:74,181</td><td>every scan completion</td><td class="m">O(U) unbounded dict, (user,day) keys never purged</td><td class="m">O(min(U,500)) — mirror only in the except branch</td><td>P2</td></tr>
+        <tr><td class="m">middleware/rateLimit.js:24</td><td>every limited route while Redis is down</td><td class="m">O(K) unbounded key growth</td><td class="m">delete-on-empty + cap, or reuse BoundedMap</td><td>P2</td></tr>
+        <tr><td class="m">LanguageContext.js:136-140</td><td>every translated string, every render</td><td class="m">O(D) array walk per lookup</td><td class="m">O(1) flat Map per language</td><td>P2</td></tr>
+        <tr><td class="m">shared/i18n/translations.js:8-24</td><td>cold start, both apps</td><td class="m">O(L&middot;K) — all 10 bundles retained</td><td class="m">O(2K) lazy per-language accessor</td><td>P2</td></tr>
+        <tr><td class="m">utils/geo.js:151-165</td><td>Rent and Animals home, every search</td><td class="m">2C transcendental evals (page + COUNT)</td><td class="m">C evals via LIMIT+1 hasMore probe</td><td>P2</td></tr>
+        <tr><td class="m">safety/visual_verify.py:101-107</td><td>orchestrator stage 4, once per scan</td><td class="m">O(P) time and space over full pixels</td><td class="m">O(4096) via resize((64,64))</td><td>P2</td></tr>
+        <tr><td class="m">routes/scan.py:171,295</td><td>submit and poll, ~2 s cadence</td><td class="m">O(H) blocking Redis calls in async defs</td><td class="m">redis.asyncio</td><td>P1</td></tr>
+        <tr><td class="m">routes/ai.routes.js:318,332</td><td>every AI chat / voice turn</td><td class="m">O(S) per insert once S grows</td><td class="m">BoundedMap({maxSize:2000})</td><td>P2</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <p class="sub" style="margin-top:14px">Counterweight, and it is a real one: 12 of the 16 long-lived maps opened are <em>already</em> properly bounded — proof-of-work 10k FIFO, weather 1000 FIFO, market 500, mandi 200, single-flight finally-delete, connection registry self-deleting, socket rate limits closure-scoped, FastAPI idempotency 500 LRU. This codebase understands the problem; the gap is that <code>boundedMap.js</code> is applied at 2 of ~16 eligible sites.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2><span class="num">09</span>Refuted and downgraded</h2>
+    <p class="sub">Work not worth doing, and why. This section exists because the adversarial pass is only valuable if its negative results are reported as loudly as its positive ones.</p>
+  </div>
+  <div class="ledger">
+    <div class="f"><div class="f-id">N1-01<br>IDX-09</div><div>
+      <p class="f-t">The DM messaging N+1 is real and has no traffic</p>
+      <p class="f-b">2 + 3P queries with P unbounded, each last-message lookup sorting a whole thread on an index lacking <code>createdAt</code> — all confirmed. But no client in the monorepo calls <code>/messages/*</code>: no screen, no API call, no socket listener, no <code>partnerId</code> reference anywhere in the four clients. Animal-trade chat runs through a different router and a different table.</p>
+      <div class="chips"><span class="chip c-ok">P0 &rarr; P3</span><span class="chip c-p2">Fix when the DM UI ships</span></div>
+    </div></div>
+    <div class="f"><div class="f-id">PAGE-01</div><div>
+      <p class="f-t">The community feed's missing composite is real; the "opened every session" premise is not</p>
+      <p class="f-b">The farmer app has no Community screen. The only community call is <code>/community/saved</code> from the profile tab; the admin panel uses <code>/admin/posts</code>. Still worth fixing as an unauthenticated full-scan surface — just not as a hot path.</p>
+      <div class="chips"><span class="chip c-ok">P0 &rarr; P2</span></div>
+    </div></div>
+    <div class="f"><div class="f-id">IDX-01</div><div>
+      <p class="f-t">ILIKE does void those btree indexes — but the codebase already knows</p>
+      <p class="f-b"><code>buyBox.service.js:75-80</code> documents it verbatim as a deliberate parity decision: fixing it "means a citext column or a lower() expression index, which is a separate change". The mechanism is confirmed at four sites; the "nothing notices" framing and the "no index at all" claim were both false.</p>
+      <div class="chips"><span class="chip c-ok">P0 &rarr; P2</span></div>
+    </div></div>
+    <div class="f"><div class="f-id">GROW-02</div><div>
+      <p class="f-t">The <code>db push</code> outage scenario does not apply</p>
+      <p class="f-b">Production does not run <code>npm run start:prod</code>. <code>railway.json</code> declares a Dockerfile build with no start command, and the image CMD uses <code>timeout 60 … ;</code> — a semicolon, so a failed push does not stop the server. The push-on-boot problem is real (DB-06); this consequence of it is not.</p>
+      <div class="chips"><span class="chip c-ok">Refuted &middot; high</span></div>
+    </div></div>
+    <div class="f"><div class="f-id">GROW-06</div><div>
+      <p class="f-t">The voice-PII retention gap does not exist</p>
+      <p class="f-b">A repo-wide grep for <code>audioInputUrl</code>/<code>audioOutputUrl</code> returns reads only — no writer anywhere. Both VoiceMessage writers insert text fields alone.</p>
+      <div class="chips"><span class="chip c-ok">Refuted &middot; high</span></div>
+    </div></div>
+    <div class="f"><div class="f-id">RT-07</div><div>
+      <p class="f-t">Refused sockets do not enter a reconnect loop</p>
+      <p class="f-b"><code>socket.io-client</code> does not reconnect after a server-initiated <code>disconnect(true)</code>; <code>reconnectionAttempts: Infinity</code> is irrelevant on that path. Verified against the installed client source, not from memory.</p>
+      <div class="chips"><span class="chip c-ok">Refuted &middot; high</span></div>
+    </div></div>
+    <div class="f"><div class="f-id">OPS-04</div><div>
+      <p class="f-t">The spend-cap "silent no-op" cannot occur</p>
+      <p class="f-b">The import-time exception sets <code>_redis = None</code>, not merely a flag, so there is no state where the cap reads a healthy Redis nobody writes to. AI-05's TOCTOU is the real defect on that path.</p>
+      <div class="chips"><span class="chip c-ok">Refuted &middot; high</span></div>
+    </div></div>
+    <div class="f"><div class="f-id">EP-01</div><div>
+      <p class="f-t">The cart badge call is wasteful, but it is 11 queries and only when the cart is full</p>
+      <p class="f-b">Fetching a full priced quote to render <code>items.length</code> is real. The cost was not: <code>CART_INCLUDE</code> is 7 relation loads and compliance 4 more, while both config helpers are in-process cached at 0 DB. On the <em>empty</em> cart most launches have, the compliance pass is skipped and <code>buildQuote</code> returns early — <b>one query</b>. At ~0.7 req/s average this is under 0.3% of traffic for a background fetch that blocks no render.</p>
+      <div class="chips"><span class="chip c-ok">P0 &rarr; P2</span><span class="chip c-p2">/cart/count is still the right fix</span></div>
+    </div></div>
+    <div class="f"><div class="f-id">EP-05<br>EP-06<br>EP-08</div><div>
+      <p class="f-t">Three more collapse on traffic, not on facts</p>
+      <p class="f-b">EP-05 is the DM inbox again — no shipped caller, and the app's real inbox is <code>/animals/chats/my</code>. EP-06's 16 admin aggregates are genuinely 16, but admin-only volume does not make them a P0. EP-08's headline was an absolute the auditor's own evidence list disproved.</p>
+      <div class="chips"><span class="chip c-ok">Refuted</span></div>
+    </div></div>
+    <div class="f"><div class="f-id">EP-03</div><div>
+      <p class="f-t">Confirmed — but the money path was already protected</p>
+      <p class="f-b">The 2 s scan poll really does cost ~600 Redis round trips and 150 user lookups per scan on an unlimited route. The correction matters though: <code>saveScanHoldCtx</code>/<code>claimScanHoldCtx</code> mirror the hold through Redis with an atomic <code>MULTI GET+DEL</code>, so a cross-replica poll settles it correctly. The scan is charged once; what is silently lost is the report row and the image URLs, not the credit.</p>
+      <div class="chips"><span class="chip c-p0">P0 stands</span><span class="chip c-ok">Confirmed w/ correction</span></div>
+    </div></div>
+    <div class="f"><div class="f-id">A2-05</div><div>
+      <p class="f-t">The dead <code>viewCount</code> sort is cosmetic</p>
+      <p class="f-b">Confirmed dead — nothing increments <code>products.viewCount</code>. But no client sends <code>?sort=popularity</code>, so it costs nothing today. It is still advertised by <code>/agristore/filters</code>, which is the part worth fixing.</p>
+      <div class="chips"><span class="chip c-ok">P1 &rarr; P3</span></div>
+    </div></div>
+  </div>
+  <div class="col">
+    <div class="note warn" style="margin-top:24px">
+      <b>Cost that only moves.</b> Three recommendations in the source brief would relocate cost rather than remove it, and are called out as required. Direct signed uploads move bytes onto the Cloudinary bill for images the pipeline discards, and remove the point where credits are debited before bytes land. Replacing the chat poll moves load onto the Socket.IO adapter — the one that never reconnects. New composites on <code>chats</code> add write cost to a column bumped on every single message.
+    </div>
+    <div class="note">
+      <b>PostGIS does not apply to <code>/sellers/nearby</code>.</b> <code>User.lat</code>/<code>lng</code> are AES-GCM encrypted at rest, so the ciphertext has no orderable form and no bounding box or spatial index is possible without changing the privacy model. The code already knows this, bounds the scan at 1,000 candidates and logs truncation. AnimalTrade is a different case — it does use a SQL geo pass, and its cost is the doubled Haversine in §08.
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2><span class="num">10</span>Where this leaves the architecture</h2>
+    <p class="sub">The modular monolith is the right shape. Nothing found here argues for microservices, Kafka, sharding or a search cluster.</p>
+    <p>Three additions are justified by evidence, and only three. Everything else on the list is a change to code that already exists.</p>
+  </div>
+
+  <svg class="arch" viewBox="0 0 900 400" role="img" aria-labelledby="archt">
+    <title id="archt">Target topology: clients through Express to Postgres via a pooler, with a dedicated scheduler and worker tier</title>
+    <rect class="box" x="330" y="8" width="240" height="34" rx="4"/>
+    <text class="lbl" x="450" y="30" text-anchor="middle">Farmer &middot; Seller &middot; Admin</text>
+
+    <path class="line" d="M450 42 L450 72"/>
+    <rect class="box" x="330" y="72" width="240" height="34" rx="4"/>
+    <text class="lbl" x="450" y="94" text-anchor="middle">Load balancer</text>
+
+    <path class="line" d="M450 106 L450 130 M240 130 L660 130 M240 130 L240 152 M450 130 L450 152 M660 130 L660 152"/>
+    <rect class="box" x="170" y="152" width="140" height="38" rx="4"/>
+    <text class="lbl" x="240" y="170" text-anchor="middle">Express API</text>
+    <text x="240" y="184" text-anchor="middle">stateless &times; N</text>
+
+    <rect class="new" x="380" y="152" width="140" height="38" rx="4"/>
+    <text class="lbl" x="450" y="170" text-anchor="middle">Scheduler</text>
+    <text class="tag" x="450" y="184" text-anchor="middle">CRON_ENABLED=1, one replica</text>
+
+    <rect class="box" x="590" y="152" width="140" height="38" rx="4"/>
+    <text class="lbl" x="660" y="170" text-anchor="middle">BullMQ worker</text>
+    <text x="660" y="184" text-anchor="middle">notifications</text>
+
+    <path class="line" d="M240 190 L240 226 M450 190 L450 226 M660 190 L660 226 M170 226 L730 226 M450 226 L450 250"/>
+    <rect class="new" x="360" y="250" width="180" height="38" rx="4"/>
+    <text class="lbl" x="450" y="268" text-anchor="middle">PgBouncer</text>
+    <text class="tag" x="450" y="282" text-anchor="middle">transaction mode</text>
+
+    <path class="line" d="M450 288 L450 316"/>
+    <rect class="box" x="360" y="316" width="180" height="38" rx="4"/>
+    <text class="lbl" x="450" y="339" text-anchor="middle">PostgreSQL</text>
+
+    <rect class="box" x="40" y="250" width="130" height="38" rx="4"/>
+    <text class="lbl" x="105" y="268" text-anchor="middle">Redis</text>
+    <text x="105" y="282" text-anchor="middle">one client rule</text>
+    <path class="line" d="M170 269 L360 269" stroke-dasharray="3 3"/>
+
+    <rect class="box" x="730" y="250" width="130" height="38" rx="4"/>
+    <text class="lbl" x="795" y="268" text-anchor="middle">FastAPI</text>
+    <text x="795" y="282" text-anchor="middle">+ Celery &times; M</text>
+    <path class="line" d="M730 269 L540 269" stroke-dasharray="3 3"/>
+  </svg>
+
+  <div class="col">
+    <h3>The three additions</h3>
+    <p><b>PgBouncer in transaction mode</b> — but only after DB-06, because boot-time <code>db push</code> takes a session advisory lock that transaction pooling cannot hold. Set <code>statement_cache_size=0</code> on the asyncpg side. Interactive <code>$transaction</code> and Serializable retries were checked and do <em>not</em> break under transaction pooling.</p>
+    <p><b>A dedicated scheduler replica</b> — 12 <code>node-cron</code> schedules currently run on every latency-serving web instance; 10 are leader-locked, 2 deliberately are not and therefore multiply by replica count. Gate the register behind <code>CRON_ENABLED</code>. None of them is given a timezone, so all fire at container-local time.</p>
+    <p><b>Observability before capacity</b> — queue depth, oldest queued job, Celery worker heartbeat and circuit-breaker state are not exposed anywhere. A FastAPI service reports healthy while every scan sits queued forever if no worker is deployed. This is what makes the rest measurable, and it starts with <code>logger.warn</code>.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2><span class="num">11</span>Method and limits</h2>
+    <p>Eleven read-only auditors, one per subsystem, each followed by a verifier told to refute, plus a completeness critic that enumerated all 37 backend routers, all 23 admin routers and all 6 FastAPI routers against the merged findings. 25 agents, ~1,470 tool calls, 3.1M tokens. Of 146 findings, 134 went through the adversarial pass and 15 died there — a 11% refutation rate, and every one of those is work not done.</p>
+
+    <h3>Regression baseline, captured before any change</h3>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Run mode</th><th class="m num-col">Suites failed</th><th class="m num-col">Tests failed</th><th class="m num-col">Passed</th></tr></thead>
+        <tbody>
+          <tr><td>npm test (jest default, parallel)</td><td class="m num-col">19 / 87</td><td class="m num-col">127</td><td class="m num-col">935</td></tr>
+          <tr><td>npm test -- --runInBand</td><td class="m num-col">7 / 87</td><td class="m num-col">37</td><td class="m num-col">1025</td></tr>
+        </tbody>
+        <caption>The 90-test delta is <code>40P01 deadlock detected</code> in <code>tests/fixtures/setup.js:269</code> — parallel jest workers truncating one shared Postgres schema. Serial matches the documented accepted baseline of 37. <b><code>npm test</code> as configured is not a usable regression signal.</b></caption>
+      </table>
+    </div>
+
+    <h3>What this audit does not know</h3>
+    <p>No production telemetry was available, so every index drop is a candidate rather than a decision, no <code>EXPLAIN ANALYZE</code> was run against real data volumes, and no load test was executed. Throughput figures are derived from code paths and the stated targets — 100k registered, 20k DAU, 3&ndash;5k peak concurrent, 100&ndash;300 req/s — not measured.</p>
+    <p>Two verifiers died on infrastructure errors mid-run; both were re-run afterwards, so every dimension has now been through the adversarial pass. That second pass refuted four more hot-endpoint claims and none of the mobile ones. The 12 findings still marked unverified are the cross-dimension critic’s own, which nothing has yet tried to refute — CRIT-02 in §04 is one of them. Findings labelled <span class="mono" style="color:var(--gold)">hand-verified</span> were re-read directly against the working tree rather than taken from an agent.</p>
+    <p>Three subsystems had never been opened by any dimension until the critic caught it: the Razorpay webhook and payment-intent reconciler, admin bulk catalogue I/O, and the seller app's live query surface. CRIT-02 came out of that sweep and has not yet been through adversarial review.</p>
+  </div>
+</section>
+
+<footer>
+  Audited against HEAD <code>5bc1536</code> on branch <code>feat/skeleton-convention-and-cleanup</code>. Line citations were read against the working tree at audit time; a citation that no longer lands has drifted — check the named symbol before concluding the claim is wrong.
+</footer>
+
+</div>
