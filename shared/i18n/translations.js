@@ -4,25 +4,52 @@
  *            Tamil (ta) | Kannada (kn) | Malayalam (ml) |
  *            Telugu (te) | Bengali (bn) | Gujarati (gu) | Punjabi (pa)
  */
-import ta from './lang/ta';
-import kn from './lang/kn';
-import ml from './lang/ml';
-import te from './lang/te';
-import bn from './lang/bn';
-import gu from './lang/gu';
-import pa from './lang/pa';
 import bf from './lang/_backfill';
 
+// ── Regional bundles are loaded on first use, not at import ─────────────────
+// These seven files are ~692 KB of object literals between them. Statically
+// importing all of them meant every cold start evaluated every language in order
+// to serve ONE — on a 2 GB Android, before the first screen paints, for six
+// languages the farmer will never select.
+//
+// `require` with a literal path so Metro still bundles each one statically; only
+// the EVALUATION is deferred. Memoised, because a getter is hit on every lookup
+// in LanguageContext, not once.
+//
+// en / hi / mr stay eager: they are written inline below rather than imported,
+// and `en` is the fallback every lookup falls through to, so it is needed on any
+// screen in any language.
+const _regional = {
+  ta: () => require('./lang/ta').default,
+  kn: () => require('./lang/kn').default,
+  ml: () => require('./lang/ml').default,
+  te: () => require('./lang/te').default,
+  bn: () => require('./lang/bn').default,
+  gu: () => require('./lang/gu').default,
+  pa: () => require('./lang/pa').default,
+};
+
+const _built = {};
+function _regionalBundle(code) {
+  if (!_built[code]) {
+    // Backfill spread FIRST so the language's own keys always win — identical
+    // merge order to the eager version this replaced.
+    _built[code] = { ...bf[code], ..._regional[code]() };
+  }
+  return _built[code];
+}
+
 export const translations = {
-  // Backfill spread FIRST so existing (main) keys always win; it only fills keys
-  // this branch's screens reference that main's i18n does not yet have.
-  ta: { ...bf.ta, ...ta },
-  kn: { ...bf.kn, ...kn },
-  ml: { ...bf.ml, ...ml },
-  te: { ...bf.te, ...te },
-  bn: { ...bf.bn, ...bn },
-  gu: { ...bf.gu, ...gu },
-  pa: { ...bf.pa, ...pa },
+  // Getters, not values. Enumerable and readable exactly like the plain keys
+  // they replaced — `translations.ta`, `translations[lang]` and Object.keys()
+  // all behave the same — but nothing is evaluated until a lookup asks for it.
+  get ta() { return _regionalBundle('ta'); },
+  get kn() { return _regionalBundle('kn'); },
+  get ml() { return _regionalBundle('ml'); },
+  get te() { return _regionalBundle('te'); },
+  get bn() { return _regionalBundle('bn'); },
+  get gu() { return _regionalBundle('gu'); },
+  get pa() { return _regionalBundle('pa'); },
 
   // ─── ENGLISH ─────────────────────────────────────────────────────────────
   en: {
