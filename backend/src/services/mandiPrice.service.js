@@ -19,6 +19,7 @@ import axios from 'axios';
 import prisma from '../config/db.js';
 import { ENV } from '../config/env.js';
 import { sanitizeSearch } from '../utils/sanitizeSearch.js';
+import logger from '../utils/logger.js';
 
 const DATA_GOV_BASE     = 'https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070';
 const CACHE_TTL_MS      = 4 * 60 * 60 * 1000;  // 4 hours
@@ -144,25 +145,118 @@ async function fetchFromDataGovIn(commodity, state) {
   return all;
 }
 
-// ── Persist to DB (upsert-by-commodity+market+date) ─────────────────────────
-async function persistToDB(records) {
+// ── Persist to DB ───────────────────────────────────────────────────────────
+// Chunked, deduplicated, set-based.
+//
+// The previous implementation was `prisma.mandiPrice.upsert({ where: { id:
+// 'dummy-will-not-match' } })` in an awaited loop. A Prisma upsert whose `where`
+// matches nothing CREATES the row rather than throwing, so:
+//   - the `.catch()` below it, which held the only real dedup logic, had never
+//     run a single time;
+//   - every sync re-INSERTED the whole fetched state list as new rows into a
+//     table with no unique constraint. One state fetch is up to 10 pages x 500
+//     records, and the same (commodity, market, priceDate) came back on every
+//     refresh, so the table grew by hundreds of copies of the same day's prices;
+//   - it did so one awaited round trip at a time, holding a pool connection per
+//     record, fire-and-forget AFTER the response had already been sent.
+//
+// `skipDuplicates` emits ON CONFLICT DO NOTHING, which is satisfied by the
+// unique index created in prisma/manual/mandi_prices_dedup.sql. THAT MIGRATION
+// MUST BE APPLIED FIRST — without the index there is no conflict to skip and
+// duplicates simply return, though nothing breaks.
+const PERSIST_CHUNK = 500;
+
+// Exported for tests: the in-batch dedup below is the half of the fix that no
+// database can verify for us (the unique index covers the cross-batch half).
+export async function persistToDB(records) {
+  if (!Array.isArray(records) || !records.length) return;
+
+  // De-duplicate WITHIN the batch first. data.gov.in returns the same mandi more
+  // than once in a single response often enough to matter.
+  //
+  // NOT because it would error: ON CONFLICT DO NOTHING tolerates repeats inside
+  // one INSERT (only DO UPDATE raises "cannot affect row a second time"). It is
+  // because SOMETHING has to choose which copy wins, and letting Postgres pick
+  // arbitrarily would make the stored price depend on feed ordering. Choosing
+  // here — freshest by fetchedAt, the same rule the dedup migration uses — keeps
+  // the two halves of this fix in agreement, shrinks what goes on the wire, and
+  // makes the paired UPDATE below deterministic.
+  const byKey = new Map();
   for (const r of records) {
-    await prisma.mandiPrice.upsert({
-      where: {
-        // Use findFirst logic with a unique combo create (no schema unique constraint — use createMany)
-        id: 'dummy-will-not-match',
-      },
-      create: r,
-      update: r,
-    }).catch(async () => {
-      // upsert without unique — just create if doesn't exist recently
-      const existing = await prisma.mandiPrice.findFirst({
-        where: { commodity: r.commodity, market: r.market, priceDate: r.priceDate },
-      });
-      if (!existing) await prisma.mandiPrice.create({ data: r }).catch(e => console.warn('[MandiPrice] Create failed for %s/%s: %s', r.commodity, r.market, e.message));
-      else await prisma.mandiPrice.update({ where: { id: existing.id }, data: { modalPrice: r.modalPrice, minPrice: r.minPrice, maxPrice: r.maxPrice, fetchedAt: r.fetchedAt, expiresAt: r.expiresAt } }).catch(e => console.warn('[MandiPrice] Update failed for %s/%s: %s', r.commodity, r.market, e.message));
-    });
+    const key = [r.commodity, r.variety || '', r.market, r.district, r.state,
+                 r.priceDate instanceof Date ? r.priceDate.toISOString() : String(r.priceDate)].join('|');
+    const prev = byKey.get(key);
+    // Keep the freshest, matching the migration's tie-break.
+    if (!prev || (r.fetchedAt ?? 0) >= (prev.fetchedAt ?? 0)) byKey.set(key, r);
   }
+  const unique = [...byKey.values()];
+
+  for (let i = 0; i < unique.length; i += PERSIST_CHUNK) {
+    const chunk = unique.slice(i, i + PERSIST_CHUNK);
+    try {
+      await prisma.mandiPrice.createMany({ data: chunk, skipDuplicates: true });
+      await updateRevisedPrices(chunk);
+    } catch (e) {
+      logger.warn('[MandiPrice] persist chunk failed (%d rows): %s', chunk.length, e.message);
+    }
+  }
+}
+
+/**
+ * Apply data.gov.in's REVISIONS to rows we already hold.
+ *
+ * `skipDuplicates` alone would make the first fetch of a day permanent: the feed
+ * revises a day's modal/min/max as more arrivals are reported, and without this
+ * the 06:00 numbers would still be on screen at 18:00. The old duplicate-inserting
+ * code got this right by accident — each revision arrived as a NEW row and the
+ * read path sorts newest-first — so dropping it silently would trade a storage
+ * bug for a correctness one, on the screen farmers use to decide when to sell.
+ *
+ * One set-based UPDATE per chunk, joined on the natural key. It matches the
+ * unique index's COALESCE treatment of `variety` so both halves agree, and it is
+ * independent of that index existing — this still works before the migration is
+ * applied.
+ *
+ * The inequality predicate keeps it cheap: mandi_prices carries five indexes, so
+ * rewriting unchanged rows every sync would be pure write amplification.
+ */
+async function updateRevisedPrices(rows) {
+  if (!rows.length) return;
+  await prisma.$executeRaw`
+    UPDATE mandi_prices m
+       SET "minPrice"   = v.min_price,
+           "maxPrice"   = v.max_price,
+           "modalPrice" = v.modal_price,
+           "arrivalQty" = v.arrival_qty,
+           "fetchedAt"  = v.fetched_at,
+           "expiresAt"  = v.expires_at
+      FROM (
+        SELECT * FROM unnest(
+          ${rows.map((r) => r.commodity)}::text[],
+          ${rows.map((r) => r.variety ?? '')}::text[],
+          ${rows.map((r) => r.market)}::text[],
+          ${rows.map((r) => r.district)}::text[],
+          ${rows.map((r) => r.state)}::text[],
+          ${rows.map((r) => r.priceDate)}::timestamptz[],
+          ${rows.map((r) => Number(r.minPrice) || 0)}::numeric[],
+          ${rows.map((r) => Number(r.maxPrice) || 0)}::numeric[],
+          ${rows.map((r) => Number(r.modalPrice) || 0)}::numeric[],
+          ${rows.map((r) => (r.arrivalQty == null ? null : Number(r.arrivalQty)))}::double precision[],
+          ${rows.map((r) => r.fetchedAt)}::timestamptz[],
+          ${rows.map((r) => r.expiresAt)}::timestamptz[]
+        ) AS t(commodity, variety, market, district, state, price_date,
+               min_price, max_price, modal_price, arrival_qty, fetched_at, expires_at)
+      ) v
+     WHERE m.commodity = v.commodity
+       AND COALESCE(m.variety, '') = v.variety
+       AND m.market = v.market
+       AND m.district = v.district
+       AND m.state = v.state
+       AND m."priceDate" = v.price_date
+       AND (m."modalPrice" IS DISTINCT FROM v.modal_price
+         OR m."minPrice"   IS DISTINCT FROM v.min_price
+         OR m."maxPrice"   IS DISTINCT FROM v.max_price)
+  `;
 }
 
 // ── DB lookup helper ──────────────────────────────────────────────────────────
