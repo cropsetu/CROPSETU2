@@ -9,7 +9,7 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   RefreshControl,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import useFocusRefresh from '../../hooks/useFocusRefresh';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
@@ -43,7 +43,15 @@ export default function VoiceHistoryScreen({ navigation }) {
   }, [t]);
 
   useEffect(() => { load().finally(() => setLoading(false)); }, [load]);
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  // The mount effect above already fetches on first open. This used to be a bare
+  // useFocusEffect that fired unconditionally, so opening the screen made TWO
+  // identical requests for voice chats, and tabbing away and straight back made
+  // another — on a village connection, at the moment the farmer is waiting.
+  //
+  // runOnFirstFocus:false is the whole point: the first focus only starts the
+  // freshness clock, so the mount effect stays the single loader. Note the
+  // helper DEFAULTS this to true, which would quietly reinstate the duplicate.
+  useFocusRefresh(load, { key: 'voiceHistory', runOnFirstFocus: false, staleMs: 30_000 });
 
   const onRefresh = async () => {
     setRefresh(true);
