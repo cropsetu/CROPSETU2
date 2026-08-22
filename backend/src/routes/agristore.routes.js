@@ -2194,22 +2194,22 @@ router.get('/listings', authenticate, requireRole(...SELLER_ROLES), async (req, 
   // Buy-box standing per offer — the answer to "am I the featured seller here,
   // and if not, what am I competing against".
   //
-  // This was `Promise.all(listings.map(… rankOffersForVariant …))` — one full
-  // ranking pass per row, so a 50-row page of a seller's own offers issued 50
-  // scoring passes, each of which reads settings and every competing listing for
-  // that variant. Deduplicating by variantId first collapses that to one pass per
-  // DISTINCT variant, which for a seller who lists several pack sizes of the same
-  // product is a large reduction and for the common case is simply correct.
+  // ONE batch pass for the whole page (§24).
+  //
+  // This was `Promise.all(listings.map(… rankOffersForVariant …))`, then a
+  // dedupe-by-variant version of the same thing. Deduping helped but did not fix
+  // the shape: `rankOffersForVariant` is a thin wrapper over the batch method, so
+  // every distinct variant still cost its own `sellerListing.findMany` plus its
+  // own `weights()` — six getSetting reads each. Page size here is up to 50, so
+  // this was the LARGER of the two §24 sites, and unlike the product-detail path
+  // it has no Redis cache in front of it.
+  //
+  // `rankOffersForVariants` does it in one query and reads settings once.
   const distinctVariantIds = [...new Set(listings.map((l) => l.variantId))];
-  const rankings = new Map(
-    await Promise.all(distinctVariantIds.map(async (variantId) => {
-      const { offers } = await rankOffersForVariant(variantId, {});
-      return [variantId, offers];
-    })),
-  );
+  const rankings = await rankOffersForVariants(distinctVariantIds, {});
 
   const decorated = listings.map((l) => {
-    const offers = rankings.get(l.variantId) || [];
+    const offers = rankings.get(l.variantId)?.offers || [];
     const winner = offers[0];
     const lowest = offers.length ? Math.min(...offers.map((o) => Number(o.sellingPrice))) : null;
     return {

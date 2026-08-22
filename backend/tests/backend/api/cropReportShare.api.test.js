@@ -259,3 +259,65 @@ describe('POST /seller/inbox/:shareId/reply', () => {
     expect(res.body.data.recommendedProductIds).toEqual([]); // not owned → dropped
   });
 });
+
+// ── §49: the candidate cap must bite on FAR sellers, not arbitrary ones ──────
+// `take: CANDIDATE_SCAN_CAP` with no `orderBy` let Postgres return any 1000 rows
+// it liked, so once verified Kendras exceed the cap the NEAREST one could be
+// excluded before its distance was ever computed — and the Haversine sort would
+// never see it. The warning made the truncation visible but not correct.
+//
+// Coordinates are encrypted at rest, so there is no SQL distance to order by.
+// District is the one locality signal in plaintext, so it is what the candidate
+// budget is spent on first.
+describe('GET /sellers/nearby — candidate selection', () => {
+  it('prefers Kendras in the farmer’s own district', async () => {
+    const { encryptNumber } = await import('../../../src/utils/encrypt.js');
+    const farmer = await createTestUser({ name: 'Nearby Farmer', district: 'Nashik' });
+    // Same coordinates so distance cannot be what separates them — only district.
+    const coords = { lat: encryptNumber(20.0), lng: encryptNumber(73.79) };
+    const near = await createTestSeller({
+      name: 'Nashik Kendra', businessType: 'krushi_kendra',
+      district: 'Nashik', kycStatus: 'VERIFIED', ...coords,
+    });
+    const far = await createTestSeller({
+      name: 'Pune Kendra', businessType: 'krushi_kendra',
+      district: 'Pune', kycStatus: 'VERIFIED', ...coords,
+    });
+
+    const res = await request(app)
+      .get(`${BASE}/sellers/nearby?lat=20.0&lng=73.79&radiusKm=200`)
+      .set(farmer.headers);
+
+    expect(res.status).toBe(200);
+    const ids = res.body.data.map((s) => s.id);
+    expect(ids).toContain(near.user.id);
+    expect(ids).toContain(far.user.id);
+  });
+
+  it('returns a stable set across identical requests', async () => {
+    // Without a deterministic orderBy a truncated result reshuffles between
+    // calls, so the same farmer sees a different directory each refresh.
+    const farmer = await createTestUser({ name: 'Stable Farmer', district: 'Nashik' });
+    const a = await request(app)
+      .get(`${BASE}/sellers/nearby?lat=20.0&lng=73.79&radiusKm=200`).set(farmer.headers);
+    const b = await request(app)
+      .get(`${BASE}/sellers/nearby?lat=20.0&lng=73.79&radiusKm=200`).set(farmer.headers);
+    expect(a.body.data.map((s) => s.id)).toEqual(b.body.data.map((s) => s.id));
+  });
+
+  it('still works for a farmer with no district on file', async () => {
+    // queryDistrict null → the local-first query is skipped entirely; the
+    // fallback must not throw or return nothing.
+    const { encryptNumber } = await import('../../../src/utils/encrypt.js');
+    const nomad = await createTestUser({ name: 'No District', district: null });
+    await createTestSeller({
+      name: 'Anywhere Kendra', businessType: 'krushi_kendra',
+      district: 'Solapur', kycStatus: 'VERIFIED',
+      lat: encryptNumber(20.01), lng: encryptNumber(73.80),
+    });
+    const res = await request(app)
+      .get(`${BASE}/sellers/nearby?lat=20.0&lng=73.79&radiusKm=200`).set(nomad.headers);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+});

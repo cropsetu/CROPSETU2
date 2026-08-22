@@ -112,20 +112,60 @@ router.get('/sellers/nearby', authenticate, async (req, res) => {
     // the right businessType that have coords, decrypt in app code, then filter
     // + sort precisely by Haversine. CANDIDATE_SCAN_CAP bounds the scan; if it
     // is ever hit we log so the truncation is visible rather than silent.
-    const candidates = await prisma.user.findMany({
-      where: {
-        id:           { not: me },
-        businessType: { in: businessTypes },
-        kycStatus:    'VERIFIED', // only admin-approved Kendras are discoverable
-        lat:          { not: null },
-        lng:          { not: null },
-      },
-      select: SELLER_SELECT,
-      take: CANDIDATE_SCAN_CAP,
-    });
+    const baseWhere = {
+      id:           { not: me },
+      businessType: { in: businessTypes },
+      kycStatus:    'VERIFIED', // only admin-approved Kendras are discoverable
+      lat:          { not: null },
+      lng:          { not: null },
+    };
+
+    // The cap must bite on FAR sellers, not on arbitrary ones.
+    //
+    // `take` with no `orderBy` lets Postgres return any 1000 rows it likes, so
+    // once verified Kendras exceed the cap the NEAREST one could be excluded
+    // before its distance was ever computed — and the sort below would never
+    // see it. The warning made the truncation visible but not correct.
+    //
+    // Coordinates are encrypted at rest (non-deterministic GCM has no orderable
+    // form), so there is no SQL distance to order by. The district string is the
+    // one locality signal that IS in plaintext, so candidates from the farmer's
+    // own district are taken first and the rest of the budget is filled from
+    // elsewhere. That does not make this a spatial query — it makes the
+    // truncation degrade toward "dropped a distant seller" instead of "dropped
+    // whichever row the planner happened to skip".
+    //
+    // The real §49 fix is a coarse plaintext geocell or district column to
+    // pre-filter on before decrypting, or a decision that seller coordinates
+    // need not be encrypted. Both are larger than this and neither is needed
+    // while Kendra counts are small.
+    const local = queryDistrict
+      ? await prisma.user.findMany({
+          where: { ...baseWhere, district: queryDistrict },
+          select: SELLER_SELECT,
+          orderBy: { id: 'asc' },
+          take: CANDIDATE_SCAN_CAP,
+        })
+      : [];
+
+    const remaining = CANDIDATE_SCAN_CAP - local.length;
+    const rest = remaining > 0
+      ? await prisma.user.findMany({
+          where: queryDistrict
+            ? { ...baseWhere, district: { not: queryDistrict } }
+            : baseWhere,
+          select: SELLER_SELECT,
+          // Deterministic, so a truncated result is at least stable between
+          // requests rather than reshuffling under the farmer.
+          orderBy: { id: 'asc' },
+          take: remaining,
+        })
+      : [];
+
+    const candidates = [...local, ...rest];
     if (candidates.length === CANDIDATE_SCAN_CAP) {
       logger.warn(
-        { businessTypes, cap: CANDIDATE_SCAN_CAP },
+        { businessTypes, district: queryDistrict, cap: CANDIDATE_SCAN_CAP, local: local.length },
         '[sellers/nearby] candidate scan hit cap — some distant sellers may be omitted',
       );
     }
