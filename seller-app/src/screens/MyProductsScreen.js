@@ -218,17 +218,39 @@ export default function MyProductsScreen({ navigation }) {
     });
   }, []);
 
+  // mode 'page', not 'cursor'. This screen used to ask for cursor pagination —
+  // `?paginate=cursor`, then `?cursor=…` — against a route that has only ever
+  // implemented offset pagination. The server returns paginationMeta()
+  // (`{page, limit, total, totalPages}`) and no `nextCursor`, so the hook's
+  // cursor branch read `meta.nextCursor` as undefined, set hasMore=false, and
+  // loadMore() returned early forever.
+  //
+  // The result was not a missing "load more" — it was a lie. A seller with 50
+  // products saw the newest 20, onEndReached did nothing, pull-to-refresh
+  // re-fetched the same page, and the footer rendered "That's everything"
+  // underneath row 20. The other 30 could not be edited, re-priced, hidden or
+  // deleted from the app at all.
+  //
+  // Neither half was wrong on its own, which is why it survived review: the
+  // sibling /agristore/listings route really does speak cursor, so the client
+  // was written against a contract this shim never had.
+  //
+  // Offset is the right answer here rather than teaching the shim cursors: a
+  // seller's own catalogue is bounded by their own inventory, the route already
+  // rides seller_listings_sellerId_createdAt_idx, and OrdersScreen already uses
+  // exactly this shape against a route that returns the same meta.
   const list = usePagedList({
-    mode: 'cursor',
+    mode: 'page',
     limit: PAGE_SIZE,
     refetchOnFocus: true,
+    // The shim flattens a LISTING into the product shape, so `id` is the shared
+    // catalog product id: two pack sizes of one product yield two rows with the
+    // same `id`. The hook dedupes across pages by this key, so without
+    // listingId the second pack size would vanish on whichever page it landed.
+    keyOf: (it) => it?.listingId ?? it?.id,
     errorFallback: t('myProducts.loadError', 'Could not load your products.'),
-    fetchPage: useCallback(({ cursor, limit, signal }) => {
-      const qs = cursor
-        ? `cursor=${encodeURIComponent(cursor)}&limit=${limit}`
-        : `paginate=cursor&limit=${limit}`;
-      return api.get(`/agristore/seller/products?${qs}`, { signal });
-    }, []),
+    fetchPage: useCallback(({ page, limit, signal }) =>
+      api.get(`/agristore/seller/products?page=${page}&limit=${limit}`, { signal }), []),
   });
 
   const { items, setItems } = list;

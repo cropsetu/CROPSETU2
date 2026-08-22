@@ -2449,7 +2449,12 @@ router.get('/seller/products', authenticate, requireRole(...SELLER_ROLES), async
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      // id tiebreak: offset paging is only stable if the sort is TOTAL. Listings
+      // created in one bulk operation share a createdAt, and Postgres is free to
+      // order ties differently between the two queries that fetch page 1 and
+      // page 2 — which silently skips some rows and repeats others. Matches the
+      // (sellerId, createdAt DESC) index already present.
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * limit, take: limit,
     }),
     prisma.sellerListing.count({ where: { sellerId: req.user.id } }),
