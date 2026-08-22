@@ -180,7 +180,7 @@ observable. This is what makes everything below it measurable.
 
 ## PERF-011 — 12 cron schedules run on every web replica
 
-**P1 · TODO · Component:** `backend/src/server.js:223-437`
+**P1 · COMPLETE · Component:** `backend/src/server.js:223-437`
 
 12 `cron.schedule` calls; **9 leader-locked, 3 not** (`:223`, `:312`, `:375`). None
 declares a timezone, so all fire at container-local time. There is no `CRON_ENABLED`
@@ -199,7 +199,7 @@ rate that the `:312` alert job evaluates. The cron biases its own alerting signa
 
 ## PERF-012 — The auth hot path reads the user on every request
 
-**P1 · TODO** *(downgraded from the audit's P0)*
+**P1 · COMPLETE** *(downgraded from the audit's P0)*
 
 `auth.js:59-62` runs an unconditional `prisma.user.findUnique({ select: { tokenVersion,
 isActive } })` after the denylist GET. Per request: 1 Redis GET + 1 Prisma query.
@@ -254,7 +254,7 @@ flipped as a side effect of a test cleanup. **Pick one and apply it everywhere.*
 
 ## PERF-015 — Missing composite indexes
 
-**P2 · TODO** — each confirmed by `EXPLAIN` against a live Postgres.
+**P2 · COMPLETE** — each confirmed by `EXPLAIN` against a live Postgres.
 
 | Table | Query shape | Action |
 |---|---|---|
@@ -277,7 +277,7 @@ message. No index is dropped without `pg_stat_user_indexes` from production.
 
 ## PERF-016 — Mobile: duplicate fetches and the whole i18n corpus at boot
 
-**P2 · TODO**
+**P2 · COMPLETE** *(the backfill half closed by PERF-036)*
 
 - Both AI history screens fetch on **mount and on focus**. Note `useFocusRefresh`
   defaults `runOnFirstFocus = true` (`useFocusRefresh.js:63`) — following its docs
@@ -926,3 +926,181 @@ speculative work §7 and §73 forbid.
 **If §45 is the goal, the work is in the app**: add `expo-notifications`, call
 `getExpoPushTokenAsync`, and POST to the endpoint that already exists. Receipt
 polling becomes worth building the moment that lands — not before.
+
+
+---
+
+## PERF-038 — The AI daily spend cap was only ever measuring scans
+
+**P0 · COMPLETE** — §36
+
+`/ai/chat` and `/ai/alerts` read `token_info["total_cost_usd"]`. That key exists
+only on the orchestrator's rolled-up `pipeline_token_usage`; a per-call
+`token_info` — from `llm_utils._make_token_info`, `empty_token_info` and
+`chat_service._new_usage` alike — carries **`cost_usd`**. So `cost` was always
+0.0, the `if cost > 0` guard never opened, and `record_spend` never ran. The
+docstring at those call sites describes fixing exactly this defect.
+
+Two further paths had no meter at all: `/ai/chat/stream` (the VOICE path, the one
+farmers who cannot read use most) and `/ai/soil-card-ocr` (a vision call over a
+full-page photograph).
+
+Nothing threw, which is why it survived: a missing key reads as 0.0 and the guard
+quietly closes.
+
+One `cost_of()` helper now reads either shape. The stream is metered on its
+`final` frame, so a client that disconnects mid-stream still pays for what it
+consumed. **User-visible billing was never affected** — the Express credit ledger
+reads `cost_usd` correctly; this was the FastAPI-side provider cost cap.
+
+The atomic-reservation half of §36 was and is correct — only the meters feeding
+it were wrong.
+
+---
+
+## PERF-039 — Two unbounded fallback maps
+
+**P1 · COMPLETE** — §10
+
+`velocity.service.js` pruned timestamps INSIDE each key, so it read as bounded —
+but the KEY SET grew once per distinct userId, device fingerprint and IP the
+process ever saw. `otpLockout.service.js` was worse: `memEntry()` creates an
+entry on every CHECK, not only on a failure, and only deletes on a successful
+verification, so an OTP flood against enumerated numbers grew it one entry per
+number tried.
+
+Both now use `BoundedMap` at 50,000, no TTL, matching `rateLimit.js`.
+
+**The question a cap raises here, answered:** LRU evicts the COLDEST keys, and an
+identity under active attack is by definition the hottest — so it is the last
+thing evicted, not the first. Both test files assert that, not merely the size
+bound; a cap that discarded the attacker's own counter would be worse than none.
+
+Checked the rest rather than assuming: `proofOfWork`'s maps are already
+FIFO-capped, and `shopMetrics` is keyed by code-defined labels rather than
+anything a caller controls.
+
+---
+
+## PERF-040 — The last credit path that charged without gating
+
+**P1 · COMPLETE** — §53
+
+`/agripredict/predict` called `deductCredits(...).catch(() => {})`
+fire-and-forget with **no gate at all** — worse than the read-then-write race
+§53 warns about. A farmer with zero credits still got the prediction, a failed
+deduction was swallowed, and there was no hold to release when the 120-second
+upstream timed out, so a farmer whose prediction failed had simply paid.
+
+Now reserve → settle / release. `proxyPost` writes its own response and never
+throws, so the outcome is read off the status code.
+
+**Price deliberately unchanged.** The old `ai_chat_claude` key names a dead
+provider but costs 2, and the route was already charging it; the new
+`ai_predict` is also 2. §72 puts repricing among the things to raise as a product
+decision rather than fold into a correctness fix. A separate unmocked test pins
+that equality, and also checks every key any route gates on is defined —
+`reserveCredits` falls back to a 1-credit minimum for an unknown key, which
+under-gates a 3-credit feature and only warns.
+
+---
+
+## PERF-041 — The three overturned DONEs
+
+**P1/P2 · COMPLETE** — §15, §24, §49
+
+All three were marked DONE by an auditor and overturned by its challenger.
+
+**§15 — the DM inbox.** `GET /messages/conversations` ran `user.findUnique` +
+`findFirst` + `count` inside a map over every partner, with no `take` anywhere:
+40 partners cost 2 + 120 queries. Both seed queries also used Prisma `distinct`,
+which is not pushed into SQL, so they streamed every DM the user had ever sent or
+received just to learn who they had talked to. Now three queries for the whole
+inbox — batched users, one LATERAL seek, one scoped groupBy.
+
+*Why the audit missed it:* its scan matched only `for`/`while` headers followed by
+`await prisma`, so it structurally could not see `map(async … await prisma …)`
+inside `Promise.all` — the dominant N+1 idiom in this codebase.
+
+**§24 — `GET /agristore/listings`.** Deduplicating by variantId helped but did
+not change the shape: `rankOffersForVariant` is a wrapper over the batch method,
+so each distinct variant still cost its own `findMany`. Page size up to 50 made
+this the LARGER of the two §24 sites, with no Redis cache in front of it.
+
+*Worth remembering:* settings reads are NOT the discriminator. `weights()` is six
+`getSetting` calls per pass, but `getSetting` is TTL-cached, so they collapse
+either way — that assertion passed against the broken code before I replaced it
+with total query count.
+
+**§49 — `GET /crop-reports/sellers/nearby`.** Took 1000 candidates with **no
+`orderBy`**, so once verified Kendras exceed the cap the nearest one can be
+excluded before its distance is ever computed, and the result reshuffled between
+identical requests. Coordinates are encrypted at rest so there is no SQL distance
+to order by; district is the one plaintext locality signal, so the budget is now
+spent on the farmer's own district first. **Not the §49 answer** — a coarse
+plaintext geocell, or a decision that seller coordinates need not be encrypted,
+is the real fix — but an arbitrary cap was worth removing today.
+
+---
+
+## PERF-042 — The §71 tail PROGRESS.md claimed was closed
+
+**P1 · COMPLETE**
+
+`PROGRESS.md` said "the §71 backlog is drained". It was not.
+
+**A page that lied about itself.** `?inStock=true` filtered in JS AFTER `take`
+and `count`, so a 20-row page could return 11 while `meta` reported the
+unfiltered total. Pushed into SQL — and it only ever needed to constrain the
+legacy branch, since the split-catalog branch already requires `stockQty > 0`.
+
+**An unbounded comment thread**, both levels, on a public unauthenticated route.
+Capping only the outer level would have left one comment with a thousand replies
+reopening the hole, so replies are a bounded preview with the true count beside
+them. Response stays a bare array; counts go in `meta`.
+
+**`sort=popularity` over a dead column.** Nothing increments
+`products.viewCount` — the only writer is the QC merge transferring an existing
+value. No client sends the sort. §17: remove the sort, do not index the column.
+
+---
+
+## PERF-043 — Two holes in cleanupTestData that presented as 78 unrelated failures
+
+**P1 · COMPLETE**
+
+`cleanupTestData` never deleted `direct_messages`, `posts` or `comments`. All
+three FK the User without a cascade, so any suite creating one blocked
+`user.deleteMany()`, which aborted the whole cleanup transaction and left every
+table populated for the next suite.
+
+The symptom is dozens of unrelated suites failing on stale fixtures, nowhere near
+the test that caused it — twice today, 78 and 77 failures, both from tests I had
+just added.
+
+**Diagnostic worth keeping:** a large failure count concentrated in *setup*
+errors (unique-constraint violations, missing fixtures) rather than assertions
+means a poisoned cleanup, not a code regression. Check what the newest test
+creates and whether cleanup deletes it, before reading the diff.
+
+---
+
+## PERF-044 — One test fails intermittently and has never been captured
+
+**P2 · OPEN**
+
+Three times today a full backend run reported exactly **one** failure that did
+not reproduce — six consecutive clean runs afterwards each time. It has never
+been captured with its name or assertion, so there is nothing to diagnose from.
+
+It is NOT the parallel-worker problem fixed in PERF-027 (`maxWorkers: 1` is in
+force), and it is not the cleanup poisoning in PERF-043 (that reproduces every
+run and fails in the dozens).
+
+Recorded rather than closed. The next person to see a `1 failed` line should
+capture the output to a file **before** re-running — `npm test > /tmp/f.txt 2>&1`
+then read the "Summary of all failing tests" block — because a re-run destroys
+the only evidence. That is how the one reproducible case today was finally
+identified (an ambiguous fixture: three DMs created in the same millisecond, with
+the seek ordering by `createdAt DESC, id DESC` and uuid ids making the tiebreak
+arbitrary).

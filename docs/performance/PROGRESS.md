@@ -2,8 +2,27 @@
 
 ## Current Item
 
-The §71 backlog is drained. Every item on the list carried into this session is
-closed, either fixed or closed with reasons.
+Working the 79-section directive audit. The audit corrected this document: the
+previous version claimed "the §71 backlog is drained", and it was not — three
+items were still open in code (PERF-042). Treat that as the reason this section
+now names what is OPEN rather than what is finished.
+
+## Where the directive actually stands
+
+All 80 sections audited, each verdict independently challenged (§51–61's
+challenge pass died mid-run, so those verdicts are unverified).
+
+| Verdict | Count |
+|---|---:|
+| DONE | 27 |
+| PARTIAL | 42 |
+| NOT_DONE | 0 |
+| ONGOING_POLICY (rules, not tasks) | 11 |
+
+Nothing is untouched; 42 sections have a tail. **Four are genuinely large and
+are not close:** §12 signed direct upload, §62 the six load-test workflows
+including Socket.IO, §71's per-area sweep across 25 product areas, and §74 which
+depends on those.
 
 ## Status
 
@@ -167,10 +186,45 @@ Behavioural, measured locally — no production telemetry is available:
 | PERF-035 | Unbounded 100 MB video buffering | 1,202 MB RSS → bounded at 4 in flight |
 | PERF-036 | i18n backfill built ten languages to show one | 5,136 KB → 3,939 KB heap |
 | PERF-037 | Expo receipts — investigated, **not built** (no client writes tokens) | — |
+| PERF-038 | AI daily spend cap measured scans only — 3 of 4 meters dead | revert → 3 forms each fail |
+| PERF-039 | Two unbounded fallback maps (velocity, otpLockout) | revert → 4 of 21 fail |
+| PERF-040 | Last credit path charging without a gate | revert → 4 of 5 fail |
+| PERF-041 | The three overturned DONEs: DM N+1, buy-box fan-out, nearby truncation | revert → each fails its own |
+| PERF-042 | §71 tail: lying page, unbounded thread, dead sort | revert → 3 of 5 fail |
+| PERF-043 | Two holes in cleanupTestData (78 + 77 phantom failures) | suite 1268 → 1345 |
+| PERF-044 | **OPEN** — one test fails intermittently, never captured | — |
 
-## Next item
+## Next item — what is genuinely left
 
-The §71 sweep's surviving findings, then the two blocked items.
+Ranked by effort-to-impact, from the §0–79 audit:
+
+**Medium, worth doing next**
+- **§45 push** — the server half is complete and correct; ZERO pushes have ever
+  been sent, because neither app depends on `expo-notifications`. The blocker is
+  client registration, not the pipeline. Receipt polling (PERF-037) stays
+  deferred until that lands.
+- **§47 payload** — `GET /farms/:farmId` selects crop cycles with no `select`,
+  pulling 8 unbounded JSON log columns plus `weatherHistory`. Product detail
+  ships 10 full review rows on every open when a paginated `/reviews` already
+  exists.
+- **§64 targets** — no crash-reporting SDK exists in either app, so
+  "crash-free users > 99.5%" cannot be produced even in principle. Nothing
+  blocks adding one.
+
+**Large, and honestly not close**
+- **§12** signed direct upload — every scan byte still transits Express as
+  base64.
+- **§62/§63** — four of six workflows have no coverage; chat/Socket.IO is
+  entirely unmeasured. The AI scenario needs a mock provider so a run does not
+  spend real Gemini money. That is buildable here, not blocked.
+- **§71** — 13 of 25 product areas have no per-area sweep record.
+- **§74** — 1 not started (direct media upload), 1 prepared-not-deployed
+  (PgBouncer), 9 partial.
+
+**Genuinely blocked on this environment**
+- **§18 index drops** — need production `pg_stat_user_indexes`. One is *proven*
+  subsumed by query plan (PERF-028) and still not dropped, because §18 says a
+  structural argument alone is not enough.
 
 **Blocked on something this environment does not have — not on effort:**
 - **§18 index drops** need `pg_stat_user_indexes` from production. ~40 of 284
