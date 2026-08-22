@@ -329,6 +329,25 @@ const ORDER_STATUS_PUSH = {
   CANCELLED: { title: 'Order cancelled', body: 'Your order was cancelled by the seller' },
 };
 
+/**
+ * Sort values still ACCEPTED but no longer advertised or implemented.
+ *
+ * `popularity` was removed from SORTS above because it ordered by a column
+ * nothing writes. Removing the key alone was not enough: the validator at the
+ * route derives its allowlist from `Object.keys(SORTS)`, so an old client
+ * sending `?sort=popularity` started getting a 400 and an EMPTY product list
+ * rather than the graceful degrade to `relevance` that the resolution on line
+ * ~357 already implements.
+ *
+ * A hard 400 is a worse outcome than a differently-ordered list, so the value is
+ * still accepted. It is deliberately NOT added to the `sorts:` list the server
+ * advertises to clients, so nothing learns to send it again.
+ *
+ * Caught by running the app, not by the suite: every test asserted on sorts that
+ * exist.
+ */
+const LEGACY_SORTS = new Set(['popularity']);
+
 /** Sorts that depend on OFFER data, so they are applied after decoration. */
 const OFFER_SORTS = new Set(['price_asc', 'price_desc', 'discount']);
 
@@ -338,7 +357,7 @@ router.get(
   [
     query('page').optional().isInt({ min: 1 }),
     query('limit').optional().isInt({ min: 1, max: 50 }),
-    query('sort').optional().isIn([...Object.keys(SORTS), ...OFFER_SORTS]),
+    query('sort').optional().isIn([...Object.keys(SORTS), ...OFFER_SORTS, ...LEGACY_SORTS]),
     query('minPrice').optional().isFloat({ min: 0 }),
     query('maxPrice').optional().isFloat({ min: 0 }),
     query('minRating').optional().isFloat({ min: 0, max: 5 }),

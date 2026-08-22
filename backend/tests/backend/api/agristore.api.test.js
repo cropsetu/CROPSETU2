@@ -652,3 +652,37 @@ describe('POST /api/v1/agristore/products/:id/review', () => {
     expect(res.status).toBe(404);
   });
 });
+
+// ── A removed sort must DEGRADE, not 400 ────────────────────────────────────
+// `sort=popularity` was dropped from SORTS because it ordered by
+// products.viewCount, which nothing increments (§17). Removing the key alone was
+// not enough: the route's validator derives its allowlist from
+// `Object.keys(SORTS)`, so an old client sending ?sort=popularity started
+// getting a 400 and an EMPTY product list instead of a differently-ordered one.
+//
+// Found by running the app, not by this suite — every test here asserted on
+// sorts that exist. That is the gap this block closes.
+describe('legacy sort values', () => {
+  it('accepts sort=popularity and falls back rather than 400ing', async () => {
+    const res = await request(app)
+      .get('/api/v1/agristore/products?page=1&limit=5&sort=popularity')
+      .set(farmer.headers);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('orders it the same as relevance, since that is what it degrades to', async () => {
+    const legacy = await request(app)
+      .get('/api/v1/agristore/products?page=1&limit=5&sort=popularity').set(farmer.headers);
+    const relevance = await request(app)
+      .get('/api/v1/agristore/products?page=1&limit=5&sort=relevance').set(farmer.headers);
+    expect(legacy.body.data.map((p) => p.id)).toEqual(relevance.body.data.map((p) => p.id));
+  });
+
+  it('still rejects a genuinely unknown sort', async () => {
+    // The validator must not have been loosened into accepting anything.
+    const res = await request(app)
+      .get('/api/v1/agristore/products?page=1&limit=5&sort=notasort').set(farmer.headers);
+    expect(res.status).toBe(400);
+  });
+});
