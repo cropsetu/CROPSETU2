@@ -374,6 +374,12 @@ export const ENV = {
   // the client gives up first and owns the retry. Below this the server killed
   // the socket while Cloudinary was still receiving the file — see app.js.
   UPLOAD_SOCKET_TIMEOUT_MS: parseInt(process.env.UPLOAD_SOCKET_TIMEOUT_MS || '130000', 10),
+  // Concurrent video uploads one process will BUFFER before shedding. multer
+  // holds each whole file in memory, so this bounds resident buffers at roughly
+  // 4 x 100 MB steady. Raise it only with the container's memory limit in hand —
+  // and note these are Buffers, so they sit outside the V8 heap where
+  // --max-old-space-size cannot catch them. See upload.routes.js.
+  UPLOAD_VIDEO_MAX_INFLIGHT: parseInt(process.env.UPLOAD_VIDEO_MAX_INFLIGHT || '4', 10),
   // Per-USER upload ceilings (AI-08). The upload routes had authentication and
   // nothing else: no per-user quota, no per-route limit, no record of who
   // uploaded what — so one authenticated account could push 8 MB images or
