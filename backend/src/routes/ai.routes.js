@@ -1297,6 +1297,55 @@ router.post('/translate', authenticate, aiChatLimit, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/ai/conversations
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Message counts for a page of conversations, as Map(conversationId → count).
+ *
+ * Replaces `_count: { select: { messages: true } }`, which Prisma compiles to
+ *
+ *   LEFT JOIN (SELECT "conversationId", COUNT(*) FROM ai_messages
+ *              WHERE 1=1 GROUP BY "conversationId") …
+ *
+ * — literally `WHERE 1=1`. The aggregate is not correlated to the page, so it
+ * groups EVERY message on the platform and the join then discards the ones
+ * belonging to other people. The cost is a function of total platform messages
+ * rather than of the requesting user, so every farmer opening chat history pays
+ * for every message anyone has ever sent.
+ *
+ * Measured on a 20k-conversation / 400k-message probe: GET /ai/conversations
+ * took 134 ms and touched 29,369 shared buffers to return 4 rows; the same page
+ * without `_count` took 0.059 ms. Scoping the aggregate to the page's ids makes
+ * the cost proportional to the page. Same fix, same shape, as
+ * unreadCountsByChat in animaltrade.routes.js.
+ *
+ * @param delegate prisma.aIMessage or prisma.voiceMessage
+ */
+async function messageCountsByConversation(delegate, ids) {
+  if (!ids.length) return new Map();
+  const rows = await delegate.groupBy({
+    by: ['conversationId'],
+    where: { conversationId: { in: ids } },
+    _count: { _all: true },
+  });
+  return new Map(rows.map((r) => [r.conversationId, r._count._all]));
+}
+
+/**
+ * Re-attach the counts in the shape the shipped clients already read.
+ *
+ * The `?? 0` is load-bearing: groupBy returns NO ROW for a conversation with
+ * zero messages, where Prisma's `_count` emitted COALESCE(…, 0). Zero-message
+ * conversations are reachable — message persistence is wrapped in try/catch and
+ * is explicitly best-effort ("persist failed (reply still returned to user)").
+ *
+ * The `_count: { messages: n }` shape is deliberately preserved rather than
+ * flattened. AIChatScreen reads `item._count?.messages` and VoiceHistoryScreen
+ * reads the same; renaming it would make every row in the shipped app's history
+ * list read "0 msgs" until users update.
+ */
+function withMessageCounts(rows, counts) {
+  return rows.map((r) => ({ ...r, _count: { messages: counts.get(r.id) ?? 0 } }));
+}
+
 router.get('/conversations', authenticate, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || '20', 10), 50);
   const page  = parsePageNumber(req.query.page);
@@ -1321,13 +1370,13 @@ router.get('/conversations', authenticate, async (req, res) => {
       take:    limit,
       select: {
         id: true, title: true, createdAt: true, updatedAt: true,
-        _count: { select: { messages: true } },
       },
     }),
     prisma.aIConversation.count({ where: baseWhere }),
   ]);
 
-  return sendSuccess(res, convos, 200, { total, page, limit });
+  const counts = await messageCountsByConversation(prisma.aIMessage, convos.map((c) => c.id));
+  return sendSuccess(res, withMessageCounts(convos, counts), 200, { total, page, limit });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1349,12 +1398,12 @@ router.get('/voice/conversations', authenticate, async (req, res) => {
       select: {
         id: true, title: true, language: true, messageCount: true,
         createdAt: true, updatedAt: true,
-        _count: { select: { messages: true } },
       },
     }),
     prisma.voiceConversation.count({ where }),
   ]);
-  return sendSuccess(res, convos, 200, { total, page, limit });
+  const counts = await messageCountsByConversation(prisma.voiceMessage, convos.map((c) => c.id));
+  return sendSuccess(res, withMessageCounts(convos, counts), 200, { total, page, limit });
 });
 
 // GET /api/v1/ai/voice/conversations/:id
@@ -1398,6 +1447,20 @@ router.get('/conversations/:id', authenticate, async (req, res) => {
   const convo = await prisma.aIConversation.findFirst({
     where:   { id: req.params.id, userId: req.user.id },
     include: {
+      // Deliberately still `_count` here, unlike the three list routes above.
+      //
+      // Be precise about WHY, because the reason is not what it looks like.
+      // This emits the identical uncorrelated `WHERE 1=1 GROUP BY` SQL the list
+      // routes did. It is fast — measured 0.176 ms and 7 buffers, with the plan
+      // showing `Index Cond: ("conversationId" = $1)` and Heap Fetches: 0 —
+      // because the single-PK outer row lets Postgres push the qualifier into
+      // the grouped subquery. That is a property of the chosen PLAN, not of the
+      // query, and plan choice is not guaranteed stable as the table grows.
+      //
+      // Left alone under §73: there is no measured problem, and a groupBy here
+      // would add a round trip to the hottest AI read to fix nothing. But if
+      // this endpoint ever shows up slow, this is the first thing to check —
+      // the SQL has always been the bad shape; only the planner was saving it.
       _count: { select: { messages: true } },
       messages: {
         orderBy: { createdAt: 'desc' },
@@ -2504,7 +2567,6 @@ router.get('/scan/sessions', authenticate, async (req, res) => {
       take:    limit,
       select: {
         id: true, title: true, createdAt: true, updatedAt: true,
-        _count: { select: { messages: true } },
         scanReports: {
           select: {
             id: true, primaryDisease: true, riskLevel: true,
@@ -2519,7 +2581,8 @@ router.get('/scan/sessions', authenticate, async (req, res) => {
     }),
   ]);
 
-  return sendSuccess(res, sessions, 200, { total, page, limit });
+  const counts = await messageCountsByConversation(prisma.aIMessage, sessions.map((c) => c.id));
+  return sendSuccess(res, withMessageCounts(sessions, counts), 200, { total, page, limit });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
