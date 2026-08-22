@@ -271,6 +271,12 @@ export async function cleanupTestData() {
     prisma.product.deleteMany(),
     prisma.subcategory.deleteMany(),
     prisma.category.deleteMany(),
+    // Direct messages FK the User on BOTH sides and are not cascaded, so any
+    // suite that creates a DM would otherwise block `user.deleteMany()` below —
+    // which aborts this whole transaction and leaves every table populated for
+    // the next suite. That failure presents as dozens of unrelated suites
+    // failing on stale fixtures, nowhere near the test that caused it.
+    prisma.directMessage.deleteMany(),
     prisma.otpSession.deleteMany(),
     prisma.refreshToken.deleteMany(),
     prisma.sellerProfile.deleteMany(),
