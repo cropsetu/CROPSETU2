@@ -26,6 +26,18 @@
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/; // guard interpolated identifiers (never user input)
 
+/**
+ * A Date as the UTC wall clock Postgres stored, with no zone designator.
+ *
+ * '2026-08-19T01:39:35.237Z' → '2026-08-19T01:39:35.237'. The trailing Z is
+ * dropped deliberately: `text::timestamp` ignores it anyway, and leaving it in
+ * would suggest to the next reader that the comparison is zone-aware when the
+ * whole point is that it must not be.
+ */
+function toUtcWallClock(d) {
+  return d.toISOString().replace('Z', '');
+}
+
 export function encodeCursor(row) {
   if (!row?.createdAt || !row?.id) return null;
   const ts = row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString();
@@ -65,8 +77,39 @@ export async function keysetPage(prisma, { table, filterColumn, filterValue, cur
   let seek = '';
   if (c) {
     // Row-value comparison → index seek (flat). $2 = createdAt, $3 = id.
-    seek = `AND ("createdAt", "id") < ($2, $3)`;
-    params.push(c.createdAt, c.id);
+    //
+    // The `::timestamp` cast and the STRING parameter are both load-bearing.
+    //
+    // Prisma maps a bare `DateTime` to `timestamp(3) without time zone` — that
+    // is true of every createdAt in this schema — but binds a JS Date through
+    // $queryRawUnsafe as `timestamptz`. Comparing the two makes Postgres convert
+    // the naive column using the SESSION TimeZone. The stored value is a UTC
+    // wall clock, so under any non-UTC session it is read as a local time and
+    // shifts: at Asia/Kolkata every row looks 5h30m earlier than it is, so
+    // `< cursor` matches the ENTIRE table and the seek returns page 1 forever.
+    //
+    // Measured on a 50-row probe walking to exhaustion:
+    //   UTC              3 pages, 50/50 rows      correct
+    //   Asia/Kolkata     cursor stuck on page 2, 20/50 rows
+    //   America/New_York cursor stuck on page 2, 20/50 rows
+    //
+    // Production is almost certainly UTC, which is why this has never been
+    // seen — but "correct only because the server happens to be in one
+    // timezone" is not a property to rely on, and it is broken today on any
+    // developer machine that is not.
+    //
+    // Passing the UTC wall clock as text and casting to `timestamp` makes the
+    // comparison timezone-independent: no conversion is possible, because
+    // neither side carries a zone. Verified against the same probe — 30 rows
+    // matched, which is the arithmetically correct answer, under all three
+    // session timezones.
+    //
+    // Note this is a raw-SQL problem only. The sibling helper in adminList.js
+    // expresses the same seek through Prisma's `where` builder, which knows the
+    // column type from the schema and binds correctly; it walks 50/50 rows under
+    // every timezone. Do not "fix" that one to match this.
+    seek = `AND ("createdAt", "id") < ($2::timestamp, $3)`;
+    params.push(toUtcWallClock(c.createdAt), c.id);
   }
   // Fetch limit+1 ids to detect a further page without a COUNT.
   const seekRows = await prisma.$queryRawUnsafe(
