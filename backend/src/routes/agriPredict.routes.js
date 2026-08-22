@@ -18,7 +18,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { sendError } from '../utils/response.js';
-import { deductCredits } from '../services/aiCredit.service.js';
+import { reserveCredits, settleCredits, releaseCredits } from '../services/aiCredit.service.js';
 import { ENV } from '../config/env.js';
 import { getSigned, postSignedJSON } from '../utils/fastapi-signed.js';
 
@@ -99,11 +99,39 @@ router.get('/prices/history', authenticate, (req, res) => {
 router.post('/predict', authenticate, async (req, res) => {
   const { commodity, state, district = '' } = req.body;
   if (!commodity || !state) return sendError(res, 'commodity and state are required', 400);
-  // Deduct credits for AI price prediction (non-blocking)
-  deductCredits(req.user.id, 'ai_chat_claude', {
-    model: 'claude-haiku', description: `Price prediction: ${commodity} in ${state}`,
-  }).catch(() => {});
-  return proxyPost(res, '/agripredict/predict', { commodity, state, district }, req.user?.id, 120_000);
+
+  // RESERVE → settle / release, the protocol §53 requires and every other AI
+  // route already uses. This was the last read-then-write credit path.
+  //
+  // What it used to be was worse than a TOCTOU race: a fire-and-forget
+  // `deductCredits(...).catch(() => {})` with NO gate at all. A farmer with zero
+  // credits still got the prediction, and a failed deduction was swallowed
+  // silently. `reserveCredits` is a conditional decrement, so concurrent
+  // requests cannot both pass on the same last credit.
+  //
+  // The key changed from `ai_chat_claude` — a legacy name for a provider this
+  // stack no longer uses — to `ai_predict` at the SAME 2 credits, so nothing
+  // about what a farmer is charged changes here. This commit fixes the gate,
+  // not the price.
+  const hold = await reserveCredits(req.user.id, 'ai_predict');
+  if (!hold.ok) {
+    return sendError(res, 'You’ve used all your AI credits for this month. They refill on the 1st.', 402);
+  }
+
+  // proxyPost writes the response itself and never throws, so the outcome has to
+  // be read off the status code. Anything non-2xx means the farmer got no
+  // prediction and must not be charged for one.
+  await proxyPost(res, '/agripredict/predict', { commodity, state, district }, req.user?.id, 120_000);
+
+  const settleArgs = { reserved: hold.reserved, holdId: hold.holdId };
+  if (res.statusCode >= 200 && res.statusCode < 300) {
+    await settleCredits(req.user.id, 'ai_predict', {
+      ...settleArgs, description: `Price prediction: ${commodity} in ${state}`,
+    }).catch(() => {});
+  } else {
+    await releaseCredits(req.user.id, 'ai_predict', settleArgs).catch(() => {});
+  }
+  return undefined;
 });
 
 // GET /api/v1/agripredict/compare

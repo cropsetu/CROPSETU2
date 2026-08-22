@@ -64,6 +64,11 @@ export const CREDIT_COSTS = {
   ai_soil_ocr:        3,   // Soil Health Card OCR (vision call — parity with scan)
   ai_calendar:        2,
   ai_irrigation:      1,
+  // Mandi price prediction. 2 credits, matching what the route ALREADY charged
+  // through the legacy `ai_chat_claude` key — this key exists so the charge has
+  // an honest name, not to reprice the feature. Whether 2 is the right number
+  // next to ai_chat_gemini's 1 is a product question, deliberately left alone.
+  ai_predict:         2,
 
   // ── Legacy keys (pre-Gemini consolidation) — retained so old ledger rows and
   //    any in-flight callers still resolve a floor. Do not use in new code.
