@@ -155,10 +155,12 @@ def _record_alert_spend(farm_context: dict, token_info: dict) -> None:
     """Book this call's cost against the caller's daily cap. Never raises —
     accounting must not be able to fail a farmer's alerts."""
     try:
-        cost = float((token_info or {}).get("total_cost_usd") or 0)
+        from security.spend import cost_of, record_spend
+        # Was `.get("total_cost_usd")`, a key this dict never carries — see
+        # security/spend.cost_of.
+        cost = cost_of(token_info)
         uid = str((farm_context or {}).get("user_id") or "").strip()
         if cost > 0 and uid:
-            from security.spend import record_spend
             record_spend(uid, cost)
     except Exception:  # noqa: BLE001
         logger.warning("[AlertService] record_spend failed (non-fatal)", exc_info=False)

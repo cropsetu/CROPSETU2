@@ -372,6 +372,40 @@ def check_under_cap(user_id: str, reserve: float = 0.0) -> None:
         )
 
 
+def cost_of(token_info: dict | None) -> float:
+    """Dollars from a token_info dict, whichever shape it is.
+
+    There are two in this codebase and confusing them silently disabled the cap
+    for three of the four metered paths:
+
+      • per-call token_info  (agents/llm_utils._make_token_info, empty_token_info,
+        chat_service._new_usage) carries **cost_usd**. Chat, alerts, voice and
+        soil OCR all produce this shape.
+      • the orchestrator's rolled-up pipeline_token_usage (orchestrator.py:507)
+        carries **total_cost_usd**, because it is a sum across pipeline stages.
+
+    /ai/chat and /ai/alerts read `total_cost_usd` off a per-call dict. It is
+    never present, so `cost` was always 0.0, the `if cost > 0` guard never
+    opened, and record_spend never ran — leaving the daily USD cap measuring
+    scans only, which is the exact defect those call sites were added to fix.
+
+    Reading both keys is deliberate rather than picking one: this helper is
+    called from paths that legitimately produce each shape, and a future caller
+    that hands over a pipeline aggregate should be metered, not silently
+    dropped. Returns 0.0 for anything unparseable — accounting must never be
+    able to raise into a reply the farmer already paid for.
+    """
+    if not token_info:
+        return 0.0
+    raw = token_info.get("cost_usd")
+    if raw is None:
+        raw = token_info.get("total_cost_usd")
+    try:
+        return float(raw or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def record_spend(user_id: str, cost_usd: float) -> None:
     """Fire-and-forget accounting. Never raises."""
     if not SPEND_ENABLED or not cost_usd or cost_usd <= 0:

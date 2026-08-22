@@ -33,10 +33,14 @@ def _record_chat_spend(request, result) -> None:
     rather than an accounting fix.
     """
     try:
-        cost = float(((result or {}).get("token_info") or {}).get("total_cost_usd") or 0)
+        from security.spend import cost_of, record_spend
+        # cost_of, not a direct .get(): this used to read `total_cost_usd`, which
+        # only ever exists on the orchestrator's pipeline aggregate. A per-call
+        # token_info carries `cost_usd`, so the value was always 0.0 and the
+        # guard below never opened — see security/spend.cost_of.
+        cost = cost_of((result or {}).get("token_info"))
         uid = (request.headers.get("x-user-id") or "").strip()
         if cost > 0 and uid:
-            from security.spend import record_spend
             record_spend(uid, cost)
     except Exception:  # noqa: BLE001
         logger.warning("[Chat] record_spend failed (non-fatal)", exc_info=False)
@@ -126,6 +130,14 @@ async def ai_chat_stream(request: Request):
                 message, history, farm_profile,
                 response_length=response_length, model_override=model_override,
             ):
+                # The `final` frame carries this turn's token_info and nothing
+                # was reading it, so the entire VOICE path — the one farmers who
+                # cannot read use most — burned Gemini tokens the daily cap never
+                # saw. Metered here rather than after the loop because a client
+                # that disconnects mid-stream still consumed everything spent up
+                # to the final frame.
+                if isinstance(evt, dict) and evt.get("type") == "final":
+                    _record_chat_spend(request, evt)
                 yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
         except Exception as exc:  # noqa: BLE001
             logger.error("[ChatStream] %s", exc, exc_info=True)
