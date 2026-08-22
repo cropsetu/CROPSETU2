@@ -98,6 +98,7 @@ import {
 } from '../services/stockReservation.service.js';
 import { recordEvent, SHOP_EVENTS } from '../services/shopMetrics.service.js';
 import { ENV } from '../config/env.js';
+import { sendPushToUser } from '../services/push.service.js';
 
 const router = Router();
 router.param('id', uuidParamGuard);        // product / order id
@@ -307,6 +308,27 @@ const SORTS = {
   // An unknown `sort` value falls through to `relevance` below, which is what
   // this used to degrade to anyway.
 };
+/**
+ * Push copy per order rollup status (§45).
+ *
+ * Deliberately not every status. PENDING is the state an order is CREATED in, so
+ * pushing it would notify a farmer about something they just did on the screen
+ * in front of them. The other four are transitions the buyer cannot see without
+ * opening the app, which is exactly what push is for.
+ *
+ * No order identifier in the copy. Orders have no human-readable number — the
+ * only id is a uuid, and putting a uuid fragment in a notification a farmer
+ * reads on a lock screen is noise, not information. `data.orderId` carries the
+ * identity for the tap target instead, which is what actually gets them to the
+ * right screen.
+ */
+const ORDER_STATUS_PUSH = {
+  CONFIRMED: { title: 'Order confirmed', body: 'The seller has confirmed your order' },
+  SHIPPED:   { title: 'Order shipped',   body: 'Your order is on its way' },
+  DELIVERED: { title: 'Order delivered', body: 'Your order has been marked delivered' },
+  CANCELLED: { title: 'Order cancelled', body: 'Your order was cancelled by the seller' },
+};
+
 /** Sorts that depend on OFFER data, so they are applied after decoration. */
 const OFFER_SORTS = new Set(['price_asc', 'price_desc', 'discount']);
 
@@ -2654,16 +2676,45 @@ router.put(
         else if (live.includes('CONFIRMED')) orderStatus = 'CONFIRMED';
         else orderStatus = 'PENDING';
 
-        const before = await tx.order.findUnique({ where: { id: orderId }, select: { status: true } });
+        const before = await tx.order.findUnique({
+          where: { id: orderId },
+          select: { status: true, userId: true },
+        });
         await tx.order.update({ where: { id: orderId }, data: { status: orderStatus } });
 
-        return { itemsUpdated: mine.length, orderStatus, previousStatus: before?.status, crossedZero };
+        return {
+          itemsUpdated: mine.length, orderStatus, previousStatus: before?.status,
+          buyerId: before?.userId, crossedZero,
+        };
       }, { isolationLevel: 'Serializable' }));
 
       if (!result) return sendNotFound(res, 'Order');
       if (result.crossedZero?.length) await invalidateCatalogCaches();
 
       auditOrderStatusChange(req, orderId, result.previousStatus, result.orderStatus).catch(() => {});
+
+      // Tell the buyer their order moved (§45).
+      //
+      // Only on a real ROLLUP transition: one seller confirming their half of a
+      // two-seller order does not change the order's status, and pushing "your
+      // order is confirmed" twice — or when nothing visible changed — trains
+      // people to ignore the notification that matters.
+      //
+      // Outside the transaction on purpose. A push is not worth holding a
+      // Serializable transaction open for, and a queue hiccup must not roll back
+      // a status change the seller has already been told succeeded.
+      if (result.buyerId && result.orderStatus !== result.previousStatus) {
+        const copy = ORDER_STATUS_PUSH[result.orderStatus];
+        if (copy) {
+          sendPushToUser({
+            userId: result.buyerId,
+            type: 'ORDER_STATUS',
+            title: copy.title,
+            body: copy.body,
+            data: { orderId, status: result.orderStatus, screen: 'OrderDetail' },
+          }).catch(() => {});
+        }
+      }
 
       return sendSuccess(res, {
         orderId,
