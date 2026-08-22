@@ -52,9 +52,9 @@ import { geoPageIds, haversineKm } from '../utils/geo.js';
 import { Prisma } from '@prisma/client';
 import { stripHtml } from '../utils/encrypt.js';
 import { archiveResource } from '../services/softDelete.service.js';
+import { withSerializableRetry } from '../utils/txRetry.js';
 import { auditLog } from '../services/audit.service.js';
 import { cachedListing, bumpListingVersion } from '../utils/listingCache.js';
-import { withSerializableRetry } from '../utils/txRetry.js';
 import {
   NS_MACHINERY, NS_LABOUR, RENT_TTL_SEC,
   MACHINERY_LIST_SELECT, MACHINERY_DETAIL_SELECT,
@@ -1287,13 +1287,16 @@ router.post(
     // [FIX #1] Wrap conflict check + booking create in a Serializable transaction
     // to prevent double-booking when concurrent requests hit the same slot.
     //
-    // The isolation level is what makes double-booking impossible; the retry is
-    // what makes losing that race survivable. Ten clients hitting one slot all
-    // read "no conflict" and all try to insert, so Postgres aborts nine with
-    // SQLSTATE 40001 — and without a replay every one of those nine answered
-    // 500 "Booking failed", which is both wrong (nothing failed on the server)
-    // and harmful (a 5xx is what the mobile client retries, so the losers came
-    // straight back). Replaying re-reads the slot and returns the truthful 409.
+    // Retried like checkout: two farmers booking the same tractor for the same
+    // week is a NORMAL marketplace event, not a server fault. The isolation
+    // level is what makes double-booking impossible; the retry is what makes
+    // losing that race survivable. Ten clients hitting one slot all read "no
+    // conflict" and all try to insert, so Postgres aborts nine with SQLSTATE
+    // 40001 — and unwrapped, that abort reached the catch below as a bare
+    // Prisma error and became a 500 "Booking failed", which is both wrong
+    // (nothing failed on the server) and harmful (a 5xx is what the mobile
+    // client retries, so the losers came straight back). Replaying re-reads the
+    // slot and either succeeds or returns the truthful 409.
     //
     // tests/backend/load/booking-concurrency.test.js asserts exactly this and
     // had never once executed: the phone factory it provisions its ten racers

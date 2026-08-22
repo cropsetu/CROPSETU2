@@ -286,6 +286,11 @@ export async function cleanupTestData() {
     // the next suite. That failure presents as dozens of unrelated suites
     // failing on stale fixtures, nowhere near the test that caused it.
     prisma.directMessage.deleteMany(),
+    // Settlement rows key off sellerId as a loose scalar, so they do NOT cascade
+    // with the user. A leaked payout nets the next run's payable down to zero and
+    // surfaces as an unexplained "nothing payable for this seller".
+    prisma.payout.deleteMany(),
+    prisma.sellerLedgerEntry.deleteMany(),
     prisma.otpSession.deleteMany(),
     prisma.refreshToken.deleteMany(),
     prisma.sellerProfile.deleteMany(),

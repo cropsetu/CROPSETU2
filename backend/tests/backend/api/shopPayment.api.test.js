@@ -375,6 +375,45 @@ describe('Order confirmation is bound to the buyer and the checkout', () => {
 
     expect(res.status).toBe(400);
   });
+
+  test('a captured signed triple cannot be replayed into a second paid order', async () => {
+    // C-2: the payment id used to live only inside the free-text `notes`
+    // ("razorpay:<id>") with no constraint, so a buyer who completed ONE genuine
+    // payment could re-fill the cart and replay the identical
+    // (orderId, paymentId, signature) triple forever — N orders for the price of
+    // one. `Order.paymentRef` is now UNIQUE and the replay is answered with the
+    // order the payment already produced.
+    await fillCart(1);
+    const init = await request(app).post(`${API}/orders/initiate`).set(farmer.headers)
+      .send({ paymentMethod: 'upi', deliveryAddress: address });
+    const razorpayOrderId = init.body.data.razorpayOrderId;
+
+    const triple = {
+      razorpayOrderId,
+      razorpayPaymentId: `pay_replay_${Date.now()}`,
+      razorpaySignature: 'x'.repeat(64),
+      deliveryAddress: address,
+    };
+
+    const first = await request(app).post(`${API}/orders/confirm`).set(farmer.headers).send(triple);
+    expect(first.status).toBe(201);
+
+    // Re-fill the cart: the replay is only worth anything if there is something
+    // new to be shipped for free.
+    await fillCart(1);
+
+    // No Idempotency-Key — this must be stopped by the payment id itself, not by
+    // the client happening to reuse a key.
+    const second = await request(app).post(`${API}/orders/confirm`).set(farmer.headers).send(triple);
+
+    // A legitimate retry (dropped response, app relaunch) looks identical, so the
+    // replay is answered with the existing order rather than an error.
+    expect(second.status).toBe(200);
+    expect(second.body.data.id).toBe(first.body.data.id);
+
+    const orders = await prisma.order.findMany({ where: { paymentRef: triple.razorpayPaymentId } });
+    expect(orders).toHaveLength(1);
+  });
 });
 
 describe('GET /payment-config — the app only offers what can be collected', () => {

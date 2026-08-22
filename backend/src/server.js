@@ -22,6 +22,7 @@ import { refreshAllSellerMetrics } from './services/sellerMetrics.service.js';
 import { reconcilePendingPayments } from './services/shopPayment.service.js';
 import { sweepBatchExpiry } from './services/shopCompliance.service.js';
 import { sweepExpiredReservations } from './services/stockReservation.service.js';
+import { reportOrphanedReferences } from './services/referentialIntegrity.service.js';
 import { checkShopAlerts, recordEvent, SHOP_EVENTS } from './services/shopMetrics.service.js';
 import { setSerializableConflictObserver } from './utils/txRetry.js';
 import { expireStaleAnimalListings } from './services/animalListing.service.js';
@@ -273,6 +274,25 @@ async function start() {
     // The startup mandi seed is inside deliberately: it is a one-shot boot job
     // that fans ~50 requests out to FastAPI, and only the scheduler should do it.
     if (ENV.CRON_ENABLED) {
+      // ── Referential-integrity report (money rails) ────────────────────────
+      // Daily at 3:40 AM UTC. SellerLedgerEntry, Payout and Dispute reference users
+      // through bare scalars with NO foreign key — deliberately, so `db push` stays
+      // the deploy path — which means a user deletion can orphan a payout and
+      // nothing at the database level objects. Write-time validation stops NEW
+      // orphans; only a sweep finds the ones created after the fact.
+      //
+      // Reports, never deletes: an orphaned payout might be an accounting problem
+      // or an erasure request honoured correctly, and only a human can tell which.
+      //
+      // Registered at the top of the gate rather than beside the other money-rail
+      // sweeps below purely because that is where the merge seam fell; cron
+      // registration order carries no meaning, and the leader lock is what keeps
+      // one instance running it.
+      cron.schedule('40 3 * * *', () => withLeaderLock('referential-integrity-report', async () => {
+        try { await reportOrphanedReferences(); }
+        catch (err) { logger.warn('[Integrity] orphan report failed: %s', err.message); }
+      }));
+
       // ── Cache warming ───────────────────────────────────────────────────────
       // Preload the hottest mandi-price keys so the first post-deploy user hits a
       // warm cache instead of paying the cold Groq latency. Fired right after

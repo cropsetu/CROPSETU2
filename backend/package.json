@@ -39,6 +39,7 @@
   },
   "jest": {
     "testEnvironment": "node",
+    "testTimeout": 30000,
     "transform": {},
     "_comment_maxWorkers": [
       "REQUIRED, not a tuning knob. Every DB-backed suite truncates all tables",

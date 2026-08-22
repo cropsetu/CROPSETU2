@@ -28,6 +28,7 @@ import { keysetList } from '../../utils/adminList.js';
 import { maskPhone } from '../../utils/adminPii.js';
 import { adminAudit, listParams } from './_helpers.js';
 import { ADMIN_ACTIONS } from '../../services/audit.service.js';
+import { assertUsersExist } from '../../services/referentialIntegrity.service.js';
 
 const router = Router();
 
@@ -186,6 +187,14 @@ router.post(
   validate,
   async (req, res) => {
     try {
+      // raisedBy / againstUser / assignedTo are all FK-less scalars. A dispute
+      // assigned to a deleted admin, or raised against a deleted user, is a case
+      // nobody can action and nothing would have refused.
+      await assertUsersExist(
+        [req.body.raisedBy ?? req.user.id, req.body.againstUser, req.body.assignedTo],
+        'dispute',
+      );
+
       const created = await prisma.dispute.create({
         data: {
           type: req.body.type,

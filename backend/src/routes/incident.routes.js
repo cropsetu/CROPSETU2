@@ -19,8 +19,15 @@ import {
   recordIncident, addIncidentUpdate, markNotified,
   listIncidents, getIncident,
 } from '../services/incident.service.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 
 const router = Router();
+
+// Structural UUID guard. These routes each carried their own param('...').isUUID(),
+// which works only for as long as every future route remembers to repeat it — the
+// invariant lived in a convention rather than anywhere it could be enforced. Same
+// 400 as the per-route chains, which stay in place.
+router.param('id', uuidParamGuard);
 
 const CATEGORIES = ['DATA_BREACH', 'UNAUTHORIZED_ACCESS', 'ACCOUNT_TAKEOVER', 'TOKEN_COMPROMISE', 'OTP_ABUSE', 'PII_EXPOSURE', 'VULNERABILITY', 'PHISHING', 'SYSTEM_COMPROMISE', 'FRAUD', 'OTHER'];
 const SEVERITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];

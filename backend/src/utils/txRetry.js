@@ -49,14 +49,24 @@ export async function withSerializableRetry(run, { attempts = 3, baseDelayMs = 2
       return await run(attempt);
     } catch (err) {
       lastErr = err;
-      if (attempt === attempts || !isRetryable(err)) throw err;
+      if (!isRetryable(err)) throw err;
       // Two buyers racing for the last unit. Normal, and retried — but the RATE
       // is a real operational signal: a sustained rise means genuine contention
       // on hot stock, and it is invisible without counting it here.
       try { _onConflict?.(); } catch { /* never let telemetry break a checkout */ }
+      if (attempt === attempts) break;
       const jitter = Math.random() * baseDelayMs;
       await new Promise((r) => setTimeout(r, baseDelayMs * attempt + jitter));
     }
   }
-  throw lastErr;
+
+  // Out of attempts on a genuine conflict. A raw Prisma error here carries no
+  // statusCode, so the route's catch block answered 500 — telling the buyer the
+  // server is broken when the truth is that the item is contended and the right
+  // action is to try again. 409 says that, and keeps the 5xx rate honest: losing
+  // a race is not an outage.
+  throw Object.assign(
+    new Error('That item is in high demand right now. Please try again in a moment.'),
+    { statusCode: 409, expose: true, code: 'SERIALIZATION_CONFLICT', cause: lastErr },
+  );
 }

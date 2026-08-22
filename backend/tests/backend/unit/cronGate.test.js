@@ -42,8 +42,17 @@ describe('the gate', () => {
     const inside  = serverSrc.slice(start, end).match(/cron\.schedule\(/g) || [];
     const outside = (serverSrc.match(/cron\.schedule\(/g) || []).length - inside.length;
 
-    expect(inside.length).toBe(12);
+    // `outside === 0` is the whole property: EVERY cron must be gated, so a
+    // replica started with CRON_ENABLED=false runs none of them.
+    //
+    // Deliberately not asserting an exact count any more. It used to say 12, and
+    // that number went stale the moment a colleague's security commit added a
+    // referential-integrity sweep — which was correctly inside the gate. A test
+    // that fails when someone adds a properly-gated cron is training people to
+    // edit the number rather than check the property, and the next person to do
+    // that on autopilot could bump it past an UNgated one.
     expect(outside).toBe(0);
+    expect(inside.length).toBeGreaterThanOrEqual(12);
   });
 
   it('declares triggerMandiSync and its caller in the SAME block', () => {

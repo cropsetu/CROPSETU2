@@ -15,8 +15,15 @@ import { sendSuccess, sendError, sendNotFound } from '../utils/response.js';
 import logger from '../utils/logger.js';
 import prisma from '../config/db.js';
 import { listFlags, resolveFlag, MODERATION_STATUSES } from '../services/moderation.service.js';
+import { uuidParamGuard } from '../middleware/uuidParams.js';
 
 const router = Router();
+
+// Structural UUID guard. These routes each carried their own param('...').isUUID(),
+// which works only for as long as every future route remembers to repeat it — the
+// invariant lived in a convention rather than anywhere it could be enforced. Same
+// 400 as the per-route chains, which stay in place.
+router.param('id', uuidParamGuard);
 
 function requireAdmin(req, res, next) {
   if (req.user?.role !== 'ADMIN') return sendError(res, 'Admin access required', 403);

@@ -16,6 +16,7 @@ import { sendSuccess, sendCreated, sendServerError, sendNotFound } from '../../u
 import { keysetList } from '../../utils/adminList.js';
 import { adminAudit, listParams } from './_helpers.js';
 import { ADMIN_ACTIONS } from '../../services/audit.service.js';
+import { assertUsersExist } from '../../services/referentialIntegrity.service.js';
 import {
   getSellerBalance,
   getCommissionRatePct,
@@ -79,6 +80,10 @@ sellersRouter.post(
     try {
       const sellerId = req.params.id;
       const amount = Number(req.body.amount);
+
+      // No FK on sellerId, so a typo in the admin console would silently create a
+      // ledger for a user that does not exist — and a balance nobody can ever see.
+      await assertUsersExist([sellerId], 'ledger entry');
 
       const entry = await prisma.$transaction(async (tx) => {
         const agg = await tx.sellerLedgerEntry.aggregate({ where: { sellerId }, _sum: { amount: true } });

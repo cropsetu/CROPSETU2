@@ -1,21 +1,42 @@
 import { Prisma } from '@prisma/client';
 
 /**
- * Apply per-product stock deltas in a SINGLE SQL statement.
+ * Stock mutation: signed deltas applied to seller_listings.stockQty, keyed by
+ * LISTING id, in a SINGLE SQL statement.
  *
- * The naive checkout/cancel path looped `tx.product.update({ decrement })` once
- * per cart item — O(n) DB round-trips, so write latency (and the time the
- * Serializable transaction holds its locks) scaled with cart size. This folds
- * every delta into one `UPDATE ... FROM (VALUES ...)`, giving a constant number
- * of statements per checkout regardless of cart size.
+ * Stock is a property of one seller's offer, not of the catalog entry. This
+ * replaced a product-targeted `UPDATE products SET stock = stock + delta` that
+ * decremented a row shared by every Kendra — one buyer's purchase silently
+ * drained all three sellers' stock. That statement is gone; every checkout,
+ * confirm, reservation and restock path goes through this one.
  *
- * `delta` is signed: negative decrements (checkout), positive increments
- * (cancellation/restock). Duplicate productIds are summed so a single product
- * never gets a partial update (an UPDATE with multiple matching VALUES rows
- * would otherwise apply only one of them).
+ * Negative deltas decrement (checkout), positive increment (cancellation /
+ * restock). Duplicate listingIds are summed so a single listing never gets a
+ * partial update — an UPDATE with multiple matching VALUES rows would otherwise
+ * apply only one of them.
  *
- * MUST be called inside the same transaction (`tx`) that validated stock, so
- * the read-validate-write stays atomic under Serializable isolation.
+ * MUST be called inside the same transaction (`tx`) that validated stock, so the
+ * read-validate-write stays atomic under Serializable isolation.
+ *
+ * One statement, not one per item: the naive checkout/cancel path looped
+ * `tx.product.update({ decrement })` once per cart item — O(n) DB round-trips,
+ * so write latency (and the time the Serializable transaction holds its locks)
+ * scaled with cart size. Folding every delta into one
+ * `UPDATE ... FROM (VALUES ...)` gives a constant number of statements per
+ * checkout regardless of cart size. Both functions here keep that property.
+ *
+ * One product-keyed exception survives, immediately below. A product that
+ * predates the catalog split has no variants, therefore no seller_listing,
+ * therefore no listingId on its cart row: checkout takes the DUAL-READ branch in
+ * validateCartForCheckout and its stock lives on `products.stock`, where
+ * applyListingStockDeltas cannot reach it. applyStockDeltas serves that case,
+ * and no other.
+ */
+
+/**
+ * LEGACY product-keyed stock mutation: signed deltas applied to products.stock,
+ * in a SINGLE SQL statement. Same shape and same guarantees as the listing-keyed
+ * function below.
  *
  * STILL REQUIRED after the catalog split, for exactly one case: a product that
  * predates the split has no variants, therefore no seller_listing, therefore no
@@ -29,6 +50,13 @@ import { Prisma } from '@prisma/client';
  * `p.stock < quantity` against a number that never went down, and the same last
  * unit could be sold without limit. 20 of 67 products in the development
  * database have no variants, so this was not a hypothetical branch.
+ *
+ * It reaches ONLY rows that have no seller_listing, so it cannot drain stock
+ * shared between Kendras — the failure that retired the old product-wide
+ * statement — and it carries the same `>= 0` guard, so it cannot oversell.
+ *
+ * MUST be called inside the same transaction (`tx`) that validated stock, so the
+ * read-validate-write stays atomic under Serializable isolation.
  *
  * @param {import('@prisma/client').Prisma.TransactionClient} tx
  * @param {Array<{ productId: string, delta: number }>} deltas
@@ -77,13 +105,8 @@ export async function applyStockDeltas(tx, deltas) {
 
 /**
  * Post-CATALOG-SPLIT stock mutation: deltas apply to seller_listings.stockQty,
- * keyed by LISTING id.
- *
- * Stock is a property of one seller's offer, not of the catalog entry. The
- * product-targeted statement above would decrement a row shared by every Kendra
- * — one buyer's purchase would silently drain all three sellers' stock. This
- * function replaces it on every checkout / restock path; applyStockDeltas is
- * retained only for the dual-write window and is dropped at CONTRACT.
+ * keyed by LISTING id. Every product that has variants takes this path; the
+ * legacy function above covers only the ones that do not.
  *
  * Same contract as applyStockDeltas: signed deltas, duplicates summed, MUST run
  * inside the Serializable transaction that validated stock.
@@ -91,13 +114,13 @@ export async function applyStockDeltas(tx, deltas) {
  * Also returns which listings CROSSED the zero boundary, because that is the only
  * stock event the buy box has to invalidate on (see buyBox.service.js).
  *
- * UNLIKE applyStockDeltas, this DOES carry a `stockQty + delta >= 0` guard in the
- * SQL. The old statement had none — correctness rested entirely on the caller's
- * in-transaction validation plus Serializable isolation, so any path that forgot
- * to validate first would drive stock negative silently. Here a row that would go
- * negative simply does not match, the RETURNING count comes up short, and we
- * throw a client-safe 400. It is defence in depth, not a replacement for
- * validating before the write.
+ * The `stockQty + delta >= 0` guard in the SQL is DEFENCE IN DEPTH, not a
+ * replacement for validating before the write. The deleted product-targeted
+ * statement had none, so correctness rested entirely on the caller remembering to
+ * validate first plus Serializable isolation; any path that forgot drove stock
+ * negative silently. Here a row that would go negative simply does not match, the
+ * RETURNING count comes up short, and the caller-agnostic check below throws a
+ * client-safe 400 that aborts the transaction.
  *
  * The guard is NOT `GREATEST(stockQty + delta, 0)`: clamping would turn an
  * over-sell into a *successful* order for the wrong quantity.
