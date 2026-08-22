@@ -294,7 +294,18 @@ const SORTS = {
   relevance:  [{ rating: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
   latest:     [{ createdAt: 'desc' }, { id: 'desc' }],
   rating:     [{ rating: 'desc' }, { ratingCount: 'desc' }, { id: 'desc' }],
-  popularity: [{ viewCount: 'desc' }, { rating: 'desc' }, { id: 'desc' }],
+  // `popularity` REMOVED (§17). It ordered by products.viewCount, and nothing
+  // increments that column: the only writer is the QC merge in
+  // admin/catalogQc.routes.js, which transfers an existing value between rows.
+  // Animal listings and community posts have their own viewCount and DO
+  // increment it — this was the product one, and it has always been zero for
+  // every row, so the sort silently degraded to `rating DESC, id DESC`.
+  //
+  // No client ever sent `sort=popularity` (grepped across all three apps), so
+  // removing it is not a contract change. §17 is explicit that the fix for a
+  // sort over a dead column is to remove the sort rather than index the column.
+  // An unknown `sort` value falls through to `relevance` below, which is what
+  // this used to degrade to anyway.
 };
 /** Sorts that depend on OFFER data, so they are applied after decoration. */
 const OFFER_SORTS = new Set(['price_asc', 'price_desc', 'discount']);
@@ -376,6 +387,18 @@ router.get(
         ...(Object.keys(priceFilter).length || req.query.verifiedSeller === 'true' ? [] : [{
           variants: { none: {} },
           isActive: true,
+          // `inStock` belongs HERE, in SQL, not in a post-decoration JS filter.
+          //
+          // It used to run as `decorated.filter(p => p.stock > 0)` AFTER `take`
+          // and `count`, which broke the page twice over: it removed rows from an
+          // already-limited page (so a 20-row page could return 11) while `meta`
+          // still reported the unfiltered total and page count. The client paged
+          // against numbers that did not describe what it received.
+          //
+          // The split-catalog branch above already requires `stockQty > 0` on the
+          // listing, so this flag only ever needed to constrain the LEGACY branch,
+          // whose stock still lives on the product row.
+          ...(req.query.inStock === 'true' ? { stock: { gt: 0 } } : {}),
           ...(featured ? { isFeatured: true } : {}),
           ...(buyer.district ? { OR: [{ district: { equals: buyer.district, mode: 'insensitive' } }, { district: null }] } : {}),
         }]),
@@ -415,8 +438,6 @@ router.get(
       ]);
 
       let decorated = await decorateWithOffers(products, buyer);
-
-      if (req.query.inStock === 'true') decorated = decorated.filter((p) => (p.stock ?? 0) > 0);
 
       if (offerSorted) {
         const num = (v) => (v == null ? null : Number(v));

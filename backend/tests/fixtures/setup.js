@@ -271,6 +271,15 @@ export async function cleanupTestData() {
     prisma.product.deleteMany(),
     prisma.subcategory.deleteMany(),
     prisma.category.deleteMany(),
+    // Community. Post.author and Comment.author are plain relations with no
+    // onDelete, i.e. RESTRICT — so a suite that creates a post or a comment
+    // blocks `user.deleteMany()` below exactly the way direct messages did.
+    // Likes and bookmarks go first because they FK the comment/post rows.
+    prisma.commentLike.deleteMany(),
+    prisma.postLike.deleteMany(),
+    prisma.postBookmark.deleteMany(),
+    prisma.comment.deleteMany(),
+    prisma.post.deleteMany(),
     // Direct messages FK the User on BOTH sides and are not cascaded, so any
     // suite that creates a DM would otherwise block `user.deleteMany()` below —
     // which aborts this whole transaction and leaves every table populated for

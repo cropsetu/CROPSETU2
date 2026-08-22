@@ -251,19 +251,52 @@ router.post('/posts/:id/bookmark', authenticate, async (req, res) => {
 });
 
 // ── Comments ──────────────────────────────────────────────────────────────────
+// Bounded on BOTH levels (§21/§47).
+//
+// This returned an entire thread — every top-level comment, each with every
+// nested reply — with no `take` anywhere. One popular post is unbounded work and
+// an unbounded payload, on a public route with no authentication.
+//
+// The response stays a bare array so existing clients are unaffected; the counts
+// go in `meta`, which is a separate field of the envelope, so a client that
+// ignores it behaves exactly as before.
+const COMMENT_PAGE = 50;
+const REPLY_PREVIEW = 10;
+
 router.get('/posts/:id/comments', async (req, res) => {
-  const comments = await prisma.comment.findMany({
-    where: { postId: req.params.id, parentId: null },
-    include: {
-      author: { select: { id: true, name: true, avatar: true } },
-      replies: {
-        include: { author: { select: { id: true, name: true, avatar: true } } },
-        orderBy: { createdAt: 'asc' },
+  const limit = parsePageSize(req.query.limit, COMMENT_PAGE, 100);
+  const page  = Math.max(parseInt(req.query.page || '1', 10) || 1, 1);
+  const skip  = (page - 1) * limit;
+
+  const [comments, total] = await Promise.all([
+    prisma.comment.findMany({
+      where: { postId: req.params.id, parentId: null },
+      include: {
+        author: { select: { id: true, name: true, avatar: true } },
+        replies: {
+          include: { author: { select: { id: true, name: true, avatar: true } } },
+          orderBy: { createdAt: 'asc' },
+          // A reply PREVIEW, not the whole sub-thread. Without this one comment
+          // with a thousand replies reintroduces the unbounded read that
+          // capping the outer level was meant to remove.
+          take: REPLY_PREVIEW,
+        },
+        _count: { select: { replies: true } },
       },
-    },
-    orderBy: { createdAt: 'asc' },
+      // `id` tiebreaks comments posted in the same millisecond; without it an
+      // offset page can repeat and skip rows.
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      skip,
+      take: limit,
+    }),
+    prisma.comment.count({ where: { postId: req.params.id, parentId: null } }),
+  ]);
+
+  return sendSuccess(res, comments, 200, {
+    total, page, limit,
+    hasMore: skip + comments.length < total,
+    replyPreview: REPLY_PREVIEW,
   });
-  return sendSuccess(res, comments);
 });
 
 router.post(
