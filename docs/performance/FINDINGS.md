@@ -708,3 +708,221 @@ drop the NEWEST rows — the ones `currentPrice` and `avg7` are computed from �
 a truncated window would quietly report last year's price as today's. A
 `truncated` flag reports when the cap bit, rather than serving a shortened window
 as a whole one.
+
+
+---
+
+## PERF-031 — Keyset pagination was correct only because production runs in UTC
+
+**P0 · COMPLETE**
+
+Component: `backend/src/utils/keyset.js`
+
+Prisma maps a bare `DateTime` to `timestamp(3) WITHOUT time zone` — every
+`createdAt` in this schema is that type — but binds a JS Date through
+`$queryRawUnsafe` as `timestamptz`. Comparing the two makes Postgres convert the
+naive column using the **session** TimeZone. The stored value is a UTC wall
+clock, so under a non-UTC session it reads as a local time and shifts.
+
+Walking a 50-row probe to exhaustion:
+
+| session TimeZone | result |
+|---|---|
+| UTC | 3 pages, 50/50 rows — correct |
+| Asia/Kolkata | cursor stuck on page 2, **20/50 reachable** |
+| America/New_York | cursor stuck on page 2, **20/50 reachable** |
+
+At Asia/Kolkata every row looks 5h30m earlier than it is, so
+`("createdAt","id") < cursor` matches the whole table and the seek returns page
+one forever.
+
+Fixed by passing the UTC wall clock as text and casting to `::timestamp` — with
+no zone on either side there is nothing to convert.
+
+**Scope is 3 routes, not 39.** `adminList.js`'s `keysetList` (36 admin call
+sites) expresses the same seek through Prisma's `where` builder, which knows the
+column type from the schema and binds correctly. Walked under all three
+timezones: 50/50 every time. It needs no change, and the comment now says so —
+"make them consistent" is the obvious wrong move.
+
+The test SETs TimeZone explicitly. UTC is included as a control and **passes with
+the bug restored**, which is the argument for pinning the timezone rather than
+testing in the ambient one: CI would have stayed green and kept lying.
+
+---
+
+## PERF-032 — Sellers could not see past their newest 20 products
+
+**P1 · COMPLETE**
+
+Component: `seller-app/src/screens/MyProductsScreen.js`, `backend/src/routes/agristore.routes.js`
+
+The screen asked for CURSOR pagination (`?paginate=cursor`, then `?cursor=…`)
+against a route that has only ever implemented OFFSET pagination. The shim
+returns `{page, limit, total, totalPages}` and no `nextCursor`, so the hook's
+cursor branch read undefined, set `hasMore=false`, and `loadMore()` returned
+early forever.
+
+Not a missing button — a lie. `onEndReached` did nothing, pull-to-refresh
+re-fetched page 1, and the footer rendered "That's everything" under row 20. The
+rest could not be edited, re-priced, hidden or deleted from the app. On the local
+database one seller has 47 listings, **27 unreachable**.
+
+Neither half was wrong alone, which is why it survived review: the sibling
+`/agristore/listings` really does speak cursor. The mismatch lived only in the
+pairing and no test crossed that boundary.
+
+Fixed on the client (offset is right for a list bounded by one seller's own
+inventory; `OrdersScreen` already uses this exact shape). Two companions:
+`keyOf: listingId ?? id` — the shim flattens a LISTING into the product shape, so
+two pack sizes share an `id` and the hook's dedupe would swallow one — and an
+`id` tiebreak on the server's `orderBy`, since offset paging is only stable when
+the sort is total.
+
+---
+
+## PERF-033 — Seller enumeration read every order item in the window
+
+**P1 · COMPLETE**
+
+Prisma does not push `distinct` into SQL. Captured statement:
+
+    SELECT "id", "sellerId" FROM order_items
+    WHERE ("sellerId" IS NOT NULL AND "createdAt" >= $1) OFFSET $2
+
+No DISTINCT, no LIMIT, and it drags `id` along. Every order item in the 180-day
+window crossed the DB→process boundary so the query engine could dedupe in memory.
+
+| | rows moved | time | RSS |
+|---|---:|---:|---:|
+| `findMany` + `distinct` | 540,036 | 594 ms | +127.8 MB |
+| `groupBy` | 5,000 | 89 ms | +0.1 MB |
+
+The RSS did not come back across three consecutive runs. Hourly cron, on the
+leader web replica, in the process serving HTTP.
+
+**The 180-day window is NOT the defect** and is unchanged — it is
+admin-configurable with a sound rationale (a low-volume Krushi Seva Kendra needs
+~six months of terminal orders before a cancellation rate has a denominator worth
+ranking on). Nor is the per-seller loop, measured at 1.3 ms/seller and already
+index-served and batched. One line of query shape was the whole thing.
+
+---
+
+## PERF-034 — AI history counted every message on the platform
+
+**P1 · COMPLETE**
+
+Prisma compiles `_count: { select: { messages: true } }` into a LEFT JOIN over
+`(SELECT "conversationId", COUNT(*) … WHERE 1=1 GROUP BY …)` — literally
+`WHERE 1=1`. Uncorrelated to the page, so it groups every message on the platform
+and the join discards other people's. Cost is a function of total platform
+messages, not of the requesting user.
+
+Measured on a 20k-conversation / 400k-message probe: `GET /ai/conversations`
+134 ms and **29,369 shared buffers to return 4 rows**; `/ai/scan/sessions`
+74.7 ms where the same page without `_count` is 0.059 ms.
+
+Three sites scoped with a `groupBy`, same shape as animaltrade's unread counts.
+Wire shape `_count: { messages: n }` preserved — the shipped apps read
+`item._count?.messages`. `?? 0` is load-bearing: groupBy returns no row for a
+zero-message conversation where Prisma emitted `COALESCE(…, 0)`.
+
+`/ai/conversations/:id` deliberately NOT converted: it emits the same SQL but is
+fast because a single-PK outer row lets the planner push the qualifier down
+(0.176 ms, 7 buffers). That is a property of the **plan**, not the query, and the
+comment says to look here first if it ever shows up slow.
+
+The counts were always CORRECT — a pure cost defect. Demonstrated: restoring
+`_count` leaves all four behavioural tests GREEN and fails only the two
+query-shape ones.
+
+---
+
+## PERF-035 — One process would buffer unbounded 100 MB videos
+
+**P1 · COMPLETE**
+
+multer uses `memoryStorage`, so each in-flight video upload holds the whole file
+resident. Five concurrent 99 MB uploads: 85 MB → 1,073 MB RSS. Ten: 1,202 MB.
+Three *rejected* 120 MB uploads still peaked at 618 MB, because multer only
+errors after reading past the limit. The hourly rate limiter is a per-user
+counter, not a concurrency gate.
+
+Being accurate about the size: "one account's hourly allowance in parallel is
+2 GB" treats a quota as a concurrency budget. Memory accrues only as bytes
+arrive and the socket timeout is 130 s, so the real bound is
+`attacker_uplink × 130 s` — still ~1 GB from any cloud host. These are Buffers,
+so they live outside the V8 old space and `--max-old-space-size` never sees it;
+the failure is the container OOM-killing the replica.
+
+Bounded at 4 in flight, **shedding** rather than queueing (a queued request keeps
+its socket, converting a memory problem into a connection problem). Per-process
+on purpose.
+
+Latent, not live — zero rows carry a video today. The five image uploaders share
+the same `memoryStorage` at 15 MB and are deliberately left alone, with a note.
+
+Tested against the guard directly rather than by racing HTTP, because the risk is
+counter DRIFT. Catches three distinct regressions: no ceiling (3 fail),
+`res.on('finish')` which misses client aborts (all 6 fail), `on` instead of
+`once` (2 fail).
+
+---
+
+## PERF-036 — The i18n backfill built ten languages to display one
+
+**P2 · COMPLETE** — closes the second half of PERF-020
+
+`lang/_backfill.js` was one 690 KB module of ten dictionaries, 861 keys each,
+imported at module scope and constructed at every cold start.
+
+Split into `lang/backfill/<code>.js` behind a shim at the original path, so no
+consumer changed. Measured on node v24, importing then touching `en`:
+
+| | eval | heapUsed |
+|---|---:|---:|
+| before | 7.18 ms | 5,136 KB |
+| after | 4.27 ms | 3,939 KB |
+
+177,188 bytes eager, 501,998 deferred — 73%. The ~1.2 MB of heap is the point,
+not the milliseconds. Hermes behaves differently and is **not measured**.
+
+**The trap worth remembering:** babel compiles an object literal that mixes a
+SPREAD with getter definitions through `_objectSpread`, which READS every
+property while assembling the result — invoking the getters and flattening them
+to values. The first attempt still worked, every content test passed, and all ten
+languages loaded at import anyway. Only the "evaluates none at import" assertion
+caught it.
+
+Verified equivalent, not assumed: all ten languages, 861 keys, same order and
+values, and `checkCoverage.js` (through `loadBundles.js`, the strictest resolver
+here) reports byte-identical output. The file's "AUTO-GENERATED — 612 keys"
+banner was wrong twice: no generator exists, and there are 861.
+
+---
+
+## PERF-037 — Expo receipt polling: investigated, deliberately NOT built
+
+**P3 · CLOSED — the blocker is the client half, not this one**
+
+`push.service.js` discards `ticket.id` (the receipt id) and nothing ever calls
+`getPushNotificationReceiptsAsync`. All of that is true. It is also, today,
+irrelevant.
+
+**Nothing ever writes a row to `push_tokens`.** The only writer is
+`POST /users/me/push-token`, and no client calls it: neither app depends on
+`expo-notifications`, and `getExpoPushTokenAsync` appears nowhere. So
+`deliverUserNotification` hits `if (!messages.length) return;` on every call —
+Expo is never contacted, no ticket is ever minted, and there is no receipt to
+poll. The table has 0 rows.
+
+The stated harm (dead tokens accumulating forever, wasted Expo sends, multiplied
+by broadcasts) therefore cannot be occurring. Building a table, a manual SQL
+migration, a leader-locked cron and a five-case suite for a path that will
+process zero rows on every tick until client registration ships is exactly the
+speculative work §7 and §73 forbid.
+
+**If §45 is the goal, the work is in the app**: add `expo-notifications`, call
+`getExpoPushTokenAsync`, and POST to the endpoint that already exists. Receipt
+polling becomes worth building the moment that lands — not before.

@@ -2,8 +2,8 @@
 
 ## Current Item
 
-PERF-021 — feature-by-feature sweep (claude.md §71). Working the findings it
-produced; §18, §27, §32, §46, §58 and §62–64 are now answered.
+The §71 backlog is drained. Every item on the list carried into this session is
+closed, either fixed or closed with reasons.
 
 ## Status
 
@@ -14,8 +14,23 @@ environment with mocked AI providers (load testing, §62/§63).
 
 ## Current Feature
 
-Data growth (§26/§27), offline behaviour (§46), the test harness, and a
-correctness sweep for Decimal arithmetic that came out of the mandi work.
+None in progress. The last batch covered pagination correctness, seller metrics,
+AI history read cost, upload memory, and mobile start-up cost.
+
+## Two lessons from this batch worth keeping
+
+**Query-shape defects are invisible to behavioural tests.** PERF-033 and
+PERF-034 both return the CORRECT answer by the wrong route — `distinct` resolved
+in the client, an aggregate uncorrelated to the page. Every value assertion
+passes before and after. Demonstrated rather than argued: restoring the
+`_count` bug leaves all four behavioural tests green and fails only the two
+query-shape ones. Where a fix changes cost rather than output, the test has to
+observe the SQL.
+
+**A test that runs only in the ambient environment can keep lying.** PERF-031's
+UTC control passes WITH the bug restored. Had the suite tested only in the
+machine's own timezone, CI would have stayed green while cursor pagination was
+broken for every developer outside UTC.
 
 ## What was discovered
 
@@ -145,6 +160,13 @@ Behavioural, measured locally — no production telemetry is available:
 | PERF-028 | `reviews` index prefix-subsumed — proven, not dropped | EXPLAIN, 200k rows |
 | PERF-029 | Decimal `+` concatenates — two live wrong-number bugs | revert → fails in both files |
 | PERF-030 | Mandi trend unbounded: 146k rows / 15.2 MB | revert → 2 of 6 fail |
+| PERF-031 | Keyset paging broken on any non-UTC session TimeZone | 20/50 rows → 50/50 |
+| PERF-032 | Sellers capped at their newest 20 products | 27 of 47 were unreachable |
+| PERF-033 | Seller enumeration read 540k rows to return 5k | 594 ms → 89 ms, +128 MB → +0.1 MB |
+| PERF-034 | AI history counted every message on the platform | 29,369 buffers → page-scoped |
+| PERF-035 | Unbounded 100 MB video buffering | 1,202 MB RSS → bounded at 4 in flight |
+| PERF-036 | i18n backfill built ten languages to show one | 5,136 KB → 3,939 KB heap |
+| PERF-037 | Expo receipts — investigated, **not built** (no client writes tokens) | — |
 
 ## Next item
 
