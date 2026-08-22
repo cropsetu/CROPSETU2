@@ -9,6 +9,7 @@ import { SESSION_IDLE_TIMEOUT_MS } from '../constants/config';
 import { solveProofOfWork } from '../utils/proofOfWork';
 import { resetSocket } from '../services/socket';
 import { isDefinitiveAuthFailure } from '../services/authFailure';
+import { registerForPushNotifications, forgetPushRegistration } from '../services/pushRegistration';
 
 const AuthContext = createContext(null);
 
@@ -47,6 +48,12 @@ export function AuthProvider({ children }) {
       // ignore
     }
     resetSocket();
+    // Forget the memo so the NEXT person to log in on this device re-POSTs the
+    // token and claims it. The token belongs to the device, but the row maps it
+    // to a user — without this, their pushes would keep arriving against the
+    // previous user's row. The server's upsert reassigns userId on conflict,
+    // which handles it, but only if the token is actually sent again.
+    forgetPushRegistration();
     await clearTokens();
     setUser(null);
     setIsLoggedIn(false);
@@ -93,6 +100,12 @@ export function AuthProvider({ children }) {
           setUser(data.data);
           setIsLoggedIn(true);
           markActivity(true); // start a fresh idle clock on restore
+          // Register on RESTORE as well as on login. A returning farmer opens the
+          // app with a stored session and never touches verifyOtp, so without
+          // this only brand-new logins would ever have a push token — which is
+          // almost nobody after the first week. Also the natural place to pick up
+          // a token Expo rotated while the app was closed.
+          registerForPushNotifications();
         }
       } catch (err) {
         // Same rule as performRefresh: only a definitive rejection ends the
@@ -169,6 +182,10 @@ export function AuthProvider({ children }) {
       setUser(data.data.user);
       setIsLoggedIn(true);
       markActivity(true); // start the idle clock at login
+      // Fire-and-forget on purpose: registration needs a permission prompt and a
+      // network round trip, and neither should stand between a farmer and their
+      // home screen. It never throws — see pushRegistration.js.
+      registerForPushNotifications();
     }
     return data;
   }, [markActivity]);

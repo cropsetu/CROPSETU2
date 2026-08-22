@@ -16,6 +16,11 @@ module.exports = {
   // normal upward lookup. Point resolution at this package's install.
   modulePaths: ['<rootDir>/node_modules'],
   moduleNameMapper: {
+    // react-native's entry point is untransformed Flow, so any module importing
+    // it — even only for `Platform.OS` — fails to parse under this config's
+    // plain babel transform. See src/__mocks__/react-native.js for why a stub is
+    // the right answer here rather than adding the jest-expo preset.
+    '^react-native$': '<rootDir>/src/__mocks__/react-native.js',
     '^@cropsetu/shared/(.*)$': '<rootDir>/../shared/$1',
     // AsyncStorage is a native module, so importing it under the node
     // environment throws. The package ships an in-memory mock for exactly this
