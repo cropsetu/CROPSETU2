@@ -16,13 +16,33 @@
 import redis from '../config/redis.js';
 import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
+import { BoundedMap } from '../utils/boundedMap.js';
 
 const FAIL_KEY  = (p) => `otp:fail:${p}`;
 const LOCK_KEY  = (p) => `otp:lock:${p}`;
 const CYCLE_KEY = (p) => `otp:lockcycle:${p}`;
 
 // In-memory fallback: phone -> { fails, failExpiry, lockUntil, cycles, cycleExpiry }
-const mem = new Map();
+//
+// BOUNDED (§10). memEntry() creates an entry on every CHECK, not only on a
+// failure, and only ever deletes on a successful verification — so an OTP flood
+// against enumerated phone numbers while Redis is down grew this without limit,
+// one entry per number tried. That is an attacker-controlled key space, which
+// is exactly the shape §10 exists to stop.
+//
+// No TTL: an entry carries a lockout, and expiring one early would hand back
+// attempts — the same reasoning rateLimit.js records. LRU is the right eviction
+// here rather than a concern: a number under active attack is the most recently
+// touched key, so it is the last thing evicted, while the entries dropped under
+// pressure are the quiet ones holding an expired lock anyway.
+const MEM_MAX_KEYS = 50_000;
+const mem = new BoundedMap({ maxSize: MEM_MAX_KEYS });
+
+/** Test-only: live key count in the fallback store, so the §10 bound can be
+ *  asserted rather than assumed. */
+export function otpLockoutStoreSize() {
+  return mem.size;
+}
 
 /** Test-only: clear the in-memory store so locks don't leak between test files. */
 export function resetOtpLockoutStore() {

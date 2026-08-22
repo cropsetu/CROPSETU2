@@ -35,6 +35,7 @@ import redis from '../config/redis.js';
 import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
 import { deviceKey } from './loginRisk.service.js';
+import { BoundedMap } from '../utils/boundedMap.js';
 
 /** Canonical action keys (must match the keys in ENV.VELOCITY_RULES). */
 export const VELOCITY_ACTIONS = Object.freeze({
@@ -51,7 +52,26 @@ let _seq = 0;
 
 // In-memory fallback: key -> sorted array of event timestamps (ms). Pruned to the
 // active window on every access so a key can't outgrow its window's traffic.
-const mem = new Map();
+//
+// BOUNDED, because pruning inside a key was never the growth risk (§10). Each
+// key's array is trimmed to its window, but the KEY SET grew once per distinct
+// userId, device fingerprint and IP the process ever saw, and nothing removed a
+// key that went quiet — so with Redis down, memory was O(all identities seen)
+// for the life of the process rather than O(active traffic).
+//
+// Deliberately NO TTL, for the reason rateLimit.js documents: expiring a
+// velocity bucket early hands an attacker a fresh allowance, which weakens a
+// fraud control to save memory. LRU eviction is also the right policy under
+// attack — the identities being flooded are by definition the hottest keys, so
+// they are the last evicted; what gets dropped is the long tail of quiet ones.
+const MEM_MAX_KEYS = 50_000;
+const mem = new BoundedMap({ maxSize: MEM_MAX_KEYS });
+
+/** Test-only: live key count in the fallback store, so the §10 bound can be
+ *  asserted rather than assumed. */
+export function velocityStoreSize() {
+  return mem.size;
+}
 
 /** Test-only: clear the in-memory store so counters don't leak between files. */
 export function resetVelocityStore() {

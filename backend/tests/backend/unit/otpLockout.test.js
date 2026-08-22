@@ -82,3 +82,41 @@ test('lock auto-clears once the backoff window elapses (timeout)', async () => {
     jest.useRealTimers();
   }
 });
+
+// ── §10 — the in-memory fallback must be bounded ────────────────────────────
+// memEntry() creates an entry on every CHECK, not only on a failure, and only
+// ever deletes on a successful verification. So an OTP flood against enumerated
+// phone numbers while Redis is down grew this Map without limit, one entry per
+// number tried — an attacker-controlled key space, which is precisely the shape
+// §10 exists to stop.
+describe('§10 bounded fallback store', () => {
+  test('does not grow without limit as distinct numbers are probed', async () => {
+    const { otpLockoutStoreSize } = await import('../../../src/services/otpLockout.service.js');
+    for (let i = 0; i < 60_000; i++) {
+      await checkOtpLock(`90000${String(i).padStart(5, '0')}`);
+    }
+    // 60k enumerated numbers against a 50k cap. Before the fix every one stayed.
+    expect(otpLockoutStoreSize()).toBeLessThanOrEqual(50_000);
+    expect(otpLockoutStoreSize()).toBeGreaterThan(0);
+  });
+
+  test('a number under active attack keeps its lockout while the tail is evicted', async () => {
+    // The security question this bound raises, answered: does capping hand an
+    // attacker their attempts back? No — LRU evicts the COLDEST keys, and a
+    // number being attacked is the hottest. It survives; the quiet entries
+    // holding long-expired state are what get dropped.
+    const { otpLockoutStoreSize } = await import('../../../src/services/otpLockout.service.js');
+    const victim = '9111111111';
+    await failUntilLocked(victim);
+    expect((await checkOtpLock(victim)).locked).toBe(true);
+
+    for (let i = 0; i < 55_000; i++) {
+      await checkOtpLock(`92000${String(i).padStart(5, '0')}`);
+      // Keep the victim warm the way a real attack would.
+      if (i % 5_000 === 0) await checkOtpLock(victim);
+    }
+
+    expect(otpLockoutStoreSize()).toBeLessThanOrEqual(50_000);
+    expect((await checkOtpLock(victim)).locked).toBe(true);
+  });
+});

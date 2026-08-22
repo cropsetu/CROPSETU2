@@ -143,3 +143,41 @@ describe('recordVelocity — robustness', () => {
     expect(r.counts.user).toBe(1);
   });
 });
+
+// ── §10 — the in-memory fallback must be bounded ────────────────────────────
+// Per-key pruning was never the growth risk. Each key's timestamp array is
+// trimmed to its window, but the KEY SET grew once per distinct userId, device
+// fingerprint and IP the process ever saw, and nothing removed a key that went
+// quiet. With Redis down that is O(all identities ever seen) for the life of the
+// process — and the key space is chosen by the caller, which is exactly the
+// shape §10 exists to stop.
+describe('§10 bounded fallback store', () => {
+  test('does not grow without limit as distinct identities arrive', async () => {
+    const { velocityStoreSize } = await import('../../../src/services/velocity.service.js');
+    for (let i = 0; i < 60_000; i++) {
+      await recordVelocity({ action: 'login', identities: { user: `u${i}` } });
+    }
+    // 60k distinct users against a 50k cap. Before the fix all 60k were kept.
+    expect(velocityStoreSize()).toBeLessThanOrEqual(50_000);
+    expect(velocityStoreSize()).toBeGreaterThan(0);
+  });
+
+  test('an identity under sustained pressure keeps its own history', async () => {
+    // Why LRU is right here rather than merely acceptable: the identity being
+    // flooded is by definition the hottest key, so it is the last evicted. A
+    // bound that discarded the attacker's own counter would be worse than none.
+    const { velocityStoreSize } = await import('../../../src/services/velocity.service.js');
+    for (let i = 0; i < 4; i++) {
+      await recordVelocity({ action: 'login', identities: { user: 'attacker' } });
+    }
+    for (let i = 0; i < 55_000; i++) {
+      await recordVelocity({ action: 'login', identities: { user: `noise${i}` } });
+      if (i % 5_000 === 0) {
+        await recordVelocity({ action: 'login', identities: { user: 'attacker' } });
+      }
+    }
+    const d = await recordVelocity({ action: 'login', identities: { user: 'attacker' } });
+    expect(velocityStoreSize()).toBeLessThanOrEqual(50_000);
+    expect(d.counts.user).toBeGreaterThan(1);
+  });
+});
