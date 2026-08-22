@@ -139,10 +139,25 @@ export async function refreshAllSellerMetrics({ batchSize = 10 } = {}) {
   const from = await windowStart();
 
   const [active, never] = await Promise.all([
-    prisma.orderItem.findMany({
+    // groupBy, NOT findMany + distinct. Prisma does not push `distinct` into
+    // SQL — it emits a plain SELECT with no DISTINCT and no LIMIT, streams every
+    // matching row into the query engine, and dedupes there. So enumerating the
+    // sellers active in a 180-day window read every order item in that window.
+    //
+    // Measured on a 630k-row probe (540,036 rows in window, 5,000 sellers):
+    //   findMany + distinct   540,036 rows moved   594 ms   +127.8 MB RSS
+    //   groupBy                 5,000 rows moved    89 ms    +0.1 MB RSS
+    // and the RSS was not returned across three consecutive runs (59 → 188.7 →
+    // 247.5 → 252.3 MB). This is an hourly cron on the leader web replica — the
+    // same process serving HTTP — so that is a step on a process with a tightly
+    // budgeted pool, and it grows linearly with order volume.
+    //
+    // The returned shape is identical ({ sellerId }[]), so the consumer below is
+    // untouched. Order differs (hash-aggregate vs table order) and is not
+    // load-bearing: the ids go straight into a Set and are sliced into batches.
+    prisma.orderItem.groupBy({
+      by: ['sellerId'],
       where: { sellerId: { not: null }, createdAt: { gte: from } },
-      select: { sellerId: true },
-      distinct: ['sellerId'],
     }),
     prisma.sellerProfile.findMany({
       where: { metricsUpdatedAt: null },
