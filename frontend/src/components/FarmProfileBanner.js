@@ -17,6 +17,7 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { useFarm } from '../context/FarmContext';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import PhotoIcon from './PhotoIcon';
 import CropIcon from '@cropsetu/shared/components/CropIcons';
 import SoilIcon from './SoilIcons';
 import IrrigationIcon from './IrrigationIcons';
@@ -104,7 +105,8 @@ export default function FarmProfileBanner({ onEdit, compact = false, style }) {
         {cropName ? (
           <Chip>
             <View style={[S.iconWrap, { width: iconSize + 4, height: iconSize + 4 }]}>
-              <CropIcon crop={cropName} size={iconSize} />
+              <PhotoIcon set="crop" name={cropName} size={iconSize} radius={8}
+                fallback={<CropIcon crop={cropName} size={iconSize} />} />
             </View>
             <Text style={[S.chipLabel, { fontSize: labelSize }]} numberOfLines={1}>
               {cropName}

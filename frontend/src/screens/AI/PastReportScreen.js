@@ -193,7 +193,7 @@ function buildReportHTML(row, fields, t) {
   .ctx span { margin-right: 12px; }
   footer { margin-top: 28px; font-size: 10px; color: #9CA3AF; border-top: 1px solid #E5E7EB; padding-top: 10px; }
 </style></head><body>
-  <h1>CropSetu — ${t('pastReportPdf.title')}</h1>
+  <h1>KrushiSarva — ${t('pastReportPdf.title')}</h1>
   <div class="meta">${t('pastReportPdf.generatedOn')} ${escape(generatedAt)}</div>
 
   <div class="ctx">
@@ -260,7 +260,7 @@ export default function PastReportScreen({ navigation, route }) {
       if (canShare) {
         await Sharing.shareAsync(uri, {
           mimeType: 'application/pdf',
-          dialogTitle: `CropSetu Diagnosis — ${fields.diseaseName}`,
+          dialogTitle: `KrushiSarva Diagnosis — ${fields.diseaseName}`,
           UTI: 'com.adobe.pdf',
         });
       } else {
@@ -277,7 +277,7 @@ export default function PastReportScreen({ navigation, route }) {
     if (!row) return;
     const fields = pickReportFields(row);
     const text =
-      `CropSetu Diagnosis\n` +
+      `KrushiSarva Diagnosis\n` +
       `Crop: ${row.cropType || '—'}\n` +
       `Disease: ${fields.diseaseName} (${fields.confidencePct}% confidence)\n` +
       `Risk: ${fields.riskLevel}\n` +
@@ -293,7 +293,7 @@ export default function PastReportScreen({ navigation, route }) {
         await FileSystem.writeAsStringAsync(path, text);
         await Sharing.shareAsync(path, {
           mimeType: 'text/plain',
-          dialogTitle: `CropSetu Diagnosis — ${fields.diseaseName}`,
+          dialogTitle: `KrushiSarva Diagnosis — ${fields.diseaseName}`,
         });
       }
     } catch (e) {

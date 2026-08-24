@@ -50,6 +50,13 @@ export const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL
   || (__DEV__ ? `http://${DEV_HOST}:3001` : PROD_SOCKET);
 
 // ── OTP / auth limits ──────────────────────────────────────────────────────
+/**
+ * Cloudinary cloud that serves the UI image sets (IMAGE_PROCESS.md §4).
+ * Public by design — it appears in every delivery URL. Overridable per build.
+ */
+export const CLOUDINARY_CLOUD_NAME =
+  process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dowvcsedp';
+
 export const OTP_MAX_ATTEMPTS        = 5;
 
 // ── Storage keys ───────────────────────────────────────────────────────────

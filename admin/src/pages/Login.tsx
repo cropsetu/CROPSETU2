@@ -57,7 +57,7 @@ export default function LoginPage() {
       <Card className="w-full max-w-sm p-6">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-700 text-white"><Sprout className="h-6 w-6" /></div>
-          <h1 className="text-lg font-semibold text-slate-900">CropSetu Admin</h1>
+          <h1 className="text-lg font-semibold text-slate-900">KrushiSarva Admin</h1>
           <p className="text-sm text-slate-500">Sign in with your administrator phone number.</p>
         </div>
 

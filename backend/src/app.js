@@ -46,6 +46,7 @@ import weatherRoutes       from './routes/weather.routes.js';
 import marketRoutes        from './routes/market.routes.js';
 import plannerRoutes       from './routes/planner.routes.js';
 import schemesRoutes       from './routes/schemes.routes.js';
+import notificationsRoutes from './routes/notifications.routes.js';
 // Rent marketplace
 import rentRoutes          from './routes/rent.routes.js';
 // Saved delivery addresses
@@ -457,6 +458,7 @@ app.use(`${API}/weather`,      weatherRoutes);
 app.use(`${API}/market`,       marketRoutes);
 app.use(`${API}/planner`,      plannerRoutes);
 app.use(`${API}/schemes`,      schemesRoutes);
+app.use(`${API}/notifications`, notificationsRoutes);
 app.use(`${API}/addresses`,    addressesRoutes);
 app.use(`${API}/consent`,      consentRoutes);
 app.use(`${API}/admin/incidents`, incidentRoutes);

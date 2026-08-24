@@ -533,7 +533,7 @@ const ALIASES = {
   'gale':            'windy',
 };
 
-function resolveVariant(condition) {
+export function resolveVariant(condition) {
   const norm = String(condition || '')
     .trim()
     .toLowerCase()

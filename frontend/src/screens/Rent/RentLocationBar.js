@@ -77,6 +77,70 @@ function Chip({ label, active, onPress, a11yLabel }) {
  * need one, so the tap opens the picker — which offers GPS, a district, and the
  * reason — instead of silently doing nothing.
  */
+/**
+ * The location pill alone — it now lives inside the search row, so a farmer sees
+ * "what am I searching" and "where" together instead of on two stacked bars.
+ * Tapping it expands the radius chips underneath rather than opening the sheet,
+ * because changing the radius is the far more common action.
+ */
+export function RentLocationPill({ prefs, coords, expanded, onToggle, onOpen }) {
+  const { t } = useLanguage();
+  const usable = !!coords;
+  const live   = prefs.source === SOURCE.GPS && usable;
+  const manual = prefs.source === SOURCE.DISTRICT && !!prefs.district;
+  const tint   = live ? COLORS.primary : manual ? COLORS.blue : COLORS.grayMid;
+  const label  = live
+    ? t('rent.srcNearMe', 'Near me')
+    : manual ? prefs.district : t('rent.setLocation', 'Set location');
+
+  return (
+    <Pressable
+      style={S.locPillInline}
+      onPress={() => { Haptics.selection(); usable ? onToggle() : onOpen(); }}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !!expanded }}
+      accessibilityLabel={t('rent.locChange', 'Change location')}
+      accessibilityValue={{ text: label }}
+    >
+      <Ionicons name={live ? 'location' : manual ? 'map-outline' : 'location-outline'} size={14} color={tint} />
+      <Text style={[S.locPillTxt, (live || manual) && { color: tint }]} numberOfLines={1}>{label}</Text>
+      <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={12} color={COLORS.grayMid} />
+    </Pressable>
+  );
+}
+
+/** Radius chips only — rendered under the search box when the pill is expanded. */
+export function RentRadiusRow({ prefs, coords, onChange, onOpen }) {
+  const { t } = useLanguage();
+  const usable = !!coords;
+  const activeKm = !usable ? undefined : prefs.source === SOURCE.ALL ? null : prefs.radiusKm;
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={S.radiusScroll}
+      accessibilityRole="radiogroup"
+    >
+      {RADIUS_OPTIONS.map((km) => (
+        <Chip
+          key={String(km)}
+          label={km == null ? t('rent.distAll', 'All') : t('rent.radiusKm', { km })}
+          active={activeKm === km}
+          onPress={() => onChange(km)}
+          a11yLabel={km == null
+            ? t('rent.distAnyA11y', 'Any distance')
+            : t('rent.radiusKmA11y', { km, defaultValue: `Within ${km} kilometres` })}
+        />
+      ))}
+      <Pressable style={S.changeLoc} onPress={() => { Haptics.selection(); onOpen(); }}
+                 accessibilityRole="button">
+        <Ionicons name="options-outline" size={13} color={COLORS.grayMid} />
+        <Text style={S.changeLocTxt}>{t('rent.locChange', 'Change location')}</Text>
+      </Pressable>
+    </ScrollView>
+  );
+}
+
 export function RentDistanceRow({ prefs, coords, onOpen, onChange }) {
   const { t } = useLanguage();
 
@@ -324,6 +388,15 @@ export function RentLocationSheet({
 }
 
 const S = StyleSheet.create({
+  locPillInline: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 8,
+    borderRadius: 999, backgroundColor: COLORS.surface,
+    borderWidth: 1, borderColor: COLORS.border, maxWidth: 132,
+  },
+  radiusScroll: { paddingHorizontal: 14, paddingBottom: 10, gap: 8, alignItems: 'center' },
+  changeLoc: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6 },
+  changeLocTxt: { fontSize: 11, color: COLORS.grayMid, fontWeight: '600' },
   // One row: pill + chips. Mirrors the Animals tab's distRow/locBtn.
   distRow: {
     flexDirection: 'row', alignItems: 'center',

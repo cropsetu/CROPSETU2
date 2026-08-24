@@ -313,7 +313,7 @@ export default function OrderConfirmedScreen({ route, navigation }) {
 
         {/* Thank you note */}
         <Animated.Text style={[S.thanksTxt, { opacity: btnOp }]}>
-          Thank you for shopping with CropSetu!
+          Thank you for shopping with KrushiSarva!
         </Animated.Text>
 
       </ScrollView>

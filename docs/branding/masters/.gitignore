@@ -1,0 +1,9 @@
+# Generated image masters — hundreds of MB, and every one is reproducible from the
+# prompt SHA-256 recorded in generated.json plus the batch definitions in
+# scripts/brand-assets/. Keeping them out of the repo keeps clones small.
+#
+# The SHIPPED assets (frontend/assets/**, and the CDN copies) are what the app uses;
+# these are the archived originals they were derived from.
+*
+!.gitignore
+!generated.json

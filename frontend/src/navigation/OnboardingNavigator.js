@@ -7,6 +7,7 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
+import OnboardingIntroScreen from '../screens/Onboarding/OnboardingIntroScreen';
 import OnboardingLanguageScreen from '../screens/Onboarding/OnboardingLanguageScreen';
 import OnboardingProfileScreen from '../screens/Onboarding/OnboardingProfileScreen';
 
@@ -34,6 +35,7 @@ export default function OnboardingNavigator() {
     <ErrorCatcher>
       <NavigationContainer>
         <Stack.Navigator screenOptions={{ headerShown: false, gestureEnabled: false }}>
+          <Stack.Screen name="OnboardingIntro" component={OnboardingIntroScreen} />
           <Stack.Screen name="OnboardingLanguage" component={OnboardingLanguageScreen} />
           <Stack.Screen name="OnboardingProfile" component={OnboardingProfileScreen} />
         </Stack.Navigator>

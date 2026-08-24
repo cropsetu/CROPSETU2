@@ -80,7 +80,7 @@ export default function SowingLogScreen({ navigation, route }) {
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
       <SectionHeader icon="leaf-outline" tint={COSMIC.SOWING} title={t('sowingLog.sectionMethod')} />
-      <TileGrid items={methodItems} value={method} onChange={setMethod} columns={2} />
+      <TileGrid items={methodItems} value={method} onChange={setMethod} columns={2}  photoSet="sow" />
 
       <SectionHeader icon="nutrition-outline" tint={COSMIC.SOWING} title={t('sowingLog.sectionSeedUsed')} optional />
       <Card><BigNumberInput value={seedKg} onChange={setSeedKg} unit="KG" keyboardType="decimal-pad" tint={COSMIC.SOWING} /></Card>

@@ -11,6 +11,7 @@ import {
   Platform, Animated, Image, StatusBar, Dimensions, Easing, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import PhotoIcon from '../../components/PhotoIcon';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '@cropsetu/shared/services/api';
@@ -933,7 +934,8 @@ export default function CheckoutScreen({ route, navigation }) {
                       <View style={{ width: 60, height: 60, borderRadius: 12, backgroundColor: COLORS.background, overflow: 'hidden' }}>
                         {image
                           ? <Image source={{ uri: image }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                          : <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="leaf" size={24} color={COLORS.primary} /></View>
+                          : <PhotoIcon set="placeholders" name="product" fill radius={12}
+                              fallback={<View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="leaf" size={24} color={COLORS.primary} /></View>} />
                         }
                       </View>
                       <View style={{ flex: 1 }}>
@@ -1104,7 +1106,7 @@ export default function CheckoutScreen({ route, navigation }) {
         amountPaise={rzp?.amountPaise}
         buyerName={selectedAddrObj?.name}
         buyerPhone={selectedAddrObj?.phone}
-        description={`${quote?.itemCount ?? cartItems.length} item(s) · CropSetu`}
+        description={`${quote?.itemCount ?? cartItems.length} item(s) · KrushiSarva`}
         onSuccess={handlePaymentSuccess}
         onDismiss={handlePaymentDismiss}
         onFailure={handlePaymentFailure}

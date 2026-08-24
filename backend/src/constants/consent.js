@@ -33,7 +33,7 @@ export const CONSENT_PURPOSE_VALUES = Object.values(CONSENT_PURPOSES);
 // Human-readable descriptions surfaced to the client (informed consent).
 export const CONSENT_PURPOSE_INFO = {
   TERMS_OF_SERVICE: { required: true,  label: 'Terms of Service',
-    description: 'You agree to the Terms of Service governing use of CropSetu.' },
+    description: 'You agree to the Terms of Service governing use of KrushiSarva.' },
   PRIVACY_POLICY:   { required: true,  label: 'Privacy Policy',
     description: 'You acknowledge the Privacy Policy describing how your data is processed.' },
   DATA_PROCESSING:  { required: true,  label: 'Personal data processing',

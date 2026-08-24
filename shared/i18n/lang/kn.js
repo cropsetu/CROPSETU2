@@ -1,6 +1,6 @@
 /** Kannada — ಕನ್ನಡ */
 export default {
-  appName: 'CropSetu',
+  appName: 'KrushiSarva',
   loading: 'ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
   cancel: 'ರದ್ದು',
   save: 'ಉಳಿಸಿ',
@@ -161,7 +161,7 @@ export default {
   help: 'ಸಹಾಯ & ಬೆಂಬಲ',
   helpSub: 'FAQ ಮತ್ತು ಸಂಪರ್ಕಿಸಿ',
   terms: 'ನಿಯಮಗಳು & ಗೌಪ್ಯತೆ',
-  rate: 'CropSetu ಅನ್ನು ರೇಟ್ ಮಾಡಿ',
+  rate: 'KrushiSarva ಅನ್ನು ರೇಟ್ ಮಾಡಿ',
   rateSub: 'ನಿಮ್ಮ ಪ್ರತಿಕ್ರಿಯೆ ಹಂಚಿಕೊಳ್ಳಿ',
   govSchemes: 'ಸರ್ಕಾರಿ ಯೋಜನೆಗಳು',
   govSchemesSub: 'PM ಕಿಸಾನ್, ಬೆಳೆ ವಿಮೆ, ಮಣ್ಣು ಆರೋಗ್ಯ ಕಾರ್ಡ್ & ಹೆಚ್ಚಿನವು',
@@ -192,7 +192,7 @@ export default {
     resendIn:      '{{sec}} ಸೆಕೆಂಡುಗಳಲ್ಲಿ ಕೋಡ್ ಮತ್ತೆ ಕಳುಹಿಸಿ',
     confirmBtn:    'ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಿ',
     doneTitle:     'ಖಾತೆ ಅಳಿಸಲಾಗಿದೆ',
-    doneMsg:       'ನಿಮ್ಮ ವೈಯಕ್ತಿಕ ಡೇಟಾ ಅಳಿಸಲಾಗಿದೆ. CropSetu ಬಳಸಿದ್ದಕ್ಕೆ ಧನ್ಯವಾದಗಳು.',
+    doneMsg:       'ನಿಮ್ಮ ವೈಯಕ್ತಿಕ ಡೇಟಾ ಅಳಿಸಲಾಗಿದೆ. KrushiSarva ಬಳಸಿದ್ದಕ್ಕೆ ಧನ್ಯವಾದಗಳು.',
     errWrongOtp:   'ಈ OTP ತಪ್ಪಾಗಿದೆ ಅಥವಾ ಅವಧಿ ಮುಗಿದಿದೆ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
     errLocked:     'ಹಲವು ತಪ್ಪು ಪ್ರಯತ್ನಗಳು. ದಯವಿಟ್ಟು ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಪ್ರಯತ್ನಿಸಿ.',
     errTooMany:    'ತುಂಬಾ ವಿನಂತಿಗಳು. ದಯವಿಟ್ಟು ಕೆಲವು ನಿಮಿಷಗಳ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
@@ -221,7 +221,7 @@ export default {
     otpSentTo: '+91 {{phone}} ಗೆ ಕಳುಹಿಸಲಾಗಿದೆ',
     verifyLogin: 'ಪರಿಶೀಲಿಸಿ & ಲಾಗಿನ್',
     resendOtp: 'OTP ಮತ್ತೆ ಕಳುಹಿಸಿ',
-    welcome: 'CropSetu ಗೆ ಸ್ವಾಗತ!',
+    welcome: 'KrushiSarva ಗೆ ಸ್ವಾಗತ!',
     yourName: 'ನಿಮ್ಮನ್ನು ಹೇಗೆ ಕರೆಯಬೇಕು?',
     namePlaceholder: 'ನಿಮ್ಮ ಹೆಸರು',
     getStarted: 'ಪ್ರಾರಂಭಿಸೋಣ →',
@@ -326,7 +326,7 @@ export default {
     defaultBadge: 'ಡೀಫಾಲ್ಟ್',
     addNewAddress: 'ಹೊಸ ವಿಳಾಸ ಸೇರಿಸಿ',
     soldBy: 'ಮಾರಾಟಗಾರ',
-    farmEasyDirect: 'CropSetu ನೇರ',
+    farmEasyDirect: 'KrushiSarva ನೇರ',
     otherSellers: 'ಇತರ ಮಾರಾಟಗಾರರು',
     similarProducts: 'ಇದೇ ರೀತಿಯ ಉತ್ಪನ್ನಗಳು',
     highlightsTitle: 'ಮುಖ್ಯಾಂಶಗಳು',
@@ -335,7 +335,7 @@ export default {
     manufacturer: 'ತಯಾರಕ',
     returnPolicy: 'ರಿಟರ್ನ್ ನೀತಿ',
     codPolicy: 'ಡೆಲಿವರಿಯಲ್ಲಿ ನಗದು ನೀತಿ',
-    assuredPolicy: 'CropSetu ಖಾತರಿ',
+    assuredPolicy: 'KrushiSarva ಖಾತರಿ',
     buyAt: '₹{{price}} ಗೆ ಖರೀದಿಸಿ',
   },
 
@@ -345,7 +345,7 @@ export default {
     sellerVerified: 'ಮಾರಾಟಗಾರ ಪರಿಶೀಲಿಸಲಾಗಿದೆ',
     animalDetails: 'ಜಾನುವಾರು ವಿವರಗಳು', sellerInfo: 'ಮಾರಾಟಗಾರ ಮಾಹಿತಿ',
     postedDate: '{{date}} ರಂದು ಪೋಸ್ಟ್ ಮಾಡಲಾಗಿದೆ',
-    safetyTipsText: '• ಖರೀದಿಸುವ ಮೊದಲು ಜಾನುವಾರನ್ನು ನೇರವಾಗಿ ಪರೀಕ್ಷಿಸಿ\n• ಲಸಿಕೆ ಪ್ರಮಾಣಪತ್ರ ಕೇಳಿ\n• ಜಾನುವಾರು ಸಿಕ್ಕ ನಂತರ ಮಾತ್ರ ಪಾವತಿ ಮಾಡಿ\n• CropSetu ವ್ಯವಹಾರಗಳಿಗೆ ಜವಾಬ್ದಾರಿ ಹೊಂದಿಲ್ಲ',
+    safetyTipsText: '• ಖರೀದಿಸುವ ಮೊದಲು ಜಾನುವಾರನ್ನು ನೇರವಾಗಿ ಪರೀಕ್ಷಿಸಿ\n• ಲಸಿಕೆ ಪ್ರಮಾಣಪತ್ರ ಕೇಳಿ\n• ಜಾನುವಾರು ಸಿಕ್ಕ ನಂತರ ಮಾತ್ರ ಪಾವತಿ ಮಾಡಿ\n• KrushiSarva ವ್ಯವಹಾರಗಳಿಗೆ ಜವಾಬ್ದಾರಿ ಹೊಂದಿಲ್ಲ',
   },
 
   addAnimal: {
@@ -574,7 +574,7 @@ export default {
     callUs: 'ನಮಗೆ ಕರೆ ಮಾಡಿ: 1800-XXX-XXXX (ಉಚಿತ)',
     termsLabel: 'ನಿಯಮಗಳು, ನೀತಿಗಳು ಮತ್ತು ಪರವಾನಗಿಗಳು',
     browseFAQs: 'FAQ ನೋಡಿ', faqsSub: 'ಸಾಮಾನ್ಯ ಪ್ರಶ್ನೆಗಳಿಗೆ ಉತ್ತರ ಹುಡುಕಿ',
-    versionText: 'CropSetu v1.0.0 · ಭಾರತೀಯ ರೈತರಿಗಾಗಿ ಪ್ರೀತಿಯಿಂದ ತಯಾರಿಸಲಾಗಿದೆ',
+    versionText: 'KrushiSarva v1.0.0 · ಭಾರತೀಯ ರೈತರಿಗಾಗಿ ಪ್ರೀತಿಯಿಂದ ತಯಾರಿಸಲಾಗಿದೆ',
     animals: 'ಜಾನುವಾರು', orders: 'ಆರ್ಡರ್‌ಗಳು', rentals: 'ಬಾಡಿಗೆಗಳು',
     selectState: 'ನಿಮ್ಮ ರಾಜ್ಯ ಆಯ್ಕೆ ಮಾಡಿ',
     manualLang: 'ಕೈಪಿಡಿ',
@@ -907,7 +907,7 @@ export default {
   },
 
   sellerProfile: {
-    backToCropSetu: 'CropSetu ಗೆ ಹಿಂತಿರುಗಿ',
+    backToKrushiSarva: 'KrushiSarva ಗೆ ಹಿಂತಿರುಗಿ',
   },
   crops: {
     soybean: 'ಸೋಯಾಬೀನ್', cotton: 'ಹತ್ತಿ', rice: 'ಅಕ್ಕಿ', wheat: 'ಗೋಧಿ',

@@ -29,6 +29,7 @@ import { COLORS, TYPE, RADIUS, SHADOWS } from '@cropsetu/shared/constants/colors
 import { KHET, KFONT, KSHADOW } from '@cropsetu/shared/constants/khetTheme';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
+import PhotoIcon from '../../components/PhotoIcon';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 import { SkeletonGrid } from '../../components/ui/Skeleton';
 import { StoreCategoryIcon } from '@cropsetu/shared/components/StoreCategoryIcons';
@@ -113,6 +114,10 @@ function CategoryDrawer({ visible, categories, selectedCat, language, onSelect, 
                 onPress={() => { onSelect(cat.id, null); onClose(); }}
                 activeOpacity={0.75}
               >
+                <PhotoIcon
+                  set="cat" name={cat.icon || cat.name} size={34} radius={8}
+                  fallback={<StoreCategoryIcon type={cat.icon || cat.name} size={26} animated={false} />}
+                />
                 <Text style={[DR.catRowTxt, active && DR.catRowTxtActive]} numberOfLines={1}>{label}</Text>
                 <Ionicons name="chevron-forward" size={16} color={active ? GREEN : COLORS.grayMedium} />
               </TouchableOpacity>
@@ -201,7 +206,10 @@ function CategoryPills({ categories, selected, onSelect, language, t }) {
               activeOpacity={0.82}
             >
               <View style={[S.pillIcon, { backgroundColor: active ? 'rgba(255,255,255,0.25)' : hexToRgba(color, 0.14) }]}>
-                <StoreCategoryIcon type={cat.icon || cat.name} size={24} animated={false} />
+                <PhotoIcon
+                  set="cat" name={cat.icon || cat.name} size={30} radius={8}
+                  fallback={<StoreCategoryIcon type={cat.icon || cat.name} size={24} animated={false} />}
+                />
               </View>
               <Text style={[S.pillTxt, active && S.pillTxtActive]} numberOfLines={1}>{shortLabel}</Text>
             </TouchableOpacity>
@@ -680,7 +688,7 @@ export default function AgriStoreHome({ navigation }) {
                 <View style={S.hamLine} />
               </TouchableOpacity>
               <Image
-                source={require('../../../assets/cropsetu-wordmark.png')}
+                source={require('../../../assets/krushisarva-header.png')}
                 style={S.brandLogo}
                 resizeMode="contain"
                 accessibilityLabel={t('appName')}
@@ -993,10 +1001,12 @@ const S = StyleSheet.create({
   headerSide:  { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   hamburger:   { padding: 4, gap: 4, justifyContent: 'center' },
   hamLine:     { width: 22, height: 2.5, borderRadius: 2, backgroundColor: COLORS.textDark },
-  // CropSetu wordmark (tree-in-C + "SMART FARMING"), transparent PNG. Explicit
+  // KrushiSarva header lockup (mark + Fraunces wordmark), transparent PNG. The
+  // tagline variant is deliberately NOT used here: at 44dp it renders ~4px tall.
+  // Explicit
   // width+height (source aspect ~2.46:1) — an Image with only height+aspectRatio
   // balloons to full width inside this flex/animated header, so both are pinned.
-  brandLogo:   { width: 112, height: 44 },
+  brandLogo:   { width: 128, height: 44 },
   headerRight: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
   langBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: GREEN_L, borderWidth: 1, borderColor: GREEN + '30' },
   langBtnTxt:  { color: GREEN, fontSize: 11, fontWeight: '700' },

@@ -268,7 +268,7 @@ export default function DeleteAccountModal({ visible, onClose }) {
                 </View>
                 <Text style={S.title}>{t('deleteAccount.doneTitle', 'Account deleted')}</Text>
                 <Text style={S.msg}>
-                  {t('deleteAccount.doneMsg', 'Your personal data has been erased. Thank you for using CropSetu.')}
+                  {t('deleteAccount.doneMsg', 'Your personal data has been erased. Thank you for using KrushiSarva.')}
                 </Text>
                 <ActivityIndicator size="small" color={KHET.mutedForeground} style={{ marginTop: 6 }} />
               </View>

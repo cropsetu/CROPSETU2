@@ -295,7 +295,7 @@ export const ENV = {
   OPENWEATHER_API_KEY: process.env.OPENWEATHER_API_KEY || '',
 
   // ── Voice transcription + speech (Sarvam — Indic STT/TTS) ──────────────────
-  // CropSetu is Gemini-only for LLM and Sarvam-only for voice (Groq Whisper was
+  // KrushiSarva is Gemini-only for LLM and Sarvam-only for voice (Groq Whisper was
   // dropped). SARVAM_API_KEY (below) powers both speech-to-text and the spoken
   // reply. These AI_VOICE_STT_* vars are retained only for backwards-compat with
   // older deploys and are no longer used by the voice route.

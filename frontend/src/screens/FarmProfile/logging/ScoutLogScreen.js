@@ -78,7 +78,7 @@ export default function ScoutLogScreen({ navigation, route }) {
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
       <SectionHeader icon="eye-outline" tint={COSMIC.SCOUT} title={t('scoutLog.sectionSaw')} />
-      <TileGrid items={issueTypes} value={issueType} onChange={(v) => setIssueType(v || '')} columns={3} />
+      <TileGrid items={issueTypes} value={issueType} onChange={(v) => setIssueType(v || '')} columns={3} photoSet="scout" />
 
       <SectionHeader icon="pricetag-outline" tint={COSMIC.SCOUT} title={t('scoutLog.sectionTarget')} optional />
       <Card><LabeledInput value={target} onChangeText={setTarget} placeholder={t('scoutLog.targetPlaceholder')} /></Card>

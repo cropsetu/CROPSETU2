@@ -10,6 +10,7 @@
  *     <ChipRow .../>  <BigNumberInput .../>  <LabeledInput .../>  <NotesField .../>
  *   </LoggerScaffold>
  */
+import PhotoIcon from '../../../components/PhotoIcon';
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, TextInput, Pressable, ScrollView, StyleSheet,
@@ -134,7 +135,9 @@ export function SectionHeader({ icon, tint = COSMIC.PRIMARY, title, optional }) 
 }
 
 /** Single-select tile grid. items: [{key,label,icon,color}] */
-export function TileGrid({ items, value, onChange, columns = 2 }) {
+export function TileGrid({ items, value, onChange, columns = 2, photoSet = null }) {
+  // photoSet is opt-in. Screens that pass it get real photographs in the tiles with the
+  // Ionicon as fallback; every other caller keeps the icon exactly as before.
   const basis = columns === 3 ? '31%' : '47%';
   return (
     <View style={k.tileGrid}>
@@ -151,8 +154,17 @@ export function TileGrid({ items, value, onChange, columns = 2 }) {
               pressed && { transform: [{ scale: 0.97 }] },
             ]}
           >
-            <View style={[k.tileIcon, { backgroundColor: color + '33', borderColor: color + '55' }]}>
-              <Ionicons name={fillIcon(it.icon)} size={24} color={color} />
+            <View style={[
+              k.tileIcon,
+              { backgroundColor: color + '33', borderColor: color + '55' },
+              // A photograph needs >= 48 dp to read (IMAGE_PROCESS.md §2); the icon-only
+              // tile stays at its original 36. Only photo callers pay the extra height.
+              photoSet && { width: 48, height: 48, borderRadius: 12, overflow: 'hidden' },
+            ]}>
+              <PhotoIcon
+                set={photoSet} name={it.key} fill radius={999}
+                fallback={<Ionicons name={fillIcon(it.icon)} size={24} color={color} />}
+              />
             </View>
             <Text style={[k.tileLabel, sel && { color, fontFamily: 'PlusJakartaSans_700Bold' }]} numberOfLines={1}>{it.label}</Text>
             {sel && (

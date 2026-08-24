@@ -64,7 +64,7 @@ function InviteModal({ open, onClose, allScopes, onDone }: { open: boolean; onCl
       }
     >
       <div className="space-y-4">
-        <Field label="Phone" hint="The user must already have a CropSetu account.">
+        <Field label="Phone" hint="The user must already have a KrushiSarva account.">
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="9876543210" />
         </Field>
         <Field label="Scopes" hint="Leave everything unchecked for full SUPER_ADMIN access.">

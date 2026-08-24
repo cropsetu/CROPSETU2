@@ -75,7 +75,7 @@ function buildHtml({ keyId, orderId, amountPaise, name, phone, description }) {
         order_id: ${jsString(orderId)},
         amount: ${Number(amountPaise) || 0},
         currency: 'INR',
-        name: 'CropSetu',
+        name: 'KrushiSarva',
         description: ${jsString(description)},
         prefill: { name: ${jsString(name)}, contact: ${jsString(phone)} },
         theme: { color: '#176B43' },

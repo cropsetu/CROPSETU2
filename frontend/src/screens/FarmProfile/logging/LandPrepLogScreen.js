@@ -78,7 +78,7 @@ export default function LandPrepLogScreen({ navigation, route }) {
       onCelebrateClose={() => { setCelebrate(false); navigation.goBack(); }}
     >
       <SectionHeader icon="trail-sign-outline" tint={COSMIC.LAND_PREP} title={t('landPrepLog.sectionOperation')} />
-      <TileGrid items={operations} value={operation} onChange={(v) => setOperation(v)} columns={2} />
+      <TileGrid items={operations} value={operation} onChange={(v) => setOperation(v)} columns={2} photoSet="ops" />
 
       <SectionHeader icon="build-outline" tint={COSMIC.LAND_PREP} title={t('landPrepLog.sectionImplement')} optional />
       <ChipRow items={implements_} value={implement} onChange={setImplement} tint={COSMIC.LAND_PREP} />

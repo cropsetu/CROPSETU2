@@ -4,7 +4,7 @@
  * the entire app and the user has nothing to do but force-quit.
  */
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Image } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { captureException } from '../services/crashReporter';
 
@@ -43,6 +43,10 @@ export default class RootErrorBoundary extends React.Component {
     if (!this.state.error) return this.props.children;
     return (
       <View style={s.root}>
+        {/* A picture first: this screen is shown to a user who may not read the
+            copy below it, and it was previously text-only. */}
+        <Image source={require('../assets/state/error.webp')}
+               style={{ width: 140, height: 140, marginBottom: 20 }} resizeMode="contain" />
         <Text style={s.title}>Something went wrong</Text>
         <Text style={s.body}>
           The app hit an unexpected error. Please reload to try again.

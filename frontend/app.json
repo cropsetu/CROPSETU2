@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "CropSetu",
+    "name": "KrushiSarva",
     "slug": "cropsetu",
     "scheme": "cropsetu",
     "version": "1.0.0",
@@ -8,25 +8,21 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1B4332"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.cropsetu.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "CropSetu needs camera access to photograph your crops for AI disease analysis.",
-        "NSPhotoLibraryUsageDescription": "CropSetu needs photo library access to upload crop images for analysis.",
-        "NSLocationWhenInUseUsageDescription": "CropSetu uses your location to show local weather conditions for your farm.",
-        "NSMicrophoneUsageDescription": "CropSetu uses your microphone for voice chat with the AI assistant."
+        "NSCameraUsageDescription": "KrushiSarva needs camera access to photograph your crops for AI disease analysis.",
+        "NSPhotoLibraryUsageDescription": "KrushiSarva needs photo library access to upload crop images for analysis.",
+        "NSLocationWhenInUseUsageDescription": "KrushiSarva uses your location to show local weather conditions for your farm.",
+        "NSMicrophoneUsageDescription": "KrushiSarva uses your microphone for voice chat with the AI assistant."
       }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1B4332"
+        "foregroundImage": "./assets/adaptive-icon-foreground.png",
+        "monochromeImage": "./assets/adaptive-icon-monochrome.png",
+        "backgroundColor": "#005f21"
       },
       "package": "com.cropsetu.app",
       "permissions": [
@@ -46,24 +42,43 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "CropSetu needs camera access to photograph your crops for AI disease analysis."
+          "cameraPermission": "KrushiSarva needs camera access to photograph your crops for AI disease analysis."
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "CropSetu uses your location to show local weather conditions for your farm."
+          "locationWhenInUsePermission": "KrushiSarva uses your location to show local weather conditions for your farm."
         }
       ],
       "expo-secure-store",
       "react-native-compressor",
-      "expo-notifications"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#005f21"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-mark.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#005f21",
+          "dark": {
+            "backgroundColor": "#06210d"
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {
         "projectId": "f1df1b28-f453-4395-8134-e389cadb394a"
       }
     },
-    "owner": "shubhamyeljale2025"
+    "owner": "shubhamyeljale2025",
+    "primaryColor": "#005f21"
   }
 }

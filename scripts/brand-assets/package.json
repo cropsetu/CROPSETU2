@@ -1,0 +1,13 @@
+{
+  "name": "krushisarva-brand-assets",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "One-off brand asset post-processing. NOT part of any app build.",
+  "scripts": {
+    "post": "node postprocess.mjs"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.0"
+  }
+}

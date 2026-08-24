@@ -76,6 +76,7 @@ import {
 } from "@cropsetu/shared/constants/khetTheme";
 import AnimatedScreen from "@cropsetu/shared/components/ui/AnimatedScreen";
 import { SkeletonGrid } from "../../components/ui/Skeleton";
+import PhotoIcon from "../../components/PhotoIcon";
 import { MachineryIcon } from "../../components/MachineryIcons";
 import { LabourIcon } from "../../components/LabourIcon";
 import useRentListings, { probeTotal } from "../../hooks/useRentListings";
@@ -86,7 +87,7 @@ import {
   SOURCE,
   RADIUS_OPTIONS,
 } from "./rentLocationPrefs";
-import { RentDistanceRow, RentLocationSheet } from "./RentLocationBar";
+import { RentLocationPill, RentRadiusRow, RentLocationSheet } from "./RentLocationBar";
 
 const GREEN = COLORS.primary;
 const BG = COLORS.background;
@@ -180,7 +181,7 @@ function CatChip({ cat, active, onPress }) {
       <Pressable
         style={[
           S.catChip,
-          active && { backgroundColor: cat.color, borderColor: cat.color },
+          active && { backgroundColor: 'transparent' },
         ]}
         onPress={() => {
           Haptics.selection();
@@ -195,20 +196,23 @@ function CatChip({ cat, active, onPress }) {
         <View
           style={[
             S.catIconWrap,
-            { backgroundColor: active ? withAlpha(COLORS.white, 0.2) : cat.bg },
+            // No tinted disc behind the photo — the machine itself is the label.
+            // Selection is carried by the label colour and the underline instead.
+            active && { backgroundColor: withAlpha(COLORS.white, 0.2) },
           ]}
         >
           {cat.key !== "all" && cat.key !== "other" ? (
-            <MachineryIcon type={cat.key} size={28} />
+            <PhotoIcon set="mach" name={cat.key} size={60} radius={0}
+              fallback={<MachineryIcon type={cat.key} size={40} />} />
           ) : (
             <Ionicons
               name={cat.icon}
-              size={KICON.md}
-              color={active ? COLORS.white : cat.color}
+              size={30}
+              color={active ? COLORS.primary : cat.color}
             />
           )}
         </View>
-        <Text style={[S.catLabel, active && { color: COLORS.white }]}>
+        <Text style={[S.catLabel, active && S.catLabelActive]}>
           {t("rent." + cat.tKey)}
         </Text>
       </Pressable>
@@ -676,6 +680,7 @@ export default function RentHome({ navigation }) {
   } = useLocation();
   const [prefs, setPrefs, prefsHydrated] = useRentLocationPrefs();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [radiusOpen, setRadiusOpen] = useState(false);
 
   const [tab, setTab] = useState("machinery");
   const [category, setCategory] = useState("all");
@@ -900,6 +905,13 @@ export default function RentHome({ navigation }) {
     <View>
       {/* Search */}
       <View style={S.searchRow}>
+        <RentLocationPill
+          prefs={prefs}
+          coords={coords}
+          expanded={radiusOpen}
+          onToggle={() => setRadiusOpen(v => !v)}
+          onOpen={() => setSheetOpen(true)}
+        />
         <View style={S.searchBar}>
           <Ionicons name="search-outline" size={KICON.base} color={COLORS.grayMedium} />
           <TextInput
@@ -985,13 +997,16 @@ export default function RentHome({ navigation }) {
         </View>
       )}
 
-      {/* Where + how far, on one row — the Animals-tab pattern. */}
-      <RentDistanceRow
-        prefs={prefs}
-        coords={coords}
-        onOpen={() => setSheetOpen(true)}
-        onChange={handleRadiusChange}
-      />
+      {/* Radius chips live under the search box and only when asked for — the
+          location pill in the search row toggles them. */}
+      {radiusOpen && (
+        <RentRadiusRow
+          prefs={prefs}
+          coords={coords}
+          onChange={handleRadiusChange}
+          onOpen={() => setSheetOpen(true)}
+        />
+      )}
 
       {/* Category filter (machinery only) — now a server-side `category` param */}
       {tab === "machinery" && (
@@ -1410,8 +1425,12 @@ const S = StyleSheet.create({
   tabTxt: { fontSize: 14, fontWeight: "600", color: COLORS.textMedium },
   tabTxtActive: { color: GREEN, fontWeight: "800" },
 
-  searchRow: { paddingHorizontal: KGUTTER.base, paddingTop: KSPACE.s16 },
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8,
+    paddingHorizontal: KGUTTER.base, paddingTop: KSPACE.s16, paddingBottom: KSPACE.s8,
+  },
   searchBar: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: KSPACE.s10,
@@ -1463,25 +1482,26 @@ const S = StyleSheet.create({
     flexDirection: "column",
     alignItems: "center",
     gap: KSPACE.s4,
-    paddingVertical: KSPACE.s10,
-    paddingHorizontal: KSPACE.s12,
-    backgroundColor: COLORS.surface,
-    borderRadius: KRADIUS.r18,
-    borderWidth: KBORDER.chip,
-    borderColor: COLORS.border,
-    minWidth: 68,
+    paddingVertical: KSPACE.s6,
+    paddingHorizontal: KSPACE.s6,
+    // No card behind the machinery filter — the photo is the affordance, and a
+    // bordered pill around each one made the row read as six competing buttons.
+    backgroundColor: 'transparent',
+    minWidth: 64,
   },
   catIconWrap: {
-    ...circle(40),
+    // Cut-outs need no frame: no background, no radius, nothing to clip against.
+    width: 60, height: 60,
     justifyContent: "center",
     alignItems: "center",
   },
   catLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "700",
     color: COLORS.grayMid2,
     textAlign: "center",
   },
+  catLabelActive: { color: COLORS.primary },
 
   sectionHeader: {
     flexDirection: "row",
