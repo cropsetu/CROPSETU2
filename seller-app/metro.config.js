@@ -1,4 +1,4 @@
-// Metro config for the CropSetu seller app.
+// Metro config for the KrushiSarva seller app.
 //
 // Mirrors frontend/metro.config.js — see ../shared/README.md for why ../shared is
 // resolved by specifier mapping rather than being installed into node_modules.
@@ -21,7 +21,7 @@ config.watchFolders = [sharedRoot];
 config.resolver.nodeModulesPaths = [path.resolve(projectRoot, 'node_modules')];
 config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules,
-  '@cropsetu/shared': sharedRoot,
+  '@krushisarva/shared': sharedRoot,
 };
 
 module.exports = config;

@@ -10,10 +10,10 @@ import {
   useLoggerSave,
 } from './_loggerKit';
 import * as farmApi from '../../../services/farmApi';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { useMultiFarm } from '../../../context/MultiFarmContext';
 import { COSMIC } from '../theme/cosmicTheme';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 
 const CATEGORIES = [
   { key: 'diesel',      labelKey: 'rent.fuelDiesel',         icon: 'flame-outline',     color: COSMIC.EXPENSE },

@@ -1,7 +1,7 @@
 /**
  * Farm Profile API — All onboarding, farm, crop cycle endpoints.
  */
-import api from '@cropsetu/shared/services/api';
+import api from '@krushisarva/shared/services/api';
 
 // ── Onboarding ───────────────────────────────────────────────────────────────
 

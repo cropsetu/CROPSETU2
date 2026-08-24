@@ -1,7 +1,7 @@
-# CropSetu Admin Panel
+# KrushiSarva Admin Panel
 
 Web SPA (React + Vite + TypeScript + Tailwind + TanStack Query) for operating every
-domain of CropSetu through the **ADMIN-gated, audited** `/api/v1/admin/*` API.
+domain of KrushiSarva through the **ADMIN-gated, audited** `/api/v1/admin/*` API.
 
 It reuses the platform's existing auth unchanged: **phone OTP → JWT (access in
 memory) + httpOnly refresh cookie + CSRF double-submit**, with silent refresh-rotation

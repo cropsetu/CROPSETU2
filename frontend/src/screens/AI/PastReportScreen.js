@@ -17,9 +17,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
+import { COLORS, SHADOWS, RADIUS } from '@krushisarva/shared/constants/colors';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@krushisarva/shared/services/api';
 import { SkeletonDetail } from '../../components/ui/Skeleton';
 
 const RISK_COLOR = {
@@ -289,7 +289,7 @@ export default function PastReportScreen({ navigation, route }) {
         // Sharing.shareAsync expects a file URI; use a temp .txt for a clean
         // share sheet entry alongside the PDF flow.
         const FileSystem = await import('expo-file-system/legacy');
-        const path = `${FileSystem.cacheDirectory}cropsetu-report-${row.id}.txt`;
+        const path = `${FileSystem.cacheDirectory}krushisarva-report-${row.id}.txt`;
         await FileSystem.writeAsStringAsync(path, text);
         await Sharing.shareAsync(path, {
           mimeType: 'text/plain',

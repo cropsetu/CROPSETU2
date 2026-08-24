@@ -5,17 +5,17 @@
  *  - MSP Rates list (all crops, kharif/rabi)
  *  - MSP vs Mandi comparison for a selected crop
  */
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   StatusBar, FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { getMSPRates, getMSPComparison } from '../../services/aiApi';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
 import { SkeletonBlock, SkeletonGroup, SkeletonList } from '../../components/ui/Skeleton';
 
 const SIGNAL_CONFIG = {

@@ -1,4 +1,4 @@
-# CropSetu / FarmMind — AI Chat Architecture
+# KrushiSarva / FarmMind — AI Chat Architecture
 
 End-to-end architecture of the **AI Text Chat** and **AI Voice Chat** features, covering the React Native client, the Node.js/Express gateway, and the FastAPI AI service. Every section links to the exact source file and line.
 

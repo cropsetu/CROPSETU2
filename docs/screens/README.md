@@ -1,6 +1,6 @@
-# CropSetu / KhetAI — Screen-by-Screen Documentation
+# KrushiSarva / KhetAI — Screen-by-Screen Documentation
 
-This folder documents **every screen of the CropSetu mobile app** (React Native + Expo), one Markdown file per screen. Files are grouped by **feature** (one sub-folder each) and numbered in **user-flow order** (`01-`, `02-`, …) so each folder reads top-to-bottom like the real journey.
+This folder documents **every screen of the KrushiSarva mobile app** (React Native + Expo), one Markdown file per screen. Files are grouped by **feature** (one sub-folder each) and numbered in **user-flow order** (`01-`, `02-`, …) so each folder reads top-to-bottom like the real journey.
 
 Each screen doc follows the same template:
 
@@ -16,7 +16,7 @@ This index covers the **other 60 screens** across 13 feature areas.
 
 ## 1. What the app is
 
-**CropSetu** (branded **KhetAI** in the UI) is an India-focused, multilingual super-app for farmers. A single React Native app bundles several marketplaces and advisory tools:
+**KrushiSarva** (branded **KhetAI** in the UI) is an India-focused, multilingual super-app for farmers. A single React Native app bundles several marketplaces and advisory tools:
 
 - **AgriStore** — buy farm inputs (seeds, fertilizers, tools)
 - **Animal Trade** — livestock marketplace with buyer↔seller chat

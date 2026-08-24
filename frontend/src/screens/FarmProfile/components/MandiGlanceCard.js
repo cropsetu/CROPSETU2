@@ -14,7 +14,7 @@ import { SkeletonBlock, SkeletonGroup } from '../../../components/ui/Skeleton';
 import SpeakerButton from '../ui/SpeakerButton';
 import GlassCard from '../ui/GlassCard';
 import { COSMIC, CR, CT } from '../theme/cosmicTheme';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 
 const fmtDate = (iso) => {
   if (!iso) return '';

@@ -1,7 +1,7 @@
 {
-  "name": "cropsetu-backend",
+  "name": "krushisarva-backend",
   "version": "1.0.0",
-  "description": "CropSetu backend API — agriculture platform for Indian farmers",
+  "description": "KrushiSarva backend API — agriculture platform for Indian farmers",
   "type": "module",
   "main": "src/server.js",
   "scripts": {

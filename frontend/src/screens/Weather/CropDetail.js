@@ -14,11 +14,11 @@ import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   KHET, KFONT, KSPACE, KGUTTER, KRADIUS, KELEV, KTYPE, noLead, circle, withAlpha,
-} from '@cropsetu/shared/constants/khetTheme';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+} from '@krushisarva/shared/constants/khetTheme';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { tc } from '../../data/contentI18n';
 import { getCropGuide } from '../../data/cropGuide';
-import { STAGE_RAMP, STAGE_RAMP_INK, SECTION_TINTS } from '@cropsetu/shared/constants/dataPalette';
+import { STAGE_RAMP, STAGE_RAMP_INK, SECTION_TINTS } from '@krushisarva/shared/constants/dataPalette';
 
 // The stage ramp and section tints are DATA, not theme — see the header of
 // shared/constants/dataPalette.js for why they live outside KHET.

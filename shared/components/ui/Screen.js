@@ -32,7 +32,7 @@ import {
   View, ScrollView, StatusBar, StyleSheet, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KHET, KSPACE, KGUTTER, KELEV } from '@cropsetu/shared/constants/khetTheme';
+import { KHET, KSPACE, KGUTTER, KELEV } from '@krushisarva/shared/constants/khetTheme';
 
 const ScreenContext = createContext(null);
 

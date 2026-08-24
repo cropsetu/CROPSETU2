@@ -19,14 +19,14 @@ import { jest } from '@jest/globals';
 // build (and do not spray the test output).
 global.__DEV__ = false;
 
-jest.mock('@cropsetu/shared/services/api', () => ({
+jest.mock('@krushisarva/shared/services/api', () => ({
   __esModule: true,
   default: { post: jest.fn(), get: jest.fn() },
   aiApi: { post: jest.fn(), get: jest.fn() },
   getAccessToken: jest.fn(),
 }));
 
-jest.mock('@cropsetu/shared/utils/mediaCompressor', () => ({
+jest.mock('@krushisarva/shared/utils/mediaCompressor', () => ({
   __esModule: true,
   compressImage: jest.fn(),
 }));
@@ -39,14 +39,14 @@ jest.mock('expo-file-system/legacy', () => ({
 
 // Cuts the expo-constants → expo/virtual/env chain, which ships untranspiled
 // ESM that jest-expo does not transform for this path.
-jest.mock('@cropsetu/shared/constants/config', () => ({
+jest.mock('@krushisarva/shared/constants/config', () => ({
   __esModule: true,
   API_BASE_URL: 'http://test.local/api/v1',
   STORAGE_KEYS: {},
 }));
 
-const api = require('@cropsetu/shared/services/api').default;
-const { compressImage } = require('@cropsetu/shared/utils/mediaCompressor');
+const api = require('@krushisarva/shared/services/api').default;
+const { compressImage } = require('@krushisarva/shared/utils/mediaCompressor');
 const { scanCropImage } = require('../aiApi');
 
 /** The scan submit call, whatever else the function did. */

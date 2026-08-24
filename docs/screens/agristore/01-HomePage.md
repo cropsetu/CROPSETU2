@@ -27,7 +27,7 @@ The landing screen of the Shop tab — an agri-input storefront where farmers br
 | Element | Type | Description / action |
 |---|---|---|
 | Hamburger button | Icon button (3 lines) | Opens the left category drawer (`setDrawerOpen(true)`) |
-| CropSetu wordmark | Image | Brand logo (`assets/cropsetu-wordmark.png`) |
+| KrushiSarva wordmark | Image | Brand logo (`assets/krushisarva-wordmark.png`) |
 | Language button | Pill button (globe + lang code) | Opens animated language bottom sheet (`openLangPicker`) |
 | Cart button | Icon button + badge | Navigates to `Cart`; red badge shows `cartCount` when > 0 |
 | Search bar | TextInput + search icon | Filters products (debounced); green focus ring; clear (×) button when text present |

@@ -87,8 +87,8 @@ const PRODUCT = {
   ],
   tags: ['cotton', 'bt cotton', 'seed', 'kharif', 'mahyco'],
   images: [
-    'https://res.cloudinary.com/demo/image/upload/v1/cropsetu/seeds/mahyco-bt-cotton-1.jpg',
-    'https://res.cloudinary.com/demo/image/upload/v1/cropsetu/seeds/mahyco-bt-cotton-2.jpg',
+    'https://res.cloudinary.com/demo/image/upload/v1/krushisarva/seeds/mahyco-bt-cotton-1.jpg',
+    'https://res.cloudinary.com/demo/image/upload/v1/krushisarva/seeds/mahyco-bt-cotton-2.jpg',
   ],
   specifications: {
     'Crop': 'Cotton',

@@ -19,9 +19,9 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLanguage } from "@cropsetu/shared/context/LanguageContext";
+import { useLanguage } from "@krushisarva/shared/context/LanguageContext";
 import { LanguageIcon } from "../../components/LanguageIcon";
-import { KHET, KFONT, KSHADOW } from "@cropsetu/shared/constants/khetTheme";
+import { KHET, KFONT, KSHADOW } from "@krushisarva/shared/constants/khetTheme";
 
 const LANGS = [
   { code: "en", name: "English",   native: "English",  flag: "🌍", region: "Global" },

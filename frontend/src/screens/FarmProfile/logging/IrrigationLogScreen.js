@@ -29,10 +29,10 @@ import GlowButton   from '../ui/GlowButton';
 import CelebrationSheet from '../ui/CelebrationSheet';
 import IrrigationIcon from '../../../components/IrrigationIcons';
 import * as farmApi from '../../../services/farmApi';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { useMultiFarm } from '../../../context/MultiFarmContext';
 import { COSMIC, CR, CS, CT, GLOW, GRADIENT } from '../theme/cosmicTheme';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 
 const METHODS = [
   { key: 'DRIP',       icon: 'drip',       color: COSMIC.IRRIGATION },

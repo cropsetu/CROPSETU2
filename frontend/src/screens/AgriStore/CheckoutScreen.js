@@ -3,7 +3,7 @@
  * 3-step flow: Address → Order Summary → Payment
  * Staggered entrance, spring selection, animated radio, icon circles
  */
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -14,10 +14,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PhotoIcon from '../../components/PhotoIcon';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { isValidPhone, isValidPincode, normalizePhone } from '@cropsetu/shared/utils/validators';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { isValidPhone, isValidPincode, normalizePhone } from '@krushisarva/shared/utils/validators';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
 import {
   fetchCartQuote, fetchPaymentConfig, fetchPaymentStatus, initiatePayment, confirmPayment,
   classifyError, inr, thumbUrl,

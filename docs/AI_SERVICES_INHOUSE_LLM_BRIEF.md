@@ -1,8 +1,8 @@
-# CropSetu AI Services — In-House LLM Agent Design Brief
+# KrushiSarva AI Services — In-House LLM Agent Design Brief
 
 > **Status:** Design input document (not a spec).
-> **Audience:** An LLM design partner (e.g. Claude Chat) with **no access to the CropSetu repository**.
-> **Goal:** Provide enough accurate, file-grounded context about CropSetu's three AI services and their current third-party LLM footprint that the reader can propose an **in-house / self-hosted LLM agent architecture** to replace or augment the current dependency on Google Gemini (plus Sarvam for voice, and optional Groq/OpenAI).
+> **Audience:** An LLM design partner (e.g. Claude Chat) with **no access to the KrushiSarva repository**.
+> **Goal:** Provide enough accurate, file-grounded context about KrushiSarva's three AI services and their current third-party LLM footprint that the reader can propose an **in-house / self-hosted LLM agent architecture** to replace or augment the current dependency on Google Gemini (plus Sarvam for voice, and optional Groq/OpenAI).
 > **Repo root assumed by all paths:** `/Users/shubhamyeljale/Desktop/CROPSETU2`
 > **Source:** Distilled from 7 specialist code-reader traces of the live codebase. Where readers could not determine something, it is flagged **[UNKNOWN]**.
 
@@ -10,7 +10,7 @@
 
 ## 1. Purpose of this document
 
-CropSetu is a mobile-first agriculture platform for Indian farmers. Three of its features are "AI services":
+KrushiSarva is a mobile-first agriculture platform for Indian farmers. Three of its features are "AI services":
 
 1. **Crop Disease Diagnosis** (internally "CropGuard" / "Dr. KrishiGuard") — a farmer photographs a diseased leaf; the system returns a structured diagnosis + a compliance-checked IPM (Integrated Pest Management) treatment plan.
 2. **AI Text Chat** ("FarmMind") — a conversational agronomy advisor that answers farming questions, personalised with the farmer's farm profile.
@@ -33,7 +33,7 @@ The brief is deliberately exhaustive about: the request flows, every external mo
 
 ## 2. System context
 
-### 2.1 What CropSetu is
+### 2.1 What KrushiSarva is
 
 A React Native (Expo) mobile app for Indian farmers, backed by an Express (Node) API and a dedicated FastAPI (Python) AI microservice. Persistence is PostgreSQL (via Prisma on the Express side, asyncpg on the FastAPI side) plus Redis. The platform is deployed on Railway (project "secure-essence", ~5 services, Postgres not Mongo).
 
@@ -562,7 +562,7 @@ A new provider only needs to emit the same flat diagnosis shape (or be adapted h
 
 These are the concrete questions to put to Claude Chat when designing the in-house agent:
 
-1. **Build strategy per capability:** For each of {vision diagnosis, multilingual chat/treatment text, STT, TTS}, should CropSetu **self-host open weights**, **fine-tune**, **distill from the current Gemini outputs**, or **keep a hybrid** (in-house primary + hosted escape hatch)? The diagnose path's "no fallback / fail loud" contract argues for high in-house accuracy before cutover.
+1. **Build strategy per capability:** For each of {vision diagnosis, multilingual chat/treatment text, STT, TTS}, should KrushiSarva **self-host open weights**, **fine-tune**, **distill from the current Gemini outputs**, or **keep a hybrid** (in-house primary + hosted escape hatch)? The diagnose path's "no fallback / fail loud" contract argues for high in-house accuracy before cutover.
 
 2. **Vision model choice:** Given a **441-class, 75-crop** Indian-crop ballot and only a tiny realized eval set (PlantVillage covers ~14 crops; the textbook benchmark is 100 images, ~32% top-1 strict on hosted Gemini today), what vision approach is realistic? A fine-tuned VLM that reads the candidate ballot prompt? A classifier (extending the existing ONNX MobileNetV2) feeding a small VLM? How do we get labeled images for the **minor Indian crops with no public dataset**?
 
@@ -640,7 +640,7 @@ These are the concrete questions to put to Claude Chat when designing the in-hou
 | `AI_DIAGNOSE_VERSION` | Pin diagnose prompt version for eval |
 | `PIPELINE_DEFAULT_TIER`, `ENSEMBLE_ESCALATE_BELOW` (0.80), `DIAGNOSIS_ESCALATE_BELOW` (0.50) | Pipeline tuning |
 
-### 12.3 Glossary of CropSetu domain terms
+### 12.3 Glossary of KrushiSarva domain terms
 
 | Term | Meaning |
 |---|---|

@@ -1,6 +1,6 @@
-# @cropsetu/shared
+# @krushisarva/shared
 
-Code used by **both** CropSetu apps:
+Code used by **both** KrushiSarva apps:
 
 | App | Path | Audience |
 | --- | --- | --- |
@@ -24,15 +24,15 @@ screens/     LoginScreen (OTP login — identical in both apps)
 
 ## How apps consume it
 
-This is **not** an installed npm package — there is no `node_modules/@cropsetu/shared`.
-Each app's `metro.config.js` maps the `@cropsetu/shared` specifier to this folder and
+This is **not** an installed npm package — there is no `node_modules/@krushisarva/shared`.
+Each app's `metro.config.js` maps the `@krushisarva/shared` specifier to this folder and
 adds it to `watchFolders`, and resolves `react` / `react-native` / Expo modules from
 the host app's own `node_modules`:
 
 ```js
-import { COLORS } from '@cropsetu/shared/constants/colors';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS } from '@krushisarva/shared/constants/colors';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 ```
 
 Consequences to keep in mind:

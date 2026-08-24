@@ -6,7 +6,7 @@
  * • Date-range booking form with conflict check
  * • Cost calculator
  */
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -19,10 +19,10 @@ import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
 import { MachineryIcon } from '../../components/MachineryIcons';
 import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 import useContactReveal from '../../hooks/useContactReveal';

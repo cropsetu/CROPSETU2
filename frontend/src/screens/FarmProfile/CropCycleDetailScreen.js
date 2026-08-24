@@ -35,11 +35,11 @@ import { SkeletonBlock, SkeletonGroup } from '../../components/ui/Skeleton';
 import SpeakerButton from './ui/SpeakerButton';
 
 import PhotoIcon from '../../components/PhotoIcon';
-import CropIcon from '@cropsetu/shared/components/CropIcons';
+import CropIcon from '@krushisarva/shared/components/CropIcons';
 import * as farmApi from '../../services/farmApi';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { COSMIC, CR, CS, activityMeta } from './theme/cosmicTheme';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 
 // ──────────────────────────────────────────────────────────────────────────────

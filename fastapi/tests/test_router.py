@@ -1,6 +1,6 @@
 """
 Tests for agents/registry.py and agents/router.py — the LLM tier toggle
-+ chain resolution + fallback dispatch logic. CropSetu is Gemini-only.
++ chain resolution + fallback dispatch logic. KrushiSarva is Gemini-only.
 """
 import asyncio
 import os

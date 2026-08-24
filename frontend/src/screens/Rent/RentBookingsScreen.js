@@ -7,7 +7,7 @@
  *                  CONFIRMED / CANCELLED / others → status badge only
  *  • "My Bookings" — bookings I have made as a customer
  */
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
@@ -16,9 +16,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { SHADOWS } from '@cropsetu/shared/constants/colors';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { SHADOWS } from '@krushisarva/shared/constants/colors';
 import { MachineryIcon } from '../../components/MachineryIcons';
 import { LabourIcon } from '../../components/LabourIcon';
 import { SkeletonList } from '../../components/ui/Skeleton';

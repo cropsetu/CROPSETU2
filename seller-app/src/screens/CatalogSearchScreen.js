@@ -23,8 +23,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@krushisarva/shared/services/api';
 
 import { C, R, SP, T, HIT, alpha, useResponsive } from '../theme';
 import { useNetwork } from '../hooks/useNetwork';
@@ -70,7 +70,7 @@ function CatalogHit({ product, onAttach, onEditMine, t }) {
 
           {product.status === 'PENDING_QC' ? (
             <Text style={s.hitPending}>
-              {t('catalogSearch.pendingQc', 'Awaiting CropSetu review')}
+              {t('catalogSearch.pendingQc', 'Awaiting KrushiSarva review')}
             </Text>
           ) : null}
         </View>
@@ -322,7 +322,7 @@ export default function CatalogSearchScreen({ navigation }) {
           <EmptyState
             icon="search-outline"
             title={t('catalogSearch.noneTitle', 'Not in the catalogue yet')}
-            body={t('catalogSearch.noneMsg', 'Add it as a new product. CropSetu will review it before it goes live to buyers.')}
+            body={t('catalogSearch.noneMsg', 'Add it as a new product. KrushiSarva will review it before it goes live to buyers.')}
           />
         ) : null}
 

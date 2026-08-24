@@ -1,8 +1,8 @@
-// Metro config for the CropSetu buyer app.
+// Metro config for the KrushiSarva buyer app.
 //
 // This app and seller-app/ both consume ../shared. `shared` is NOT installed into
 // node_modules (no symlink, no workspace) — it is resolved by mapping the
-// `@cropsetu/shared` specifier straight at the folder, which keeps the setup the
+// `@krushisarva/shared` specifier straight at the folder, which keeps the setup the
 // same on Windows and CI and avoids touching package-lock.json.
 //
 // Two pieces are required for that to work:
@@ -25,7 +25,7 @@ config.watchFolders = [sharedRoot];
 config.resolver.nodeModulesPaths = [path.resolve(projectRoot, 'node_modules')];
 config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules,
-  '@cropsetu/shared': sharedRoot,
+  '@krushisarva/shared': sharedRoot,
 };
 
 module.exports = config;

@@ -1,7 +1,7 @@
 /**
  * Deep-link security config for the seller app's NavigationContainer.
  *
- * Same posture as the buyer app: the OS hands us any `cropsetu-seller://` URL, so
+ * Same posture as the buyer app: the OS hands us any `krushisarva-seller://` URL, so
  * we WHITELIST the only deep-link target we accept — the dashboard landing screen,
  * which takes no params and performs no sensitive action — and REJECT everything
  * else (product editing, KYC, order status changes, parameter injection) by
@@ -32,7 +32,7 @@ export function isAllowedDeepLink(path) {
 const linking = {
   // Native only — web doesn't use the scheme and we don't URL-sync there.
   enabled: Platform.OS !== 'web',
-  prefixes: ['cropsetu-seller://', 'https://seller.cropsetu.app'],
+  prefixes: ['krushisarva-seller://', 'https://seller.cropsetu.app'],
   config: {
     screens: {
       SellerDashboard: 'dashboard',

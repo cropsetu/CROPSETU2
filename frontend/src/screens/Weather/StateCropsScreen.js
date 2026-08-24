@@ -11,8 +11,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location'; // reverseGeocodeAsync only
 import { useLocation } from '../../context/LocationContext';
-import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS, SHADOWS } from '@krushisarva/shared/constants/colors';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import {
   STATE_CROPS, STATE_LIST, detectStateFromLocation,
 } from '../../data/stateCrops';

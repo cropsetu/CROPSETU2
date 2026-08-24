@@ -26,10 +26,10 @@ import { createStackNavigator, CardStyleInterpolators, TransitionPresets } from 
 
 import linking from './linking';
 import { navigationRef } from './navigationRef';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { SoundEffects } from '@cropsetu/shared/utils/sounds';
-import { isSellerAccount } from '@cropsetu/shared/utils/roles';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { SoundEffects } from '@krushisarva/shared/utils/sounds';
+import { isSellerAccount } from '@krushisarva/shared/utils/roles';
 
 import { C, SP, T } from '../theme';
 import { useReducedMotion } from '../hooks/useMotion';

@@ -22,10 +22,10 @@ import {
 
 import SellerNavigator from './src/navigation/SellerNavigator';
 import { C } from './src/theme';
-import { LanguageProvider } from '@cropsetu/shared/context/LanguageContext';
-import { AuthProvider, useAuth } from '@cropsetu/shared/context/AuthContext';
-import LoginScreen from '@cropsetu/shared/screens/LoginScreen';
-import RootErrorBoundary from '@cropsetu/shared/components/RootErrorBoundary';
+import { LanguageProvider } from '@krushisarva/shared/context/LanguageContext';
+import { AuthProvider, useAuth } from '@krushisarva/shared/context/AuthContext';
+import LoginScreen from '@krushisarva/shared/screens/LoginScreen';
+import RootErrorBoundary from '@krushisarva/shared/components/RootErrorBoundary';
 
 import BootScreen from './src/components/BootScreen';
 import { FeedbackProvider } from './src/components/ui';

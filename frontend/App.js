@@ -26,17 +26,17 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import AppNavigator from './src/navigation/AppNavigator';
 import OnboardingNavigator from './src/navigation/OnboardingNavigator';
-import { LanguageProvider } from '@cropsetu/shared/context/LanguageContext';
-import { AuthProvider, useAuth } from '@cropsetu/shared/context/AuthContext';
+import { LanguageProvider } from '@krushisarva/shared/context/LanguageContext';
+import { AuthProvider, useAuth } from '@krushisarva/shared/context/AuthContext';
 import { FarmProvider } from './src/context/FarmContext';
 import { MultiFarmProvider } from './src/context/MultiFarmContext';
 import { LocationProvider } from './src/context/LocationContext';
 import LocationSync from './src/context/LocationSync';
 import { CartProvider } from './src/context/CartContext';
-import LoginScreen from '@cropsetu/shared/screens/LoginScreen';
-import RootErrorBoundary from '@cropsetu/shared/components/RootErrorBoundary';
+import LoginScreen from '@krushisarva/shared/screens/LoginScreen';
+import RootErrorBoundary from '@krushisarva/shared/components/RootErrorBoundary';
 import InAppChatBanner from './src/components/InAppChatBanner';
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 
 function RootNavigator() {
   const { isLoggedIn, loading, user } = useAuth();
@@ -84,7 +84,7 @@ export default function App() {
     Inter_600SemiBold,
     Inter_700Bold,
     Inter_800ExtraBold,
-    // CropSetu auth screens
+    // KrushiSarva auth screens
     Fraunces_400Regular,
     Fraunces_400Regular_Italic,
     Fraunces_600SemiBold,

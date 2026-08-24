@@ -1,5 +1,5 @@
 import registerRootComponent from 'expo/src/launch/registerRootComponent';
-import { initCrashReporting } from '@cropsetu/shared/services/crashReporter';
+import { initCrashReporting } from '@krushisarva/shared/services/crashReporter';
 import App from './App';
 
 // Install global error/rejection handlers before the app renders so crashes

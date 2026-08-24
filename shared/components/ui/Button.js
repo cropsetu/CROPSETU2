@@ -26,7 +26,7 @@ import { TouchableOpacity, View, ActivityIndicator, StyleSheet } from 'react-nat
 import { Ionicons } from '@expo/vector-icons';
 import {
   KHET, KSPACE, KRADIUS, KELEV, KICON, KBORDER,
-} from '@cropsetu/shared/constants/khetTheme';
+} from '@krushisarva/shared/constants/khetTheme';
 import Text from './Text';
 import { alpha } from './palette';
 

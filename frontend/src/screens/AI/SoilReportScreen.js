@@ -16,11 +16,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   FlaskConical, Sparkles, Leaf, ChevronDown, FileText, Beaker, MessageSquare,
 } from 'lucide-react-native';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import {
   getSoilReports, getSoilReportDetail, getSoilRecommendation, getCrops,
 } from '../../services/aiApi';
-import { CropIcon } from '@cropsetu/shared/components/CropIcons';
+import { CropIcon } from '@krushisarva/shared/components/CropIcons';
 import {
   BG, BG_GRADIENT, PRIMARY, P_LIGHT, ACCENT, DANGER, TEXT, TEXT2, MUTED, SURFACE, BORDER,
   INTER_REG, INTER_SEMI, INTER_BOLD, INTER_EXTRA,

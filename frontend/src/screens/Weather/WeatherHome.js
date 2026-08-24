@@ -25,9 +25,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchWeatherForCurrentLocation, formatLastUpdated } from '../../services/weatherApi';
 import { getWeatherImage } from '../../utils/weatherBackground';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { COLORS } from '@cropsetu/shared/constants/colors';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { COLORS } from '@krushisarva/shared/constants/colors';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
 import { WeatherIcon } from '../../components/WeatherIcons';
 import { SkeletonBlock, SkeletonGroup, SkeletonRail, SkeletonStats } from '../../components/ui/Skeleton';
 

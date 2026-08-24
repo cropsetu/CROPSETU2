@@ -37,11 +37,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api, { safeErrorMessage, saveTokens } from '@cropsetu/shared/services/api';
-import { DISTRICT_LIST, getTalukas, BUSINESS_TYPES } from '@cropsetu/shared/constants/locations';
-import { isValidGst, isValidIfsc, isValidAadhaar, isValidPan } from '@cropsetu/shared/utils/validators';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api, { safeErrorMessage, saveTokens } from '@krushisarva/shared/services/api';
+import { DISTRICT_LIST, getTalukas, BUSINESS_TYPES } from '@krushisarva/shared/constants/locations';
+import { isValidGst, isValidIfsc, isValidAadhaar, isValidPan } from '@krushisarva/shared/utils/validators';
 
 import { C, E, R, SP, T, alpha, useResponsive } from '../theme';
 import { useNetwork } from '../hooks/useNetwork';

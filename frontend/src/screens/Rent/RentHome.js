@@ -47,23 +47,23 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
-import { Haptics } from "@cropsetu/shared/utils/haptics";
+import { Haptics } from "@krushisarva/shared/utils/haptics";
 import {
   SPRINGS,
   AnimatedCard,
   isReducedMotion,
   enterAnimation,
-} from "@cropsetu/shared/components/ui/motion";
+} from "@krushisarva/shared/components/ui/motion";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import useScrollHeader from "../../hooks/useScrollHeader";
 import ScrollToTopButton from "../../components/ScrollToTopButton";
 import { useLocation } from "../../context/LocationContext";
-import api from "@cropsetu/shared/services/api";
-import { useLanguage } from "@cropsetu/shared/context/LanguageContext";
-import { useAuth } from "@cropsetu/shared/context/AuthContext";
+import api from "@krushisarva/shared/services/api";
+import { useLanguage } from "@krushisarva/shared/context/LanguageContext";
+import { useAuth } from "@krushisarva/shared/context/AuthContext";
 import MockImagePlaceholder from "../../components/MockImagePlaceholder";
-import { COLORS, TYPE, SHADOWS } from "@cropsetu/shared/constants/colors";
+import { COLORS, TYPE, SHADOWS } from "@krushisarva/shared/constants/colors";
 import {
   KHET,
   KSPACE,
@@ -73,8 +73,8 @@ import {
   KBORDER,
   circle,
   withAlpha,
-} from "@cropsetu/shared/constants/khetTheme";
-import AnimatedScreen from "@cropsetu/shared/components/ui/AnimatedScreen";
+} from "@krushisarva/shared/constants/khetTheme";
+import AnimatedScreen from "@krushisarva/shared/components/ui/AnimatedScreen";
 import { SkeletonGrid } from "../../components/ui/Skeleton";
 import PhotoIcon from "../../components/PhotoIcon";
 import { MachineryIcon } from "../../components/MachineryIcons";

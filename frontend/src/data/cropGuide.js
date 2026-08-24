@@ -1,5 +1,5 @@
 // cropGuide.js
-// Crop-guide directory for CropSetu. Keyed by each entry's normalized `key`.
+// Crop-guide directory for KrushiSarva. Keyed by each entry's normalized `key`.
 // Exposes getCropGuide(name) — a tolerant lookup
 // helper that normalizes crop names and resolves common aliases/synonyms.
 

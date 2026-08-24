@@ -15,8 +15,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { KHET, KFONT, KRADIUS, KSPACE } from '@cropsetu/shared/constants/khetTheme';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { KHET, KFONT, KRADIUS, KSPACE } from '@krushisarva/shared/constants/khetTheme';
 
 const SLIDES = [
   { key: 'advice', img: require('../../../assets/onboard/advice.webp'),

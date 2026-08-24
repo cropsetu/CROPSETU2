@@ -16,7 +16,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { translations } from '@cropsetu/shared/i18n/translations';
+import { translations } from '@krushisarva/shared/i18n/translations';
 
 const ROOT = path.resolve(__dirname, '../../../..');
 

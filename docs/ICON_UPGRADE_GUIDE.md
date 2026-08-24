@@ -1,4 +1,4 @@
-# CropSetu — Colourful & Realistic Icon Upgrade Guide
+# KrushiSarva — Colourful & Realistic Icon Upgrade Guide
 
 > **Goal:** Our farmers often cannot read fluently. They navigate by **shape + colour**, not text.
 > This document lists **every place** in the app where a flat, one-colour line icon

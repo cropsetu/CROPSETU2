@@ -1,8 +1,8 @@
 /**
  * Deep-link security config for the app's NavigationContainer.
  *
- * The app registers the `cropsetu://` scheme (app.json), so the OS hands the app
- * any cropsetu:// URL. Without an explicit, validated linking config a crafted
+ * The app registers the `krushisarva://` scheme (app.json), so the OS hands the app
+ * any krushisarva:// URL. Without an explicit, validated linking config a crafted
  * link could drive navigation into unexpected screens/state. This module
  * WHITELISTS the only deep-link targets we accept — the six tab landing screens,
  * none of which take untrusted params or perform sensitive actions — and REJECTS
@@ -40,7 +40,7 @@ export function isAllowedDeepLink(path) {
 const linking = {
   // Native only — web doesn't use the scheme and we don't URL-sync there.
   enabled: Platform.OS !== 'web',
-  prefixes: ['cropsetu://', 'https://cropsetu.app'],
+  prefixes: ['krushisarva://', 'https://cropsetu.app'],
   config: {
     screens: {
       AgriStore:   { screens: { AgriStoreHome:   'shop' } },

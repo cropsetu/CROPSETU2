@@ -14,9 +14,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { COLORS } from '@cropsetu/shared/constants/colors';
-import api from '@cropsetu/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { COLORS } from '@krushisarva/shared/constants/colors';
+import api from '@krushisarva/shared/services/api';
 import PhotoIcon from '../../components/PhotoIcon';
 
 const PAGE = 20;

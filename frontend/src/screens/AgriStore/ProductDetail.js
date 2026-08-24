@@ -7,11 +7,11 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS, SHADOWS } from '@krushisarva/shared/constants/colors';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { useCart } from '../../context/CartContext';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 import { SkeletonDetail } from '../../components/ui/Skeleton';
 import OfferListSheet from './OfferListSheet';
@@ -578,7 +578,7 @@ export default function ProductDetail({ route, navigation }) {
   async function handleShare() {
     try {
       await Share.share({
-        message: `${product.name}${price ? ` — ${inr(price)}` : ''}\ncropsetu://product/${productId}`,
+        message: `${product.name}${price ? ` — ${inr(price)}` : ''}\nkrushisarva://product/${productId}`,
         title: product.name,
       });
     } catch { /* the user dismissed the sheet — not an error */ }

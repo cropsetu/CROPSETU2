@@ -1,7 +1,7 @@
 """
 Unit tests for agents/llm_dispatch.py — the flat per-feature LLM config.
 
-CropSetu routes per-feature by model-id prefix (WI-11). Covers:
+KrushiSarva routes per-feature by model-id prefix (WI-11). Covers:
   - _detect_provider maps gemini-*/gpt-*/claude-*/llama-* and rejects the rest
   - get_feature_config reads AI_<FEATURE>_* env vars correctly
   - defaults (all Gemini) are used when env vars are unset

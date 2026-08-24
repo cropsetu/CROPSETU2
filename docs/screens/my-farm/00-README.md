@@ -2,7 +2,7 @@
 
 > **Tab:** My Farm · **Stack:** `MyFarmStack` (re-registered in `AIStack` for deep-linking) · **Route name:** `MyFarmHome` (tab home) · **File:** [`frontend/src/screens/FarmProfile/`](../../../frontend/src/screens/FarmProfile/)
 
-This folder documents the **My Farm** tab of CropSetu / KhetAI, one Markdown file per screen, numbered in **user-flow order** (`01-`, `02-`, …) so the folder reads top-to-bottom like the real journey. It mirrors the structure of the master [`../README.md`](../README.md), which links My Farm to this `my-farm/` folder index.
+This folder documents the **My Farm** tab of KrushiSarva / KhetAI, one Markdown file per screen, numbered in **user-flow order** (`01-`, `02-`, …) so the folder reads top-to-bottom like the real journey. It mirrors the structure of the master [`../README.md`](../README.md), which links My Farm to this `my-farm/` folder index.
 
 Each screen doc follows the same template:
 

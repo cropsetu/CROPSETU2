@@ -5,7 +5,7 @@
 //
 // `roots` also covers ../shared so the shared package's tests run from here
 // rather than needing a second runner, and moduleNameMapper mirrors the
-// `@cropsetu/shared` alias metro.config.js sets up for the bundler.
+// `@krushisarva/shared` alias metro.config.js sets up for the bundler.
 module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/src', '<rootDir>/../shared'],
@@ -21,7 +21,7 @@ module.exports = {
     // plain babel transform. See src/__mocks__/react-native.js for why a stub is
     // the right answer here rather than adding the jest-expo preset.
     '^react-native$': '<rootDir>/src/__mocks__/react-native.js',
-    '^@cropsetu/shared/(.*)$': '<rootDir>/../shared/$1',
+    '^@krushisarva/shared/(.*)$': '<rootDir>/../shared/$1',
     // AsyncStorage is a native module, so importing it under the node
     // environment throws. The package ships an in-memory mock for exactly this
     // — it lets the offline-cache and preference helpers be tested as the plain

@@ -1,4 +1,4 @@
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import { useRef, useEffect, useState, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, FlatList,
@@ -11,15 +11,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location'; // reverseGeocodeAsync only
 import { useLocation } from '../../context/LocationContext';
 import { getMandiPrices } from '../../services/aiApi';
-import { INDIA_STATES_LIST, STATE_GPS_MAP, getDistricts } from '@cropsetu/shared/constants/indiaLocations';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { INDIA_STATES_LIST, STATE_GPS_MAP, getDistricts } from '@krushisarva/shared/constants/indiaLocations';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import PhotoIcon from '../../components/PhotoIcon';
-import CropIcon from '@cropsetu/shared/components/CropIcons';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import CropIcon from '@krushisarva/shared/components/CropIcons';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
 import { SkeletonBlock, SkeletonGroup } from '../../components/ui/Skeleton';
 import {
   KHET, KSPACE, KGUTTER, KRADIUS, KICON, KBORDER, circle, withAlpha,
-} from '@cropsetu/shared/constants/khetTheme';
+} from '@krushisarva/shared/constants/khetTheme';
 
 const { width: W, height: H } = Dimensions.get('window');
 

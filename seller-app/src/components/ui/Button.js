@@ -24,7 +24,7 @@
 import React, { useCallback, useRef } from 'react';
 import { ActivityIndicator, Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 import { C, E, HIT, R, SP, T, alpha } from '../../theme';
 import { usePressScale } from '../../hooks/useMotion';
 

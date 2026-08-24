@@ -29,7 +29,7 @@ Success / confirmation screen shown after an order is placed. It plays a celebra
 | Items ordered list | Rows (`OrderItemRow`) | Image, name, "Qty: n × ₹price", line total — staggered animation |
 | Estimated delivery card | Card | Car icon + delivery window + clock icon |
 | Continue Shopping | Gradient button | → `AgriStoreHome` |
-| Thank-you note | Text | "Thank you for shopping with CropSetu!" |
+| Thank-you note | Text | "Thank you for shopping with KrushiSarva!" |
 
 ## Services, APIs & data
 - **API endpoints:** none — this screen makes no API calls; it renders entirely from `route.params`.
@@ -38,7 +38,7 @@ Success / confirmation screen shown after an order is placed. It plays a celebra
 - **Local / static data:** `PAY_LABEL` / `PAY_BADGE_BG` / `PAY_BADGE_TXT` maps; estimated delivery computed locally (today+2 → today+4). Uses `Haptics` and `SoundEffects` utils.
 
 ## Languages / i18n
-i18n via `t`. Keys include `orderConfirmed.heroTitle`, `orderConfirmed.orderDetails`, `orderConfirmed.itemsOrdered`, `orderConfirmed.estDelivery`, `orderConfirmed.continueShopping`. Several strings are hardcoded: the Marathi hero subtitle ("तुमचा ऑर्डर यशस्वीरित्या पुष्टी झाला"), detail-row labels ("Items", "Total Paid", "Payment", "Est. Delivery"), payment labels, and "Thank you for shopping with CropSetu!".
+i18n via `t`. Keys include `orderConfirmed.heroTitle`, `orderConfirmed.orderDetails`, `orderConfirmed.itemsOrdered`, `orderConfirmed.estDelivery`, `orderConfirmed.continueShopping`. Several strings are hardcoded: the Marathi hero subtitle ("तुमचा ऑर्डर यशस्वीरित्या पुष्टी झाला"), detail-row labels ("Items", "Total Paid", "Payment", "Est. Delivery"), payment labels, and "Thank you for shopping with KrushiSarva!".
 
 ## Notes, edge cases & gaps
 - **No data fetch / no error states** — purely presentational; guards with `route.params || {}` and `order?.…` so missing params degrade gracefully (e.g. `shortId` falls back to `--------`, empty items list hides that section).

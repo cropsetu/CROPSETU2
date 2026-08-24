@@ -11,7 +11,7 @@
  * one: if a suite needs real native behaviour it belongs under a jest-expo
  * config, not here.
  *
- * Platform.OS is 'android' because that is what CropSetu's users are on and what
+ * Platform.OS is 'android' because that is what KrushiSarva's users are on and what
  * §40 says to optimise for — a logic test that silently exercised the iOS branch
  * would be testing the wrong path.
  */

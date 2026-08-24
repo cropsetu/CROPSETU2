@@ -23,36 +23,36 @@ globalThis.__bfLoaded = [];
 // Written out one by one rather than through a helper: jest requires the mock
 // factory to be an INLINE function literal, because it hoists these calls above
 // everything else in the file.
-jest.mock('@cropsetu/shared/i18n/lang/backfill/ta', () => {
+jest.mock('@krushisarva/shared/i18n/lang/backfill/ta', () => {
   globalThis.__bfLoaded.push('ta');
   return { __esModule: true, default: { __probe_ta: 'ta' } };
 });
-jest.mock('@cropsetu/shared/i18n/lang/backfill/kn', () => {
+jest.mock('@krushisarva/shared/i18n/lang/backfill/kn', () => {
   globalThis.__bfLoaded.push('kn');
   return { __esModule: true, default: { __probe_kn: 'kn' } };
 });
-jest.mock('@cropsetu/shared/i18n/lang/backfill/ml', () => {
+jest.mock('@krushisarva/shared/i18n/lang/backfill/ml', () => {
   globalThis.__bfLoaded.push('ml');
   return { __esModule: true, default: { __probe_ml: 'ml' } };
 });
-jest.mock('@cropsetu/shared/i18n/lang/backfill/te', () => {
+jest.mock('@krushisarva/shared/i18n/lang/backfill/te', () => {
   globalThis.__bfLoaded.push('te');
   return { __esModule: true, default: { __probe_te: 'te' } };
 });
-jest.mock('@cropsetu/shared/i18n/lang/backfill/bn', () => {
+jest.mock('@krushisarva/shared/i18n/lang/backfill/bn', () => {
   globalThis.__bfLoaded.push('bn');
   return { __esModule: true, default: { __probe_bn: 'bn' } };
 });
-jest.mock('@cropsetu/shared/i18n/lang/backfill/gu', () => {
+jest.mock('@krushisarva/shared/i18n/lang/backfill/gu', () => {
   globalThis.__bfLoaded.push('gu');
   return { __esModule: true, default: { __probe_gu: 'gu' } };
 });
-jest.mock('@cropsetu/shared/i18n/lang/backfill/pa', () => {
+jest.mock('@krushisarva/shared/i18n/lang/backfill/pa', () => {
   globalThis.__bfLoaded.push('pa');
   return { __esModule: true, default: { __probe_pa: 'pa' } };
 });
 
-const bf = require('@cropsetu/shared/i18n/lang/_backfill').default;
+const bf = require('@krushisarva/shared/i18n/lang/_backfill').default;
 
 const REGIONAL = ['ta', 'kn', 'ml', 'te', 'bn', 'gu', 'pa'];
 

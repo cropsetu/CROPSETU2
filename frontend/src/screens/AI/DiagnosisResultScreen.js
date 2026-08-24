@@ -25,26 +25,26 @@ import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
 import PhotoIcon from '../../components/PhotoIcon';
 import SoilIcon from '../../components/SoilIcons';
 import IrrigationIcon from '../../components/IrrigationIcons';
-import CropIcon from '@cropsetu/shared/components/CropIcons';
+import CropIcon from '@krushisarva/shared/components/CropIcons';
 import { Ionicons } from '@expo/vector-icons';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
 import * as FileSystem from 'expo-file-system/legacy';
 import logger from '../../utils/logger';
-import { SoundEffects } from '@cropsetu/shared/utils/sounds';
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { SoundEffects } from '@krushisarva/shared/utils/sounds';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import {
   KHET, KSPACE, KGUTTER, KRADIUS, KELEV, KICON, KBORDER, circle, withAlpha,
-} from '@cropsetu/shared/constants/khetTheme';
+} from '@krushisarva/shared/constants/khetTheme';
 // Kit <Text> is a zero-imposition drop-in for RN's Text (a bare <Text> emits no
 // style at all) and permanently blocks the Android fontFamily+fontWeight
 // fallback, which is the exact bug this screen is one edit away from shipping.
-import Text from '@cropsetu/shared/components/ui/Text';
-import api from '@cropsetu/shared/services/api';
+import Text from '@krushisarva/shared/components/ui/Text';
+import api from '@krushisarva/shared/services/api';
 import KrushiKendraShareSheet from '../../components/KrushiKendraShareSheet';
 
 const { width: W } = Dimensions.get('window');
@@ -857,7 +857,7 @@ body{font-family:Georgia,'Times New Roman',serif;color:#1c2526;line-height:1.5;f
 
   <!-- FOOTER -->
   <footer class="footer">
-    <div class="stamp"><div><b>${t('diagReport.verified')}</b>CROPSETU AI<br/>v${esc(sysMeta.version || '2.4.1')}</div></div>
+    <div class="stamp"><div><b>${t('diagReport.verified')}</b>KRUSHISARVA AI<br/>v${esc(sysMeta.version || '2.4.1')}</div></div>
     <div class="sig-row">
       <div class="sig"><b>Krushi Drishti</b><span>${t('diagReport.diagnosingPathologist')}</span></div>
       <div class="sig"><b>${esc(farmCtx.district ? `KVK ${farmCtx.district}` : t('diagReport.localAgronomist'))}</b><span>${t('diagReport.reviewingAuthority')}</span></div>

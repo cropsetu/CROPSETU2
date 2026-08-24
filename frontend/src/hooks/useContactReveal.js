@@ -16,7 +16,7 @@
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Alert } from 'react-native';
-import api from '@cropsetu/shared/services/api';
+import api from '@krushisarva/shared/services/api';
 import { safeOpenURL, sanitizePhone } from '../utils/sanitize';
 import { classifyError, ERROR_CODES } from '../utils/apiError';
 

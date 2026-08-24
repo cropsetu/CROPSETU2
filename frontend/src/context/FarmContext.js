@@ -1,5 +1,5 @@
 /**
- * FarmContext — Persistent farm profile for every Indian farmer using CropSetu.
+ * FarmContext — Persistent farm profile for every Indian farmer using KrushiSarva.
  *
  * Stores: location, crop list (with age), soil, irrigation, land size, previous crop.
  * All AI calls read from this context to personalise Groq/Gemini responses.

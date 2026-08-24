@@ -39,9 +39,9 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { Animated, FlatList, Image, RefreshControl, StyleSheet, Switch, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
-import StoreCategoryIcon from '@cropsetu/shared/components/StoreCategoryIcons';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@krushisarva/shared/services/api';
+import StoreCategoryIcon from '@krushisarva/shared/components/StoreCategoryIcons';
 
 import { C, HIT, R, SP, T, alpha, formatCurrency, useResponsive } from '../theme';
 import usePagedList from '../hooks/usePagedList';

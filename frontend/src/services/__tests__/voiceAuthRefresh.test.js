@@ -24,15 +24,15 @@ jest.mock('expo-file-system/legacy', () => ({
   readAsStringAsync: jest.fn(),
   EncodingType: { Base64: 'base64' },
 }));
-jest.mock('@cropsetu/shared/services/api', () => ({
+jest.mock('@krushisarva/shared/services/api', () => ({
   __esModule: true,
   default: { post: jest.fn(), get: jest.fn() },
   aiApi: { post: jest.fn(), get: jest.fn() },
   getAccessToken: (...a) => mockGetAccessToken(...a),
   forceRefreshAccessToken: (...a) => mockForceRefresh(...a),
 }));
-jest.mock('@cropsetu/shared/utils/mediaCompressor', () => ({ compressImage: jest.fn() }));
-jest.mock('@cropsetu/shared/constants/config', () => ({ API_BASE_URL: 'https://api.test/api/v1' }));
+jest.mock('@krushisarva/shared/utils/mediaCompressor', () => ({ compressImage: jest.fn() }));
+jest.mock('@krushisarva/shared/constants/config', () => ({ API_BASE_URL: 'https://api.test/api/v1' }));
 
 const { sendVoiceMessage, sendVoiceChatMessage } = require('../aiApi');
 

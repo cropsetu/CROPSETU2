@@ -1,6 +1,6 @@
-# CropSetu Admin Panel — Architecture & Code Reference
+# KrushiSarva Admin Panel — Architecture & Code Reference
 
-A complete walkthrough of the CropSetu admin system: the **React SPA** under [`admin/`](../admin/)
+A complete walkthrough of the KrushiSarva admin system: the **React SPA** under [`admin/`](../admin/)
 and the **ADMIN-gated, audited Express API** under
 [`backend/src/routes/admin/`](../backend/src/routes/admin/). It is reference
 documentation for anyone operating, extending, or auditing the admin surface.
@@ -12,7 +12,7 @@ documentation for anyone operating, extending, or auditing the admin surface.
 
 ## 1. What the admin panel is
 
-A single web SPA that operates **every domain** of CropSetu — users, KYC, marketplace,
+A single web SPA that operates **every domain** of KrushiSarva — users, KYC, marketplace,
 rentals, community, AI, CMS, broadcast, trust & safety, compliance, and ops — through
 one server-enforced, fully-audited API at `/api/v1/admin/*`.
 

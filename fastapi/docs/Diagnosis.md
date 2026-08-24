@@ -1,6 +1,6 @@
 # Crop Disease Diagnosis — Architecture & Processing
 
-This document explains how the CropSetu crop-disease diagnosis pipeline works end to end:
+This document explains how the KrushiSarva crop-disease diagnosis pipeline works end to end:
 the request lifecycle, every processing stage, the prompts used, and the safety/grounding
 layers that gate the model's output. The service is **Gemini-only** (Google Gemini for all
 LLM calls) and runs inside the FastAPI AI microservice.

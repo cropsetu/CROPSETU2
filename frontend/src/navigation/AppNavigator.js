@@ -8,12 +8,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import linking from './linking';
 import TabIcon from '../components/TabIcons';
 import { navigationRef } from './navigationRef';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
 import { useCart } from '../context/CartContext';
-import { COLORS, TYPE, RADIUS, SHADOWS } from '@cropsetu/shared/constants/colors';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
-import { SoundEffects } from '@cropsetu/shared/utils/sounds';
+import { COLORS, TYPE, RADIUS, SHADOWS } from '@krushisarva/shared/constants/colors';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
+import { SoundEffects } from '@krushisarva/shared/utils/sounds';
 import { CardStyleInterpolators } from '@react-navigation/stack';
 
 const ACTIVE_COLOR   = COLORS.primary;

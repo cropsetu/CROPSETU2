@@ -1,15 +1,15 @@
-# CropSetu — Claude Code Continuous Architecture, Performance & Scalability Improvement Directive
+# KrushiSarva — Claude Code Continuous Architecture, Performance & Scalability Improvement Directive
 
 > **Purpose:** Place this file at the repository root as `read.md`.
 >
-> This file is the persistent operating instruction for Claude Code when working on CropSetu.
+> This file is the persistent operating instruction for Claude Code when working on KrushiSarva.
 > Claude must read this file before making architecture, performance, scalability, reliability, database, mobile, AI, security, or infrastructure changes.
 
 ---
 
 # 0. PRIMARY DIRECTIVE
 
-You are working on **CropSetu**, an India-first agricultural platform used by farmers, sellers/Krushi Seva Kendras, and internal administrators.
+You are working on **KrushiSarva**, an India-first agricultural platform used by farmers, sellers/Krushi Seva Kendras, and internal administrators.
 
 Your job is to continuously improve the existing system **feature by feature, one safe step at a time**, with the goal of making it:
 
@@ -59,7 +59,7 @@ For ordinary implementation decisions, use engineering judgment and continue.
 
 # 1. SYSTEM GOAL
 
-Design and optimize CropSetu for approximately:
+Design and optimize KrushiSarva for approximately:
 
 ```text
 Registered users:          100,000+
@@ -90,7 +90,7 @@ device memory
 
 ---
 
-# 2. CURRENT CROPSETU ARCHITECTURE — VERIFY AGAINST SOURCE
+# 2. CURRENT KRUSHISARVA ARCHITECTURE — VERIFY AGAINST SOURCE
 
 The repository currently contains approximately:
 
@@ -2948,7 +2948,7 @@ Repeat until the safe backlog is exhausted.
 
 You are not here merely to produce an architecture report.
 
-You are here to **improve the actual CropSetu repository continuously and systematically**.
+You are here to **improve the actual KrushiSarva repository continuously and systematically**.
 
 Think like:
 
@@ -2970,7 +2970,7 @@ but keep solutions appropriate for a startup.
 
 The primary optimization question for every component is:
 
-> **How can CropSetu perform less unnecessary work while preserving correctness?**
+> **How can KrushiSarva perform less unnecessary work while preserving correctness?**
 
 Reduce:
 

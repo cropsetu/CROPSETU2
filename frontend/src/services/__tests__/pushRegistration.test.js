@@ -32,13 +32,13 @@ jest.mock('expo-constants', () => ({
   __esModule: true,
   default: { expoConfig: { extra: { eas: { projectId: 'proj-123' } } } },
 }));
-jest.mock('@cropsetu/shared/services/api', () => ({
+jest.mock('@krushisarva/shared/services/api', () => ({
   __esModule: true,
   default: { post: (...a) => mockPost(...a) },
 }));
 
 const { registerForPushNotifications, forgetPushRegistration, _resetPushRegistration } =
-  require('@cropsetu/shared/services/pushRegistration');
+  require('@krushisarva/shared/services/pushRegistration');
 
 const TOKEN = 'ExponentPushToken[abcdef1234567890]';
 
@@ -142,7 +142,7 @@ describe('without an EAS project id', () => {
     // an account-level action, not something code can work around.
     jest.resetModules();
     jest.doMock('expo-constants', () => ({ __esModule: true, default: { expoConfig: {} } }));
-    const mod = require('@cropsetu/shared/services/pushRegistration');
+    const mod = require('@krushisarva/shared/services/pushRegistration');
     mod._resetPushRegistration();
     await expect(mod.registerForPushNotifications()).resolves.toBeNull();
   });

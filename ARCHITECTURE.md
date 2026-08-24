@@ -1,6 +1,6 @@
-# CropSetu — System Architecture Reference
+# KrushiSarva — System Architecture Reference
 
-CropSetu is an India-first, Marathi/Hindi/English-plus-seven-more agri-platform for smallholder farmers. One phone-OTP account gives a farmer an AI crop-disease scanner and voice/text agronomy assistant (Gemini via a Python pipeline, Sarvam for Indic speech), a multi-seller agri-input marketplace (AgriStore) with regulated-chemical compliance gating, a livestock classifieds board (AnimalTrade), a machinery-and-labour rental marketplace (Rent), a multi-farm crop-cycle and P&L record (MyFarm), and market/MSP/weather/scheme data. Four clients consume one Express API: the farmer Expo app (`com.cropsetu.app`), a separate seller Expo app for Krushi Seva Kendras (`com.cropsetu.seller`), a React/Vite admin console served same-origin at `/admin`, and the Razorpay webhook. Behind Express sits a second service — a FastAPI + Celery multi-agent diagnosis pipeline — reached only over HMAC-signed requests. Users are farmers (buyers), sellers/Kendras, and internal operators split across seven admin scopes.
+KrushiSarva is an India-first, Marathi/Hindi/English-plus-seven-more agri-platform for smallholder farmers. One phone-OTP account gives a farmer an AI crop-disease scanner and voice/text agronomy assistant (Gemini via a Python pipeline, Sarvam for Indic speech), a multi-seller agri-input marketplace (AgriStore) with regulated-chemical compliance gating, a livestock classifieds board (AnimalTrade), a machinery-and-labour rental marketplace (Rent), a multi-farm crop-cycle and P&L record (MyFarm), and market/MSP/weather/scheme data. Four clients consume one Express API: the farmer Expo app (`com.cropsetu.app`), a separate seller Expo app for Krushi Seva Kendras (`com.cropsetu.seller`), a React/Vite admin console served same-origin at `/admin`, and the Razorpay webhook. Behind Express sits a second service — a FastAPI + Celery multi-agent diagnosis pipeline — reached only over HMAC-signed requests. Users are farmers (buyers), sellers/Kendras, and internal operators split across seven admin scopes.
 
 ---
 
@@ -34,7 +34,7 @@ This document is written for a reader — human or model — who has never opene
 | AI credit ledger (reserve → settle → release) | Part 3.3 (Agri/AI API) | Part 4 |
 | Express↔FastAPI HMAC contract | Part 4 (FastAPI service) | Part 3.3 |
 | Safety validator, RAG, chemical registry | Part 4 (FastAPI service) | Part 3.3 |
-| `@cropsetu/shared` resolution, axios client, i18n, design tokens | Part 5.4 (Shared package) | Parts 5.1, 5.2 |
+| `@krushisarva/shared` resolution, axios client, i18n, design tokens | Part 5.4 (Shared package) | Parts 5.1, 5.2 |
 | Deploy files, Dockerfile, `db push` policy, CI, EAS | Part 7 (Infrastructure & Operations) | Parts 1, 2 |
 
 **On endpoint tables.** Each of the four API sub-parts (core, commerce, agri/AI, admin) carries its endpoint inventory verbatim, with the column vocabulary its author used. The canonical column contract for the whole document is:
@@ -73,7 +73,7 @@ Per-section header mapping, so a reader can normalise mentally without the rows 
   - [5.1 Farmer mobile app](#51-farmer-mobile-app)
   - [5.2 Seller mobile app](#52-seller-mobile-app)
   - [5.3 Admin SPA](#53-admin-spa)
-  - [5.4 Shared package `@cropsetu/shared`](#54-shared-package-cropsetushared)
+  - [5.4 Shared package `@krushisarva/shared`](#54-shared-package-krushisarvashared)
 - [6. Cross-Cutting Concerns](#6-cross-cutting-concerns)
 - [7. Infrastructure & Operations](#7-infrastructure--operations)
 - [8. Scaling Analysis](#8-scaling-analysis)
@@ -273,7 +273,7 @@ Traffic facts worth carrying: mobile clients send **no** `Origin` header and are
 | 5 | Pre-router chain | `backend/src/app.js:80-351` | `disable('etag')` → `trust proxy` → request-id (`req.id`) → helmet (CSP `img-src` widened for the admin SPA) → CORS (no Origin ⇒ allow) → compression → morgan → **body parser 100 kb** (this prefix is not one of the raised-limit prefixes) → health probes (already passed) → admin static (not matched) → global per-IP limiter 200/15 min → CSRF (skipped: no `rt` cookie) → maintenance mode (reads `app.maintenanceMode` directly with a 5 s cache; fails open). |
 | 6 | Mount | `backend/src/app.js:367` | `app.use(\`${API}/agristore\`, shopMetricsMiddleware('shop'), agristoreRoutes)` — the metrics wrapper times on `res.finish`, so validation rejections and 404s are timed too, labelled by route **template** only (never ids). |
 | 7 | Route guards | `backend/src/routes/agristore.routes.js` | `router.param(id, uuidParamGuard)` rejects a malformed UUID with 400 before Prisma; `authenticate` runs next. |
-| 8 | `authenticate` | `backend/src/middleware/auth.js` | Strict `^Bearer (\S+)$` → `verifyAccessToken` (HS256, issuer `cropsetu-backend`, audience `cropsetu-mobile`) → **Redis GET** on the `jti` denylist (fail-open) → **Prisma `user.findUnique`** for `{isActive, tokenVersion}` (fail-closed) → `req.user = {id, role}`, `req.auth = {jti, exp}`. This pair of reads is the highest-volume operation in the system; there is no per-request user cache. |
+| 8 | `authenticate` | `backend/src/middleware/auth.js` | Strict `^Bearer (\S+)$` → `verifyAccessToken` (HS256, issuer `krushisarva-backend`, audience `krushisarva-mobile`) → **Redis GET** on the `jti` denylist (fail-open) → **Prisma `user.findUnique`** for `{isActive, tokenVersion}` (fail-closed) → `req.user = {id, role}`, `req.auth = {jti, exp}`. This pair of reads is the highest-volume operation in the system; there is no per-request user cache. |
 | 9 | Validation | `express-validator` + `middleware/validate.js` | `quantity` 1..100; failures become a 400 whose message is `field: msg` joined by `; `. |
 | 10 | Handler | `agristore.routes.js:966-1017` | Opens `prisma.$transaction(..., { isolationLevel: 'Serializable' })` wrapped in `withSerializableRetry` (retries only 40001 / 40P01 / P2034 with jittered backoff). Inside: re-read the `SellerListing`, check `status`, `minOrderQty`, `stockQty`; call `evaluateSaleEligibility()` (5 batched queries regardless of cart size) — a refusal returns **409** with a machine-readable `reason` from `{SALE_BLOCKED, PRODUCT_RECALLED, COMPLIANCE_NOT_APPROVED, SELLER_UNLICENSED, SELLER_LICENCE_EXPIRED, BATCH_REQUIRED, SHELF_LIFE_TOO_SHORT, EXPIRED_STOCK}`; then `cartItem.upsert` on `@@unique([userId, listingId])`. |
 | 11 | Metrics | `services/shopMetrics.service.js` | `recordEvent(CART_ADD_OK)` or `CART_ADD_FAIL` / `CART_ADD_BLOCKED_COMPLIANCE` / `OUT_OF_STOCK_HIT`; a serialization conflict increments `INVENTORY_CONFLICT` through the observer injected at `server.js:298`. |
@@ -582,7 +582,7 @@ Multer limits live in `config/cloudinary.js`, not app.js: `createUploader(maxFil
 
 | Token | Type | Lifetime | Storage | Revocation |
 |---|---|---|---|---|
-| Access | JWT HS256, `iss: cropsetu-backend`, `aud: cropsetu-mobile`, claims `{sub, role, tv, jti, exp}` | `ENV.JWT_EXPIRES_IN` = 15 m | mobile: memory/SecureStore; web: memory | Redis `jti` denylist (single device) **or** `tokenVersion` bump (all devices) |
+| Access | JWT HS256, `iss: krushisarva-backend`, `aud: krushisarva-mobile`, claims `{sub, role, tv, jti, exp}` | `ENV.JWT_EXPIRES_IN` = 15 m | mobile: memory/SecureStore; web: memory | Redis `jti` denylist (single device) **or** `tokenVersion` bump (all devices) |
 | Refresh | 96-hex random (`randomBytes(48)`), **SHA-256 hashed at rest** in `RefreshToken` | idle `SESSION_IDLE_TIMEOUT_DAYS` (7 d, sliding) + absolute `SESSION_ABSOLUTE_TIMEOUT_DAYS` (30 d from `sessionStartedAt`) | mobile: body + SecureStore; web: httpOnly cookie | rotation + reuse detection burns the whole `familyId` lineage |
 
 `utils/jwt.js` mechanics:
@@ -2302,7 +2302,7 @@ claims the path is `/api/v1/health/apis`; that path does not exist.
 
 | Concern | Value |
 |---|---|
-| Access token | HS256, `ENV.JWT_SECRET`, `expiresIn: ENV.JWT_EXPIRES_IN` (default `15m`), issuer `cropsetu-backend`, audience `cropsetu-mobile`, claims `sub`, `role`, `tv`, `jti` (`crypto.randomUUID()`) |
+| Access token | HS256, `ENV.JWT_SECRET`, `expiresIn: ENV.JWT_EXPIRES_IN` (default `15m`), issuer `krushisarva-backend`, audience `krushisarva-mobile`, claims `sub`, `role`, `tv`, `jti` (`crypto.randomUUID()`) |
 | Refresh token | 48 random bytes hex, stored **sha256-hashed** in `RefreshToken.token`; `familyId` groups a rotation lineage; `sessionStartedAt` anchors the absolute cap |
 | Idle timeout | `SESSION_IDLE_TIMEOUT_DAYS` = 7 → `expiresAt`, re-set on every rotation (sliding) |
 | Absolute timeout | `SESSION_ABSOLUTE_TIMEOUT_DAYS` = 30 from `sessionStartedAt`, carried across rotations |
@@ -6635,7 +6635,7 @@ connections; N web replicas × 10 + N worker processes × 10 is the connection-b
 **Shared-with-Express: partially.** Both services read a `DATABASE_URL` and both point at Postgres
 (Prisma-owned for Express — `backend/prisma/schema.prisma` has **90 models and 43 enums** in 3,192 lines;
 earlier revisions of this part said "~60 models", which was stale — the measured figure is in Part 2). In the *checked-in local*
-env they are **different databases**: `fastapi/.env` → `…/cropsetu`, `backend/.env` → `…/farmeasy_db`.
+env they are **different databases**: `fastapi/.env` → `…/krushisarva`, `backend/.env` → `…/farmeasy_db`.
 Whether prod points both at one instance is an env-var question, not a code one — treat "shared
 Postgres" as *unverified* and see the schema-ownership section below for why it matters either way.
 
@@ -7371,7 +7371,7 @@ request/response.
 
 #### Celery app (`jobs/queue.py:38-69`)
 
-`Celery("cropsetu", broker=CELERY_BROKER_URL, backend=CELERY_RESULT_BACKEND, include=["jobs.tasks"])`,
+`Celery("krushisarva", broker=CELERY_BROKER_URL, backend=CELERY_RESULT_BACKEND, include=["jobs.tasks"])`,
 both defaulting to `redis://localhost:6379/**1**` (db 1 keeps job traffic off the db-0 dedup
 keyspace). Config: json serializer, UTC, `task_acks_late=True`, `worker_prefetch_multiplier=1`
 (60-120 s tasks must not be hoarded), `result_expires=24h`, `task_time_limit=300`,
@@ -7390,7 +7390,7 @@ import and then removes it — forked pool workers otherwise die on
 `from orchestrator import run_diagnosis`.
 
 `run_diagnosis_task` (`jobs/tasks.py:119-192`), `bind=True`, `max_retries=0`, `acks_late=True`:
-1. `_materialise` — base64 → `tempfile.mkstemp(prefix="cropsetu_worker_")`, re-decodes with
+1. `_materialise` — base64 → `tempfile.mkstemp(prefix="krushisarva_worker_")`, re-decodes with
    `validate=True`, re-applies the 8 MB cap, picks the extension from mime. **Single-image only** —
    it returns on the first valid image (`:73-108`).
 2. copies `payload["user_id"]` down into `params` (the persistence layer reads the column off
@@ -7747,8 +7747,8 @@ Four clients, one API. The two Expo apps are separate binaries that both consume
 
 | Client | Bundle id / path | Auth transport | Realtime | Design tokens |
 |---|---|---|---|---|
-| Farmer app | `com.cropsetu.app`, scheme `cropsetu://` | Bearer from SecureStore | Socket.IO (4 consumers) | KHET kit (`shared/constants/khetTheme.js`) + legacy `colors.js` + MyFarm `cosmicTheme.js` |
-| Seller app | `com.cropsetu.seller`, scheme `cropsetu-seller://` | Bearer from SecureStore | **none** | its own `seller-app/src/theme/index.js` (harvest orange on parchment) |
+| Farmer app | `com.cropsetu.app`, scheme `krushisarva://` | Bearer from SecureStore | Socket.IO (4 consumers) | KHET kit (`shared/constants/khetTheme.js`) + legacy `colors.js` + MyFarm `cosmicTheme.js` |
+| Seller app | `com.cropsetu.seller`, scheme `krushisarva-seller://` | Bearer from SecureStore | **none** | its own `seller-app/src/theme/index.js` (harvest orange on parchment) |
 | Admin SPA | served at `/admin` | httpOnly `rt` cookie + JS-readable `csrf` cookie, access token in a module variable | none | Tailwind 3 + a hand-rolled component layer |
 | Razorpay | server-to-server | HMAC over raw bytes | — | — |
 
@@ -7766,7 +7766,7 @@ Analysis) and its own `§8.1`/`§8.2`. Every `§8.x` reference in this document 
 
 The farmer-facing Expo app. It is one of two Expo projects in the repo (the other is
 `seller-app/`); both consume `shared/` — a *non-installed*, source-level package aliased
-as `@cropsetu/shared`. Everything in this section is read from source; line numbers are
+as `@krushisarva/shared`. Everything in this section is read from source; line numbers are
 given for anything non-obvious.
 
 ##### Stack and versions
@@ -7805,7 +7805,7 @@ a "Reload" action).
 
 | Key | Value |
 |---|---|
-| name / slug / scheme | `CropSetu` / `cropsetu` / `cropsetu` |
+| name / slug / scheme | `KrushiSarva` / `krushisarva` / `krushisarva` |
 | version | `1.0.0`; `newArchEnabled: true`; `orientation: portrait`; `userInterfaceStyle: light` |
 | iOS bundle id | `com.cropsetu.app`, `supportsTablet: false` |
 | Android package | `com.cropsetu.app` |
@@ -7823,16 +7823,16 @@ Permissions requested (Android, `app.json` + generated `AndroidManifest.xml`):
 `SYSTEM_ALERT_WINDOW`, `VIBRATE`. iOS usage strings cover camera, photo library,
 location-when-in-use, microphone (`app.json:19-24`); the prebuilt `Info.plist` also has
 `NSFaceIDUsageDescription` and *always*-location strings that `app.json` does not declare
-(`ios/CropSetu/Info.plist:56-61`). `NSAppTransportSecurity` sets
+(`ios/KrushiSarva/Info.plist:56-61`). `NSAppTransportSecurity` sets
 `NSAllowsArbitraryLoads=false` with `NSAllowsLocalNetworking=true`
 (`Info.plist:47-53`).
 
-Deep-link schemes registered natively: `cropsetu://`, `exp+cropsetu://` (Android
+Deep-link schemes registered natively: `krushisarva://`, `exp+krushisarva://` (Android
 `AndroidManifest.xml:33-34`); iOS adds `com.cropsetu.app` as a third URL scheme
 (`Info.plist:25-40`). The Android manifest declares a `<queries>` block for `https` VIEW
 intents (`AndroidManifest.xml:13-19`) — relevant because `frontend/src/utils/sellerApp.js`
 explains it deliberately does *not* use `Linking.canOpenURL` for the
-`cropsetu-seller://` scheme, since Android 11+ package visibility would report
+`krushisarva-seller://` scheme, since Android 11+ package visibility would report
 "not installed" for an undeclared scheme.
 
 **EAS profiles** (`frontend/eas.json`): `development` (dev client, internal, debug),
@@ -7855,14 +7855,14 @@ grep-based secret scan for `sk-…`, `ghp_…`, `AIza…` that *fails* the build
 start command (`prisma db push && node src/server.js`).
 
 **Metro** (`frontend/metro.config.js`): `watchFolders = [../shared]` and
-`resolver.extraNodeModules['@cropsetu/shared'] = ../shared`, with
+`resolver.extraNodeModules['@krushisarva/shared'] = ../shared`, with
 `resolver.nodeModulesPaths` pinned to `frontend/node_modules` so shared code resolves
 React/RN against *this* app's copy. `shared/` is not a workspace and has no
 `node_modules`; `shared/package.json` declares everything as peerDependencies.
 Babel is `babel-preset-expo` only (`babel.config.js`).
 
 **Jest** (`frontend/jest.config.js`): node environment, roots `src` + `../shared`,
-`moduleNameMapper` mirrors the `@cropsetu/shared` alias and swaps AsyncStorage for its
+`moduleNameMapper` mirrors the `@krushisarva/shared` alias and swaps AsyncStorage for its
 in-memory mock. Only pure-logic suites exist:
 `src/utils/__tests__/apiError.test.js`, `animalPrefs.test.js`,
 `src/services/__tests__/locationService.test.js`,
@@ -7970,7 +7970,7 @@ to uncapped OS text scaling, because the six fixed-height cells cannot absorb 20
 (`AppNavigator.js:92-100`).
 
 **Deep links** (`frontend/src/navigation/linking.js`): `enabled` only on native;
-prefixes `cropsetu://` and `https://cropsetu.app`. A whitelist gate wraps
+prefixes `krushisarva://` and `https://cropsetu.app`. A whitelist gate wraps
 `getStateFromPath` — only six first path segments resolve
 (`shop`, `assistant`, `animals`, `rent`, `farm`, `account`), each mapping to a tab's
 landing screen; anything else returns `undefined` so the app just opens normally
@@ -8804,12 +8804,12 @@ A standalone Expo app for sellers (Krushi Seva Kendras). It was split out of `fr
 
 | Fact | Value | Source |
 | --- | --- | --- |
-| Expo `name` / `slug` | `CropSetu Seller` / `cropsetu-seller` | `seller-app/app.json:3-4` |
-| URL scheme | `cropsetu-seller://` | `app.json:5` |
+| Expo `name` / `slug` | `KrushiSarva Seller` / `krushisarva-seller` | `seller-app/app.json:3-4` |
+| URL scheme | `krushisarva-seller://` | `app.json:5` |
 | iOS bundle id | `com.cropsetu.seller` | `app.json:18` |
 | Android package | `com.cropsetu.seller` | `app.json:29` |
-| Buyer-app counterpart | `com.cropsetu.app`, scheme `cropsetu` | `frontend/app.json:5,17,29` |
-| npm package name | `cropsetu-seller`, `main: index.js` | `seller-app/package.json:2,4` |
+| Buyer-app counterpart | `com.cropsetu.app`, scheme `krushisarva` | `frontend/app.json:5,17,29` |
+| npm package name | `krushisarva-seller`, `main: index.js` | `seller-app/package.json:2,4` |
 | Entry | `index.js` → `expo/src/launch/registerRootComponent` | `seller-app/index.js:1,10` |
 | RN / React / Expo | `react-native 0.81.5`, `react 19.1.0`, `expo ^54.0.33`, `newArchEnabled: true` | `package.json:24,37,39`; `app.json:7` |
 | Navigation | `@react-navigation/native ^6` + `@react-navigation/stack ^6` only (no bottom-tabs) | `package.json:20-21` |
@@ -8831,11 +8831,11 @@ A standalone Expo app for sellers (Krushi Seva Kendras). It was split out of `fr
 | Tests | `jest` + `jest-expo`, `npm test` | **no test tooling at all** — `package.json` has no `test` script and no jest deps |
 | EAS project link | `extra.eas.projectId` + `owner` set (`frontend/app.json:88-93`) | **absent** from `seller-app/app.json` |
 
-`shared/` is resolved by *specifier mapping*, not by install: `metro.config.js:19` adds `../shared` to `watchFolders`, `:21` pins `nodeModulesPaths` to this app's own `node_modules`, and `:22-25` maps `@cropsetu/shared` → `../shared`. Both apps therefore bundle shared code against their *own* React Native copy, never two.
+`shared/` is resolved by *specifier mapping*, not by install: `metro.config.js:19` adds `../shared` to `watchFolders`, `:21` pins `nodeModulesPaths` to this app's own `node_modules`, and `:22-25` maps `@krushisarva/shared` → `../shared`. Both apps therefore bundle shared code against their *own* React Native copy, never two.
 
 ###### The EAS Build caveat (README `Known limitation`, `README.md:72-92`)
 
-`eas build` uploads only the directory it is run from, so a cloud build launched inside `seller-app/` would not include `../shared` and would fail to resolve every `@cropsetu/shared/*` import. Local runs (`npm start`, `expo run:android`) are unaffected because Metro reads `../shared` from disk. The documented fix is to make the repo an npm workspace (`root package.json` with `workspaces: ["frontend","seller-app","shared"]`), reinstall from the root, and add the hoisted root `node_modules` to `nodeModulesPaths` in **both** `metro.config.js` files. As of this reading no root `package.json` exists, so **no cloud build of the seller app can currently succeed**. Two secondary blockers compound it: `app.json` carries no `extra.eas.projectId`/`owner`, while `eas.json:4` sets `appVersionSource: "remote"`, which requires a linked EAS project.
+`eas build` uploads only the directory it is run from, so a cloud build launched inside `seller-app/` would not include `../shared` and would fail to resolve every `@krushisarva/shared/*` import. Local runs (`npm start`, `expo run:android`) are unaffected because Metro reads `../shared` from disk. The documented fix is to make the repo an npm workspace (`root package.json` with `workspaces: ["frontend","seller-app","shared"]`), reinstall from the root, and add the hoisted root `node_modules` to `nodeModulesPaths` in **both** `metro.config.js` files. As of this reading no root `package.json` exists, so **no cloud build of the seller app can currently succeed**. Two secondary blockers compound it: `app.json` carries no `extra.eas.projectId`/`owner`, while `eas.json:4` sets `appVersionSource: "remote"`, which requires a linked EAS project.
 
 Every seller dependency is justified either directly or transitively through `shared/`: `socket.io-client` (via `shared/context/AuthContext.js:10` → `shared/services/socket.js`), `expo-av` (`shared/utils/sounds.js:1`), `expo-image-manipulator` + `expo-file-system` (`shared/utils/mediaCompressor.js:13-14`), `expo-secure-store` (`shared/utils/storage.js:24`), `js-sha256` (`shared/utils/proofOfWork.js:10`), `buffer` (`shared/services/api.js:8`), `expo-updates` (`shared/components/RootErrorBoundary.js:15`, lazily `require`d), `react-native-svg` (`shared/components/*Icons.js`), `expo-constants` (`shared/services/crashReporter.js:24`). No seller screen imports `socket.io-client` directly — there is **no realtime channel in the seller app**; orders and the report inbox are poll/pull-to-refresh only.
 
@@ -8846,11 +8846,11 @@ Every seller dependency is justified either directly or transitively through `sh
 `App.js` renders, outermost first (`App.js:101-121`):
 
 ```
-RootErrorBoundary                (@cropsetu/shared/components/RootErrorBoundary)
+RootErrorBoundary                (@krushisarva/shared/components/RootErrorBoundary)
   SafeAreaProvider
     NetworkProvider              (src/hooks/useNetwork)
-      LanguageProvider           (@cropsetu/shared/context/LanguageContext)
-        AuthProvider             (@cropsetu/shared/context/AuthContext)
+      LanguageProvider           (@krushisarva/shared/context/LanguageContext)
+        AuthProvider             (@krushisarva/shared/context/AuthContext)
           FeedbackProvider       (src/components/ui/Feedback — toasts + confirm)
             StatusBar style="dark"
             RootNavigator
@@ -8863,7 +8863,7 @@ RootErrorBoundary                (@cropsetu/shared/components/RootErrorBoundary)
 | `useAuth()` state | Rendered |
 | --- | --- |
 | `loading` | `<BootScreen label="Signing you in…" />` |
-| `!isLoggedIn` | `LoginScreen` from `@cropsetu/shared/screens/LoginScreen` — the *same* OTP login as the buyer app |
+| `!isLoggedIn` | `LoginScreen` from `@krushisarva/shared/screens/LoginScreen` — the *same* OTP login as the buyer app |
 | logged in | `<SellerNavigator />` |
 
 Two robustness details worth carrying forward:
@@ -8907,14 +8907,14 @@ Whitelist-only, and the whitelist has exactly one entry.
 | Field | Value |
 | --- | --- |
 | `enabled` | `Platform.OS !== 'web'` (`:34`) |
-| `prefixes` | `['cropsetu-seller://', 'https://seller.cropsetu.app']` (`:35`) |
+| `prefixes` | `['krushisarva-seller://', 'https://seller.cropsetu.app']` (`:35`) |
 | `config.screens` | `{ SellerDashboard: 'dashboard' }` (`:37-39`) |
 | `ALLOWED_DEEP_LINK_PATHS` | `new Set(['dashboard'])` (`:18`) |
 | Gate | `getStateFromPath` returns `undefined` for any non-whitelisted path, so React Navigation never resolves it and the app opens on its normal initial route (`:44-50`) |
 
 `isAllowedDeepLink(path)` (`:25-30`) strips `?`/`#` and leading slashes, lowercases the **first path segment only**, and tests set membership. A bare scheme with no path is not a target. Product editing, KYC, order-status changes and any param injection are all rejected by construction. To add a target you must edit **both** the set and `config.screens`, and validate the params, because deep-link params are attacker-controlled (`:10-12`).
 
-Gap worth flagging: `app.json` declares **no** iOS `associatedDomains` and no Android `intentFilters`, so the `https://seller.cropsetu.app` prefix cannot actually be delivered to the app by either OS — only the custom `cropsetu-seller://` scheme works today.
+Gap worth flagging: `app.json` declares **no** iOS `associatedDomains` and no Android `intentFilters`, so the `https://seller.cropsetu.app` prefix cannot actually be delivered to the app by either OS — only the custom `krushisarva-seller://` scheme works today.
 
 ##### 5.2.4 Screen inventory
 
@@ -9116,7 +9116,7 @@ Plain objects/functions — no React — so it is safe to import at module scope
 | `useResponsive()` | Hook over `useWindowDimensions()` (not a module-scope `Dimensions.get`). Breakpoints 360/600/905/1240. Returns `isCompact/isMedium/isExpanded/isLandscape`, `contentMaxWidth` (760 / 640 / full), `quickActionColumns`, `statColumns`, `gutter` (`:416-450`) |
 | `formatCurrency(value)` | `₹` + `toLocaleString('en-IN')`; never throws on null/NaN/strings — returns `₹—` (`:456-461`) |
 | `initialsOf(name, fallback)` | Emoji-safe via `Array.from` (`:464-469`) |
-| re-exports | `COLORS`, `SHADOWS`, `RADIUS` from `@cropsetu/shared/constants/colors` |
+| re-exports | `COLORS`, `SHADOWS`, `RADIUS` from `@krushisarva/shared/constants/colors` |
 
 Only two values are borrowed from the shared palette: `C.brandMedium = COLORS.sellerPrimaryMedium` and `C.accentLight = COLORS.sellerAccentLight` (`:132,142`).
 
@@ -9196,10 +9196,10 @@ The governing rule is stated in `backend/src/routes/sellerCompliance.routes.js:5
 
 | Capability | Seller app | Where it actually lives |
 | --- | --- | --- |
-| Publish a **new catalog product** to buyers | can only *submit*; `POST /agristore/catalog/products` writes `status: 'PENDING_QC'` (`agristore.routes.js:1953`) and the app says so ("Sent for review — buyers will see it once CropSetu approves it", `AddProductScreen.js:674`) | `POST /admin/products/qc/:id/approve` / `/reject`, scope `CONTENT_MODERATOR` (`admin/catalogQc.routes.js:3-5`; mounted `admin/index.js:84`) |
+| Publish a **new catalog product** to buyers | can only *submit*; `POST /agristore/catalog/products` writes `status: 'PENDING_QC'` (`agristore.routes.js:1953`) and the app says so ("Sent for review — buyers will see it once KrushiSarva approves it", `AddProductScreen.js:674`) | `POST /admin/products/qc/:id/approve` / `/reject`, scope `CONTENT_MODERATOR` (`admin/catalogQc.routes.js:3-5`; mounted `admin/index.js:84`) |
 | Merge duplicate catalog rows | no | `POST /admin/products/merge`, `GET /admin/products/duplicates` (`admin/catalogQc.routes.js:6-7`) |
 | Edit shared catalog fields on a product they did not create | **structurally blocked** — the catalog sections are not rendered in `attach` mode and `PATCH /listings/:id` accepts offer fields only | `/admin/products` (scope `CMS_EDITOR`, `admin/index.js:85`) |
-| Un-block a `BLOCKED` listing | no — `PATCH /agristore/listings/:listingId` refuses with 403 "This offer has been blocked by CropSetu" unless `req.user.role === 'ADMIN'` (`agristore.routes.js:2191-2193`) | admin only |
+| Un-block a `BLOCKED` listing | no — `PATCH /agristore/listings/:listingId` refuses with 403 "This offer has been blocked by KrushiSarva" unless `req.user.role === 'ADMIN'` (`agristore.routes.js:2191-2193`) | admin only |
 | Verify their own KYC / flip their own role beyond the one-time consent | no; `kycStatus` is displayed read-only (`SellerProfileScreen.js:382-391`) | `POST /admin/kyc/:userId/verify` / `/reject`, scope `KYC_REVIEWER` (`admin/kyc.routes.js:8-9`; `admin/index.js:63`) |
 | See earnings **owed**, the settlement ledger, commission, or payouts | **no surface at all** — the dashboard's "ledger" panel is gross revenue from `getSellerStats` (`sellerStats.service.js:63-66`), not a balance | `/admin/sellers/:id/ledger`, `/admin/payouts`, scope `FINANCE` (`admin/finance.routes.js:2-5`; `admin/index.js:116-117`) |
 | Handle returns / issue refunds | no; the app cannot set `REFUNDED` and the status validator only accepts CONFIRMED/SHIPPED/DELIVERED/CANCELLED (`agristore.routes.js:2523-2525`) | `PATCH /admin/returns/:id`, scope `SUPPORT` (`admin/returns.routes.js:6`; `admin/index.js:105`) |
@@ -9257,7 +9257,7 @@ Ordered by consequence. Every item below was read in the source, not inferred.
 
 #### Admin console (`admin/`) — overview
 
-A single-page React app that operates every CropSetu domain through the
+A single-page React app that operates every KrushiSarva domain through the
 `/api/v1/admin/*` API. 22 page files under `admin/src/pages/` export 48 screen
 components; `App.tsx` mounts 51 `<Route>` elements — 47 protected screens, the
 public `/login`, two `*` catch-alls (one per branch), plus the **pathless layout
@@ -9848,13 +9848,13 @@ No disagreements found in that file.
 
 ---
 
-### 5.4 Shared package `@cropsetu/shared`
+### 5.4 Shared package `@krushisarva/shared`
 
 > **Canonical home for**: the Metro alias mechanism and its failure modes, the two axios instances and the single refresh queue, the socket client, crash reporting, `AuthContext`'s session state machine, the i18n system and its measured coverage, the KHET design system, the shared utilities, and a per-area breakage-risk table.
 
-#### The `@cropsetu/shared` package — resolution mechanism
+#### The `@krushisarva/shared` package — resolution mechanism
 
-`shared/` is **not an installed npm package**. `shared/package.json` declares `"name": "@cropsetu/shared"`, `"private": true`, `"main": "index.js"` (a file that **does not exist** — nothing imports the bare specifier, only deep paths), and a `peerDependencies` block with **zero** `dependencies` and **zero** `devDependencies`. There is no `shared/node_modules`, no npm workspace, and no symlink.
+`shared/` is **not an installed npm package**. `shared/package.json` declares `"name": "@krushisarva/shared"`, `"private": true`, `"main": "index.js"` (a file that **does not exist** — nothing imports the bare specifier, only deep paths), and a `peerDependencies` block with **zero** `dependencies` and **zero** `devDependencies`. There is no `shared/node_modules`, no npm workspace, and no symlink.
 
 Resolution happens entirely in each app's Metro config, and the two files are byte-identical apart from comments:
 
@@ -9862,7 +9862,7 @@ Resolution happens entirely in each app's Metro config, and the two files are by
 | --- | --- | --- | --- |
 | `config.watchFolders = [sharedRoot]` | L23 | L19 | Metro only bundles/hot-reloads files it watches; `../shared` is outside the project root. |
 | `config.resolver.nodeModulesPaths = [<app>/node_modules]` | L25 | L21 | Files under `shared/` import `react` / `react-native` / `expo-*`; there is no `node_modules` above `shared/`, so resolution is pinned to **the host app's** copy. Each app bundles shared code against its own React Native — never two copies. |
-| `config.resolver.extraNodeModules['@cropsetu/shared'] = sharedRoot` | L28 | L24 | Maps the specifier directly at the folder. |
+| `config.resolver.extraNodeModules['@krushisarva/shared'] = sharedRoot` | L28 | L24 | Maps the specifier directly at the folder. |
 
 `sharedRoot = path.resolve(__dirname, '../shared')` in both.
 
@@ -9898,13 +9898,13 @@ Resolution happens entirely in each app's Metro config, and the two files are by
 | --- | --- |
 | `watchFolders` dropped | Edits under `shared/` do not appear; stale module graph until a hard restart. |
 | `nodeModulesPaths` dropped | `shared/*` cannot resolve `react`/`react-native`/`expo-*` at all (no `node_modules` above `shared/`) → bundle-time resolution error. |
-| `extraNodeModules` dropped | Every `@cropsetu/shared/...` import fails to resolve → app will not bundle. |
+| `extraNodeModules` dropped | Every `@krushisarva/shared/...` import fails to resolve → app will not bundle. |
 | A peer installed in only one app | The app missing it fails at bundle time; the other keeps working — a silent one-app break. |
 | Peer versions diverge (e.g. two RN versions) | Not currently possible via this mechanism because each app bundles shared code against **its own** `node_modules`; the risk is behavioural drift, not duplicate React. |
 
-Two curiosities inside the package itself: `shared/components/ui/palette.js`, `Text.js`, `Button.js`, `Card.js`, `Header.js`, `ListRow.js` and `Screen.js` import khetTheme through the **alias** (`@cropsetu/shared/constants/khetTheme`) rather than a relative path, so those files only resolve inside a configured Metro/Jest environment; the rest of `shared/` uses relative imports.
+Two curiosities inside the package itself: `shared/components/ui/palette.js`, `Text.js`, `Button.js`, `Card.js`, `Header.js`, `ListRow.js` and `Screen.js` import khetTheme through the **alias** (`@krushisarva/shared/constants/khetTheme`) rather than a relative path, so those files only resolve inside a configured Metro/Jest environment; the rest of `shared/` uses relative imports.
 
-**Consumption by app** (import counts of `@cropsetu/shared/<path>` across each app's `src/`, `App.js`, `index.js`):
+**Consumption by app** (import counts of `@krushisarva/shared/<path>` across each app's `src/`, `App.js`, `index.js`):
 
 | Module | frontend | seller-app |
 | --- | --- | --- |
@@ -9931,7 +9931,7 @@ Two curiosities inside the package itself: `shared/components/ui/palette.js`, `T
 
 Note the asymmetry: the seller app is a thin consumer (auth + i18n + api + a few icon packs); the buyer app is the heavy one. `components/ui/{Button,Card,Header,ListRow,Screen}` and `components/ui/index.js` have **zero** importers in either app today — the kit is built but not adopted (see the design-system section).
 
-**Tests.** `frontend/jest.config.js` sets `roots: ['<rootDir>/src', '<rootDir>/../shared']`, `modulePaths: ['<rootDir>/node_modules']` and `moduleNameMapper: {'^@cropsetu/shared/(.*)$': '<rootDir>/../shared/$1'}` — the Jest mirror of the Metro alias. `cd frontend && npm test` therefore runs `shared/utils/__tests__/validators.test.js` (the only test file in the package, 84 lines, 6 `describe` blocks) alongside the app's own. `testEnvironment: 'node'`, plain `babel-jest`, no `jest-expo` preset — so only pure-logic modules are testable there.
+**Tests.** `frontend/jest.config.js` sets `roots: ['<rootDir>/src', '<rootDir>/../shared']`, `modulePaths: ['<rootDir>/node_modules']` and `moduleNameMapper: {'^@krushisarva/shared/(.*)$': '<rootDir>/../shared/$1'}` — the Jest mirror of the Metro alias. `cd frontend && npm test` therefore runs `shared/utils/__tests__/validators.test.js` (the only test file in the package, 84 lines, 6 `describe` blocks) alongside the app's own. `testEnvironment: 'node'`, plain `babel-jest`, no `jest-expo` preset — so only pure-logic modules are testable there.
 
 ---
 
@@ -10345,7 +10345,7 @@ Gradients (for `expo-linear-gradient`): `gradPrimary = ['#005f21','#008935']` (1
 
 The file documents the derivation: ~3 123 spacing declarations, 1 344 `fontSize`, 855 `borderRadius` were measured across `frontend/src/screens`, and steps were chosen to **minimise total pixel movement** — 91 % of existing spacing and 93 % of font sizes land on a step with delta exactly 0. The codebase is a **2px grid, not 4 or 8**: of ~3 086 positive spacing values 87 % divide by 2 but only 47 % by 4, with bimodal mod-4 residues (class 0 = 47 %, class 2 = 40 %). Snapping everything to multiples of 4 would move 2 865 px; this scale moves ~450.
 
-`s0:0, s1:1, s2:2, s3:3, s4:4, s6:6, s8:8, s10:10, s12:12, s14:14, s16:16, s18:18, s20:20, s24:24, s32:32, s40:40, s48:48, s64:64`, plus role tokens `tailTab:100` (clears the bottom tab bar) and `tailFab:120` (tab bar **and** a floating button), plus negatives `n2:-2, n8:-8, n12:-12, n16:-16, n20:-20`. `s14` is the signature CropSetu card padding (37 % of card padding shorthands); `s10` is the co-dominant row gap.
+`s0:0, s1:1, s2:2, s3:3, s4:4, s6:6, s8:8, s10:10, s12:12, s14:14, s16:16, s18:18, s20:20, s24:24, s32:32, s40:40, s48:48, s64:64`, plus role tokens `tailTab:100` (clears the bottom tab bar) and `tailFab:120` (tab bar **and** a floating button), plus negatives `n2:-2, n8:-8, n12:-12, n16:-16, n20:-20`. `s14` is the signature KrushiSarva card padding (37 % of card padding shorthands); `s10` is the co-dominant row gap.
 
 `KGUTTER = { tight: 14, base: 16, wide: 20 }` — three gutters is a deliberate **deferral**: the AI/Soil cluster sits at 20 and Rent/Store at 16, and unifying now would narrow a whole tab by 4 px against unmigrated siblings. Naming them converts invisible drift into a greppable one.
 
@@ -10629,7 +10629,7 @@ This part is a consolidated index of concerns that cut across every service. Eac
 
 | Element | Value | Where |
 |---|---|---|
-| Access token | HS256 JWT, `iss cropsetu-backend`, `aud cropsetu-mobile`, claims `{sub, role, tv, jti, exp}`, TTL **15 min** | §1.4, Part 3.1 |
+| Access token | HS256 JWT, `iss krushisarva-backend`, `aud krushisarva-mobile`, claims `{sub, role, tv, jti, exp}`, TTL **15 min** | §1.4, Part 3.1 |
 | Refresh token | 96-hex random, stored **SHA-256 hashed**, `familyId` lineage, `sessionStartedAt` anchor | Part 3.1 |
 | Idle / absolute timeout | 7 d sliding (re-set on every rotation) / 30 d hard from first login | §1.3 |
 | Concurrency cap | 5 active lineages; the oldest are evicted whole on login | §1.4 |
@@ -10777,7 +10777,7 @@ Two further translation layers sit outside `t()`: `frontend/src/data/contentI18n
 
 Everything below was read from the files cited. Repo root is
 `/Users/shubhamyeljale/Desktop/CROPSETU2`; git remote is
-`https://github.com/cropsetu/CROPSETU2.git` (single repo, no submodules —
+`https://github.com/krushisarva/CROPSETU2.git` (single repo, no submodules —
 `.gitmodules` absent). 917 tracked files (563 `.js`, 99 `.py`, 99 `.md`, 34
 `.tsx`, 19 `.sql`, 4 `.yml`). No secret or log file is tracked; the only
 tracked env files are the five `.env.example` templates.
@@ -11196,7 +11196,7 @@ consequence is recorded in the headers of every manual script:
 
 **The entire hazard is conditional on Express and FastAPI pointing at the same
 Postgres database, and this repository cannot prove that they do.** In the
-checked-in local env they are **different** databases: `fastapi/.env` → `…/cropsetu`,
+checked-in local env they are **different** databases: `fastapi/.env` → `…/krushisarva`,
 `backend/.env` → `…/farmeasy_db`. If production mirrors that split, `db push` from
 Express can never touch `ai_scan_diagnoses` because that table is not in the database
 Express connects to, and risk-register item #1 and invariant 51 do not apply at all.
@@ -11307,7 +11307,7 @@ bypass.
 `frontend/jest.config.js` deliberately avoids the `jest-expo` preset: node
 environment, `roots: ['<rootDir>/src', '<rootDir>/../shared']` so the shared
 package's tests run from the app, `moduleNameMapper` mirrors the
-`@cropsetu/shared` metro alias, and AsyncStorage is mapped to the package's own
+`@krushisarva/shared` metro alias, and AsyncStorage is mapped to the package's own
 in-memory jest mock. Covered: shop request-lane/error-classification/image-URL
 logic, Account-tab i18n key-leak guard, Rent distance-filter preferences,
 `locationService` resolution ladder + in-flight de-dup, animal prefs, the
@@ -11351,14 +11351,14 @@ frontend/.github/workflows/eas-build.yml
 
 These are fossils from when `backend/` and `frontend/` were separate
 repositories. GitHub will not schedule any of them for
-`github.com/cropsetu/CROPSETU2`. For completeness, and because moving them to
+`github.com/krushisarva/CROPSETU2`. For completeness, and because moving them to
 the root is the obvious "fix" that would then break, here is what they say and
 why each would fail today:
 
 | Workflow | Trigger | Jobs | Would it work if moved to the root? |
 | --- | --- | --- | --- |
-| `backend/.github/workflows/ci.yml` | `push`/`pull_request` on `main` | **node-backend**: `npm ci`, `npx prisma generate`, `node --check` over `src/routes,services,middleware,utils/*.js`, and a `console.log` grep that only emits `::warning::`. **fastapi**: `pip install -r requirements.txt`, `python -c "import main"`,  `python -c "from routes import chat, scan, alerts, agripredict, pest_prediction"` (a module list that includes `pest_prediction`, which does not exist in `fastapi/routes/`) | **No.** The node job runs at the repo root, where there is no `package.json`; the fastapi job sets `working-directory: AI_CROP_DISESE_DETECTION`, a directory that **does not exist** (it is `fastapi/` now). Neither job runs any test. A commented-out `deploy` job would `railway up --service cropsetu-backend --detach` |
-| `backend/.github/workflows/build-android.yml` | `push` on `main`, `workflow_dispatch` | checkout → Node 20 → Java 17 → `npm ci` → rewrite `src/constants/config.js` to point at `https://resilient-vision-production-e784.up.railway.app` → `npx expo prebuild --platform android --clean --no-install` → `./gradlew assembleDebug -x lint` → upload `farmeasy-debug-apk` (7-day retention) | **No.** `src/constants/config.js` no longer exists (config moved to `shared/constants/config.js`), so the regex patch is a silent no-op, and the hardcoded `resilient-vision-production-e784` domain is a **third** production URL that matches neither `cropsetu2-production` (used by `eas.json` and `shared/constants/config.js`) nor `cropsetu-backend-production` (pinned in `frontend/src/config/sslPinning.js`) |
+| `backend/.github/workflows/ci.yml` | `push`/`pull_request` on `main` | **node-backend**: `npm ci`, `npx prisma generate`, `node --check` over `src/routes,services,middleware,utils/*.js`, and a `console.log` grep that only emits `::warning::`. **fastapi**: `pip install -r requirements.txt`, `python -c "import main"`,  `python -c "from routes import chat, scan, alerts, agripredict, pest_prediction"` (a module list that includes `pest_prediction`, which does not exist in `fastapi/routes/`) | **No.** The node job runs at the repo root, where there is no `package.json`; the fastapi job sets `working-directory: AI_CROP_DISESE_DETECTION`, a directory that **does not exist** (it is `fastapi/` now). Neither job runs any test. A commented-out `deploy` job would `railway up --service krushisarva-backend --detach` |
+| `backend/.github/workflows/build-android.yml` | `push` on `main`, `workflow_dispatch` | checkout → Node 20 → Java 17 → `npm ci` → rewrite `src/constants/config.js` to point at `https://resilient-vision-production-e784.up.railway.app` → `npx expo prebuild --platform android --clean --no-install` → `./gradlew assembleDebug -x lint` → upload `farmeasy-debug-apk` (7-day retention) | **No.** `src/constants/config.js` no longer exists (config moved to `shared/constants/config.js`), so the regex patch is a silent no-op, and the hardcoded `resilient-vision-production-e784` domain is a **third** production URL that matches neither `krushisarva2-production` (used by `eas.json` and `shared/constants/config.js`) nor `krushisarva-backend-production` (pinned in `frontend/src/config/sslPinning.js`) |
 | `frontend/.github/workflows/ci.yml` | `push`/`pull_request` on `main` | `npm ci`; `npx expo export --platform android` as a bundle smoke test (failure only emits `::warning::`, never fails the job); a **hard-failing** grep for leaked `sk-…` / `ghp_…` / `AIza…` keys in `src/` and `App.js` | Partially — would need `working-directory: frontend`. The secret grep is the only step that can fail a build |
 | `frontend/.github/workflows/eas-build.yml` | `workflow_dispatch` only (inputs: profile `preview\|production`, platform `android\|ios\|all`) | `npm ci` → `expo/expo-github-action@v8` with `secrets.EXPO_TOKEN` → `eas build --non-interactive --no-wait` | Partially — would need `working-directory: frontend`, and would hit the `../shared` upload problem described in §7.7 |
 
@@ -11387,8 +11387,8 @@ Two separate Expo apps sharing one backend and one `../shared` folder.
 
 | | Farmer app (`frontend/`) | Seller app (`seller-app/`) |
 | --- | --- | --- |
-| Expo name / slug | `CropSetu` / `cropsetu` | `CropSetu Seller` / `cropsetu-seller` |
-| Deep-link scheme | `cropsetu://` | `cropsetu-seller://` |
+| Expo name / slug | `KrushiSarva` / `krushisarva` | `KrushiSarva Seller` / `krushisarva-seller` |
+| Deep-link scheme | `krushisarva://` | `krushisarva-seller://` |
 | Android package | `com.cropsetu.app` | `com.cropsetu.seller` |
 | iOS bundle id | `com.cropsetu.app` | `com.cropsetu.seller` |
 | `expo.version` | `1.0.0` | `1.0.0` |
@@ -11440,7 +11440,7 @@ effectively not wired up; shipping a JS change requires a new binary.**
 ##### The `../shared` / EAS Build problem
 
 `eas build` uploads the directory it is run from. Both apps import
-`@cropsetu/shared/*` — 106 files under `frontend/src` + `frontend/App.js` do
+`@krushisarva/shared/*` — 106 files under `frontend/src` + `frontend/App.js` do
 (`App.js:29-36`) — and `shared/` sits **outside** each app's directory, resolved
 only by `metro.config.js` (`watchFolders` + `extraNodeModules`,
 `frontend/metro.config.js:23-29`). `seller-app/README.md:72-92` states the
@@ -11608,8 +11608,8 @@ The repo pre-authorises the read-only adb commands an agent needs
 ##### 7.8.7 Running the backend image standalone
 
 ```bash
-docker build -t cropsetu-backend .          # from the repo ROOT, not backend/
-docker run -p 3000:3000 --env-file backend/.env cropsetu-backend
+docker build -t krushisarva-backend .          # from the repo ROOT, not backend/
+docker run -p 3000:3000 --env-file backend/.env krushisarva-backend
 ```
 
 The image's `CMD` will attempt `prisma db push` (60 s cap) and then start the
@@ -11721,7 +11721,7 @@ Ordered by expected damage, each traceable to a line above.
 | 7 | **Celery worker may not exist as a Railway service** | `fastapi/railway.json:7` supports `ROLE=worker`; nothing in-repo proves one is deployed | If absent, every `POST /ai/scan` enqueues a job that is never executed |
 | 8 | **No FastAPI healthcheck configured** | `fastapi/railway.json` has no `healthcheckPath` | A wedged AI service keeps receiving traffic |
 | 9 | **SSL pinning is inert and keyed on the wrong host** | `sslPinning.js:58` vs `shared/constants/config.js:35`; no importer | The security control is documentation, not enforcement; the leaf pin also expires 2026-08-02 |
-| 10 | **`eas build` cannot see `../shared`** | `seller-app/README.md:72-92`; `frontend/App.js:29-36` imports it | Cloud builds of either app fail to resolve `@cropsetu/shared/*` until the repo becomes an npm workspace |
+| 10 | **`eas build` cannot see `../shared`** | `seller-app/README.md:72-92`; `frontend/App.js:29-36` imports it | Cloud builds of either app fail to resolve `@krushisarva/shared/*` until the repo becomes an npm workspace |
 | 11 | **OTA declared but unconfigured** | `expo-updates` installed, channels named, no `updates`/`runtimeVersion` block, no code usage | Any JS-only hotfix needs a full store release |
 | 12 | **37 known-failing tests, and 4 backend test files silently excluded** | `docs/ACCOUNT_HARDENING.md:219-221`; `--testPathPattern='tests/'` vs `src/__tests__/` | The suite has no clean baseline, and the Express→FastAPI scan test never runs |
 
@@ -11916,7 +11916,7 @@ Decide first which of the two mechanisms it is:
 | **Reveal** | `?reveal=true&reason=…` on an admin read. Both are required; the reveal is audited before the plaintext is sent. |
 | **Leader lock** | `SET lock:cron:<job> <instance> PX ttl NX`, never released — it expires. |
 | **Keyset cursor** | `base64url("<ISO createdAt>|<id>")`. Mobile lists use the raw-SQL row-value seek; admin lists use Prisma's nested-OR form. |
-| **`@cropsetu/shared`** | A **non-installed** source folder resolved by each app's Metro config, not by npm. Zero dependencies, 16 peer dependencies. |
+| **`@krushisarva/shared`** | A **non-installed** source folder resolved by each app's Metro config, not by npm. Zero dependencies, 16 peer dependencies. |
 | **KHET** | The current design system (`shared/constants/khetTheme.js`) — Fraunces + Plus Jakarta Sans, forest green and gold, WCAG-checked ink tokens. |
 | **DPDP** | India's Digital Personal Data Protection Act. Drives consent records, minor gating (**DPDP §9**), erasure (**DPDP §8**) and the 72 h breach-notification duty (**DPDP §8(6)**). Statutory sections are always written `DPDP §N` in this document; a bare `§N` always means a section of this document. |
 | **`jobId`** | The **Celery task id**, minted by FastAPI at enqueue and returned to Express as `job_id`. It is the key for Express's `scan_ctx:<jobId>` (TTL 45 min) and `scan_settled:<jobId>` (TTL 24 h), and for FastAPI's `owner:scan:job:{job_id}` / `exists:scan:job:{job_id}` (TTL 25 h each) and `idem:scan:key:{job_id}`. Lifetime ≈ one scan. On the wire it is the `:jobId` path segment of `GET /api/v1/ai/scan/job/:jobId`. **Not** a database id — no table has this column. |
@@ -11976,7 +11976,7 @@ Each row names an invariant a change must not break, the file that enforces it, 
 | 44 | A rent lister publishes only their **own** account phone number | `rent.routes.js` `ownPhoneOnly()` | Otherwise a listing makes a rival's phone ring all season with no trace back to the author. |
 | 45 | `Idempotency-Key` is minted **once per request config**, so the 401 replay and any client retry reuse it | `shared/services/api.js:152-177` | The omission of `/agristore/orders` once let a double-tap create a second COD order and decrement stock twice. |
 | 46 | `SESSION_IDLE_TIMEOUT_MS` on the client must equal `SESSION_IDLE_TIMEOUT_DAYS` on the server | `shared/constants/config.js:70`, `backend/src/config/env.js` | The client either logs out early or hands the server a token it will reject. |
-| 47 | Both Metro configs must keep `watchFolders`, `nodeModulesPaths` and `extraNodeModules['@cropsetu/shared']` | `frontend/metro.config.js`, `seller-app/metro.config.js` | Neither app bundles. The configs are duplicated, not shared. |
+| 47 | Both Metro configs must keep `watchFolders`, `nodeModulesPaths` and `extraNodeModules['@krushisarva/shared']` | `frontend/metro.config.js`, `seller-app/metro.config.js` | Neither app bundles. The configs are duplicated, not shared. |
 | 48 | Anything `shared/` imports must be installed in **both** apps | `shared/package.json` peerDependencies | A one-app bundle-time failure; three needed packages are already undeclared. |
 | 49 | A KHET `KTYPE` role names a `fontFamily` and never a `fontWeight` | `shared/constants/khetTheme.js` | On Android, pairing a custom family with a weight falls back to system Roboto and throws the brand face away. |
 | 50 | `SUBCATEGORIES_MAP` keys must exactly match DB `Category.name` | `shared/constants/categories.js` | A hard client-to-DB string coupling with no runtime validation — a rename silently empties a category. |
@@ -12064,7 +12064,7 @@ Multi-site items, with every place the body describes them:
 16. **`A2-16`** — **`/agripredict/predict` always 503s** — `fastapi/routes/agripredict.py` imports `services.pest_agent_service`, which does not exist. Express proxies eight AgriPredict paths, of which only that one is even routed.
 17. **`A2-17`** — **Device push is never delivered**: `expo-notifications` is not a dependency of either app and nothing calls `POST /users/me/push-token` from the client.
 18. **`A2-18`** — **The proof-of-work OTP gate has never been active** — `OTP_POW_SECRET` previously fell back to a nonexistent env var, and the admin SPA has no solver, so enabling it would 428 admin logins.
-19. **`A2-19`** — **SSL pinning is inert**: `frontend/src/config/sslPinning.js` has no importer, says so itself, and pins a host (`cropsetu-backend-production`) that is not the configured API host (`cropsetu2-production`).
+19. **`A2-19`** — **SSL pinning is inert**: `frontend/src/config/sslPinning.js` has no importer, says so itself, and pins a host (`krushisarva-backend-production`) that is not the configured API host (`krushisarva2-production`).
 20. **`A2-20`** — **OTA is not wired**: `expo-updates` is installed and channels are declared, but there is no `updates` block, no `runtimeVersion`, and no code calls `Updates.*`.
 21. **`A2-21`** — **`GET /agristore/seller/orders` ignores `?status=`** while the seller app relies on it, so every order filter chip returns the unfiltered list.
 22. **`A2-22`** — **`GET /agristore/seller/products` is offset-paginated and returns no `nextCursor`** while `MyProductsScreen` uses `usePagedList({mode:'cursor'})`, so a seller with more than 20 listings can never load the rest.
@@ -12088,7 +12088,7 @@ Multi-site items, with every place the body describes them:
 34. **`A2-34`** — `fastapi/weather_service.py:32` hardcodes `localhost:6379`, so on Railway its 30-minute weather cache is always per-process.
 35. **`A2-35`** — `fastapi/.env.example` claims Anthropic was removed while `config.py:47`, `llm_dispatch.py` and `requirements.txt` all wire it, and the admin dropdown offers two Claude models. Conversely, **no `claude-*` id appears in any default or chain**, so Claude is unreachable in practice.
 36. **`A2-36`** — `frontend/.env.example:12` names a different EAS project id than `frontend/app.json:62`.
-37. **`A2-37`** — Three different production hostnames appear in the repo: `cropsetu2-production` (what the apps call), `cropsetu-backend-production` (what `sslPinning.js` pins), `resilient-vision-production-e784` (what the dead APK workflow patches in).
+37. **`A2-37`** — Three different production hostnames appear in the repo: `krushisarva2-production` (what the apps call), `krushisarva-backend-production` (what `sslPinning.js` pins), `resilient-vision-production-e784` (what the dead APK workflow patches in).
 38. **`A2-38`** — `frontend/railway.toml` runs `npx prisma db push --accept-data-loss && node src/server.js` against a directory with no prisma, no `prisma/` and no `src/server.js` — the command cannot run, and the flag is the one every manual SQL header forbids.
 
 **Documentation drift** (beyond the admin-panel items above)
@@ -12163,7 +12163,7 @@ What the reading that produced this document did **not** cover. Treat every stat
 
 ### B.5 FastAPI service
 
-- Whether production Express and FastAPI actually share one Postgres instance is unverifiable from code: the checked-in `fastapi/.env` points at database `cropsetu` and `backend/.env` at `farmeasy_db`. The schema-ownership hazard holds in either case, but the "shared DB" premise itself is unverified.
+- Whether production Express and FastAPI actually share one Postgres instance is unverifiable from code: the checked-in `fastapi/.env` points at database `krushisarva` and `backend/.env` at `farmeasy_db`. The schema-ownership hazard holds in either case, but the "shared DB" premise itself is unverified.
 - `agents/prompts/diagnose.v2.md` and `treatment.v1.md` were read by grep/outline rather than line by line; prompt-behaviour claims come from quoted lines plus the consuming agent code.
 - `agents/report_generator_agent.py` (1,211 lines) was read in full only for the entry point, `_attach_local_blocks`, `_generate_template_report` and the section-3/4 headers; per-field report layout is not exhaustively documented.
 - `fastapi/docs/ARCHITECTURE.md` is 1,282 lines; §1-§7 were read in full and the remainder grepped for provider/config/eval claims, so the divergence table is not a guaranteed-exhaustive diff.

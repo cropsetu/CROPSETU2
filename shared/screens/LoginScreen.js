@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Auth flow — CropSetu design (ported from the Lovable "dharti-connect-hub" project).
+// Auth flow — KrushiSarva design (ported from the Lovable "dharti-connect-hub" project).
 // Three steps: WELCOME (pre-login) → PHONE (mobile entry) → OTP (6-digit verify).
 // Real OTP backend logic (sendOtp / verifyOtp) is preserved. The phone field is
 // uncontrolled (ref-based) to dodge the New-Architecture Android caret-reset bug;
@@ -290,7 +290,7 @@ function WelcomeView({ insets, onStart }) {
       <View style={[sty.topbar, { paddingTop: insets.top + 8 }]}>
         <View style={sty.glassPill}>
           <Ionicons name="leaf" size={15} color={KHET.primaryGlow} />
-          <Text style={sty.glassPillTxt}>CropSetu</Text>
+          <Text style={sty.glassPillTxt}>KrushiSarva</Text>
         </View>
         <View style={sty.glassPill}>
           <Ionicons name="language" size={13} color="#fff" />
@@ -359,7 +359,7 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
             </TouchableOpacity>
             <View style={sty.brandRow}>
               <Ionicons name="leaf" size={15} color={KHET.primary} />
-              <Text style={sty.brandTxt}>CropSetu</Text>
+              <Text style={sty.brandTxt}>KrushiSarva</Text>
             </View>
             <View style={{ width: 40 }} />
           </View>
@@ -477,7 +477,7 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
             </TouchableOpacity>
             <View style={sty.brandRow}>
               <Ionicons name="leaf" size={15} color={KHET.primary} />
-              <Text style={sty.brandTxt}>CropSetu</Text>
+              <Text style={sty.brandTxt}>KrushiSarva</Text>
             </View>
             <View style={sty.onlinePill}>
               <Ionicons name="wifi" size={12} color={KHET.primary} />

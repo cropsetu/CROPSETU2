@@ -24,10 +24,10 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '@cropsetu/shared/constants/colors';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import DashboardStatIcon from '@cropsetu/shared/components/DashboardStatIcons';
+import { COLORS } from '@krushisarva/shared/constants/colors';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import DashboardStatIcon from '@krushisarva/shared/components/DashboardStatIcons';
 import { SkeletonList } from '../../components/ui/Skeleton';
 
 /** ₹ with Indian digit grouping (1,20,000 — not 120,000). */

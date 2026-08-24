@@ -1,6 +1,6 @@
 /**
  * AnimalIcons.js — Beautiful, REALISTIC 3D-style SVG illustrations for the
- * CropSetu animal-trade categories. Built for LOW-LITERACY Indian farmers:
+ * KrushiSarva animal-trade categories. Built for LOW-LITERACY Indian farmers:
  * each icon must instantly read as the correct real animal in its true colours.
  *
  * Style recipe (mirrors CropIcons.js / ActivityIcons.js):

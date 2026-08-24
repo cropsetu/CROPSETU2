@@ -64,7 +64,7 @@ async function build({ out, W, H, markPx, size, tagSize, tagline, aspect }) {
   console.log(`  ✓ ${path.relative(REPO, out)}  ${W}×${H}  ${(bytes / 1024).toFixed(1)} KB`);
 }
 
-// Full lockup with tagline — replaces frontend/assets/cropsetu-wordmark.png
+// Full lockup with tagline — replaces frontend/assets/krushisarva-wordmark.png
 await build({ out: path.join(REPO, 'frontend/assets/krushisarva-wordmark.png'),
   W: 1600, H: 300, markPx: 300, size: 104, tagSize: 26, tagline: 'SMART FARMING', aspect: 2.55 });
 // @2x

@@ -10,9 +10,9 @@
  */
 import React from 'react';
 import { Image, StyleSheet } from 'react-native';
-import { resolveVariant } from '@cropsetu/shared/components/StoreCategoryIcons';
+import { resolveVariant } from '@krushisarva/shared/components/StoreCategoryIcons';
 import { resolveVariant as resolveWx } from './WeatherIcons';
-import { CLOUDINARY_CLOUD_NAME } from '@cropsetu/shared/constants/config';
+import { CLOUDINARY_CLOUD_NAME } from '@krushisarva/shared/constants/config';
 
 /**
  * Sets served from Cloudinary rather than bundled (IMAGE_PROCESS.md §4).

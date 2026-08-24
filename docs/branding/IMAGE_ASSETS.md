@@ -12,7 +12,7 @@
 
 ### 0.1 What this is
 
-The app name is moving from the placeholder **CropSetu** (repo) / **KhetAI** (UI) to **KrushiSarva**.
+The app name is moving from the placeholder **KrushiSarva** (repo) / **KhetAI** (UI) to **KrushiSarva**.
 This document is the single reference for every raster image worth generating with an AI image model,
 what it is for, where in this codebase it renders, what size and format it ships as, and the prompt
 that produces it.
@@ -27,7 +27,7 @@ copy of art that already exists.
 
 ### 0.2 What this is *not*
 
-- **Not the rename.** `CropSetu` appears ~1,109 times across ~250 files. That is a separate task.
+- **Not the rename.** `KrushiSarva` appears ~1,109 times across ~250 files. That is a separate task.
   Two facts from it constrain asset work and are noted where relevant: changing `android.package` /
   `ios.bundleIdentifier` creates a **new Play listing, not an update**; and `JWT_ISSUER`/`JWT_AUDIENCE`
   in [`backend/src/utils/jwt.js:9-10`](../../backend/src/utils/jwt.js) cannot be find-and-replaced —
@@ -94,7 +94,7 @@ this reliably.
 **The wordmark is typeset by hand in Fraunces 700** — already a bundled font
 ([`khetTheme.js`](../../shared/constants/khetTheme.js) `KFONT.displayBold`) — locked up beside the
 generated mark (`IMG-BRAND-001`) and exported. It replaces
-[`frontend/assets/cropsetu-wordmark.png`](../../frontend/assets/cropsetu-wordmark.png) (855×347, used at
+[`frontend/assets/krushisarva-wordmark.png`](../../frontend/assets/krushisarva-wordmark.png) (855×347, used at
 exactly one call site: [`AgriStoreHome.js:683`](../../frontend/src/screens/AgriStore/AgriStoreHome.js)).
 
 The same rule kills every "app icon with the name in it" request.
@@ -346,7 +346,7 @@ both apply their own mask; a baked plate double-frames and looks amateur.
 **Lane D — hand-made, NOT generated · B1 · TODO**
 
 **Renders at:** [`frontend/src/screens/AgriStore/AgriStoreHome.js:683`](../../frontend/src/screens/AgriStore/AgriStoreHome.js),
-replacing `require('../../../assets/cropsetu-wordmark.png')`.
+replacing `require('../../../assets/krushisarva-wordmark.png')`.
 
 **Method:** set `KrushiSarva` in **Fraunces 700** (`KFONT.displayBold`, already bundled) in
 `#005f21` on transparent. Cap-height of the type equals the optical height of the `IMG-BRAND-001` mark;
@@ -1483,7 +1483,7 @@ The fact that decides this whole section: **`frontend/android/` and `frontend/io
    retires `#1B4332`, which is not a token in any theme file.
 6. `icon` → the new 1024² opaque PNG. `web.favicon` → the new 64² PNG.
 7. **Out of scope here:** `name`, `slug`, `scheme`, `bundleIdentifier`, `package`, the four iOS usage
-   strings and the two plugin permission strings all still say CropSetu. That is the rename task — and
+   strings and the two plugin permission strings all still say KrushiSarva. That is the rename task — and
    note that changing `package` / `bundleIdentifier` means a **new Play listing, not an update**.
 
 `admin/index.html` — add, and create `admin/public/`:

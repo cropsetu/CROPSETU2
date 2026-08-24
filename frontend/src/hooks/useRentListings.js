@@ -19,7 +19,7 @@
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '@cropsetu/shared/services/api';
+import api from '@krushisarva/shared/services/api';
 import { classifyError, ERROR_CODES } from '../utils/apiError';
 
 const RENT_PAGE_SIZE = 20;

@@ -12,14 +12,14 @@ load_dotenv(_here / ".env", override=False)
 load_dotenv(_here.parent / ".env", override=False)
 
 # ── Google Gemini (sole LLM provider) ─────────────────────────────────────────
-# CropSetu runs Gemini-only in production. Groq + Anthropic were removed during
+# KrushiSarva runs Gemini-only in production. Groq + Anthropic were removed during
 # the production consolidation — Gemini serves every LLM feature (chat, alerts,
 # diagnosis, treatment, soil OCR, pest). Voice STT/TTS is handled by Sarvam in
 # the Express backend.
 GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
 
 # ── Groq (cross-provider chat fallback — optional) ────────────────────────────
-# CropSetu is Gemini-first, but the text-chat features fall back to Groq's free
+# KrushiSarva is Gemini-first, but the text-chat features fall back to Groq's free
 # Llama tier when the Gemini path (primary + Flash↔Pro capacity fallback) is
 # fully down — so the farmer still gets a reply instead of "Chat unavailable".
 # Groq has capacity separate from Google, so it survives a Gemini-side outage or

@@ -24,7 +24,7 @@ import React from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { C, HIT, R, SP, T, alpha, useResponsive } from '../../theme';
 import { useNetwork } from '../../hooks/useNetwork';
 import { IconButton } from './Button';

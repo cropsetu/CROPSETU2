@@ -7,7 +7,7 @@
  * the URLs and their response shapes, and it re-exports the utilities so screens
  * import from one place.
  */
-import api from '@cropsetu/shared/services/api';
+import api from '@krushisarva/shared/services/api';
 
 export * from './shopUtils';
 

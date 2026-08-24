@@ -19,12 +19,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
-import { SPRINGS, isReducedMotion } from '@cropsetu/shared/components/ui/motion';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import LocationPicker from '@cropsetu/shared/components/LocationPicker';
-import { DISTRICT_LIST, getTalukas } from '@cropsetu/shared/constants/locations';
-import { COLORS, TYPE, SPACE, RADIUS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
+import { SPRINGS, isReducedMotion } from '@krushisarva/shared/components/ui/motion';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import LocationPicker from '@krushisarva/shared/components/LocationPicker';
+import { DISTRICT_LIST, getTalukas } from '@krushisarva/shared/constants/locations';
+import { COLORS, TYPE, SPACE, RADIUS, SHADOWS } from '@krushisarva/shared/constants/colors';
 import { SOURCE, RADIUS_OPTIONS } from './rentLocationPrefs';
 
 // Every tappable target below clears 44px; chips reach it with padding + this.
@@ -245,7 +245,7 @@ export function RentLocationSheet({
   const gpsSub = coords
     ? t('rent.srcGpsLive', 'Using your current position')
     : permissionDenied
-      ? t('rent.srcGpsDenied', 'Location permission is off for CROPSETU')
+      ? t('rent.srcGpsDenied', 'Location permission is off for KRUSHISARVA')
       : locationError
         ? t('rent.srcGpsError', 'Could not get a fix — no signal or GPS is off')
         : t('rent.srcGpsWaiting', 'Getting your position…');

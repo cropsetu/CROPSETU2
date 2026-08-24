@@ -5,7 +5,7 @@ WHAT ACTUALLY RUNS IN PRODUCTION: `dispatch_one_vision`, called by
 agents/ensemble_agent.py for each parallel voter, plus `describe_chains` for
 /health and the orchestrator's startup log. That is the whole live surface.
 
-Everything else here is the older stage/tier chain-walking design. CropSetu now
+Everything else here is the older stage/tier chain-walking design. KrushiSarva now
 selects models per FEATURE through agents/llm_dispatch.get_feature_config
 (AI_<FEATURE>_MODEL / admin App Settings), and the diagnose stage deliberately
 has NO cross-model fallback — a provider outage returns a clear

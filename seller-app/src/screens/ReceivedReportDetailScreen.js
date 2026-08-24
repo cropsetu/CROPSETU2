@@ -46,8 +46,8 @@ import {
   ScrollView, StyleSheet, Switch, Text, View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@krushisarva/shared/services/api';
 
 import { C, E, HIT, R, SP, T, alpha, formatCurrency, riskMeta, useResponsive } from '../theme';
 import useAsyncData from '../hooks/useAsyncData';

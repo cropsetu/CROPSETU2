@@ -3,9 +3,9 @@
 > **Tab:** Auth/Onboarding · **Stack:** None (rendered as a step inside `LoginFlow`, not a React Navigation route) · **Route name:** `LANDING` (internal `LoginFlow` step, not a navigator screen) · **File:** `frontend/src/screens/Auth/Landing/LandingScreen.js`
 
 ## Purpose
-The warm, "alive" first impression for unauthenticated users. It presents the CropSetu / KhetAI brand (frosted logo badge, wordmark, tagline) over a deep field-green hero with motion graphics (breathing sun, parallax hills, drifting seeds), a value-prop carousel, and a single primary CTA that advances into the phone-login flow. Designed as the first beat of the ported KhetAI auth design system.
+The warm, "alive" first impression for unauthenticated users. It presents the KrushiSarva / KhetAI brand (frosted logo badge, wordmark, tagline) over a deep field-green hero with motion graphics (breathing sun, parallax hills, drifting seeds), a value-prop carousel, and a single primary CTA that advances into the phone-login flow. Designed as the first beat of the ported KhetAI auth design system.
 
-> **Important wiring note:** This screen is part of the standalone `LoginFlow` design-system bundle (`src/screens/Auth/PhoneLogin/`), which is **not** the auth UI currently wired into the app. `App.js` renders the self-contained `frontend/src/screens/Auth/LoginScreen.js` when `!isLoggedIn` (see `App.js:36,51`). `LandingScreen` is rendered only by `LoginFlow.js` as its `LANDING` step. Additionally, several of its imports are missing from the repo (`./components/FieldScene`, `./components/ValuePropCarousel`, `../PhoneLogin/components/AuthTopControls`, `../../../utils/authSound`, and the `assets/cropsetu-logo.png` asset), so this screen would currently fail to import as-is.
+> **Important wiring note:** This screen is part of the standalone `LoginFlow` design-system bundle (`src/screens/Auth/PhoneLogin/`), which is **not** the auth UI currently wired into the app. `App.js` renders the self-contained `frontend/src/screens/Auth/LoginScreen.js` when `!isLoggedIn` (see `App.js:36,51`). `LandingScreen` is rendered only by `LoginFlow.js` as its `LANDING` step. Additionally, several of its imports are missing from the repo (`./components/FieldScene`, `./components/ValuePropCarousel`, `../PhoneLogin/components/AuthTopControls`, `../../../utils/authSound`, and the `assets/krushisarva-logo.png` asset), so this screen would currently fail to import as-is.
 
 ## Where it sits / how you reach it
 - **Reached from:** Rendered by `LoginFlow.js` when its `step === STEP.LANDING` (the initial step). It is the entry beat of `LoginFlow`.
@@ -23,9 +23,9 @@ On mount it warms the audio session (`SFX.preloadAll()`) and plays a one-time, o
 | Field scene illustration | Decorative `FieldScene` (Animated, pointerEvents none) | Parallax sun / hills / seeds behind content (motion-gated) |
 | Hero shimmer sweep | `HeroSweep` (Animated `LinearGradient` band) | One-shot diagonal light sweep on mount; null under reduce-motion |
 | Top-right language/sound control | `AuthTopControls` (top bar) | Language chip (`languageCode`) + sound toggle; calls `onToggleLanguage` |
-| Logo badge | `BlurView` + `Image` (cropsetu-logo.png) | Frosted spring-in badge with idle float |
+| Logo badge | `BlurView` + `Image` (krushisarva-logo.png) | Frosted spring-in badge with idle float |
 | Eyebrow text | `Animated.Text` | `t('auth.welcomeBack')`, uppercase, letter-spaced |
-| Wordmark | `Animated.Text` (`accessibilityRole="header"`) | `t('auth.appName')` ("CropSetu") |
+| Wordmark | `Animated.Text` (`accessibilityRole="header"`) | `t('auth.appName')` ("KrushiSarva") |
 | Tagline | `Animated.Text` | `t('auth.tagline')` |
 | Value-prop carousel | `ValuePropCarousel` | Rotating value propositions below the brand zone |
 | Get started button | `PrimaryButton` (gold, `ArrowRight` icon, `testID="landing-get-started"`) | Primary CTA → `onGetStarted` (advance to Phone step) |
@@ -42,7 +42,7 @@ On mount it warms the audio session (`SFX.preloadAll()`) and plays a one-time, o
 Uses the auth-local i18n via `useT()` from `../PhoneLogin/strings`. Keys used: `auth.welcomeBack` (note: not defined in `strings.js`, so it falls back to the key string), `auth.appName`, `auth.tagline`, `auth.getStarted` (also not in `strings.js` → falls back to key). The bundled `strings.js` ships `en` and `hi` (Devanagari) tables; `languageCode` (default `'EN'`) is shown in the top control and toggled via `onToggleLanguage`.
 
 ## Notes, edge cases & gaps
-- **Not wired into the app** and **has missing imports** (`FieldScene`, `ValuePropCarousel`, `AuthTopControls`, `utils/authSound`, `assets/cropsetu-logo.png`) — would currently fail to import. The live welcome screen is the `WelcomeView` inside `LoginScreen.js`.
+- **Not wired into the app** and **has missing imports** (`FieldScene`, `ValuePropCarousel`, `AuthTopControls`, `utils/authSound`, `assets/krushisarva-logo.png`) — would currently fail to import. The live welcome screen is the `WelcomeView` inside `LoginScreen.js`.
 - Welcome chime plays only once per app session (module-scoped guard), even across remounts.
 - All animation and sound self-gate on `useReducedMotion()` + global mute, preserving an identical static layout for accessibility.
 - `auth.welcomeBack` and `auth.getStarted` keys are absent from `strings.js`; `createT` falls back to returning the raw key, so those would render literally as `auth.welcomeBack` / `auth.getStarted` until added.

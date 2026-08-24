@@ -36,7 +36,7 @@ _BROKER_URL  = os.environ.get("CELERY_BROKER_URL",  "redis://localhost:6379/1")
 _RESULT_BACK = os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
 
 celery_app = Celery(
-    "cropsetu",
+    "krushisarva",
     broker=_BROKER_URL,
     backend=_RESULT_BACK,
     include=["jobs.tasks"],
