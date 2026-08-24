@@ -1,6 +1,6 @@
 /**
  * OnboardingLanguageScreen — Screen 1/2: Pick your language.
- * CropSetu theme: forest-green gradient surface, Fraunces serif headline,
+ * KrushiSarva theme: forest-green gradient surface, Fraunces serif headline,
  * Plus Jakarta Sans cards, single-green selection, gradient CTA. Staggered
  * card entrance + press-scale motion preserved. Logic unchanged.
  */

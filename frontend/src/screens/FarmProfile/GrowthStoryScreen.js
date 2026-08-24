@@ -18,7 +18,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, Image, ScrollView, StyleSheet, Pressable,
+  View, Text, Image, ScrollView, StyleSheet, Pressable, ImageBackground,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -47,6 +47,18 @@ const STAGES = [
   { key: 'MATURITY',   label: 'Maturity',   short: 'Mature',  icon: 'sunny-outline',      das: 110,  scale: 0.92, sky: ['#FBF3DC', '#D9C36A'], soil: '#9C7E2E' },
   { key: 'HARVESTED',  label: 'Harvested',  short: 'Harvest', icon: 'basket-outline',     das: 140,  scale: 0.78, sky: ['#FBF1D2', '#C9B25A'], soil: '#B79237' },
 ];
+/** Stage backdrops — keyed by the GrowthStage enum, so no translation layer. */
+const SCENES = {
+  PLANNING:   require('../../../assets/scenes/stage-planning.webp'),
+  LAND_PREP:  require('../../../assets/scenes/stage-land-prep.webp'),
+  SOWING:     require('../../../assets/scenes/stage-sowing.webp'),
+  VEGETATIVE: require('../../../assets/scenes/stage-vegetative.webp'),
+  FLOWERING:  require('../../../assets/scenes/stage-flowering.webp'),
+  FRUITING:   require('../../../assets/scenes/stage-fruiting.webp'),
+  MATURITY:   require('../../../assets/scenes/stage-maturity.webp'),
+  HARVESTED:  require('../../../assets/scenes/stage-harvested.webp'),
+};
+
 const STAGE_IDX = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
 
 function dasFrom(sowingDate) {
@@ -234,6 +246,21 @@ function StageScene({ stage, cropName, photo, height = 200, width, rounded = fal
     );
   }
   const iconSize = Math.round(height * stage.scale);
+  const backdrop = SCENES[stage.key];
+  if (backdrop) {
+    return (
+      <ImageBackground
+        source={backdrop}
+        style={[styles.scene, { height, width: width || '100%' }]}
+        imageStyle={{ borderRadius: rounded ? CR.md : 0 }}
+        resizeMode="cover"
+      >
+        <View style={styles.sceneIconWrap}>
+          <CropIcon crop={cropName.charAt(0).toUpperCase() + cropName.slice(1)} size={iconSize} />
+        </View>
+      </ImageBackground>
+    );
+  }
   return (
     <LinearGradient
       colors={stage.sky}

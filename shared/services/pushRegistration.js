@@ -95,7 +95,7 @@ export async function registerForPushNotifications() {
     // requested so the very first push has somewhere to land.
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
-        name: 'CropSetu',
+        name: 'KrushiSarva',
         importance: Notifications.AndroidImportance.DEFAULT,
         vibrationPattern: [0, 250, 250, 250],
       });

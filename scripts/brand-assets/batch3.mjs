@@ -1,0 +1,41 @@
+/** batch3.mjs — IMAGE_PROCESS.md §5.15 store categories (22) + §5.16 machinery (10). */
+const KB=1024;
+const cat=(n,key,subject)=>({id:`CAT-${key}`,set:'objects-3d',subject,
+  outputs:[{path:`frontend/assets/cat/${key}.webp`,fmt:'webp',q:80,cap:20*KB}],density:[128,256]});
+const mach=(key,subject)=>({id:`MACH-${key}`,set:'objects-3d',subject,
+  outputs:[{path:`frontend/assets/mach/${key}.webp`,fmt:'webp',q:80,cap:22*KB}],density:[112,224]});
+
+export const BATCH3=[
+ cat(1,'seeds','a small open paper seed packet tipped forward with mixed crop seeds spilling from its mouth, two young green seedlings standing beside it'),
+ cat(2,'fertilizer','a part-open jute fertiliser sack with pale grey granular prills spilling from its mouth onto bare soil'),
+ cat(3,'protection','a plastic pesticide bottle with its measuring cap beside it and one healthy green leaf standing behind'),
+ cat(4,'organic','a handful of dark crumbly compost with one earthworm and a small green sprout emerging from it'),
+ cat(5,'growth','a small dropper bottle releasing one drop toward a young shoot that is visibly taller than a second shoot behind it'),
+ cat(6,'irrigation','a coiled length of black drip lateral pipe with two inline emitters and one brass connector'),
+ cat(7,'machinery','a small compact Indian farm tractor in three-quarter view with a rotavator implement attached behind it'),
+ cat(8,'tools','a khurpi, a sickle and a hand trowel laid out in a fan, worn wooden handles and used steel'),
+ cat(9,'polyhouse','a small polyhouse tunnel frame with translucent sheeting stretched over hoops, crop rows visible inside'),
+ cat(10,'micronutrient','a small unlabelled foil sachet with fine coloured powder spilling out beside one vivid green leaf'),
+ cat(11,'seedtreat','a shallow bowl of seeds coated in pink-orange treatment dust, a few untreated pale seeds beside it for contrast'),
+ cat(12,'livestock','a steel milking pail, a scoop of cattle feed pellets and one hen egg grouped together'),
+ cat(13,'fencing','a short run of barbed wire strung between two weathered wooden fence posts'),
+ cat(14,'storage','three stacked filled jute sacks tied at the neck with one plastic crate beside them'),
+ cat(15,'agritech','a small soil-moisture sensor probe pushed into soil with a short antenna, no screen and no display'),
+ cat(16,'solar','a small solar panel on a metal frame angled toward the light with a short cable coiled at its base'),
+ cat(17,'safety','a pair of rubber gloves, a face mask and clear safety goggles grouped together'),
+ cat(18,'sprayer','a knapsack sprayer tank with shoulder straps, its lance and nozzle resting against it'),
+ cat(19,'harvest','a sickle laid across a bound sheaf of cut cereal stalks'),
+ cat(20,'fish','a folded cast net with two freshwater fish lying beside it'),
+ cat(21,'nursery','three young saplings in black nursery poly-bags, leaves fresh and green'),
+ cat(22,'kitchengarden','a terracotta pot holding a leafy vegetable seedling, with a small hand trowel and a seed packet beside it'),
+ mach('tractor','a small compact Indian farm tractor, three-quarter front view, no brand badges and no number plate'),
+ mach('harvester','a self-propelled combine harvester with its cutting header lowered, three-quarter front view'),
+ mach('sprayer','a tractor-mounted boom sprayer with the boom folded out and a tank behind the cab'),
+ mach('rotavator','a tractor-mounted rotavator implement on its own, rotary tines visible, three-quarter view'),
+ mach('thresher','a stationary crop thresher with feed hopper and outlet chute, belt drive visible'),
+ mach('transplanter','a walk-behind rice transplanter with seedling trays mounted above the float'),
+ mach('truck','a small Indian goods truck with an open flatbed, three-quarter front view'),
+ mach('tempo','a three-wheeled goods auto-tempo with an open cargo tray, three-quarter front view'),
+ mach('all','a compact tractor, a rotavator and a small goods truck grouped together, the tractor largest and centred'),
+ mach('other','a generic implement drawbar with a hitch pin and one coiled hydraulic hose, deliberately unspecific'),
+];

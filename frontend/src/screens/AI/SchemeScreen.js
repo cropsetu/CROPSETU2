@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Dimensions, Animated, StatusBar, TextInput,
 } from 'react-native';
+import PhotoIcon from '../../components/PhotoIcon';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
@@ -13,6 +14,7 @@ const SCHEMES = [
   {
     id: 1,
     name: 'PM-KISAN',
+    code: 'PMKISAN',
     fullName: 'Pradhan Mantri Kisan Samman Nidhi',
     benefit: '₹6,000/year',
     benefitType: 'Cash Transfer',
@@ -27,6 +29,7 @@ const SCHEMES = [
   {
     id: 2,
     name: 'PMFBY',
+    code: 'PMFBY',
     fullName: 'Pradhan Mantri Fasal Bima Yojana',
     benefit: 'Up to ₹50,000 coverage',
     benefitType: 'Crop Insurance',
@@ -41,6 +44,7 @@ const SCHEMES = [
   {
     id: 3,
     name: 'KCC',
+    code: 'KCC',
     fullName: 'Kisan Credit Card',
     benefit: 'Loan up to ₹3 lakh @ 4%',
     benefitType: 'Credit',
@@ -55,6 +59,7 @@ const SCHEMES = [
   {
     id: 4,
     name: 'Soil Health Card',
+    code: 'NMSA-SHC',
     fullName: 'Soil Health Card Scheme',
     benefit: 'Free soil testing',
     benefitType: 'Advisory',
@@ -69,6 +74,7 @@ const SCHEMES = [
   {
     id: 5,
     name: 'PKVY',
+    code: 'SMAM',
     fullName: 'Paramparagat Krishi Vikas Yojana',
     benefit: '₹50,000/hectare for 3 yrs',
     benefitType: 'Organic Farming',
@@ -102,7 +108,10 @@ function SchemeCard({ scheme, onExpand, expanded, t }) {
     <TouchableOpacity style={SC.card} onPress={onExpand} activeOpacity={0.85}>
       <View style={SC.cardTop}>
         <View style={[SC.iconWrap, { backgroundColor: `${scheme.color}15` }]}>
-          <Ionicons name={scheme.icon} size={20} color={scheme.color} />
+          <PhotoIcon
+            set="scheme" name={scheme.code} size={40} radius={10}
+            fallback={<Ionicons name={scheme.icon} size={20} color={scheme.color} />}
+          />
         </View>
         <View style={{ flex: 1 }}>
           <View style={SC.nameRow}>

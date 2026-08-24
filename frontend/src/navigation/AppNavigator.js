@@ -250,6 +250,7 @@ import StateCropsScreen from '../screens/Weather/StateCropsScreen';
 
 // Profile
 import ProfileScreen           from '../screens/Profile/ProfileScreen';
+import NotificationsScreen from '../screens/Profile/NotificationsScreen';
 import MyRentListingsScreen    from '../screens/Rent/MyRentListingsScreen';
 import MyOrdersScreen          from '../screens/Profile/MyOrdersScreen';
 import SavedAddressesScreen from '../screens/Profile/SavedAddressesScreen';
@@ -423,6 +424,7 @@ function ProfileNavigator() {
   return (
     <ProfileStack.Navigator screenOptions={defaultScreenOptions}>
       <ProfileStack.Screen name="ProfileHome"         component={ProfileScreen}           options={{ headerShown: false }} />
+      <ProfileStack.Screen name="Notifications"       component={NotificationsScreen}      options={{ headerShown: false }} />
       <ProfileStack.Screen name="MyRentListings"      component={MyRentListingsScreen}    options={{ headerShown: false }} />
       <ProfileStack.Screen name="MyOrders"            component={MyOrdersScreen}          options={{ headerShown: false }} />
       <ProfileStack.Screen name="SavedAddresses"     component={SavedAddressesScreen}    options={{ headerShown: false }} />

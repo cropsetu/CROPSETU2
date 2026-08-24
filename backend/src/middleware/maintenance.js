@@ -66,7 +66,7 @@ export async function maintenanceMode(req, res, next) {
   if (!on) return next();
   return sendError(
     res,
-    message || 'CropSetu is temporarily down for maintenance. Please try again shortly.',
+    message || 'KrushiSarva is temporarily down for maintenance. Please try again shortly.',
     503,
     { maintenance: true },
   );

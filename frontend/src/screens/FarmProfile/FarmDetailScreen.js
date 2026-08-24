@@ -25,6 +25,7 @@ import GlassCard    from './ui/GlassCard';
 import GlowButton   from './ui/GlowButton';
 import StageTimelineBar from './ui/StageTimelineBar';
 import WhyThisButton    from './ui/WhyThisButton';
+import PhotoIcon from '../../components/PhotoIcon';
 import { CropIcon }  from '@cropsetu/shared/components/CropIcons';
 import { RadialGauge } from '../../components/charts';
 import { SkeletonList, SkeletonStats } from '../../components/ui/Skeleton';
@@ -320,7 +321,8 @@ function CycleRow({ cycle, onPress }) {
       <GlassCard variant="bordered">
         <View style={styles.cycleTopRow}>
           <View style={styles.cropIconWrap}>
-            <CropIcon crop={cycle.cropName} size={44} />
+            <PhotoIcon set="crop" name={cycle.cropName} size={44} radius={9}
+              fallback={<CropIcon crop={cycle.cropName} size={44} />} />
           </View>
           <View style={{ flex: 1, marginLeft: 12 }}>
             <Text style={styles.cycleTitle} numberOfLines={1}>

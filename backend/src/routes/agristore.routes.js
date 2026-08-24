@@ -2363,7 +2363,7 @@ router.patch(
 
     // BLOCKED is a trust-and-safety action; a seller cannot lift it by editing.
     if (listing.status === 'BLOCKED' && req.user.role !== 'ADMIN') {
-      return sendForbidden(res, 'This offer has been blocked by CropSetu. Contact support.');
+      return sendForbidden(res, 'This offer has been blocked by KrushiSarva. Contact support.');
     }
 
     const data = listingPatch(req.body);
@@ -2653,7 +2653,7 @@ router.put(
     // guard is exactly how a seller could flip their own visibility unchecked.
     // A seller may pause or resume; they cannot clear a BLOCKED state.
     if (b.isActive !== undefined) {
-      if (listing.status === 'BLOCKED') return sendForbidden(res, 'This offer has been blocked by CropSetu. Contact support.');
+      if (listing.status === 'BLOCKED') return sendForbidden(res, 'This offer has been blocked by KrushiSarva. Contact support.');
       data.status = derivedStatus(b.isActive ? 'ACTIVE' : 'INACTIVE', data.stockQty ?? listing.stockQty);
     } else if (data.stockQty !== undefined && listing.status !== 'BLOCKED') {
       data.status = derivedStatus(listing.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE', data.stockQty);

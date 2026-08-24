@@ -36,7 +36,7 @@ export function AppShell() {
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 transform border-r border-slate-200 bg-white transition-transform md:static md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4">
           <div className="flex items-center gap-2 font-semibold text-brand-800">
-            <Sprout className="h-5 w-5" /> CropSetu Admin
+            <Sprout className="h-5 w-5" /> KrushiSarva Admin
           </div>
           <button className="md:hidden" onClick={() => setMobileOpen(false)} aria-label="Close menu"><X className="h-5 w-5" /></button>
         </div>

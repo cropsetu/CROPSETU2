@@ -106,7 +106,7 @@ function LocationSheet({ visible, gpsStatus, manualLocation, onUseGps, onManual,
                 <Text style={S.deniedTxt}>
                   {t(
                     'animal.locationDeniedHelp',
-                    'Location is switched off for CropSetu. You can turn it on in phone Settings, or just type your place below.',
+                    'Location is switched off for KrushiSarva. You can turn it on in phone Settings, or just type your place below.',
                   )}
                 </Text>
               </View>

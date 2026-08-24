@@ -31,6 +31,7 @@ import CelebrationSheet from './ui/CelebrationSheet';
 import ActivityFeedItem from './ui/ActivityFeedItem';
 import StageTimelineBar from './ui/StageTimelineBar';
 import WhyThisButton from './ui/WhyThisButton';
+import PhotoIcon from '../../components/PhotoIcon';
 import { CropIcon } from '@cropsetu/shared/components/CropIcons';
 import { COSMIC, GLOW, CR, CS, CT } from './theme/cosmicTheme';
 
@@ -391,7 +392,8 @@ function CycleCard({ cycle, onPress }) {
       <GlassCard>
         <View style={styles.cycleRow}>
           <View style={styles.cropIconWrap}>
-            <CropIcon crop={cycle.cropName} size={36} />
+            <PhotoIcon set="crop" name={cycle.cropName} size={44} radius={9}
+              fallback={<CropIcon crop={cycle.cropName} size={36} />} />
           </View>
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Text style={styles.cycleCrop} numberOfLines={1}>

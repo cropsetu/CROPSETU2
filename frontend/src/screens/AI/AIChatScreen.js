@@ -737,7 +737,7 @@ export default function AIChatScreen({ navigation, route }) {
   const pickFromCamera = useCallback(async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Camera Permission', 'Please allow camera access in Settings → Apps → CropSetu → Permissions.');
+      Alert.alert('Camera Permission', 'Please allow camera access in Settings → Apps → KrushiSarva → Permissions.');
       return;
     }
     const res = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', quality: 0.85, allowsEditing: true, aspect: [4, 3] });
@@ -747,7 +747,7 @@ export default function AIChatScreen({ navigation, route }) {
   const pickFromGallery = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Photos Permission', 'Please allow photo access in Settings → Apps → CropSetu → Permissions.');
+      Alert.alert('Photos Permission', 'Please allow photo access in Settings → Apps → KrushiSarva → Permissions.');
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.85 });
@@ -771,7 +771,7 @@ export default function AIChatScreen({ navigation, route }) {
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Microphone Permission', 'Please allow microphone access in Settings → Apps → CropSetu → Permissions.');
+        Alert.alert('Microphone Permission', 'Please allow microphone access in Settings → Apps → KrushiSarva → Permissions.');
         return;
       }
       await Audio.setAudioModeAsync({

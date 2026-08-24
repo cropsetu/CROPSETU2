@@ -6,6 +6,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import useFocusRefresh from '../../hooks/useFocusRefresh';
+import PhotoIcon from '../../components/PhotoIcon';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -565,12 +566,18 @@ export default function ProfileScreen({ navigation }) {
                         style={S.avatarImg}
                       />
                     ) : (
+                      /* Initials mean nothing to a user who cannot read; show a figure
+                         first and keep the initials only as the deeper fallback. */
+                      <PhotoIcon
+                        set="placeholders" name="profile" fill radius={999}
+                        fallback={
                       <LinearGradient
                         colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.15)']}
                         style={S.avatar}
                       >
                         <Text style={S.avatarTxt}>{initials}</Text>
                       </LinearGradient>
+                        } />
                     )}
                   </View>
                 </View>
@@ -688,6 +695,7 @@ export default function ProfileScreen({ navigation }) {
               <QuickTile index={0} icon="leaf"     label={t('farmProfile.myFarms')}           color={COLORS.primary} onPress={() => navigation.navigate('FarmList')} />
               <QuickTile index={1} icon="cart"     label={t('myOrders')}          color={D.green}  onPress={() => navigation.navigate('MyOrders')} />
               <QuickTile index={2} icon="paw"      label={t('profile.myListings')} color={D.amber}  onPress={() => navigation.navigate('MyAnimalListings')} />
+              <QuickTile index={3} icon="notifications" label={t('notif.title', 'Notifications')} color={D.cyan} onPress={() => navigation.navigate('Notifications')} />
             </View>
           </SectionCard>
 
@@ -822,7 +830,7 @@ export default function ProfileScreen({ navigation }) {
                 onPress={handleOpenSellerApp}
                 accessibilityRole="button"
                 accessibilityLabel={t('profile.sellerAppTitle', 'Open Seller App')}
-                accessibilityHint={t('profile.sellerAppHint', 'Leaves CropSetu and opens your seller dashboard')}
+                accessibilityHint={t('profile.sellerAppHint', 'Leaves KrushiSarva and opens your seller dashboard')}
               >
                 {/* Harvest orange, matching the seller app's own identity — the
                     button that opens the orange app is orange. */}

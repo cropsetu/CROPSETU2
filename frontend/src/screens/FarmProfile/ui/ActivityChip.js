@@ -10,6 +10,7 @@
  * references the same palette — consistent visual vocabulary.
  */
 
+import PhotoIcon from '../../../components/PhotoIcon';
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { ActivityIcon } from '../../../components/ActivityIcons';
@@ -79,7 +80,10 @@ ActivityChip.Tile = function ActivityTile({ type, label, onPress, style }) {
         style,
       ]}
     >
-      <ActivityIcon type={type} size={48} />
+      <PhotoIcon
+        set="activity" name={type} size={48} radius={10}
+        fallback={<ActivityIcon type={type} size={48} />}
+      />
       <Text style={tileStyles.label} numberOfLines={2}>{label}</Text>
     </Pressable>
   );

@@ -56,7 +56,7 @@ function rejectProtectedFields(req, res, next) {
   if (attempted.length) {
     return sendError(
       res,
-      'Approval status is set by CropSetu after review and cannot be submitted with your request.',
+      'Approval status is set by KrushiSarva after review and cannot be submitted with your request.',
       403,
       { rejectedFields: attempted },
     );
@@ -196,7 +196,7 @@ router.put(
       if (!isOwner && req.user.role !== 'ADMIN') {
         return sendForbidden(
           res,
-          'Label and safety information is shared by every seller of this product and can only be updated by the seller who added it, or by CropSetu.',
+          'Label and safety information is shared by every seller of this product and can only be updated by the seller who added it, or by KrushiSarva.',
         );
       }
 
@@ -344,7 +344,7 @@ router.post(
       if (batch.status === 'QUARANTINED' || batch.status === 'RECALLED') {
         return sendError(
           res,
-          'This batch has been held by CropSetu and cannot be edited. Contact support.',
+          'This batch has been held by KrushiSarva and cannot be edited. Contact support.',
           403,
           { batchStatus: batch.status },
         );

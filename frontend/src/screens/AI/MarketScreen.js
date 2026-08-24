@@ -13,6 +13,7 @@ import { useLocation } from '../../context/LocationContext';
 import { getMandiPrices } from '../../services/aiApi';
 import { INDIA_STATES_LIST, STATE_GPS_MAP, getDistricts } from '@cropsetu/shared/constants/indiaLocations';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import PhotoIcon from '../../components/PhotoIcon';
 import CropIcon from '@cropsetu/shared/components/CropIcons';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
 import { SkeletonBlock, SkeletonGroup } from '../../components/ui/Skeleton';
@@ -169,7 +170,8 @@ function CropPickerModal({ visible, selected, onSelect, onClose, t }) {
             <Ionicons name="checkmark" size={9} color={COLORS.white} />
           </View>
         )}
-        <CropIcon crop={item} size={60} />
+        <PhotoIcon set="crop" name={item} size={60} radius={10}
+                        fallback={<CropIcon crop={item} size={60} />} />
         <Text style={[M.cropTileText, isSelected && M.cropTileTextActive]} numberOfLines={2}>
           {item}
         </Text>

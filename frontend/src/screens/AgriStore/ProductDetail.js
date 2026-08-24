@@ -512,7 +512,7 @@ export default function ProductDetail({ route, navigation }) {
   const saving     = mrp > price ? mrp - price : 0;
   const inStock    = stock > 0;
   const reviews    = product.ratingCount ?? product.reviews ?? 0;
-  const brandLabel = product.brand || product.category?.name || 'CropSetu';
+  const brandLabel = product.brand || product.category?.name || 'KrushiSarva';
   const mfrLabel   = product.manufacturer || brandLabel;
 
   const otherOffers = Math.max((product.offerCount ?? 0) - 1, 0);
@@ -632,7 +632,7 @@ export default function ProductDetail({ route, navigation }) {
   // data behind it:
   //   "Product code: FE-XXXXXXXX"  — a UUID prefix dressed up as a manufacturer
   //                                   SKU. Not a real code for anything.
-  //   "Quality check: CropSetu Verified" — a trust claim the platform had not
+  //   "Quality check: KrushiSarva Verified" — a trust claim the platform had not
   //                                   made. Nothing verified these products.
   //   "Customer support: <hours>"  — support hours hard-coded in the app.
   // Verification is a platform decision, and it must come from a
@@ -904,7 +904,7 @@ export default function ProductDetail({ route, navigation }) {
         {/* ── Seller + other offers ────────────────────────────────────────
             This whole surface is new. Before the split there was no seller in the
             buyer app at all — this card rendered a hard-coded string
-            ("CropSetu Direct") because a product row WAS one seller's offer and
+            ("KrushiSarva Direct") because a product row WAS one seller's offer and
             there was nothing to name or to choose between. */}
         <View style={S.sectionCard}>
           <View style={S.sellerRow}>

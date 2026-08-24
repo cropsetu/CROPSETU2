@@ -1,6 +1,6 @@
 /**
  * OnboardingProfileScreen — Screen 2/2: Farm profile setup.
- * CropSetu theme: forest-green gradient surface, themed section cards, single-green
+ * KrushiSarva theme: forest-green gradient surface, themed section cards, single-green
  * selection (soil / irrigation / crops), Fraunces + Plus Jakarta Sans, gradient
  * CTA, entrance motion. Logic unchanged — only UI.
  */
@@ -17,6 +17,7 @@ import * as Location from 'expo-location';
 import LocationPicker from '@cropsetu/shared/components/LocationPicker';
 import SoilIcon from '../../components/SoilIcons';
 import IrrigationIcon from '../../components/IrrigationIcons';
+import PhotoIcon from '../../components/PhotoIcon';
 import CropIcon from '@cropsetu/shared/components/CropIcons';
 import { STATE_LIST, getDistrictsForState, getTalukas } from '@cropsetu/shared/constants/locations';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
@@ -412,7 +413,8 @@ export default function OnboardingProfileScreen({ navigation }) {
                 const sel = selectedCrops.has(crop);
                 return (
                   <TouchableOpacity key={crop} style={[sty.cropCard, sel && sty.cropCardSel]} onPress={() => toggleCrop(crop)} activeOpacity={0.8}>
-                    <CropIcon crop={crop} size={28} />
+                    <PhotoIcon set="crop" name={crop} size={40} radius={8}
+                      fallback={<CropIcon crop={crop} size={28} />} />
                     <Text style={[sty.cropName, sel && sty.cropNameSel]} numberOfLines={1}>{t('crops.' + crop.toLowerCase(), crop)}</Text>
                     {sel && <Ionicons name="checkmark-circle" size={13} color={KHET.primary} style={{ position: 'absolute', top: 3, right: 3 }} />}
                   </TouchableOpacity>

@@ -35,6 +35,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { COLORS, TYPE, SHADOWS } from '@cropsetu/shared/constants/colors';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import PhotoIcon from '../../components/PhotoIcon';
 import AnimalIcon from '../../components/AnimalIcons';
 import AnimalCardSkeleton from '../../components/AnimalCardSkeleton';
 import { locationVillageTaluka } from '../../utils/location';
@@ -108,7 +109,8 @@ const CategoryPill = memo(function CategoryPill({ item, active, onPress, t }) {
         accessibilityLabel={label}
       >
         <View style={S.catImgWrap}>
-          <AnimalIcon type={item.key} size={50} />
+          <PhotoIcon set="animal" name={item.key} size={54} radius={0}
+            fallback={<AnimalIcon type={item.key} size={50} />} />
         </View>
         <Text style={[S.catLabel, active && S.catLabelActive]}>{label}</Text>
       </Pressable>
@@ -166,7 +168,8 @@ const AnimalCard = memo(function AnimalCard({ item, onPress, t, index = 0, curre
           )
           : (
             <View style={[S.photo, S.photoFallback]}>
-              <AnimalIcon type={item.animal || 'Cow'} size={CARD_W - 20} />
+              <PhotoIcon set="animal" name={item.animal || 'Cow'} size={CARD_W - 20} radius={12}
+                    fallback={<AnimalIcon type={item.animal || 'Cow'} size={CARD_W - 20} />} />
             </View>
           )}
         {/* Gradient overlay on image */}

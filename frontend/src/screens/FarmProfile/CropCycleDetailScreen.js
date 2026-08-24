@@ -34,6 +34,7 @@ import MandiGlanceCard from './components/MandiGlanceCard';
 import { SkeletonBlock, SkeletonGroup } from '../../components/ui/Skeleton';
 import SpeakerButton from './ui/SpeakerButton';
 
+import PhotoIcon from '../../components/PhotoIcon';
 import CropIcon from '@cropsetu/shared/components/CropIcons';
 import * as farmApi from '../../services/farmApi';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
@@ -365,7 +366,8 @@ export default function CropCycleDetailScreen({ navigation, route }) {
           >
             <View style={styles.heroHeadRow}>
               <View style={styles.heroIconWrap}>
-                <CropIcon crop={cycle.cropName} size={52} />
+                <PhotoIcon set="crop" name={cycle.cropName} size={52} radius={10}
+                  fallback={<CropIcon crop={cycle.cropName} size={52} />} />
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={styles.heroName} numberOfLines={1}>{cycle.cropName}</Text>

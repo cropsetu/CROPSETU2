@@ -3,7 +3,7 @@
  *
  * WHY THIS IS ENTIRELY NEW UI, NOT A REFACTOR
  * There was no seller in the buyer app at all. The product page rendered a
- * hard-coded i18n string — "CropSetu Direct" — and no seller name, id, rating,
+ * hard-coded i18n string — "KrushiSarva Direct" — and no seller name, id, rating,
  * location or fulfilment data existed anywhere in `frontend/`. That was
  * truthful before the split, because a `products` row WAS one seller's offer and
  * there was nothing to choose between. Now three Kendras can sell the same seed

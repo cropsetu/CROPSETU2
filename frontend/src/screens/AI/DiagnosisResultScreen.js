@@ -22,6 +22,10 @@ import {
   Dimensions, Animated, StatusBar, Alert, Image, Modal,
 } from 'react-native';
 import { safeOpenURL, sanitizePhone } from '../../utils/sanitize';
+import PhotoIcon from '../../components/PhotoIcon';
+import SoilIcon from '../../components/SoilIcons';
+import IrrigationIcon from '../../components/IrrigationIcons';
+import CropIcon from '@cropsetu/shared/components/CropIcons';
 import { Ionicons } from '@expo/vector-icons';
 import { Haptics } from '@cropsetu/shared/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -396,7 +400,7 @@ export default function DiagnosisResultScreen({ navigation, route }) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CropSetu — ${t('diagReport.reportTitle')} — ${esc(rptId)}</title>
+<title>KrushiSarva — ${t('diagReport.reportTitle')} — ${esc(rptId)}</title>
 <style>
 @page{size:A4;margin:8mm 8mm}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -622,7 +626,7 @@ body{font-family:Georgia,'Times New Roman',serif;color:#1c2526;line-height:1.5;f
     <div class="logo-row">
       <div class="crest">\u{1F33F}</div>
       <div>
-        <div class="lab-name">CropSetu<span class="ai">AI</span></div>
+        <div class="lab-name">KrushiSarva<span class="ai">AI</span></div>
         <div class="lab-sub">${t('diagReport.labSub')}</div>
         <div class="lab-tag">${t('diagReport.labTag')}</div>
       </div>
@@ -630,7 +634,7 @@ body{font-family:Georgia,'Times New Roman',serif;color:#1c2526;line-height:1.5;f
     <div class="meta">
       <div><span class="pill">${esc(rptId)}</span></div>
       <div><b>${t('diagReport.date')}</b> ${esc(dateStr)} · ${esc(timeStr)} IST</div>
-      <div><b>${t('diagReport.pathologistAi')}</b> CropSetu v${esc(sysMeta.version || '2.4.1')}</div>
+      <div><b>${t('diagReport.pathologistAi')}</b> KrushiSarva v${esc(sysMeta.version || '2.4.1')}</div>
       <div><b>${t('diagReport.visionModel')}</b> ${esc(sysMeta.diagnosis_model || 'Gemini 2.5 Flash')}</div>
       <div><b>${t('diagReport.language')}</b> English${showLocal ? ` + ${esc(localLangName)}` : ''}</div>
     </div>
@@ -933,7 +937,7 @@ ${(() => {
     <div class="logo-row">
       <div class="crest">\u{1F33F}</div>
       <div>
-        <div class="lab-name">CropSetu<span class="ai">AI</span> — ${t('diagReport.annex')}</div>
+        <div class="lab-name">KrushiSarva<span class="ai">AI</span> — ${t('diagReport.annex')}</div>
         <div class="lab-sub">${t('diagReport.annexSub')}</div>
       </div>
     </div>
@@ -1172,7 +1176,7 @@ ${(() => {
       if (canShare) {
         await Sharing.shareAsync(uri, {
           mimeType: 'application/pdf',
-          dialogTitle: `CropSetu Diagnosis — ${disease}`,
+          dialogTitle: `KrushiSarva Diagnosis — ${disease}`,
           UTI: 'com.adobe.pdf',
         });
       } else {
@@ -1333,6 +1337,41 @@ ${(() => {
                 </View>
               ) : null}
             </View>
+
+            {/* ── Farm context strip ────────────────────────────────────────
+                The farmer supplies crop, soil and irrigation at scan time, and
+                until now these appeared ONLY in the exported PDF (buildReportHTML)
+                — never on screen. Showing them back, as pictures, both confirms
+                what the diagnosis was based on and lets a non-reader verify it. */}
+            {(crop || farmCtx.soilType || farmCtx.irrigationType) ? (
+              <View style={D.ctxRow}>
+                {crop ? (
+                  <View style={D.ctxItem}>
+                    <PhotoIcon set="crop" name={crop} size={46} radius={9}
+                      fallback={<CropIcon crop={String(crop).charAt(0).toUpperCase() + String(crop).slice(1)} size={40} />} />
+                    <Text style={D.ctxLabel} numberOfLines={1}>{localizedCrop}</Text>
+                  </View>
+                ) : null}
+                {farmCtx.soilType ? (
+                  <View style={D.ctxItem}>
+                    <PhotoIcon set="soil" name={String(farmCtx.soilType).toLowerCase().replace(/[^a-z_]/g, '')} size={46} radius={9}
+                      fallback={<SoilIcon type={String(farmCtx.soilType).toLowerCase()} size={40} />} />
+                    <Text style={D.ctxLabel} numberOfLines={1}>
+                      {t('diagReport.soilType', 'Soil')}
+                    </Text>
+                  </View>
+                ) : null}
+                {farmCtx.irrigationType ? (
+                  <View style={D.ctxItem}>
+                    <PhotoIcon set="irrigation" name={String(farmCtx.irrigationType).toLowerCase()} size={46} radius={9}
+                      fallback={<IrrigationIcon type={String(farmCtx.irrigationType).toLowerCase()} size={40} />} />
+                    <Text style={D.ctxLabel} numberOfLines={1}>
+                      {t('diagReport.irrigation', 'Irrigation')}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
           </View>
 
           {/* Native-language summary of the whole report, directly under the hero. */}
@@ -1982,6 +2021,11 @@ const D = StyleSheet.create({
   urgencyStripText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5, color: KHET.destructiveInk },
 
   // Crop meta row (grid)
+  ctxRow: { flexDirection: 'row', gap: 18, marginTop: 14, paddingTop: 14,
+            borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.18)' },
+  ctxItem: { alignItems: 'center', gap: 6, maxWidth: 92 },
+  ctxLabel: { fontSize: 10, color: 'rgba(255,255,255,0.85)', letterSpacing: 0.4, textTransform: 'uppercase' },
+
   cropMetaRow: {
     flexDirection: 'row', gap: KSPACE.s0,
     borderTopWidth: KBORDER.hairline, borderTopColor: KHET.border, paddingTop: KSPACE.s12,

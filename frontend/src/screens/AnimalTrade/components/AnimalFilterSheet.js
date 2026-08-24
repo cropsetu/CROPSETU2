@@ -211,7 +211,7 @@ function AnimalFilterSheet({ visible, filters, showMilkYield, onApply, onClose, 
 
             <ToggleRow
               label={t('animal.verifiedOnly', 'Verified listings only')}
-              hint={t('animal.verifiedHint', 'Checked by the CropSetu team')}
+              hint={t('animal.verifiedHint', 'Checked by the KrushiSarva team')}
               value={draft.verified}
               onValueChange={(v) => set('verified', v || null)}
             />

@@ -22,6 +22,7 @@ import CosmicScreen from './ui/CosmicScreen';
 import CosmicHeader from './ui/CosmicHeader';
 import GlassCard    from './ui/GlassCard';
 import GlowButton   from './ui/GlowButton';
+import PhotoIcon from '../../components/PhotoIcon';
 import CropIcon     from '@cropsetu/shared/components/CropIcons';
 import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { createCropCycle } from '../../services/farmApi';
@@ -179,7 +180,8 @@ export default function CropCycleCreateScreen({ navigation, route }) {
                     ]}
                   >
                     <View style={styles.cropIconWrap}>
-                      <CropIcon crop={k.charAt(0).toUpperCase() + k.slice(1)} size={40} />
+                      <PhotoIcon set="crop" name={k.charAt(0).toUpperCase() + k.slice(1)} size={48} radius={9}
+                        fallback={<CropIcon crop={k.charAt(0).toUpperCase() + k.slice(1)} size={40} />} />
                     </View>
                     <Text
                       style={[styles.cropLabel, sel && { color: COSMIC.PRIMARY_LT, fontFamily: 'Inter_700Bold' }]}

@@ -1,5 +1,5 @@
 /**
- * WeatherHome — CropSetu Field Monitor
+ * WeatherHome — KrushiSarva Field Monitor
  *
  * Sections:
  *  1. Hero card  — gradient bg + ImageBackground field photo + temp + sun arc
@@ -14,6 +14,7 @@
  * Offline: AsyncStorage cache → rendered immediately on open
  * Temperature: Celsius (°C) — Indian standard
  */
+import PhotoIcon from '../../components/PhotoIcon';
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -501,7 +502,8 @@ export default function WeatherHome({ navigation, embeddedInHub }) {
           {/* Main temp */}
           <Text style={S.heroTemp}>{current.temperature}°C</Text>
           <View style={S.heroCondRow}>
-            <WeatherIcon condition={current.condition || current.conditionIcon} size={60} animated />
+            <PhotoIcon set="wx" name={current.condition || current.conditionIcon} size={64} radius={12}
+                    fallback={<WeatherIcon condition={current.condition || current.conditionIcon} size={60} animated />} />
             <Text style={S.heroCond}>{current.condition}</Text>
           </View>
 

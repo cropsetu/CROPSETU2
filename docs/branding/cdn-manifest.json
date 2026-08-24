@@ -1,0 +1,12 @@
+{
+  "mach/all": "krushisarva/ui/mach/all",
+  "mach/harvester": "krushisarva/ui/mach/harvester",
+  "mach/other": "krushisarva/ui/mach/other",
+  "mach/rotavator": "krushisarva/ui/mach/rotavator",
+  "mach/sprayer": "krushisarva/ui/mach/sprayer",
+  "mach/tempo": "krushisarva/ui/mach/tempo",
+  "mach/thresher": "krushisarva/ui/mach/thresher",
+  "mach/tractor": "krushisarva/ui/mach/tractor",
+  "mach/transplanter": "krushisarva/ui/mach/transplanter",
+  "mach/truck": "krushisarva/ui/mach/truck"
+}

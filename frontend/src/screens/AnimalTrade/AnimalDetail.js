@@ -29,6 +29,7 @@ import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
 import { useAuth } from '@cropsetu/shared/context/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import PhotoIcon from '../../components/PhotoIcon';
 import AnimalIcon from '../../components/AnimalIcons';
 import { SkeletonDetail } from '../../components/ui/Skeleton';
 import api from '@cropsetu/shared/services/api';
@@ -97,7 +98,8 @@ function HeroImage({ uri, fallbackType, scale }) {
         />
       ) : (
         <View style={[styles.heroImg, styles.heroFallback]}>
-          <AnimalIcon type={fallbackType || 'Cow'} size={140} />
+          <PhotoIcon set="animal" name={fallbackType || 'Cow'} size={140} radius={0}
+            fallback={<AnimalIcon type={fallbackType || 'Cow'} size={140} />} />
         </View>
       )}
     </Animated.View>
@@ -594,7 +596,7 @@ export default function AnimalDetail({ route, navigation }) {
                       >
                         {thumb
                           ? <Image source={{ uri: thumb }} style={styles.similarImg} />
-                          : <View style={[styles.similarImg, styles.heroFallback]}><AnimalIcon type={s.animal} size={60} /></View>}
+                          : <View style={[styles.similarImg, styles.heroFallback]}><PhotoIcon set="animal" name={s.animal} size={60} radius={0} fallback={<AnimalIcon type={s.animal} size={60} />} /></View>}
                         <Text style={styles.similarName} numberOfLines={1}>{s.breed} {s.animal}</Text>
                         <Text style={styles.similarPrice}>₹{Number(s.price || 0).toLocaleString('en-IN')}</Text>
                         {s.distanceKm != null ? (

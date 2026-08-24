@@ -1060,7 +1060,7 @@ function normalize(s) {
 // "home", "handtools" beats "equipment") instead of whichever was declared first.
 const ALIAS_KEYS_BY_LEN = Object.keys(ALIASES).sort((a, b) => b.length - a.length);
 
-function resolveVariant(type) {
+export function resolveVariant(type) {
   const norm = normalize(type);
   if (!norm) return DEFAULT_KEY;
   if (ICONS[norm]) return norm;            // direct variant key

@@ -440,7 +440,7 @@ async function callGemini(messages, attempt = 1, provider = 'gemini') {
 
     return { result, tokensUsed: response.usage?.total_tokens || 0 };
   } catch (err) {
-    // 429 is retriable too — CropSetu is Gemini-only, so back off and retry the
+    // 429 is retriable too — KrushiSarva is Gemini-only, so back off and retry the
     // same provider rather than switching to a now-removed Groq fallback.
     const retriable = ['PARSE_FAILURE', 'EMPTY_RESPONSE'].includes(err.message)
       || [408, 429, 503, 529].includes(err.status);

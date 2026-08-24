@@ -6,7 +6,7 @@
  * Protection" and was sold by exactly the same code path as a hand trowel. There
  * was no licence check, no batch, no expiry, no recall, no way for an
  * administrator to stop a sale in one state, and the product page rendered a
- * hard-coded "CropSetu Verified · Quality Check" line under every item.
+ * hard-coded "KrushiSarva Verified · Quality Check" line under every item.
  *
  * ── What this is ─────────────────────────────────────────────────────────────
  * One function, `evaluateSaleEligibility`, consulted at three points:

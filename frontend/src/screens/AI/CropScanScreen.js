@@ -16,6 +16,8 @@ import {
   Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import PhotoIcon from '../../components/PhotoIcon';
+import SymptomImage from '../../components/SymptomImage';
 import { Ionicons } from '@expo/vector-icons';
 import { Haptics } from '@cropsetu/shared/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -234,7 +236,7 @@ function classifyScanError(err, t = (k, def) => def) {
     return {
       kind: 'network',
       title: t('cropScan.err.networkTitle', 'No internet connection'),
-      message: t('cropScan.err.networkMsg', 'CropSetu can\'t reach the diagnosis service. Check your Wi-Fi or mobile data, then try again.'),
+      message: t('cropScan.err.networkMsg', 'KrushiSarva can\'t reach the diagnosis service. Check your Wi-Fi or mobile data, then try again.'),
     };
   }
   if (status && status >= 500) {
@@ -592,7 +594,7 @@ export default function CropScanScreen({ navigation }) {
       const ok = await requestPermissionOrPrompt(
         ImagePicker.requestMediaLibraryPermissionsAsync,
         t('cropScan.galleryPermissionTitle', 'Photos access needed'),
-        t('cropScan.galleryPermission', 'CropSetu needs access to your photos to scan a crop image.'),
+        t('cropScan.galleryPermission', 'KrushiSarva needs access to your photos to scan a crop image.'),
       );
       if (!ok) return;
       const res = await ImagePicker.launchImageLibraryAsync({
@@ -613,7 +615,7 @@ export default function CropScanScreen({ navigation }) {
       const ok = await requestPermissionOrPrompt(
         ImagePicker.requestCameraPermissionsAsync,
         t('cropScan.cameraPermissionTitle', 'Camera access needed'),
-        t('cropScan.cameraPermission', 'CropSetu needs camera access to take a crop photo.'),
+        t('cropScan.cameraPermission', 'KrushiSarva needs camera access to take a crop photo.'),
       );
       if (!ok) return;
       const res = await ImagePicker.launchCameraAsync({
@@ -979,7 +981,10 @@ export default function CropScanScreen({ navigation }) {
                     >
                       {/* Use the lowercase key directly via cropIconLabel
                           so we never depend on COMMON_CROPS[i] alignment. */}
-                      <CropIcon crop={cropIconLabel(k)} size={32} />
+                      <PhotoIcon
+                        set="crop" name={cropIconLabel(k)} size={44} radius={8}
+                        fallback={<CropIcon crop={cropIconLabel(k)} size={32} />}
+                      />
                       <Text style={[SC.cropTileLabel, active && SC.cropTileLabelSel]} numberOfLines={1}>
                         {t('crops.' + k)}
                       </Text>
@@ -999,7 +1004,7 @@ export default function CropScanScreen({ navigation }) {
                   onPress={() => { setShowCustomCrop(true); setSelectedCrop(''); }}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="add-circle-outline" size={28} color={showCustomCrop ? COLORS.primary : COLORS.textMedium} />
+                  <Ionicons name="add-circle-outline" size={40} color={showCustomCrop ? COLORS.primary : COLORS.textMedium} />
                   <Text style={[SC.cropTileLabel, showCustomCrop && SC.cropTileLabelSel]} numberOfLines={1}>
                     {t('cropScan.other')}
                   </Text>
@@ -1050,7 +1055,10 @@ export default function CropScanScreen({ navigation }) {
                         start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                         style={[SC.soilSquare, active && SC.soilSquareSel]}
                       >
-                        <SoilIcon type={s.key} size={28} />
+                        <PhotoIcon
+                          set="soil" name={s.key} fill radius={KRADIUS.r12}
+                          fallback={<SoilIcon type={s.key} size={28} />}
+                        />
                         {active && (
                           <View style={SC.soilCheck}>
                             <Ionicons name="checkmark" size={10} color={KHET.white} />
@@ -1084,7 +1092,10 @@ export default function CropScanScreen({ navigation }) {
                       activeOpacity={0.8}
                     >
                       <View style={[SC.irrTileIcon, { backgroundColor: theme.bg }]}>
-                        <IrrigationIcon type={ir.key} size={38} />
+                        <PhotoIcon
+                          set="irrigation" name={ir.key} fill radius={KRADIUS.r12}
+                          fallback={<IrrigationIcon type={ir.key} size={44} />}
+                        />
                       </View>
                       <Text style={[SC.irrTileLabel, active && { color: theme.color, fontWeight: '800' }]} numberOfLines={2}>
                         {t(ir.tKey)}
@@ -1150,7 +1161,7 @@ export default function CropScanScreen({ navigation }) {
                         });
                       }}
                     >
-                      <Text style={{ fontSize: 18 }}>{sym.emoji}</Text>
+                      <SymptomImage symptom={sym.key} size={34} />
                       <Text style={[SC.symptomChipText, active && SC.symptomChipTextActive]}>
                         {t(`cropScan.${sym.tKey}`)}
                       </Text>
@@ -1648,7 +1659,7 @@ const SC = StyleSheet.create({
   // DO NOT RETUNE: width 14.5% + gap 8 inside the 18dp gutter clears 360dp by
   // exactly 2.12dp (6 × 46.98 + 5 × 8 = 321.88 of 324).
   soilGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s8 },
-  soilCard: { width: '14.5%', alignItems: 'center' },
+  soilCard: { width: '31.5%', alignItems: 'center' },
   soilSquare: {
     width: '100%', aspectRatio: 1, borderRadius: KRADIUS.r12,
     justifyContent: 'center', alignItems: 'center',
@@ -1669,14 +1680,14 @@ const SC = StyleSheet.create({
     backgroundColor: COLORS.primary,
     justifyContent: 'center', alignItems: 'center',
   },
-  soilLabel: { fontSize: 10, color: '#666', marginTop: KSPACE.s4, textAlign: 'center', fontWeight: '600' },
+  soilLabel: { fontSize: 12, color: '#666', marginTop: KSPACE.s6, textAlign: 'center', fontWeight: '600' },
   soilLabelSel: { color: COLORS.primary, fontWeight: '800' },
 
   // Irrigation tile grid — 3 per row, card style with stacked icon + label
   irrGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s8 },
   irrTile: {
-    flexBasis: '31.5%', flexGrow: 1,
-    paddingVertical: KSPACE.s14, paddingHorizontal: KSPACE.s8,
+    flexBasis: '31.5%',
+    paddingVertical: KSPACE.s8, paddingHorizontal: KSPACE.s6,
     borderRadius: KRADIUS.r14,
     borderWidth: KBORDER.chip, borderColor: '#E8E8E8',
     backgroundColor: '#FAFAFA',
@@ -1684,10 +1695,10 @@ const SC = StyleSheet.create({
     position: 'relative',
   },
   irrTileIcon: {
-    width: 56, height: 56, borderRadius: KRADIUS.r14,
-    justifyContent: 'center', alignItems: 'center',
+    width: '100%', aspectRatio: 1, borderRadius: KRADIUS.r12,
+    justifyContent: 'center', alignItems: 'center', overflow: 'hidden',
   },
-  irrTileLabel: { fontSize: 11, color: '#555', fontWeight: '700', textAlign: 'center', lineHeight: 14 },
+  irrTileLabel: { fontSize: 12, color: '#555', fontWeight: '700', textAlign: 'center', lineHeight: 15 },
   irrTileCheck: {
     position: 'absolute', top: KSPACE.s4, right: KSPACE.s4,
     ...circle(18),
@@ -1742,9 +1753,9 @@ const SC = StyleSheet.create({
   // Symptom grid
   symptomGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: KSPACE.s8 },
   symptomChip: {
-    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s6,
+    flexDirection: 'row', alignItems: 'center', gap: KSPACE.s8,
     backgroundColor: COLORS.white, borderRadius: KRADIUS.r12,
-    paddingHorizontal: KSPACE.s12, paddingVertical: 9,
+    paddingHorizontal: KSPACE.s8, paddingVertical: 7,
     borderWidth: KBORDER.hairline, borderColor: COLORS.border,
     // (W - 44) / 2, where 44 = the 36dp gutter pair + the 8dp gap. Two chips fill
     // the row with EXACTLY 0dp of slack at 360dp — left as authored, see gaps.
