@@ -23,6 +23,7 @@ import { BATCH3 } from './batch3.mjs';
 import { BATCH4 } from './batch4.mjs';
 import { BATCH5 } from './batch5.mjs';
 import { BATCH6 } from './batch6.mjs';
+import { BATCH7 } from './batch7.mjs';
 import { composePrompt, paramsFor } from './families.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -41,7 +42,7 @@ const N = Number(val('n') ?? 3);
 const setName = val('set');
 const ids = args.filter(a => !a.startsWith('--') && !/^\d+$/.test(a) && a !== setName);
 
-const ASSETS = [...BATCH1, ...BATCH2, ...BATCH3, ...BATCH4, ...BATCH5, ...BATCH6];
+const ASSETS = [...BATCH1, ...BATCH2, ...BATCH3, ...BATCH4, ...BATCH5, ...BATCH6, ...BATCH7];
 let todo = setName ? ASSETS.filter(a => a.set === setName)
          : ids.length ? ASSETS.filter(a => ids.includes(a.id))
          : null;

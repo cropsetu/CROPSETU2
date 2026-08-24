@@ -28,6 +28,22 @@ colour grading, no HDR. Three-quarter view from slightly above. One object only,
 centred, nothing else in the frame. Absolutely NO text, letters, numbers, words,
 logos, watermarks or signatures.`,
 
+
+  // RG — Lane R's house style for a GROUP. Identical materials/lighting language,
+  // but without R's "One object only … nothing else in the frame", which otherwise
+  // contradicts any multi-subject family and quietly wins over the family clauses.
+  RG: `Photorealistic studio photograph of real objects, lit and rendered exactly like a
+high-end product shot. Real materials with true real-world texture and wear — the coarse
+weave of polypropylene sacking, honest scratches and use-marks on painted metal, the
+grain of a wooden handle, real hide and hair, the soft matte of a leaf. Real-world
+proportions, real construction, correct relative scale between subjects. 50 mm lens,
+f/8, everything in sharp focus, no depth-of-field blur. Soft large diffused key light
+from the upper left with a broad fill, subtle natural ambient shadow and a soft contact
+shadow beneath each element. True-to-life colour, neutral white balance, no colour
+grading, no HDR, no vignette, no lens flare. Several subjects composed together as one
+deliberate group. Absolutely NO text, letters, numbers, words, logos, watermarks or
+signatures anywhere in the image.`,
+
   C: `Clean stylised botanical illustration in the style of a printed agricultural
 extension field-guide poster — bold simplified shapes with confident dark-green
 outlines of even weight, smooth flat colour fills with soft cel-shaded gradients,
@@ -69,6 +85,7 @@ dark moody lighting, busy background, cluttered scene, multiple objects, hands
 holding the object, brand badge, number plate, label print`,
   V: ``,
 };
+NEG_LANE.RG = NEG_LANE.R;
 
 // ── Family templates (the §5.x "shared clauses") ────────────────────────────
 export const FAMILIES = {
@@ -164,6 +181,37 @@ NO labels on sacks or bottles, NO people beyond bare hands and forearms, NO face
 barcode, price tag, face, portrait, full human figure, ground plane, grass, field, sky`,
   },
 
+
+  // ── onboarding heroes. NOT objects-3d: these render at ~312dp (819px), are
+  // allowed to be a GROUP rather than one object, and slide 2 needs a phone and
+  // a pictogram overlay that the global negative otherwise forbids outright.
+  'onboard-hero': {
+    lane: 'RG', size: '1024x1024', quality: 'high', background: 'transparent',
+    clauses: `Composition: a single connected group of subjects arranged as one
+balanced tableau, centred, filling 88 percent of a square frame, seen in three-quarter
+view from slightly above, on a fully transparent background with soft blurred contact
+shadows beneath each element that touches the ground. The group reads as one silhouette
+with no element cropped by the frame edge. Renders at roughly 320 device-independent
+pixels, so every element must stay legible at that size — no fine detail that dissolves.
+
+Canvas: square 1:1. Background: fully transparent.`,
+    restate: `Restated and absolute: there is NO writing anywhere in this image. No text,
+no letters, no numbers, no words, no digits, no labels, no captions, no brand badges, no
+manufacturer names, no number plates, no printing on sacks, bottles or packaging, no
+readable characters of any script. Every panel, card, screen, badge and surface is either
+blank or carries ONLY a simple wordless pictogram. If any surface would normally carry
+writing, leave it completely empty instead.`,
+    negativeDrop: [
+      'UI chrome', 'dialog boxes', 'buttons', 'app screenshots',
+      'phone or laptop mockups', 'multiple objects', 'hands holding the object',
+      'cluttered scene', 'busy background',
+    ],
+    negativeAdd: `readable text of any kind, lettering, numerals, gauge readings,
+speech bubbles, tooltips, brand logo, manufacturer badge, registration plate, price tag,
+barcode, packaging print, face, portrait, full human figure beyond hands and forearms,
+Caucasian hands, ground plane, grass, field, sky, horizon`,
+  },
+
   scenes: {
     lane: 'R', size: '1536x1024', quality: 'medium', background: 'opaque',
     clauses: `Composition: a wide empty field backdrop. A low horizon sits at 55 percent height.
@@ -249,12 +297,20 @@ export function composePrompt(asset) {
   // NEG_GLOBAL was authored for flat-vector work. Three of its terms describe the
   // Lane R house style, so they must be dropped for R or they fight the preamble.
   const R_CONFLICTS = ['glossy 3D render', 'plastic clay look', 'skeuomorphic bevels'];
-  const base = fam.lane === 'R'
+  const base = (fam.lane === 'R' || fam.lane === 'RG')
     ? NEG_GLOBAL.split(',').map(t => t.trim())
         .filter(t => !R_CONFLICTS.includes(t)).join(', ')
     : NEG_GLOBAL;
+  // A family may legitimately need something the global/lane negative forbids
+  // (the onboarding heroes need a phone, a UI overlay and more than one object).
+  // Dropping is declared per-family so the global list stays strict by default.
+  const norm = t => t.replace(/\s+/g, ' ').trim().toLowerCase();
+  const drop = (fam.negativeDrop ?? []).map(norm);
   const negative = [base, NEG_LANE[fam.lane], fam.negativeAdd]
-    .filter(Boolean).join(', ').replace(/\s+/g, ' ').trim();
+    .filter(Boolean).join(', ')
+    .split(',').map(t => t.replace(/\s+/g, ' ').trim())
+    .filter(t => t && !drop.includes(norm(t)))
+    .join(', ').replace(/\s+/g, ' ').trim();
   const blocks = [
     LANES[fam.lane],
     `Subject: ${asset.subject}`,
