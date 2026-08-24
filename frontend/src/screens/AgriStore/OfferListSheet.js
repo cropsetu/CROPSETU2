@@ -19,9 +19,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api from '@cropsetu/shared/services/api';
+import { COLORS, SHADOWS } from '@krushisarva/shared/constants/colors';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api from '@krushisarva/shared/services/api';
 import { SkeletonList } from '../../components/ui/Skeleton';
 import { fs } from '../../utils/responsive';
 

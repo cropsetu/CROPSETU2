@@ -27,7 +27,7 @@ import {
   Pressable, StyleSheet, Text, View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { C, E, F, HIT, R, SP, T } from '../../theme';
 import { TextField } from './Form';
 import Button from './Button';

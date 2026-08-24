@@ -1,4 +1,4 @@
-# CropSetu backend + embedded admin SPA (same-origin).
+# KrushiSarva backend + embedded admin SPA (same-origin).
 #
 # Stages: (1) build the admin React/Vite SPA, (2) backend runtime that serves the
 # API (/api/v1/*) and the admin panel (/admin) from one origin.

@@ -17,8 +17,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { AppState, Platform } from 'react-native';
 import axios from 'axios';
-import api from '@cropsetu/shared/services/api';
-import { API_BASE_URL } from '@cropsetu/shared/constants/config';
+import api from '@krushisarva/shared/services/api';
+import { API_BASE_URL } from '@krushisarva/shared/constants/config';
 
 const IS_WEB = Platform.OS === 'web';
 

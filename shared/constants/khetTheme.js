@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CropSetu auth theme — exact port of the Lovable design system (dharti-connect-hub).
+// KrushiSarva auth theme — exact port of the Lovable design system (dharti-connect-hub).
 // oklch tokens from src/styles.css converted to sRGB hex. Used only by the
 // pre-login / phone / OTP auth screens so it doesn't disturb the app-wide palette.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ export const KSHADOW = {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ── Spacing ──────────────────────────────────────────────────────────────────
-// s10 and s14 are load-bearing, not sloppy: s14 is the signature CropSetu card
+// s10 and s14 are load-bearing, not sloppy: s14 is the signature KrushiSarva card
 // padding (37% of all card padding shorthands) and s10 is the co-dominant row
 // gap. Snapping either to 8 or 12 would move hundreds of declarations.
 export const KSPACE = {

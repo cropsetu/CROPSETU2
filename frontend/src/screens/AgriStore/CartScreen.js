@@ -2,7 +2,7 @@
  * CartScreen — Redesigned to match KisanMart reference UI
  * Staggered entrance, pill qty selector, animated progress bar, bottom action bar
  */
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
@@ -10,13 +10,13 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { useCart } from '../../context/CartContext';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
-import { StoreCategoryIcon } from '@cropsetu/shared/components/StoreCategoryIcons';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
+import { StoreCategoryIcon } from '@krushisarva/shared/components/StoreCategoryIcons';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 import { SkeletonList } from '../../components/ui/Skeleton';
 import { classifyError, inr, thumbUrl, SHOP_ERRORS } from './shopClient';

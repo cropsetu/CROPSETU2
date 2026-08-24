@@ -15,7 +15,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { safeErrorMessage } from '@cropsetu/shared/services/api';
+import { safeErrorMessage } from '@krushisarva/shared/services/api';
 import { useNetwork, isConnectivityError } from './useNetwork';
 
 const DEFAULT_LIMIT = 20;

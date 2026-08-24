@@ -25,7 +25,7 @@
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '@cropsetu/shared/services/api';
+import api from '@krushisarva/shared/services/api';
 import { classifyError, ERROR_CODES } from '../utils/apiError';
 
 const ANIMALS_PAGE_SIZE = 16;   // ~8 rows of the 2-column grid

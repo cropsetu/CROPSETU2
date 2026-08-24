@@ -31,9 +31,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Animated, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api from '@cropsetu/shared/services/api';
-import { CropIcon } from '@cropsetu/shared/components/CropIcons';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api from '@krushisarva/shared/services/api';
+import { CropIcon } from '@krushisarva/shared/components/CropIcons';
 
 import { C, R, SP, T, riskMeta, useResponsive } from '../theme';
 import useAsyncData from '../hooks/useAsyncData';

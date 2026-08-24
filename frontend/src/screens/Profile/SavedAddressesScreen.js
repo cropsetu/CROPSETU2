@@ -22,9 +22,9 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { COLORS } from '@cropsetu/shared/constants/colors';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS } from '@krushisarva/shared/constants/colors';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { SkeletonList } from '../../components/ui/Skeleton';
 
 const TYPE_ICON = { HOME: 'home-outline', OFFICE: 'briefcase-outline', OTHER: 'location-outline' };

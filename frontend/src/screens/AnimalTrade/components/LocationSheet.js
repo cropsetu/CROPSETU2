@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 
 const GREEN = COLORS.primary;
 

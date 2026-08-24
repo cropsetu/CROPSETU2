@@ -11,7 +11,7 @@
  * session immediately (revocation must not become advisory), and a transport
  * failure must not.
  */
-import { isDefinitiveAuthFailure } from '@cropsetu/shared/services/authFailure';
+import { isDefinitiveAuthFailure } from '@krushisarva/shared/services/authFailure';
 
 /** Shape of an axios error that got a response. */
 const withStatus = (status) => ({ response: { status }, config: {}, isAxiosError: true });

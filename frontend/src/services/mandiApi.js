@@ -2,7 +2,7 @@
  * mandiApi.js — thin client for the existing mandi-price endpoints
  * (live Agmarknet / data.gov.in data, cached server-side).
  */
-import api from '@cropsetu/shared/services/api';
+import api from '@krushisarva/shared/services/api';
 
 /** Latest modal prices for a commodity in a state/district. → { rows, meta } */
 export async function getMandiPrices({ commodity, state, district } = {}) {

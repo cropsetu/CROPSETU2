@@ -1,4 +1,4 @@
-# CropSetu CI
+# KrushiSarva CI
 #
 # The repository had no CI at all. Every suite in it now passes, which is the
 # only moment at which adding CI is cheap — a green baseline is what makes a red
@@ -33,13 +33,13 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: cropsetu
-          POSTGRES_PASSWORD: cropsetu
+          POSTGRES_USER: krushisarva
+          POSTGRES_PASSWORD: krushisarva
           # Named _test on purpose. tests/fixtures/setup.js REFUSES to run
           # against a database whose name does not end in _test, because
           # cleanupTestData() ends every suite with an unfiltered deleteMany
           # across ~20 tables. That guard is load-bearing, not decoration.
-          POSTGRES_DB: cropsetu_test
+          POSTGRES_DB: krushisarva_test
         ports: ['5432:5432']
         options: >-
           --health-cmd pg_isready
@@ -57,7 +57,7 @@ jobs:
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql://cropsetu:cropsetu@localhost:5432/cropsetu_test
+      DATABASE_URL: postgresql://krushisarva:krushisarva@localhost:5432/krushisarva_test
       REDIS_URL: redis://localhost:6379
       # Test-only values. JWT_SECRET must be >= 32 chars and
       # FIELD_ENCRYPTION_KEY exactly 64 hex chars, or config/env.js aborts at

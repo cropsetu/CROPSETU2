@@ -3,7 +3,7 @@
 > **Tab:** My Farm · **Stack:** `MyFarmStack` (also re-registered in `AIStack` for deep-linking) · **Route name:** `FarmList` · **File:** [FarmListScreen.js](../../../frontend/src/screens/FarmProfile/FarmListScreen.js)
 
 ## Purpose
-Shows every **farm (plot)** the user owns as a compact list of white cards. From here a farmer can open a plot's detail, **switch which plot is "active"** (the one the rest of My Farm and the AI advisory tune to), **edit** or **delete** a plot, and **add a new farm**. In CropSetu a "farm" is a single land parcel with its own location, size, soil and irrigation — a farmer with three scattered plots keeps three farms here and flips the active one as the season moves between them. This screen is the roster; the season work happens inside each plot's [Farm Detail](03-FarmDetailPage.md) and its crop cycles.
+Shows every **farm (plot)** the user owns as a compact list of white cards. From here a farmer can open a plot's detail, **switch which plot is "active"** (the one the rest of My Farm and the AI advisory tune to), **edit** or **delete** a plot, and **add a new farm**. In KrushiSarva a "farm" is a single land parcel with its own location, size, soil and irrigation — a farmer with three scattered plots keeps three farms here and flips the active one as the season moves between them. This screen is the roster; the season work happens inside each plot's [Farm Detail](03-FarmDetailPage.md) and its crop cycles.
 
 ## Where it sits / how you reach it
 - **Reached from:**

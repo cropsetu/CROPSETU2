@@ -63,7 +63,7 @@ MODEL_CATALOG: dict[str, dict] = {
 # ── Default tier → stage → fallback chain ────────────────────────────────────
 # Each chain is (primary, *fallbacks). The router walks left-to-right on
 # 429 / 5xx / timeout / parse-fail. Env vars override any chain (see below).
-# CropSetu is Gemini-first. Every primary chain uses Gemini Flash (fast) and
+# KrushiSarva is Gemini-first. Every primary chain uses Gemini Flash (fast) and
 # Gemini Pro (best/accuracy); "fallback" within a chain means Pro → Flash
 # (capacity fallback within the same provider). The ONE cross-vendor entry is
 # the OpenAI voter in the ENSEMBLE chain (parallel votes, not a fallback).

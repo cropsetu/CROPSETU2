@@ -16,12 +16,12 @@
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFarm } from '../context/FarmContext';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import PhotoIcon from './PhotoIcon';
-import CropIcon from '@cropsetu/shared/components/CropIcons';
+import CropIcon from '@krushisarva/shared/components/CropIcons';
 import SoilIcon from './SoilIcons';
 import IrrigationIcon from './IrrigationIcons';
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 
 // ─── Short display labels ─────────────────────────────────────────────────────
 

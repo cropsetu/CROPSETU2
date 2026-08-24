@@ -41,10 +41,10 @@ import { Animated, RefreshControl, ScrollView, StyleSheet, Text, View } from 're
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api from '@cropsetu/shared/services/api';
-import DashboardStatIcon from '@cropsetu/shared/components/DashboardStatIcons';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api from '@krushisarva/shared/services/api';
+import DashboardStatIcon from '@krushisarva/shared/components/DashboardStatIcons';
 
 import { C, E, GRAD, HIT, R, SP, T, alpha, formatCurrency, useResponsive } from '../theme';
 import { useCountUp, usePulse, useEntrance, useReducedMotion } from '../hooks/useMotion';

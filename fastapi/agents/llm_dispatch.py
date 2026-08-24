@@ -256,7 +256,7 @@ def _fallback_model(feature: str, primary: str) -> Optional[str]:
 # ── Cross-provider fallback (Gemini → Groq) ──────────────────────────────────
 # LAST resort for the text-chat features: after the Gemini primary AND its
 # Flash↔Pro capacity fallback have both failed, try Groq so the farmer still
-# gets a reply instead of "Chat unavailable". This is the ONE place CropSetu
+# gets a reply instead of "Chat unavailable". This is the ONE place KrushiSarva
 # leaves the Gemini-only path — Groq has capacity separate from Google, so it
 # survives a Gemini-side outage / quota exhaustion that retrying Gemini cannot.
 # Off unless GROQ_API_KEY is set (no key → Gemini-only behaviour, unchanged).

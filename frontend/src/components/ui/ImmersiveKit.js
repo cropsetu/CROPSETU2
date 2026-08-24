@@ -1,9 +1,9 @@
 /**
- * ImmersiveKit — shared 3D animation components for CropSetu
+ * ImmersiveKit — shared 3D animation components for KrushiSarva
  * Bright vivid 3D design language used across all screens.
  */
 import { useRef, useEffect } from 'react';
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import { Animated } from 'react-native';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────

@@ -1,9 +1,9 @@
 {
-  "name": "cropsetu-admin",
+  "name": "krushisarva-admin",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "CropSetu Admin Panel — web SPA for the /api/v1/admin API",
+  "description": "KrushiSarva Admin Panel — web SPA for the /api/v1/admin API",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

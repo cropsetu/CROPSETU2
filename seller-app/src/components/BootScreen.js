@@ -27,13 +27,13 @@ export default function BootScreen({ label }) {
       style={s.root}
       accessibilityRole="progressbar"
       accessibilityState={{ busy: true }}
-      accessibilityLabel={label || 'Loading CropSetu Seller'}
+      accessibilityLabel={label || 'Loading KrushiSarva Seller'}
     >
       <View style={s.mark}>
         <Text style={s.markTxt}>CS</Text>
       </View>
 
-      <Text style={s.brand}>CropSetu</Text>
+      <Text style={s.brand}>KrushiSarva</Text>
       <View style={s.ruleRow}>
         <View style={s.ruleSeg} />
         <Text style={s.kicker}>Seller</Text>

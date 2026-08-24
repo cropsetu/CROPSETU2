@@ -1,4 +1,4 @@
-# CropSetu Seller
+# KrushiSarva Seller
 
 Standalone Expo app for **sellers**: list products, manage orders, complete KYC, and
 answer crop reports farmers forward from the buyer app.
@@ -10,7 +10,7 @@ Both apps share one backend, one account system (the same OTP login), and the
 | | |
 | --- | --- |
 | Bundle id | `com.cropsetu.seller` |
-| Scheme | `cropsetu-seller://` |
+| Scheme | `krushisarva-seller://` |
 | Buyer app | `../frontend` (`com.cropsetu.app`) |
 | Shared code | `../shared` (see its README) |
 
@@ -72,7 +72,7 @@ PUT    /users/me
 ## Known limitation: EAS Build and `../shared`
 
 `eas build` uploads the directory it runs in, so a cloud build from here would not
-include `../shared` and would fail to resolve `@cropsetu/shared/*`. Local runs
+include `../shared` and would fail to resolve `@krushisarva/shared/*`. Local runs
 (`npm start`, `expo run:android`) are unaffected — Metro reads `../shared` from disk.
 
 To fix before the first cloud build, make the repo an npm workspace so EAS uploads
@@ -80,7 +80,7 @@ the whole tree. Add a root `package.json`:
 
 ```json
 {
-  "name": "cropsetu",
+  "name": "krushisarva",
   "private": true,
   "workspaces": ["frontend", "seller-app", "shared"]
 }

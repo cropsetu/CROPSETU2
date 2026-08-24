@@ -11,7 +11,7 @@
  *    since the animal-trade hardening pass. A Krushi Kendra with hundreds of
  *    listings pulled all of them, with images, on every screen focus.
  */
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import React, { useState, useCallback, useRef, memo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
@@ -20,8 +20,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { formatLocation } from '../../utils/location';
 import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 import { SkeletonList } from '../../components/ui/Skeleton';

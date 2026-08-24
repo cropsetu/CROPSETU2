@@ -21,7 +21,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { peekLocationAsync, resolveLocation } from './locationService';
-import { API_BASE_URL } from '@cropsetu/shared/constants/config';
+import { API_BASE_URL } from '@krushisarva/shared/constants/config';
 
 // ── TTLs ──────────────────────────────────────────────────────────────────────
 const WEATHER_CACHE_TTL_MS  = 60 * 60 * 1000;   // 1 hour  — weather data

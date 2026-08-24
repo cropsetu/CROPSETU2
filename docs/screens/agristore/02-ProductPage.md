@@ -57,7 +57,7 @@ Full-page view of a single agri-store product. Shows an image gallery, brand/nam
   - `POST /agristore/cart` `{ productId, quantity }` — add to cart.
 - **Backend route/service:** `backend/src/routes/agristore.routes.js` (`GET /products` line 113, `POST /cart` line 199).
 - **State / context:** `useCart()` (`count`, `refresh`); `useLanguage()` (`t`); local `useState` (quantity, wishlist, imgIdx, adding, similar, activeTab); `useSafeAreaInsets`.
-- **Local / static data:** Seller name/"FarmEasy Direct", coming-soon cards, `mfrRows` (Quality Check "CropSetu Verified", support hours), `baseSpecRows` are all static/derived; Product Code derived as `FE-{id slice}`.
+- **Local / static data:** Seller name/"FarmEasy Direct", coming-soon cards, `mfrRows` (Quality Check "KrushiSarva Verified", support hours), `baseSpecRows` are all static/derived; Product Code derived as `FE-{id slice}`.
 
 ## Languages / i18n
 i18n via `t`. Keys include `product.error`, `product.cartError`, `product.addedToCart`, `product.hotDeal`, `product.outOfStock`, `product.quantity`, `product.soldBy`, `product.farmEasyDirect`, `product.similarProducts`, `product.highlightsTitle`, `product.allDetailsTitle`, `product.specifications`, `product.manufacturer`, `product.productDescription`, `product.buyAt` (interpolates price), `addToCart`, `store.viewAll`. Optional `product.nameHi` rendered as a secondary Hindi name.

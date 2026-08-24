@@ -1,4 +1,4 @@
-# CropSetu — AI Crop-Disease Diagnosis Service: Architecture
+# KrushiSarva — AI Crop-Disease Diagnosis Service: Architecture
 
 **Service:** `fastapi/` · Python 3.14 · FastAPI + Celery
 **Purpose:** Diagnose crop diseases from a farmer's leaf photo(s) + farm context, and return a safe, localized treatment/advisory report.
@@ -26,7 +26,7 @@
 
 ## 1. System Overview
 
-CropSetu's AI service is a **FastAPI** app fronted by an **Express (Node) proxy** and backed by **Celery + Redis** for async job execution. A farmer photographs a diseased leaf in the mobile app; the app sends it (base64) plus farm context to Express, which **HMAC-signs** the request and forwards it to FastAPI's `POST /ai/scan`.
+KrushiSarva's AI service is a **FastAPI** app fronted by an **Express (Node) proxy** and backed by **Celery + Redis** for async job execution. A farmer photographs a diseased leaf in the mobile app; the app sends it (base64) plus farm context to Express, which **HMAC-signs** the request and forwards it to FastAPI's `POST /ai/scan`.
 
 Diagnosis is a **multi-agent pipeline** coordinated by `orchestrator.py`. Cheap, deterministic, `$0` stages (image-quality CV, weather rules, cross-verification, report templating) bracket the expensive LLM stages (vision diagnosis, and — only on hard cases — a multi-model ensemble vote).
 
@@ -143,7 +143,7 @@ Express proxy  ── sets x-user-id, x-request-id; HMAC-signs (X-Sig-Timestamp 
                              ▼
         ┌──────────── Celery worker (jobs/tasks.py) ────────────┐
         │ run_diagnosis_task(payload):                          │
-        │   _materialise(images) → base64 → /tmp/cropsetu_*.jpg │
+        │   _materialise(images) → base64 → /tmp/krushisarva_*.jpg │
         │   set request_id_var / user_id_var (log correlation)  │
         │   asyncio.run(orchestrator.run_diagnosis(params,imgs))│
         │   finally: _cleanup(temp_paths)  (always unlinks)     │
@@ -210,7 +210,7 @@ Two cooperating layers prevent duplicate LLM spend on retries (double-tap "Scan"
 ### 7. The worker (`jobs/tasks.py`)
 
 `run_diagnosis_task` (lines 103-152) is the Celery entry point:
-1. `_materialise(images)` (lines 56-92) decodes each base64 `data` with `validate=True`, re-checks the 8 MB cap, picks an extension from `_MIME_TO_EXT` (`.jpg/.png/.webp`, default `.jpg`), and writes to `tempfile.mkstemp(prefix="cropsetu_worker_")`. Bad/oversized images are logged and skipped (not fatal). Output is `[{path, type}]` plus the list of temp paths to clean up.
+1. `_materialise(images)` (lines 56-92) decodes each base64 `data` with `validate=True`, re-checks the 8 MB cap, picks an extension from `_MIME_TO_EXT` (`.jpg/.png/.webp`, default `.jpg`), and writes to `tempfile.mkstemp(prefix="krushisarva_worker_")`. Bad/oversized images are logged and skipped (not fatal). Output is `[{path, type}]` plus the list of temp paths to clean up.
 2. Stamps `request_id_var` / `user_id_var` from the payload for log correlation (lines 128-135).
 3. Late-imports `orchestrator.run_diagnosis` and runs it via `asyncio.run(...)` — Celery tasks are synchronous and the prefork pool is process-per-task, so a private event loop per task is safe (lines 138-142). Returns the orchestrator's report dict unchanged; Redis serialises it as JSON.
 4. `finally: _cleanup(temp_paths)` always unlinks the temp files (`missing_ok=True`), even on failure or soft-timeout (lines 95-100, 151-152). `SoftTimeLimitExceeded` and any other exception are logged and re-raised so the job lands in `FAILURE`.
@@ -1279,4 +1279,4 @@ The most important block is the **tie-break / dead-vote handling** (`:142`), whi
 
 ---
 
-*Generated for the CropSetu team. Keep this doc in sync when you change the diagnosis path, the whitelist, or the safety gates.*
+*Generated for the KrushiSarva team. Keep this doc in sync when you change the diagnosis path, the whitelist, or the safety gates.*

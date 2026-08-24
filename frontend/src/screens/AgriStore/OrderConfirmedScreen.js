@@ -2,7 +2,7 @@
  * OrderConfirmedScreen — Redesigned to match KisanMart reference UI
  * Green gradient header, breathing circles, spring checkmark, staggered item list
  */
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import React, { useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -11,11 +11,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Stop, Circle, Path, Polygon } from 'react-native-svg';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { SoundEffects } from '@cropsetu/shared/utils/sounds';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { SoundEffects } from '@krushisarva/shared/utils/sounds';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
 
 
 // ── Celebratory colourful success badge (gradient green disc + white tick + gold sparkles) ──

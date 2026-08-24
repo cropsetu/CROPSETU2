@@ -18,10 +18,10 @@ import {
   Modal, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api from '@cropsetu/shared/services/api';
-import { KHET, KFONT, KSHADOW } from '@cropsetu/shared/constants/khetTheme';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api from '@krushisarva/shared/services/api';
+import { KHET, KFONT, KSHADOW } from '@krushisarva/shared/constants/khetTheme';
 
 const RESEND_COOLDOWN_SEC = 30;
 

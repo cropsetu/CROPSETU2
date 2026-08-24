@@ -11,9 +11,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { COLORS, SHADOWS } from '@krushisarva/shared/constants/colors';
 import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 import { SkeletonList } from '../../components/ui/Skeleton';
 

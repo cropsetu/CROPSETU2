@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { Globe, ChevronDown, Check } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 
 const { height: H } = Dimensions.get('window');
 

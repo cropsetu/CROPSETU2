@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "CropSetu Seller",
+    "name": "KrushiSarva Seller",
     "slug": "cropsetu-seller",
-    "scheme": "cropsetu-seller",
+    "scheme": "krushisarva-seller",
     "version": "1.0.0",
     "newArchEnabled": true,
     "orientation": "portrait",
@@ -17,8 +17,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.cropsetu.seller",
       "infoPlist": {
-        "NSCameraUsageDescription": "CropSetu Seller needs camera access to photograph the products you list.",
-        "NSPhotoLibraryUsageDescription": "CropSetu Seller needs photo library access to upload product images."
+        "NSCameraUsageDescription": "KrushiSarva Seller needs camera access to photograph the products you list.",
+        "NSPhotoLibraryUsageDescription": "KrushiSarva Seller needs photo library access to upload product images."
       }
     },
     "android": {
@@ -41,8 +41,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "CropSetu Seller needs photo library access to upload product images.",
-          "cameraPermission": "CropSetu Seller needs camera access to photograph the products you list."
+          "photosPermission": "KrushiSarva Seller needs photo library access to upload product images.",
+          "cameraPermission": "KrushiSarva Seller needs camera access to photograph the products you list."
         }
       ],
       "expo-secure-store",

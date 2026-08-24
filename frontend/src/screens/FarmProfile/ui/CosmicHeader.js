@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COSMIC, CT } from '../theme/cosmicTheme';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 
 export default function CosmicHeader({
   title,

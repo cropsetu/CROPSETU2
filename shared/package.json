@@ -1,8 +1,8 @@
 {
-  "name": "@cropsetu/shared",
+  "name": "@krushisarva/shared",
   "version": "1.0.0",
   "private": true,
-  "description": "Code shared by the CropSetu buyer app (frontend/) and seller app (seller-app/).",
+  "description": "Code shared by the KrushiSarva buyer app (frontend/) and seller app (seller-app/).",
   "main": "index.js",
   "peerDependencies": {
     "@expo/vector-icons": "*",

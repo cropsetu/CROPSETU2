@@ -23,12 +23,12 @@ import CosmicHeader from './ui/CosmicHeader';
 import GlassCard    from './ui/GlassCard';
 import GlowButton   from './ui/GlowButton';
 import PhotoIcon from '../../components/PhotoIcon';
-import CropIcon     from '@cropsetu/shared/components/CropIcons';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import CropIcon     from '@krushisarva/shared/components/CropIcons';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { createCropCycle } from '../../services/farmApi';
 import { invalidateFocusData } from '../../hooks/useFocusRefresh';
 import { COSMIC, CR, CS, CT, GLOW } from './theme/cosmicTheme';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 
 // Crop keys aligned with translations.js crops.* and the CropIcon name lookup.
 // (CropIcon does its own Title-case mapping, so `soybean` -> Soybean.)

@@ -19,7 +19,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import PhotoIcon from '../../components/PhotoIcon';
 import SymptomImage from '../../components/SymptomImage';
 import { Ionicons } from '@expo/vector-icons';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { scanCropImage, newIdemKey } from '../../services/aiApi';
@@ -28,14 +28,14 @@ import { listCropCycles, getCropCycle } from '../../services/farmApi';
 import { summarizeFertilizers, summarizePesticides, buildFarmHistory } from '../../utils/farmHistory';
 
 import { useFarm, COMMON_CROPS, COMMON_CROP_KEYS, SOIL_TYPES, IRRIGATION_TYPES } from '../../context/FarmContext';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { SoundEffects } from '@cropsetu/shared/utils/sounds';
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { SoundEffects } from '@krushisarva/shared/utils/sounds';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import {
   KHET, KSPACE, KGUTTER, KRADIUS, KICON, KBORDER, circle, withAlpha,
-} from '@cropsetu/shared/constants/khetTheme';
-import { CropIcon } from '@cropsetu/shared/components/CropIcons';
+} from '@krushisarva/shared/constants/khetTheme';
+import { CropIcon } from '@krushisarva/shared/components/CropIcons';
 import SoilIcon from '../../components/SoilIcons';
 import IrrigationIcon from '../../components/IrrigationIcons';
 

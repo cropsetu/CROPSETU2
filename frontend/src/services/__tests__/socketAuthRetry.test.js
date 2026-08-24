@@ -20,7 +20,7 @@ const mockGetValidAccessToken = jest.fn();
 const mockForceRefreshAccessToken = jest.fn();
 const mockSockets = [];
 
-jest.mock('@cropsetu/shared/services/api', () => ({
+jest.mock('@krushisarva/shared/services/api', () => ({
   getValidAccessToken: (...a) => mockGetValidAccessToken(...a),
   forceRefreshAccessToken: (...a) => mockForceRefreshAccessToken(...a),
 }));
@@ -29,7 +29,7 @@ jest.mock('@cropsetu/shared/services/api', () => ({
 // and expo-constants. This jest config is deliberately the light one — node
 // environment, no jest-expo preset — so the config module is stubbed rather than
 // dragging a React Native runtime into a test about retry logic.
-jest.mock('@cropsetu/shared/constants/config', () => ({
+jest.mock('@krushisarva/shared/constants/config', () => ({
   SOCKET_URL: 'http://localhost:3001',
   API_BASE_URL: 'http://localhost:3001/api/v1',
 }));
@@ -52,7 +52,7 @@ jest.mock('socket.io-client', () => {
   };
 });
 
-const { connectSocket, resetSocket, getSocket } = require('@cropsetu/shared/services/socket');
+const { connectSocket, resetSocket, getSocket } = require('@krushisarva/shared/services/socket');
 
 /** Open a socket, then deliver one `connect_error` and let handlers settle. */
 async function rejectWith(message) {

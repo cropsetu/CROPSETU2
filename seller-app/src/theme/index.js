@@ -34,7 +34,7 @@
  * import at module scope from `StyleSheet.create`.
  */
 import { Platform, useWindowDimensions } from 'react-native';
-import { COLORS, SHADOWS, RADIUS } from '@cropsetu/shared/constants/colors';
+import { COLORS, SHADOWS, RADIUS } from '@krushisarva/shared/constants/colors';
 
 // ── Alpha helper ─────────────────────────────────────────────────────────────
 // Screens used to append hex alpha suffixes by hand ('#E65100' + '18'), which
@@ -57,7 +57,7 @@ export function alpha(color, amount) {
 // ── Raw ramps ────────────────────────────────────────────────────────────────
 /**
  * Private. The seller app's own hex values live here rather than in
- * `@cropsetu/shared/constants/colors`, because the buyer app depends on that
+ * `@krushisarva/shared/constants/colors`, because the buyer app depends on that
  * module and must not inherit this palette. Nothing outside this file reads
  * `P` — screens and components consume the semantic `C` below.
  *

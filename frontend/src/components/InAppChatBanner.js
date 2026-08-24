@@ -17,10 +17,10 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Animated, Text, View, TouchableOpacity, StyleSheet, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import { connectSocket } from '@cropsetu/shared/services/socket';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import { connectSocket } from '@krushisarva/shared/services/socket';
 import { navigate, getActiveRoute } from '../navigation/navigationRef';
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 
 const VISIBLE_MS = 4500;
 

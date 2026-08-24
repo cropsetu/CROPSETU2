@@ -1,7 +1,7 @@
 """
 LLM Utility Functions — CropGuard Agentic AI (multi-provider, WI-11)
 
-Shared raw-client helpers for every LLM provider CropSetu can route to. Gemini is
+Shared raw-client helpers for every LLM provider KrushiSarva can route to. Gemini is
 the default, but model selection (admin App Settings / AI_<F>_MODEL env) can pick
 any provider; agents/llm_dispatch resolves the provider from the model-id prefix
 and calls the matching helper here:
@@ -162,7 +162,7 @@ def _gemini_thinking_config(model: str, max_tokens: int) -> dict | None:
     return None
 
 
-# Gemini safetySettings. CropSetu's legitimate output names pesticides and
+# Gemini safetySettings. KrushiSarva's legitimate output names pesticides and
 # explains how to mix and apply them, which reads as DANGEROUS_CONTENT to the
 # default filter — and a filtered response comes back as HTTP 200 with no text,
 # i.e. indistinguishable from an outage unless we read promptFeedback. Pin the

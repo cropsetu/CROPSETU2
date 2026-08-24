@@ -15,7 +15,7 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { ActivityIcon } from '../../../components/ActivityIcons';
 import { COSMIC, CR, activityMeta } from '../theme/cosmicTheme';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 
 export default function ActivityChip({
   type,            // ActivityType enum key (e.g. 'IRRIGATION')

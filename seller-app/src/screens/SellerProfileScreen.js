@@ -35,10 +35,10 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
-import { BUSINESS_TYPES } from '@cropsetu/shared/constants/locations';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@krushisarva/shared/services/api';
+import { BUSINESS_TYPES } from '@krushisarva/shared/constants/locations';
 
 import { C, E, HIT, R, SP, T, alpha, useResponsive } from '../theme';
 import { useNetwork } from '../hooks/useNetwork';

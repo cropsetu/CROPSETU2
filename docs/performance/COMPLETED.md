@@ -528,7 +528,7 @@ already roots `../shared`, so one job covers both), admin typecheck **and** buil
 `prisma validate`. The admin build is not redundant — the Dockerfile compiles that SPA
 into the backend image, so a break there breaks the backend deploy.
 
-Two details are load-bearing: the CI database is named `cropsetu_test` because the
+Two details are load-bearing: the CI database is named `krushisarva_test` because the
 fixtures refuse any name not ending in `_test` (`cleanupTestData` wipes ~20 tables),
 and the runner is pinned to `--runInBand` because parallel workers deadlock on `40P01`.
 

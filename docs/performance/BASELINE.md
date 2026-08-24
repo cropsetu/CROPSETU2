@@ -1,4 +1,4 @@
-# CropSetu — Performance Baseline
+# KrushiSarva — Performance Baseline
 
 > Captured against `feat/skeleton-convention-and-cleanup` @ `0b43b18`, 2026-08-21.
 > Every number here was read from the working tree or produced by a command

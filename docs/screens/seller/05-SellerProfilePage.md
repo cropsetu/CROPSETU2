@@ -9,7 +9,7 @@ The seller's account/profile hub inside the portal. Shows a profile-completion m
 - **Reached from:** Seller Dashboard — avatar (top-right) and the "Profile" quick action both `navigation.navigate('SellerProfile')`.
 - **Navigates to:**
   - Completion card, Location row, Business Type / GST / Bank rows, and "Business Profile & KYC" quick action → `BusinessProfile`
-  - "Back to CropSetu" button → `navigation.goBack()` (exits the portal)
+  - "Back to KrushiSarva" button → `navigation.goBack()` (exits the portal)
   - Help Center row → informational `Alert` (no navigation)
   - Terms / Privacy rows → no-op `onPress` (`() => {}`)
 - **Route params in:** none
@@ -42,7 +42,7 @@ Reads `user` from `AuthContext` and computes everything locally — there is no 
 | Help Center row | Row | Shows informational `Alert` |
 | Terms row | Row | No-op |
 | Privacy row | Row | No-op |
-| "Back to CropSetu" button | TouchableOpacity | Warning haptic + `navigation.goBack()` |
+| "Back to KrushiSarva" button | TouchableOpacity | Warning haptic + `navigation.goBack()` |
 
 ## Services, APIs & data
 - **API endpoints (via `services/api`):**
@@ -52,11 +52,11 @@ Reads `user` from `AuthContext` and computes everything locally — there is no 
 - **Local / static data:** `BUSINESS_TYPES` from `constants/locations`; `calcCompletion` helper; `COLORS`, `SHADOWS`, `RADIUS`
 
 ## Languages / i18n
-i18n via `useLanguage().t` under the `sellerProfile.*` namespace (e.g. `sellerProfile.completion`, `sellerProfile.account`, `sellerProfile.phoneNumber`, `sellerProfile.businessType`, `sellerProfile.gstNumber`, `sellerProfile.kycStatus`, `sellerProfile.bizProfileKyc`, `sellerProfile.helpCenter`, `sellerProfile.updateError`) and `biz.*` for business-type labels, plus shared keys (`save`, `cancel`, `seller`, `notSet`). The "Back to CropSetu" label is hardcoded English.
+i18n via `useLanguage().t` under the `sellerProfile.*` namespace (e.g. `sellerProfile.completion`, `sellerProfile.account`, `sellerProfile.phoneNumber`, `sellerProfile.businessType`, `sellerProfile.gstNumber`, `sellerProfile.kycStatus`, `sellerProfile.bizProfileKyc`, `sellerProfile.helpCenter`, `sellerProfile.updateError`) and `biz.*` for business-type labels, plus shared keys (`save`, `cancel`, `seller`, `notSet`). The "Back to KrushiSarva" label is hardcoded English.
 
 ## Notes, edge cases & gaps
 - No data fetch — purely derived from the cached `user` in `AuthContext`; values are stale until `user` updates (e.g. after saving in BusinessProfile).
 - Account Status is always rendered as "Active"; KYC/GST/Bank badges are computed from `user` fields (e.g. `user.kycStatus === 'verified'`).
 - Terms and Privacy rows are placeholders (no destination).
-- "Back to CropSetu" uses `navigation.goBack()` and does not invoke the destructured `logout`.
+- "Back to KrushiSarva" uses `navigation.goBack()` and does not invoke the destructured `logout`.
 - Display-name save validates only that the trimmed name is non-empty.

@@ -25,7 +25,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   KHET, KSPACE, KGUTTER, KELEV, KICON, KBORDER,
-} from '@cropsetu/shared/constants/khetTheme';
+} from '@krushisarva/shared/constants/khetTheme';
 import Text from './Text';
 import Screen from './Screen';
 import { alpha } from './palette';

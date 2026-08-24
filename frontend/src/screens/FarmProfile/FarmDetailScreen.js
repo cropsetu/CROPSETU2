@@ -26,14 +26,14 @@ import GlowButton   from './ui/GlowButton';
 import StageTimelineBar from './ui/StageTimelineBar';
 import WhyThisButton    from './ui/WhyThisButton';
 import PhotoIcon from '../../components/PhotoIcon';
-import { CropIcon }  from '@cropsetu/shared/components/CropIcons';
+import { CropIcon }  from '@krushisarva/shared/components/CropIcons';
 import { RadialGauge } from '../../components/charts';
 import { SkeletonList, SkeletonStats } from '../../components/ui/Skeleton';
 import { useMultiFarm } from '../../context/MultiFarmContext';
-import { useLanguage }  from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage }  from '@krushisarva/shared/context/LanguageContext';
 import * as farmApi     from '../../services/farmApi';
 import { COSMIC, CR, CS, CT, GLOW } from './theme/cosmicTheme';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Screen

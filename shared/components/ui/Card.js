@@ -31,7 +31,7 @@
 import { View, TouchableOpacity } from 'react-native';
 import {
   KHET, KSPACE, KRADIUS, KELEV, KBORDER,
-} from '@cropsetu/shared/constants/khetTheme';
+} from '@krushisarva/shared/constants/khetTheme';
 import { alpha } from './palette';
 
 const SURFACES = {
@@ -61,7 +61,7 @@ const TINT_BORDER = 0.25;
  *   tint        an accent colour. Derives BOTH background and border from it and
  *               overrides `surface`. Replaces the `tint + '18'` idiom.
  *   radius      number, or a KRADIUS key. Default KRADIUS.r14 (the corpus mode).
- *   padding     number. Default KSPACE.s14 — the signature CropSetu card padding
+ *   padding     number. Default KSPACE.s14 — the signature KrushiSarva card padding
  *               (37% of card padding shorthands). Pass 0 for edge-to-edge media.
  *   border      true (default) | false | a raw colour string
  *   elevation   a KELEV key ('e1'..'e4','e3Up') or false. Default 'e3', which IS

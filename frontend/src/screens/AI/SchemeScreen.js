@@ -6,8 +6,8 @@ import {
 import PhotoIcon from '../../components/PhotoIcon';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 
 
 const SCHEMES = [

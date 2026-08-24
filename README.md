@@ -1,4 +1,4 @@
-# CropSetu
+# KrushiSarva
 
 AI-powered farming platform for Indian farmers. Crop disease scanning, FarmMind
 agronomic chat, mandi prices, weather advisories, animal trade, machinery and
@@ -21,7 +21,7 @@ CROPSETU2/
 ├── seller-app/   Expo 54 + React Native 0.81 + React 19
 │                 Seller mobile app. Products, orders, KYC, received crop
 │                 reports. Same backend and same OTP account as frontend/.
-├── shared/       Code imported by BOTH mobile apps as `@cropsetu/shared/*`
+├── shared/       Code imported by BOTH mobile apps as `@krushisarva/shared/*`
 │                 (API client, auth + language context, i18n, theme, utils).
 │                 Not an installed package — each app's metro.config.js maps
 │                 the specifier at this folder. See shared/README.md.

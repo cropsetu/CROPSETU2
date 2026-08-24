@@ -13,7 +13,7 @@ The landing/home screen of the Seller Portal. It gives a seller an at-a-glance v
   - "Add Product" quick action → `AddProduct`
   - "My Products" quick action → `SellerMyProducts`
   - "Orders" quick action → `SellerOrders`
-  - "Back to CropSetu" button → `navigation.goBack()` (exits the portal)
+  - "Back to KrushiSarva" button → `navigation.goBack()` (exits the portal)
 - **Route params in:** none
 
 ## How it works
@@ -41,7 +41,7 @@ On mount it plays entrance animations (header fade/slide, looping live-dot pulse
 | Order cards | Animated OrderCard list | Per-order: product name, buyer name/phone, status badge, qty, ₹ amount |
 | Status badge | Badge | Colored by order status (PENDING/CONFIRMED/SHIPPED/DELIVERED/CANCELLED) |
 | Empty orders state | View | Receipt icon + "no orders yet" copy when `recentOrders` is empty |
-| "Back to CropSetu" button | TouchableOpacity | Warning haptic + `navigation.goBack()` |
+| "Back to KrushiSarva" button | TouchableOpacity | Warning haptic + `navigation.goBack()` |
 | Pull-to-refresh | RefreshControl | Re-runs `load()` |
 | Loading spinner | ActivityIndicator | Full-screen while initial load runs |
 
@@ -55,11 +55,11 @@ On mount it plays entrance animations (header fade/slide, looping live-dot pulse
 - **Local / static data:** `STATUS_COLOR` map; `COLORS`, `SHADOWS`, `RADIUS` from constants; `Haptics`, `SoundEffects` utils; wrapped in `AnimatedScreen`
 
 ## Languages / i18n
-Heavy i18n via `useLanguage().t` under the `dash.*` namespace (e.g. `dash.goodMorning`, `dash.performance`, `dash.totalProducts`, `dash.recentOrders`, `dash.qty`) and `inbox.*` keys (`inbox.dashTitle`, `inbox.dashUnread`, `inbox.dashEmpty`) with inline default values. Numbers are formatted with `toLocaleString('en-IN')`. The "Back to CropSetu" label is a hardcoded English string (not translated).
+Heavy i18n via `useLanguage().t` under the `dash.*` namespace (e.g. `dash.goodMorning`, `dash.performance`, `dash.totalProducts`, `dash.recentOrders`, `dash.qty`) and `inbox.*` keys (`inbox.dashTitle`, `inbox.dashUnread`, `inbox.dashEmpty`) with inline default values. Numbers are formatted with `toLocaleString('en-IN')`. The "Back to KrushiSarva" label is a hardcoded English string (not translated).
 
 ## Notes, edge cases & gaps
 - Inbox unread call is wrapped in `.catch()` so the dashboard still renders if crop-reports is unavailable.
 - Other load errors are silently `console.warn`-ed — there is no visible error state, only the loading spinner then whatever data arrived.
 - `stats` fields are null-coalesced to 0, so missing stats render as zero counters.
-- "Back to CropSetu" uses `navigation.goBack()` (it does not call `logout`, despite the destructured `logout`).
+- "Back to KrushiSarva" uses `navigation.goBack()` (it does not call `logout`, despite the destructured `logout`).
 - No socket/realtime updates; data only refreshes on mount and pull-to-refresh.

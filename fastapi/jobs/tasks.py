@@ -112,7 +112,7 @@ def _materialise(images: list[dict]) -> tuple[list[dict], list[Path]]:
             continue
         mime = (img.get("mime_type") or "image/jpeg").lower()
         suffix = _MIME_TO_EXT.get(mime, ".jpg")
-        fd, path = tempfile.mkstemp(prefix="cropsetu_worker_", suffix=suffix)
+        fd, path = tempfile.mkstemp(prefix="krushisarva_worker_", suffix=suffix)
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(raw)

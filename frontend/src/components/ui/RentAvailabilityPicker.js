@@ -24,7 +24,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 
 const DAY_KEYS   = ['daySun', 'dayMon', 'dayTue', 'dayWed', 'dayThu', 'dayFri', 'daySat'];
 const MONTH_KEYS = ['monthJan', 'monthFeb', 'monthMar', 'monthApr', 'monthMay', 'monthJun', 'monthJul', 'monthAug', 'monthSep', 'monthOct', 'monthNov', 'monthDec'];

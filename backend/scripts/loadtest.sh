@@ -38,7 +38,7 @@ set -uo pipefail
 
 BASE="${BASE_URL:-http://localhost:3001/api/v1}"
 REQ="${REQUESTS:-2000}"
-OUT="${OUT_DIR:-/tmp/cropsetu-load}"
+OUT="${OUT_DIR:-/tmp/krushisarva-load}"
 mkdir -p "$OUT"
 
 # Read-only, unauthenticated endpoints. Authenticated ones would need a token per

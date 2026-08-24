@@ -4,9 +4,9 @@ import {
   SafeAreaView, FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SHADOWS } from '@cropsetu/shared/constants/colors';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS, SHADOWS } from '@krushisarva/shared/constants/colors';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { SkeletonList } from '../../components/ui/Skeleton';
 
 function CropCard({ crop, onPress, t }) {

@@ -36,9 +36,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Animated, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
-import DashboardStatIcon from '@cropsetu/shared/components/DashboardStatIcons';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@krushisarva/shared/services/api';
+import DashboardStatIcon from '@krushisarva/shared/components/DashboardStatIcons';
 
 import {
   C, SP, T, formatCurrency, orderStatusLabel, orderStatusMeta, useResponsive,

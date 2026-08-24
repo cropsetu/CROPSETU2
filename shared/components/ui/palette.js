@@ -21,7 +21,7 @@
 // stayed raw through the pilot migration. `alpha(c, '18')` migrates them
 // mechanically, at delta 0.
 // ─────────────────────────────────────────────────────────────────────────────
-import { KHET, withAlpha } from '@cropsetu/shared/constants/khetTheme';
+import { KHET, withAlpha } from '@krushisarva/shared/constants/khetTheme';
 
 const HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 

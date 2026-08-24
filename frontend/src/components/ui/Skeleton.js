@@ -42,9 +42,9 @@ import Animated, {
   interpolateColor,
   Easing,
 } from 'react-native-reanimated';
-import { COLORS } from '@cropsetu/shared/constants/colors';
-import { KBORDER, KELEV, KGUTTER, KRADIUS, KSPACE } from '@cropsetu/shared/constants/khetTheme';
-import { isReducedMotion } from '@cropsetu/shared/components/ui/motion';
+import { COLORS } from '@krushisarva/shared/constants/colors';
+import { KBORDER, KELEV, KGUTTER, KRADIUS, KSPACE } from '@krushisarva/shared/constants/khetTheme';
+import { isReducedMotion } from '@krushisarva/shared/components/ui/motion';
 
 const { width: W } = Dimensions.get('window');
 

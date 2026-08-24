@@ -44,7 +44,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { createContext, useContext, useMemo } from 'react';
 import { Text as RNText, StyleSheet } from 'react-native';
-import { KFONT, KFONT_ALT, KTYPE, noLead } from '@cropsetu/shared/constants/khetTheme';
+import { KFONT, KFONT_ALT, KTYPE, noLead } from '@krushisarva/shared/constants/khetTheme';
 import { resolveColor } from './palette';
 
 // ── Family stacks ────────────────────────────────────────────────────────────

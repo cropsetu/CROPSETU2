@@ -20,7 +20,7 @@
 import React, { useEffect, useRef } from 'react';
 import { ActivityIndicator, Animated, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { C, E, R, SP, T, alpha } from '../../theme';
 import { useReducedMotion } from '../../hooks/useMotion';
 import Button from './Button';

@@ -26,10 +26,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import CosmicScreen from './ui/CosmicScreen';
 import CosmicHeader from './ui/CosmicHeader';
 import GlassCard from './ui/GlassCard';
-import CropIcon from '@cropsetu/shared/components/CropIcons';
+import CropIcon from '@krushisarva/shared/components/CropIcons';
 import { SkeletonBlock, SkeletonGroup } from '../../components/ui/Skeleton';
 import * as farmApi from '../../services/farmApi';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { COSMIC, CR, CS, CT } from './theme/cosmicTheme';
 
 // ──────────────────────────────────────────────────────────────────────────────

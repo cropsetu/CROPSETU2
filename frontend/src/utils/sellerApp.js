@@ -13,7 +13,7 @@
  * or user input — an attacker must never be able to make us launch an arbitrary
  * handler. Every URL in this file is a module-level CONSTANT that no caller can
  * influence, so that control has nothing to protect here, and widening the shared
- * allowlist to admit `cropsetu-seller://` would weaken it for every other call
+ * allowlist to admit `krushisarva-seller://` would weaken it for every other call
  * site in the app. Narrow, local, and hardcoded beats a global exception.
  *
  * WHY IT DOESN'T USE `Linking.canOpenURL`
@@ -29,12 +29,12 @@
 import { Linking, Platform } from 'react-native';
 
 /**
- * `cropsetu-seller://dashboard` — the ONLY path the seller app's linking config
+ * `krushisarva-seller://dashboard` — the ONLY path the seller app's linking config
  * whitelists (see seller-app/src/navigation/linking.js). Sending anything else
  * lands the user on the dashboard anyway, because that app rejects unknown deep
  * links by design, so there is no point pretending we can target a subscreen.
  */
-const SELLER_APP_DEEP_LINK = 'cropsetu-seller://dashboard';
+const SELLER_APP_DEEP_LINK = 'krushisarva-seller://dashboard';
 
 const SELLER_ANDROID_PACKAGE = 'com.cropsetu.seller';
 

@@ -1,6 +1,6 @@
 /**
  * WeatherIcons.js — colourful, realistic, gently-ANIMATED pure-vector SVG weather
- * icons for the CropSetu Weather screens. Built for low-literacy Indian farmers:
+ * icons for the KrushiSarva Weather screens. Built for low-literacy Indian farmers:
  * big, saturated, instantly-recognisable real-world sky objects (golden sun,
  * fluffy clouds, blue rain drops, gold lightning bolt) — no Lottie, no images,
  * no network. Only react-native-svg + the RN Animated API (NOT reanimated).

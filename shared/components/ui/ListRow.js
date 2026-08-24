@@ -30,7 +30,7 @@ import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   KHET, KSPACE, KGUTTER, KICON, KBORDER,
-} from '@cropsetu/shared/constants/khetTheme';
+} from '@krushisarva/shared/constants/khetTheme';
 import Text from './Text';
 import { tintSurface } from './Card';
 

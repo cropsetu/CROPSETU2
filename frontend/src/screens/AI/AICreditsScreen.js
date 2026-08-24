@@ -4,7 +4,7 @@
  * Shows: balance left, used this month, and a Buy button.
  * Runs on a fixed monthly credit budget.
  */
-import { COLORS, TYPE, SHADOWS } from '@cropsetu/shared/constants/colors';
+import { COLORS, TYPE, SHADOWS } from '@krushisarva/shared/constants/colors';
 import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -12,9 +12,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { getAICredits } from '../../services/aiApi';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
 import { SkeletonBlock, SkeletonGroup } from '../../components/ui/Skeleton';
 
 // Fallback monthly allowance used only until the API returns the live value. The

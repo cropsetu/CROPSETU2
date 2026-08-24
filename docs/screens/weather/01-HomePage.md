@@ -3,7 +3,7 @@
 > **Tab:** AI Assistant · **Stack:** AIStack · **Route name:** `Weather` · **File:** `frontend/src/screens/Weather/WeatherHome.js`
 
 ## Purpose
-A hyperlocal, agriculture-focused weather dashboard ("CropSetu Field Monitor") that turns Open-Meteo + IMD data into farmer-actionable insight. It shows the current conditions, hourly and 7-day forecasts, soil temperature/moisture, evapotranspiration, atmospheric and crop-maturity metrics, plus generated farming advisories and severe-weather alerts. Farmers use it to plan irrigation, sowing, spraying and harvest around the weather. The same component is reused inside `AIWeatherHub` via the `embeddedInHub` prop, where its standalone header is hidden.
+A hyperlocal, agriculture-focused weather dashboard ("KrushiSarva Field Monitor") that turns Open-Meteo + IMD data into farmer-actionable insight. It shows the current conditions, hourly and 7-day forecasts, soil temperature/moisture, evapotranspiration, atmospheric and crop-maturity metrics, plus generated farming advisories and severe-weather alerts. Farmers use it to plan irrigation, sowing, spraying and harvest around the weather. The same component is reused inside `AIWeatherHub` via the `embeddedInHub` prop, where its standalone header is hidden.
 
 ## Where it sits / how you reach it
 - **Reached from:** The AI Assistant home (`AIAssistantHome.js`) via a weather card — `onPress={() => navigation.navigate('Weather')}`. Also rendered embedded inside `AIWeatherHub` (the "Weather" pill tab) where it receives `embeddedInHub` and hides its own header.

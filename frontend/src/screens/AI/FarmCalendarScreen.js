@@ -6,19 +6,19 @@
  *  - Calendars: list of active calendars, create new
  *  - Create   : form to generate a new ICAR-based crop calendar
  */
-import { COLORS } from '@cropsetu/shared/constants/colors';
+import { COLORS } from '@krushisarva/shared/constants/colors';
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, ActivityIndicator, StatusBar, FlatList, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import {
   getCropCalendars, getCalendarTodaysTasks, generateCropCalendar,
   updateCalendarTask, getCrops,
 } from '../../services/aiApi';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
 import ActivityIcon from '../../components/ActivityIcons';
 import { SkeletonList } from '../../components/ui/Skeleton';
 

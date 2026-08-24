@@ -1,11 +1,11 @@
-# Security Remediation — CROPSETU backend
+# Security Remediation — KRUSHISARVA backend
 
-You are fixing confirmed security defects in the CROPSETU monorepo. Every item below was verified by reading the code; file and line references are real. Fix them in the order given — the ordering is by blast radius, not by effort.
+You are fixing confirmed security defects in the KRUSHISARVA monorepo. Every item below was verified by reading the code; file and line references are real. Fix them in the order given — the ordering is by blast radius, not by effort.
 
 ## Stack
 
 Node 20 + Express 4 (ESM, `"type": "module"`) + Prisma 5 → PostgreSQL + Redis.
-Backend `backend/`, buyer app `frontend/` (Expo), seller app `seller-app/` (Expo), admin `admin/` (React+Vite+TS), shared workspace `@cropsetu/shared`.
+Backend `backend/`, buyer app `frontend/` (Expo), seller app `seller-app/` (Expo), admin `admin/` (React+Vite+TS), shared workspace `@krushisarva/shared`.
 Routes mount at `${ENV.API_PREFIX}/agristore` (default `/api/v1/agristore`).
 
 ## Rules
@@ -13,7 +13,7 @@ Routes mount at `${ENV.API_PREFIX}/agristore` (default `/api/v1/agristore`).
 - **Additive schema changes only.** Production applies schema with `prisma db push` (`package.json` → `start:prod`), not `migrate deploy`. A non-additive change hits the data-loss guard and applies *nothing* — this already caused `users.adminScopes` to go missing in prod and every login to 500 with P2022. Non-additive work goes in `backend/prisma/manual/*.sql` as hand-written drop-free SQL. **Never pass `--accept-data-loss`.**
 - **Use the existing helpers.** `sendSuccess` / `sendError` / `sendNotFound` / `sendServerError` / `paginationMeta` from `src/utils/response.js` (they run `serializeDecimals`, so bypassing them leaks money as strings). `D()` from `src/utils/money.js` for all money. `authenticate` / `optionalAuth` / `requireRole` from `src/middleware/auth.js`. `auditAction()` from `src/services/audit.service.js`.
 - **Add a regression test for every fix** in `backend/tests/backend/api/` or `backend/tests/backend/security/`, following `tests/fixtures/setup.js` (`getApp`, `createTestUser`, `authHeader`). Run with `node --experimental-vm-modules node_modules/jest/bin/jest.js --testTimeout=60000` — the default 5 s hook timeout kills every suite on cold app import.
-- Do not refactor beyond the fix. Do not touch `@cropsetu/shared` styling.
+- Do not refactor beyond the fix. Do not touch `@krushisarva/shared` styling.
 
 ---
 

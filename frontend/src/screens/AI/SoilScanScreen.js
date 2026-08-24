@@ -14,9 +14,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { ScanLine, Camera, ImageIcon, Sparkles, Sun, CheckCircle2, RotateCcw } from 'lucide-react-native';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { scanSoilCard } from '../../services/aiApi';
-import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
+import { compressImage } from '@krushisarva/shared/utils/mediaCompressor';
 import {
   BG, BG_GRADIENT, P_LIGHT, ACCENT, DANGER, TEXT, TEXT2, MUTED, SURFACE, BORDER,
   INTER_REG, INTER_SEMI, INTER_BOLD, INTER_EXTRA, CosmicHeader, soilHumanError,

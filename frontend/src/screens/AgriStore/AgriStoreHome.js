@@ -17,22 +17,22 @@ import Animated, {
   FadeIn, FadeInDown,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import { Haptics } from '@cropsetu/shared/utils/haptics';
-import { SPRINGS, AnimatedCard, enterAnimation } from '@cropsetu/shared/components/ui/motion';
+import { Haptics } from '@krushisarva/shared/utils/haptics';
+import { SPRINGS, AnimatedCard, enterAnimation } from '@krushisarva/shared/components/ui/motion';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useScrollHeader from '../../hooks/useScrollHeader';
-import api from '@cropsetu/shared/services/api';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import { COLORS, TYPE, RADIUS, SHADOWS } from '@cropsetu/shared/constants/colors';
-import { KHET, KFONT, KSHADOW } from '@cropsetu/shared/constants/khetTheme';
-import AnimatedScreen from '@cropsetu/shared/components/ui/AnimatedScreen';
+import api from '@krushisarva/shared/services/api';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import { COLORS, TYPE, RADIUS, SHADOWS } from '@krushisarva/shared/constants/colors';
+import { KHET, KFONT, KSHADOW } from '@krushisarva/shared/constants/khetTheme';
+import AnimatedScreen from '@krushisarva/shared/components/ui/AnimatedScreen';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 import PhotoIcon from '../../components/PhotoIcon';
 import MockImagePlaceholder from '../../components/MockImagePlaceholder';
 import { SkeletonGrid } from '../../components/ui/Skeleton';
-import { StoreCategoryIcon } from '@cropsetu/shared/components/StoreCategoryIcons';
+import { StoreCategoryIcon } from '@krushisarva/shared/components/StoreCategoryIcons';
 import {
   createRequestLane, fetchProducts as apiFetchProducts, fetchCategories as apiFetchCategories,
   readCache, writeCache, formatCacheAge, thumbUrl, inr, discountPct,

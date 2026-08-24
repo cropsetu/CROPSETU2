@@ -29,8 +29,8 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '@cropsetu/shared/constants/colors';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
+import { COLORS } from '@krushisarva/shared/constants/colors';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 
 /** Escape a value for safe interpolation into the checkout HTML. */
 function jsString(value) {

@@ -1,6 +1,6 @@
 # UI Redesign Workflow — Screen Docs → Lovable → Claude → Production Code
 
-A repeatable, **feature-by-feature** process to redesign the CropSetu / KhetAI app UI:
+A repeatable, **feature-by-feature** process to redesign the KrushiSarva / KhetAI app UI:
 
 1. Use the per-screen docs in this folder as the **spec**.
 2. Have **Lovable** generate a polished UI for one feature flow.
@@ -83,7 +83,7 @@ Then repeat Step 1 for the next feature.
 
 ```
 Build a polished, production-grade, MOBILE-FIRST UI for the "<FEATURE NAME>" flow of
-an Indian farmer super-app called KhetAI / CropSetu. This is a visual design reference
+an Indian farmer super-app called KhetAI / KrushiSarva. This is a visual design reference
 — do not build any backend; mocked/static data is fine.
 
 BRAND & STYLE (match exactly):

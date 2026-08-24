@@ -50,12 +50,12 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@cropsetu/shared/context/AuthContext';
-import { useLanguage } from '@cropsetu/shared/context/LanguageContext';
-import api, { safeErrorMessage } from '@cropsetu/shared/services/api';
-import { compressImage } from '@cropsetu/shared/utils/mediaCompressor';
-import { DISTRICT_LIST, getTalukas, SELLING_SCOPES } from '@cropsetu/shared/constants/locations';
-import { SUBCATEGORIES_MAP } from '@cropsetu/shared/constants/categories';
+import { useAuth } from '@krushisarva/shared/context/AuthContext';
+import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
+import api, { safeErrorMessage } from '@krushisarva/shared/services/api';
+import { compressImage } from '@krushisarva/shared/utils/mediaCompressor';
+import { DISTRICT_LIST, getTalukas, SELLING_SCOPES } from '@krushisarva/shared/constants/locations';
+import { SUBCATEGORIES_MAP } from '@krushisarva/shared/constants/categories';
 
 import { C, E, R, SP, T, alpha, useResponsive } from '../theme';
 import { useNetwork } from '../hooks/useNetwork';
@@ -671,7 +671,7 @@ export default function AddProductScreen({ route, navigation }) {
           ? t('products.updated', 'Listing updated')
           : isAttach
             ? t('products.offerAdded', 'Your offer is live')
-            : t('products.createdPendingQc', 'Sent for review — buyers will see it once CropSetu approves it'),
+            : t('products.createdPendingQc', 'Sent for review — buyers will see it once KrushiSarva approves it'),
       );
       navigation.goBack();
     } catch (e) {
@@ -848,7 +848,7 @@ export default function AddProductScreen({ route, navigation }) {
             <InlineNotice variant="info" icon="shield-checkmark" style={{ marginBottom: SP.lg }}>
               {t(
                 'products.qcNotice',
-                'New products are reviewed by CropSetu before buyers can see them. Your price and stock are saved now and go live on approval.',
+                'New products are reviewed by KrushiSarva before buyers can see them. Your price and stock are saved now and go live on approval.',
               )}
             </InlineNotice>
           ) : null}
