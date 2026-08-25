@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import linking from './linking';
 import TabIcon from '../components/TabIcons';
+import { TabBarScenery, TabActiveGlow } from '../components/TabBarScenery';
 import { navigationRef } from './navigationRef';
 import { useLanguage } from '@krushisarva/shared/context/LanguageContext';
 import { useAuth } from '@krushisarva/shared/context/AuthContext';
@@ -26,16 +27,20 @@ const scale  = (v) => Math.round(v * (W / 390));
 // Clamp between min and max
 const clamp  = (v, min, max) => Math.min(Math.max(v, min), max);
 
+const SIDE_GAP   = clamp(scale(10), 8, 14);
+const BAR_RADIUS = clamp(scale(28), 24, 34);
 const ICON_SIZE  = clamp(scale(38), 34, 44);
+// The bar clips to its rounded corners, so a glow wider than one cell gets cut
+// in half on the FIRST and LAST tabs. Cap it to the cell so every tab's halo is
+// a full circle, whichever one is focused.
+const CELL_W     = (W - SIDE_GAP * 2 - 2) / 6;
+const GLOW_SIZE  = clamp(scale(72), 50, Math.floor(CELL_W));
 // Floor is 9.5, not 11: at 360dp scale(12) resolves to exactly 11, so an 11
 // floor pins the label at its minimum and removes the only headroom the bar
 // has. The label box is 46dp at 360 and 'Krushi AI' needs ~50dp at 11/700, so
 // it tail-truncates in every locale. Paired with adjustsFontSizeToFit below,
 // the glyph shrinks to fit instead of losing characters.
 const LABEL_SIZE = clamp(scale(12), 9.5, 13);
-const BAR_H      = Platform.OS === 'ios'
-  ? clamp(scale(100), 92, 116)
-  : clamp(scale(84), 76, 98);
 const PB         = Platform.OS === 'ios' ? clamp(scale(22), 18, 30) : clamp(scale(8), 6, 12);
 const PT         = clamp(scale(12), 10, 16);
 
@@ -72,8 +77,10 @@ function TabItem({ route, options, focused, onPress }) {
       onPress={handlePress}
     >
       <Animated.View style={[TB.tabInner, { transform: [{ scale: sc }] }]}>
-        <Animated.View style={[TB.activePill, pillStyle]} />
-        <View>
+        <View style={TB.iconWrap}>
+          <Animated.View style={[TB.glow, pillStyle]} pointerEvents="none">
+            <TabActiveGlow size={GLOW_SIZE} />
+          </Animated.View>
           <TabIcon name={route.name} size={ICON_SIZE} focused={focused} />
           {badgeCount > 0 && (
             <View style={TB.badge}>
@@ -119,35 +126,54 @@ function ImmersiveTabBar({ state, descriptors, navigation }) {
   const bottomPad = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : PB);
 
   return (
-    <View style={[TB.bar, { paddingBottom: bottomPad, paddingTop: PT }]}>
-      {state.routes.map((route, index) => {
-        const { options } = descriptors[route.key];
-        const focused = state.index === index;
-        return (
-          <TabItem
-            key={route.key}
-            route={route}
-            options={options}
-            focused={focused}
-            onPress={() => onPress(route, focused)}
-          />
-        );
-      })}
+    <View style={[TB.wrap, { paddingBottom: bottomPad }]}>
+      <View style={TB.shadow}>
+        <View style={[TB.bar, { paddingTop: PT, paddingBottom: PT - 2 }]}>
+          <TabBarScenery />
+          {state.routes.map((route, index) => {
+            const { options } = descriptors[route.key];
+            const focused = state.index === index;
+            return (
+              <TabItem
+                key={route.key}
+                route={route}
+                options={options}
+                focused={focused}
+                onPress={() => onPress(route, focused)}
+              />
+            );
+          })}
+        </View>
+      </View>
     </View>
   );
 }
 
 const TB = StyleSheet.create({
+  // The bar now floats, so it is three nested views: wrap owns the safe-area
+  // inset, shadow owns the elevation (Android drops shadows on any view with
+  // overflow:'hidden'), and bar owns the clip that keeps the scenery inside
+  // the rounded corners.
+  wrap: {
+    paddingHorizontal: SIDE_GAP,
+    backgroundColor: 'transparent',
+  },
+  shadow: {
+    borderRadius: BAR_RADIUS,
+    backgroundColor: '#fff',
+    shadowColor: COLORS.primary,
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
   bar: {
     flexDirection: 'row',
+    borderRadius: BAR_RADIUS,
+    overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.98)',
-    borderTopWidth: 1,
-    borderTopColor: COLORS.greenPaleBorder,
-    shadowColor: COLORS.primary,
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 10,
+    borderWidth: 1,
+    borderColor: COLORS.greenPaleBorder,
   },
   tab: {
     flex: 1,
@@ -162,11 +188,16 @@ const TB = StyleSheet.create({
     paddingHorizontal: clamp(scale(8), 5, 12),
     paddingVertical: clamp(scale(6), 4, 9),
   },
-  activePill: {
+  iconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glow: {
     position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: ACTIVE_COLOR + '14',
-    borderRadius: 20,
+    width: GLOW_SIZE,
+    height: GLOW_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   label: {
     fontWeight: TYPE.weight.bold,
