@@ -40,6 +40,26 @@ import {
 } from './shopClient';
 
 const { width: W, height: H } = Dimensions.get('window');
+
+/**
+ * Sort chips for the All Products grid.
+ *
+ * Every key here is one the server implements (agristore.routes.js `SORTS` +
+ * `OFFER_SORTS`). Deliberately NO "bestselling"/"popular" chip: that route's own
+ * comment records that there is no sales counter, and `popularity` was removed
+ * because it ordered by a viewCount column nothing writes. Offering the chip
+ * would be a fabricated claim about what other farmers bought.
+ *
+ * The `sort` state, the fetch param and the cache key already existed and were
+ * threaded end-to-end — only the control was missing, so this adds no new
+ * request shape.
+ */
+const SORT_OPTIONS = [
+  { key: 'relevance',  labelKey: 'store.sortTopRated',  fallback: 'Top rated',       icon: 'star' },
+  { key: 'latest',     labelKey: 'store.sortLatest',    fallback: 'Newest',          icon: 'sparkles' },
+  { key: 'price_asc',  labelKey: 'store.sortPriceAsc',  fallback: 'Price: Low–High', icon: 'arrow-up' },
+  { key: 'price_desc', labelKey: 'store.sortPriceDesc', fallback: 'Price: High–Low', icon: 'arrow-down' },
+];
 const GREEN    = COLORS.primary;
 const GREEN_L  = COLORS.primaryPale;
 const ORANGE   = COLORS.cta;
@@ -195,8 +215,6 @@ function CategoryPills({ categories, selected, onSelect, language, t }) {
           const label = (langKey && cat[langKey]) || cat.name || cat.nameHi;
           const active  = selected === cat.id;
           const color    = cat.color || GREEN;
-          // Short label — trim to keep pill width sane
-          const shortLabel = label.length > 13 ? label.slice(0, 12) + '…' : label;
 
           return (
             <TouchableOpacity
@@ -211,7 +229,7 @@ function CategoryPills({ categories, selected, onSelect, language, t }) {
                   fallback={<StoreCategoryIcon type={cat.icon || cat.name} size={24} animated={false} />}
                 />
               </View>
-              <Text style={[S.pillTxt, active && S.pillTxtActive]} numberOfLines={1}>{shortLabel}</Text>
+              <Text style={[S.pillTxt, active && S.pillTxtActive]} numberOfLines={2}>{label}</Text>
             </TouchableOpacity>
           );
         })}
@@ -696,11 +714,11 @@ export default function AgriStoreHome({ navigation }) {
             </View>
             <View style={S.headerRight}>
               <TouchableOpacity style={S.langBtn} onPress={openLangPicker} activeOpacity={0.8}>
-                <Ionicons name="globe-outline" size={14} color={GREEN} />
+                <Ionicons name="globe-outline" size={16} color={GREEN} />
                 <Text style={S.langBtnTxt}>{language.toUpperCase()}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={S.cartBtn} onPress={() => navigation.navigate('Cart')} activeOpacity={0.8}>
-                <Ionicons name="cart-outline" size={22} color={COLORS.charcoal} />
+                <Ionicons name="cart-outline" size={26} color={COLORS.charcoal} />
                 {cartCount > 0 && <View style={S.cartBadge}><Text style={S.cartBadgeTxt}>{cartCount}</Text></View>}
               </TouchableOpacity>
             </View>
@@ -846,6 +864,36 @@ export default function AgriStoreHome({ navigation }) {
                 {t('store.itemCount', { count: totalCount ?? products.length })}
               </Text>
             </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={S.sortRow}
+              keyboardShouldPersistTaps="handled"
+            >
+              {SORT_OPTIONS.map((opt) => {
+                const active = sort === opt.key;
+                return (
+                  <TouchableOpacity
+                    key={opt.key}
+                    style={[S.sortChip, active && S.sortChipActive]}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => { if (!active) { Haptics.selection(); setSort(opt.key); } }}
+                  >
+                    <Ionicons
+                      name={opt.icon}
+                      size={13}
+                      color={active ? COLORS.white : GREEN}
+                    />
+                    <Text style={[S.sortChipTxt, active && S.sortChipTxtActive]} numberOfLines={1}>
+                      {t(opt.labelKey, opt.fallback)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
 
             {loading && !products.length ? (
               // 2 rows × 2 columns = the same four placeholder cards this grid has
@@ -998,7 +1046,7 @@ const S = StyleSheet.create({
   headerTop:   { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   // Left zone groups the hamburger + wordmark together so the logo sits right
   // next to the menu; the right zone (headerRight) holds the actions, flex-end.
-  headerSide:  { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerSide:  { flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   hamburger:   { padding: 4, gap: 4, justifyContent: 'center' },
   hamLine:     { width: 22, height: 2.5, borderRadius: 2, backgroundColor: COLORS.textDark },
   // KrushiSarva header lockup (mark + Fraunces wordmark), transparent PNG. The
@@ -1006,13 +1054,32 @@ const S = StyleSheet.create({
   // Explicit
   // width+height (source aspect ~2.46:1) — an Image with only height+aspectRatio
   // balloons to full width inside this flex/animated header, so both are pinned.
-  brandLogo:   { width: 128, height: 44 },
+  brandLogo:   { width: 180, height: 44 },
+
+  // Sort chips — same pill language as the category row above them.
+  sortRow:   { paddingHorizontal: 18, paddingBottom: 12, gap: 8 },
+  sortChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 18, borderWidth: 1,
+    borderColor: GREEN + '33', backgroundColor: CARD,
+  },
+  sortChipActive: { backgroundColor: GREEN, borderColor: GREEN },
+  sortChipTxt:    { fontSize: 12, fontWeight: TYPE.weight.bold, color: GREEN },
+  sortChipTxtActive: { color: COLORS.white },
   headerRight: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
-  langBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: GREEN_L, borderWidth: 1, borderColor: GREEN + '30' },
-  langBtnTxt:  { color: GREEN, fontSize: 11, fontWeight: '700' },
-  cartBtn:     { position: 'relative', padding: 4 },
-  cartBadge:   { position: 'absolute', top: -2, right: -2, backgroundColor: COLORS.error, borderRadius: 9, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: COLORS.white },
-  cartBadgeTxt:{ color: COLORS.white, fontSize: 9, fontWeight: '900' },
+  // Both controls are sized against the 180x44 brand lockup opposite them: at the
+  // old 29dp pill / 20dp cart-ink the right side read as an afterthought. They
+  // also now clear the 40dp minimum touch target they previously missed.
+  langBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, height: 36, borderRadius: 18,
+    backgroundColor: GREEN_L, borderWidth: 1, borderColor: GREEN + '30',
+  },
+  langBtnTxt:  { color: GREEN, fontSize: 12.5, fontWeight: '700' },
+  cartBtn:     { position: 'relative', width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  cartBadge:   { position: 'absolute', top: 2, right: 0, backgroundColor: COLORS.error, borderRadius: 9, minWidth: 17, height: 17, paddingHorizontal: 3, justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: COLORS.white },
+  cartBadgeTxt:{ color: COLORS.white, fontSize: 9.5, fontWeight: '900' },
 
   // ── Search ──
   searchBar:   { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: KHET.card, borderRadius: 16, paddingHorizontal: 16, height: 52, borderWidth: 1, borderColor: KHET.border, ...KSHADOW.soft },
@@ -1032,7 +1099,7 @@ const S = StyleSheet.create({
   },
   pillActive:    { backgroundColor: KHET.primary, borderColor: KHET.primary },
   pillIcon:      { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  pillTxt:       { fontSize: 12, fontFamily: KFONT.sansMed, color: KHET.secondaryForeground, flexShrink: 1 },
+  pillTxt:       { fontSize: 12, fontFamily: KFONT.sansMed, color: KHET.secondaryForeground, flexShrink: 1, maxWidth: 108, lineHeight: 15 },
   pillTxtActive: { color: KHET.primaryForeground, fontFamily: KFONT.sansSemi },
 
   // ── Sections ──

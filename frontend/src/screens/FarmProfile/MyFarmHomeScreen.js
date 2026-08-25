@@ -249,6 +249,9 @@ export default function MyFarmHomeScreen({ navigation }) {
         <SkeletonList rows={2} thumb="square" thumbSize={44} label={t('loading')} style={styles.cyclesList} />
       ) : cycles.length === 0 ? (
         <GlassCard style={styles.section}>
+          <View style={styles.emptyCycleArt}>
+            <PhotoIcon set="scenes" name="stage-sowing" size={104} radius={14} fallback={null} />
+          </View>
           <Text style={styles.emptyText}>
             {t('myFarm.noCyclesYet', 'No crop cycles yet. Start one to unlock stage tracking, budget monitoring, and AI advisories.')}
           </Text>
@@ -461,9 +464,17 @@ function InsightCard({ insight, navigation }) {
 function EmptyFeed({ onStart, t }) {
   return (
     <View style={styles.emptyFeed}>
-      <View style={[styles.mediumBubble, { backgroundColor: COSMIC.PRIMARY_SOFT }]}>
-        <Ionicons name="sparkles" size={18} color={COSMIC.PRIMARY} />
-      </View>
+      {/* assets/state/empty.webp already shipped in the bundle but was rendered
+          on exactly one screen. An empty diary is the moment a picture explains
+          the feature faster than the 44dp sparkle bubble that used to sit here. */}
+      <PhotoIcon
+        set="state" name="empty" size={124} radius={0}
+        fallback={
+          <View style={[styles.mediumBubble, { backgroundColor: COSMIC.PRIMARY_SOFT }]}>
+            <Ionicons name="sparkles" size={18} color={COSMIC.PRIMARY} />
+          </View>
+        }
+      />
       <Text style={styles.emptyHeading}>{t('myFarm.diaryStartsHere', 'Your farm diary starts here')}</Text>
       <Text style={styles.emptyText}>
         {t('myFarm.diaryHint', "Log each day's work. The more you log, the smarter Krushi Intelligence gets.")}
@@ -878,6 +889,7 @@ const styles = StyleSheet.create({
   },
 
   // Empty feed
+  emptyCycleArt: { alignItems: 'center', marginBottom: 12 },
   emptyFeed: {
     paddingVertical: 20,
     paddingHorizontal: 20,
