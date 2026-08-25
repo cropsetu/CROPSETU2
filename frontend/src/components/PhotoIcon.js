@@ -143,12 +143,15 @@ const SETS = {
     success: require('../../assets/state/success.webp'),
   },
   svc: {
+    chat: require('../../assets/svc/chat.webp'),
     farms: require('../../assets/svc/farms.webp'),
     markets: require('../../assets/svc/markets.webp'),
     scan: require('../../assets/svc/scan.webp'),
     soil: require('../../assets/svc/soil.webp'),
     soilscan: require('../../assets/svc/soilscan.webp'),
+    statecrops: require('../../assets/svc/statecrops.webp'),
     voice: require('../../assets/svc/voice.webp'),
+    weather: require('../../assets/svc/weather.webp'),
   },
   symptoms: {
     brown_spots: require('../../assets/symptoms/brown_spots.webp'),

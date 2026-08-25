@@ -15,7 +15,7 @@
 import { useRef, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Dimensions, Animated, StatusBar,
+  Dimensions, Animated, StatusBar, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -30,6 +30,7 @@ import WeatherIcon from '../../components/WeatherIcons';
 import SoilIcon from '../../components/SoilIcons';
 import TabIcon from '../../components/TabIcons';
 import AIServiceIcon from '../../components/AIServiceIcons';
+import PhotoIcon from '../../components/PhotoIcon';
 
 const { width: W } = Dimensions.get('window');
 const GREEN   = COLORS.primary;
@@ -39,15 +40,18 @@ const GREEN_L = COLORS.primaryPale;
 const PAGE_PAD   = 20;   // horizontal screen padding (replaces magic 40 = 2*20)
 const GUTTER     = 12;   // single inter-tile gap for BOTH grids (was 24 vs 12)
 const TILE_R     = 20;   // shared corner radius
-const ICON_BOX   = 52;   // shared icon-box size
-const ICON_GLYPH = 24;   // shared icon glyph size
+const ICON_BOX   = 60;   // shared icon-box size
+// Photographic tiles fill the box. Below 48 dp a render turns to mud where the
+// SVG kit still reads — IMAGE_PROCESS.md §2 — so this must stay >= 48.
+const PHOTO_GLYPH = 52;
+const ICON_GLYPH = 28;   // shared icon glyph size (scales with ICON_BOX)
 // width = (W - 2*PAGE_PAD - (cols-1)*GUTTER) / cols
 const tileWidth  = (cols) => (W - 2 * PAGE_PAD - (cols - 1) * GUTTER) / cols;
 const PRESS_SPRING = { toValue: 0.94, useNativeDriver: true, speed: 40 };
 const RELEASE_SPRING = { toValue: 1, useNativeDriver: true, friction: 4 };
 
 // Glyph size for the realistic SVG icons that sit inside the shared tile bubble.
-const SVG_GLYPH = 32;
+const SVG_GLYPH = 37;
 
 // ── Quick services (4-col icon grid) — labels resolved via t() in render ─────
 // Tiles with `renderIcon` draw a realistic colourful SVG. Krushi Vaani + My Farms
@@ -57,21 +61,21 @@ const SVG_GLYPH = 32;
 // Brand labels point at the canonical aiBrand.* keys so they read
 // "Krushi Drishti / Vaani / Gyaan" in every locale.
 const QUICK_SERVICES = [
-  { id: 'scan',    labelKey: 'aiBrand.drishti', icon: 'scan',                color: COLORS.primary, bg: COLORS.greenTint, border: COLORS.primary + '55', screen: 'CropScan' },
-  { id: 'chat',    labelKey: 'aiBrand.gyaan',   icon: 'chatbubble-ellipses', color: COLORS.blue,    bg: COLORS.blueMist,  border: COLORS.blue + '55',    screen: 'AIChat'   },
-  { id: 'markets', labelKey: 'aiHome.tools.mandi.label', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
-  { id: 'weather', labelKey: 'aiHome.quickServices.weather', color: COLORS.sellerConfirmed, bg: COLORS.skyPale, screen: 'Weather', renderIcon: () => <WeatherIcon condition="partly-sunny" size={SVG_GLYPH} animated={false} /> },
+  { id: 'scan',    labelKey: 'aiBrand.drishti', icon: 'scan',                color: COLORS.primary, bg: COLORS.greenTint, border: COLORS.primary + '55', screen: 'CropScan', photo: 'scan' },
+  { id: 'chat',    labelKey: 'aiBrand.gyaan',   icon: 'chatbubble-ellipses', color: COLORS.blue,    bg: COLORS.blueMist,  border: COLORS.blue + '55',    screen: 'AIChat', photo: 'chat' },
+  { id: 'markets', labelKey: 'aiHome.tools.mandi.label', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', photo: 'markets', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
+  { id: 'weather', labelKey: 'aiHome.quickServices.weather', color: COLORS.sellerConfirmed, bg: COLORS.skyPale, screen: 'Weather', photo: 'weather', renderIcon: () => <WeatherIcon condition="partly-sunny" size={SVG_GLYPH} animated={false} /> },
 ];
 
 // ── AI Tools (2-col grid) ────────────────────────────────────────────────────
 const AI_TOOLS = [
-  { id: 'disease', labelKey: 'aiBrand.drishti', descKey: 'aiHome.tools.disease.desc', icon: 'scan', color: GREEN, bg: COLORS.greenTint, border: GREEN + '55', screen: 'CropScan', badge: 'AI' },
-  { id: 'chatSupport', labelKey: 'aiBrand.gyaan', descKey: 'aiHome.tools.chatSupport.desc', icon: 'chatbubbles', color: COLORS.blue, bg: COLORS.blueMist, border: COLORS.blue + '55', screen: 'AIChat', badge: 'LIVE' },
-  { id: 'voiceChat', labelKey: 'aiBrand.vaani', descKey: 'aiHome.tools.voiceChat.desc', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'VoiceChat', badge: 'NEW', renderIcon: () => <AIServiceIcon name="vaani" size={SVG_GLYPH} animated={false} /> },
-  { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmList', renderIcon: () => <AIServiceIcon name="farms" size={SVG_GLYPH} animated={false} /> },
-  { id: 'soil', labelKey: 'aiHome.tools.soil.label', descKey: 'aiHome.tools.soil.desc', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'SoilHealth', renderIcon: () => <SoilIcon type="black" size={SVG_GLYPH} /> },
-  { id: 'mandi', labelKey: 'aiHome.tools.mandi.label', descKey: 'aiHome.tools.mandi.desc', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
-  { id: 'stateCrops', labelKey: 'aiHome.tools.stateCrops.label', descKey: 'aiHome.tools.stateCrops.desc', icon: 'map', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'StateCrops' },
+  { id: 'disease', labelKey: 'aiBrand.drishti', descKey: 'aiHome.tools.disease.desc', icon: 'scan', color: GREEN, bg: COLORS.greenTint, border: GREEN + '55', screen: 'CropScan', badge: 'AI', photo: 'scan' },
+  { id: 'chatSupport', labelKey: 'aiBrand.gyaan', descKey: 'aiHome.tools.chatSupport.desc', icon: 'chatbubbles', color: COLORS.blue, bg: COLORS.blueMist, border: COLORS.blue + '55', screen: 'AIChat', badge: 'LIVE', photo: 'chat' },
+  { id: 'voiceChat', labelKey: 'aiBrand.vaani', descKey: 'aiHome.tools.voiceChat.desc', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'VoiceChat', badge: 'NEW', photo: 'voice', renderIcon: () => <AIServiceIcon name="vaani" size={SVG_GLYPH} animated={false} /> },
+  { id: 'farms', labelKey: 'aiHome.tools.farms.label', descKey: 'aiHome.tools.farms.desc', color: COLORS.primary, bg: COLORS.greenTint, screen: 'FarmList', photo: 'farms', renderIcon: () => <AIServiceIcon name="farms" size={SVG_GLYPH} animated={false} /> },
+  { id: 'soil', labelKey: 'aiHome.tools.soil.label', descKey: 'aiHome.tools.soil.desc', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'SoilHealth', photo: 'soil', renderIcon: () => <SoilIcon type="black" size={SVG_GLYPH} /> },
+  { id: 'mandi', labelKey: 'aiHome.tools.mandi.label', descKey: 'aiHome.tools.mandi.desc', color: COLORS.rustOrange, bg: COLORS.creamOrange, screen: 'Market', photo: 'markets', renderIcon: () => <TabIcon name="shop" size={SVG_GLYPH} focused /> },
+  { id: 'stateCrops', labelKey: 'aiHome.tools.stateCrops.label', descKey: 'aiHome.tools.stateCrops.desc', icon: 'map', color: COLORS.brownAlt, bg: COLORS.brownPale, screen: 'StateCrops', photo: 'statecrops' },
 ];
 
 // ── ServiceTile — ONE tile for both rows (variant: 'quick' | 'card') ─────────
@@ -113,9 +117,35 @@ function ServiceTile({ item, index, variant, onPress, t }) {
           </View>
         )}
 
-        {/* Icon — colourful gradient logo badge (gradient tiles), realistic SVG
-            (renderIcon), else the flat coloured Ionicon. */}
-        {item.gradient ? (
+        {/* Icon — four tiers, in order:
+              1. item.photo   → the generated svc render (IMAGE_PROCESS.md lane R).
+                                On the QUICK row it sits in the tinted box like the
+                                other tiles; on a CARD it floats free, because the
+                                render already carries its own ground and a tinted
+                                plate behind it reads as a box-inside-a-box.
+                                Falls back to the tile's own SVG/Ionicon, never blank.
+              2. item.gradient → colourful gradient logo badge
+              3. item.renderIcon → realistic SVG
+              4. flat coloured Ionicon */}
+        {item.photo ? (
+          <View style={[
+            S.tileIcon,
+            isCard && S.tileIconCard,
+            isCard
+              ? S.tilePhotoBare
+              : { backgroundColor: item.bg, borderColor: item.border || (item.color + '33'), borderWidth: item.border ? 1.5 : 1 },
+          ]}>
+            <PhotoIcon
+              set="svc"
+              name={item.photo}
+              size={PHOTO_GLYPH}
+              radius={0}
+              fallback={item.renderIcon
+                ? item.renderIcon()
+                : <Ionicons name={isCard ? item.icon + '-outline' : item.icon} size={ICON_GLYPH} color={item.color} />}
+            />
+          </View>
+        ) : item.gradient ? (
           <LinearGradient
             colors={item.gradient}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
@@ -149,7 +179,19 @@ function ServiceTile({ item, index, variant, onPress, t }) {
         {/* Text */}
         <Text style={isCard ? S.tileTitle : S.tileLabel}>{t(item.labelKey)}</Text>
         {isCard && item.descKey && (
-          <Text style={S.tileDesc}>{t(item.descKey)}</Text>
+          <View style={S.tileFootRow}>
+            <Text style={[S.tileDesc, S.tileDescFlex]}>{t(item.descKey)}</Text>
+            {/* Decorative affordance only — the whole card is the touch target,
+                so this must not become a second focusable node. */}
+            <View
+              style={[S.tileGo, { backgroundColor: item.bg }]}
+              accessible={false}
+              importantForAccessibility="no-hide-descendants"
+              pointerEvents="none"
+            >
+              <Ionicons name="arrow-forward" size={15} color={item.color} />
+            </View>
+          </View>
         )}
 
       </TouchableOpacity>
@@ -201,17 +243,13 @@ export default function AIAssistantHome({ navigation, embeddedInHub }) {
           embeddedInHub && { paddingTop: 12 },
           { opacity: headerAnim, transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] }) }] },
         ]}>
-          <LinearGradient
-            colors={['#22C55E', '#F5B841']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-            style={S.brandIconWrap}
-          >
-            <Ionicons name="sparkles" size={22} color="#fff" />
-          </LinearGradient>
-          <View style={{ flex: 1 }}>
-            <Text style={S.headerTitle}>{t('aiHome.title')}</Text>
-            <Text style={S.headerSub}>{t('aiHome.subtitle')}</Text>
-          </View>
+          <Image
+            source={require('../../../assets/krushi-ai-header.png')}
+            style={S.brandLockup}
+            resizeMode="contain"
+            accessibilityRole="header"
+            accessibilityLabel={t('aiHome.title')}
+          />
         </Animated.View>
 
         {/* ── Ask input ──────────────────────────────────────────────────── */}
@@ -401,17 +439,10 @@ const S = StyleSheet.create({
 
   // Header
   headerRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 13,
+    flexDirection: 'row', alignItems: 'center',
     paddingTop: 58, paddingHorizontal: 20, paddingBottom: 18,
   },
-  brandIconWrap: {
-    width: 46, height: 46, borderRadius: 16,
-    justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#22C55E', shadowOpacity: 0.4, shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 }, elevation: 7,
-  },
-  headerTitle: { fontSize: 23, fontWeight: TYPE.weight.black, color: COLORS.textDark, letterSpacing: -0.4 },
-  headerSub:   { fontSize: 12, color: COLORS.textMedium, marginTop: 3, lineHeight: 17 },
+  brandLockup: { width: 234, height: 64 },
 
   // Ask input
   askBtn: {
@@ -485,6 +516,8 @@ const S = StyleSheet.create({
   },
   // Card-only: spacing below icon (quick row uses column `gap` instead)
   tileIconCard: { marginBottom: 10 },
+  // Card photos float on the card surface — no tint, no outline (see ServiceTile).
+  tilePhotoBare: { backgroundColor: 'transparent', borderWidth: 0 },
   // Colourful gradient logo badge — no border, soft coloured glow for a modern,
   // "futuristic" look (shadowColor is set per-tile from its gradient).
   tileIconGradient: {
@@ -497,6 +530,12 @@ const S = StyleSheet.create({
   // Card text
   tileTitle: { fontSize: 13.5, fontWeight: TYPE.weight.black, color: COLORS.textDark, marginBottom: 5, lineHeight: 18 },
   tileDesc:  { fontSize: 11.5, color: COLORS.textMedium, lineHeight: 16 },
+  tileDescFlex: { flex: 1 },
+  tileFootRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  tileGo: {
+    width: 30, height: 30, borderRadius: 15,
+    alignItems: 'center', justifyContent: 'center',
+  },
 
   // History row — separate per-service entry points
   historyRow: {
