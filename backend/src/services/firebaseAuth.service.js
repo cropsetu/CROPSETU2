@@ -47,6 +47,20 @@ async function getFirebaseAuth() {
 
   if (!ENV.FIREBASE_PROJECT_ID || !ENV.FIREBASE_CLIENT_EMAIL || !ENV.FIREBASE_PRIVATE_KEY) {
     initError = new Error('Firebase auth is not configured on this server');
+    initError.serverFault = true;
+    throw initError;
+  }
+
+  // firebase-admin honours FIREBASE_AUTH_EMULATOR_HOST by switching verifyIdToken
+  // to the emulator verifier, which accepts alg:'none' — i.e. ANY unsigned JWT
+  // naming any phone number. aud/iss are still checked but both are public
+  // strings, so one stray env var turns this into a total auth bypass. Refuse to
+  // start outside dev, mirroring how config/env.js hard-forces the OTP dev bypass
+  // off in production.
+  if (!ENV.IS_DEV && process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+    initError = new Error('FIREBASE_AUTH_EMULATOR_HOST is set outside development — refusing to verify tokens');
+    initError.serverFault = true;
+    logger.error('[FirebaseAuth] %s', initError.message);
     throw initError;
   }
 
@@ -57,10 +71,16 @@ async function getFirebaseAuth() {
     const { initializeApp, cert, getApps } = await import('firebase-admin/app');
     const { getAuth } = await import('firebase-admin/auth');
 
-    // getApps() guards against double-init under hot reload / multiple imports.
-    const app = getApps().length
-      ? getApps()[0]
-      : initializeApp({
+    // Use a NAMED app, not getApps()[0]. The project id is the only thing binding
+    // an incoming token to us — verifyIdToken requires payload.aud === projectId —
+    // so grabbing whatever app happens to be first would silently verify tokens
+    // against someone else's project if anything else in the process ever
+    // initialises firebase-admin. Looking the app up by our own name keeps this
+    // double-init-safe without that risk.
+    const APP_NAME = 'krushisarva-auth';
+    const existing = getApps().find((a) => a.name === APP_NAME);
+    const app = existing
+      || initializeApp({
           credential: cert({
             projectId:   ENV.FIREBASE_PROJECT_ID,
             clientEmail: ENV.FIREBASE_CLIENT_EMAIL,
@@ -69,18 +89,22 @@ async function getFirebaseAuth() {
             privateKey:  ENV.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
           }),
           projectId: ENV.FIREBASE_PROJECT_ID,
-        });
+        }, APP_NAME);
 
     adminApp = getAuth(app);
     logger.info('[FirebaseAuth] initialised for project %s', ENV.FIREBASE_PROJECT_ID);
     return adminApp;
   } catch (err) {
-    // Cache the failure. A bad service account will not fix itself on retry, and
-    // re-attempting init on every login request would add latency to a guaranteed
-    // failure. A restart clears it.
-    initError = new Error(`Firebase auth init failed: ${err.message}`);
+    // DO NOT cache this one. A malformed service account will not fix itself, but
+    // the same catch also sees transient faults — a DNS blip or a slow network
+    // while the SDK fetches Google's public keys. Caching those wedged the whole
+    // login path until someone restarted the process, turning a two-second outage
+    // into an indefinite one. The permanent misconfigurations (missing creds,
+    // emulator host) are already cached above, where they are provably permanent.
+    const wrapped = new Error(`Firebase auth init failed: ${err.message}`);
+    wrapped.serverFault = true;
     logger.error({ err }, '[FirebaseAuth] init failed');
-    throw initError;
+    throw wrapped;
   }
 }
 
@@ -101,22 +125,47 @@ export async function verifyFirebaseIdToken(idToken) {
   // rather than being honoured until natural expiry.
   const decoded = await auth.verifyIdToken(idToken, true);
 
-  // Firebase issues ID tokens for every sign-in provider it supports. Only the
-  // phone provider proves control of a phone number — an anonymous or email
-  // token carries no phone_number, and we must never fall back to any other
-  // claim to guess one.
-  const raw = decoded.phone_number;
-  if (!raw) {
-    throw new Error('Firebase token carries no phone number (wrong sign-in provider)');
+  // phone_number is an attribute of the Firebase USER RECORD, not of the sign-in
+  // event — it is stamped into every ID token minted for that user, whatever
+  // provider produced it. So its presence does NOT prove SMS possession. Assert
+  // the provider explicitly, or the security of this login becomes the security
+  // of every provider ever enabled in the Firebase project. 'custom' is rejected
+  // by the same check: a custom token is minted by whoever holds a service
+  // account, which is not possession of the handset.
+  const provider = decoded.firebase && decoded.firebase.sign_in_provider;
+  if (provider !== 'phone') {
+    throw new Error(`Firebase token was not issued by the phone provider (got: ${provider || 'unknown'})`);
   }
 
-  // Firebase returns E.164 ("+919876543210"). Run it through OUR validator rather
-  // than trusting the format: this rejects non-Indian numbers (the MSG91 path
-  // rejects them too, and the User.phone column stores 10 digits) and produces
-  // the exact canonical form the rest of the app expects.
+  const raw = decoded.phone_number;
+  if (!raw) {
+    throw new Error('Firebase token carries no phone number');
+  }
+
+  // GATE ON +91 BEFORE NORMALIZING — do not remove.
+  //
+  // normalizeIndianMobile() was written for numbers WE chose (the MSG91 path only
+  // ever hands it an Indian number it is about to SMS as `91${phone}`). This is the
+  // first caller that feeds it an E.164 string the CALLER controls, and it is not
+  // safe for that: its foreign-number guard is `if (parsed.country && parsed.country
+  // !== 'IN')`, which is skipped entirely when libphonenumber returns no country —
+  // exactly what happens for non-geographic ranges. Verified: '+8816123456789'
+  // (satellite) normalizes to '6123456789', a perfectly valid Indian mobile. An
+  // attacker holding such a number could take over the account owning those digits.
+  // A digit-stripping fallback inside phone.js widens this further.
+  //
+  // The gate is what makes the rest safe: after it, the string genuinely is an
+  // Indian E.164 and normalizeIndianMobile is being used as designed.
+  if (!/^\+91\d{10}$/.test(raw)) {
+    throw new Error('Firebase token phone number is not an Indian mobile');
+  }
+
+  // Now canonicalise to the 10-digit national form the User.phone column stores —
+  // the same shape verify-otp produces, so downstream code cannot tell the paths apart.
   const phone = normalizeIndianMobile(raw);
   if (!phone) {
-    throw new Error(`Firebase token phone number is not a valid Indian mobile: ${raw}`);
+    // Reachable for a +91-prefixed number in an unallocated series.
+    throw new Error('Firebase token phone number is not a valid Indian mobile');
   }
 
   return { phone, firebaseUid: decoded.uid };

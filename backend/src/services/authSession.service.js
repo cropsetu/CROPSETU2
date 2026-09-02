@@ -9,18 +9,9 @@
  * the access/refresh pair, cap concurrent sessions, and run the full fraud stack
  * (login risk, geo anomaly, velocity, device linking) with the same audit trail.
  *
- * ─────────────────────────────────────────────────────────────────────────────
- * KNOWN DUPLICATION — deliberate, not an oversight.
- *
- * This is a faithful copy of the post-verification block still inlined in
- * routes/auth.routes.js `/verify-otp`. It was NOT extracted, because the MSG91
- * login path was explicitly required to stay byte-for-byte unchanged while the
- * Firebase path is added alongside it. Two copies of security-critical logic is
- * a real maintenance hazard: a fix applied here must be applied there too.
- *
- * Collapse the two once the Firebase path has proven itself in production —
- * point /verify-otp at this function and delete its inline copy.
- * ─────────────────────────────────────────────────────────────────────────────
+ * Both callers share this ONE implementation — /verify-otp was refactored onto it
+ * and holds no inline copy. A fix here lands on every login path; that is the
+ * point of the extraction, and the reason not to re-inline it for either path.
  */
 import prisma from '../config/db.js';
 import { ENV } from '../config/env.js';
@@ -53,7 +44,7 @@ const USER_SELECT = {
  *                                    was proven so a compromised provider can be traced
  * @returns {Promise<{body: object, userId: string, isNewUser: boolean}>}
  */
-export async function issueSessionForVerifiedPhone({ req, res, phone, name, loginMethod }) {
+export async function issueSessionForVerifiedPhone({ req, res, phone, name, loginMethod, providerUid }) {
   // Find-or-create. The phone column is unique, so this is the same
   // no-enumeration behaviour as the OTP path: one endpoint serves signup and
   // login, and the response never reveals which one happened beyond isNewUser.
@@ -104,6 +95,7 @@ export async function issueSessionForVerifiedPhone({ req, res, phone, name, logi
 
   await auditAuthEvent(user.id, AUTH_ACTIONS.LOGIN, req.ip, {
     outcome: 'success', isNewUser, userAgent, loginMethod,
+    ...(providerUid ? { providerUid } : {}),
     ...(geo.currGeo ? { geo: { country: geo.currGeo.country, lat: geo.currGeo.lat, lng: geo.currGeo.lng } } : {}),
   });
 

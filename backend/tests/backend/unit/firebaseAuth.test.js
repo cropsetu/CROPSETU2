@@ -11,6 +11,14 @@
  */
 import { jest } from '@jest/globals';
 
+// A well-formed phone-provider token. sign_in_provider is load-bearing: it is the
+// only thing distinguishing SMS possession from any other Firebase sign-in.
+const PHONE_TOKEN = {
+  phone_number: '+919876543210',
+  uid: 'abc123',
+  firebase: { sign_in_provider: 'phone' },
+};
+
 const FIREBASE_ENV = {
   FIREBASE_AUTH_ENABLED: 'true',
   FIREBASE_PROJECT_ID:   'krushisarva-test',
@@ -77,7 +85,7 @@ describe('isFirebaseAuthEnabled', () => {
 describe('verifyFirebaseIdToken', () => {
   test('returns the canonical 10-digit phone from an E.164 claim', async () => {
     const { verifyFirebaseIdToken } = await loadService({
-      decodedToken: { phone_number: '+919876543210', uid: 'abc123' },
+      decodedToken: PHONE_TOKEN,
     });
     const result = await verifyFirebaseIdToken('valid.id.token');
     // The rest of the app (and User.phone) stores 10 digits — the same shape
@@ -90,18 +98,58 @@ describe('verifyFirebaseIdToken', () => {
     // checkRevoked=true means a Firebase-side account disable takes effect
     // immediately instead of being honoured until the token naturally expires.
     const { verifyFirebaseIdToken, verifyIdToken } = await loadService({
-      decodedToken: { phone_number: '+919876543210', uid: 'abc123' },
+      decodedToken: PHONE_TOKEN,
     });
     await verifyFirebaseIdToken('valid.id.token');
     expect(verifyIdToken).toHaveBeenCalledWith('valid.id.token', true);
   });
 
-  test('rejects a token with no phone_number claim', async () => {
-    // Firebase issues ID tokens for every provider it supports. Only the phone
-    // provider proves control of a number; an anonymous/email token must not be
-    // able to log anyone in.
+  test('rejects a non-geographic number that normalizes onto an Indian account', async () => {
+    // THE ATTACK THIS GATE EXISTS FOR. normalizeIndianMobile's foreign guard is
+    // `parsed.country && parsed.country !== 'IN'`, which is SKIPPED when
+    // libphonenumber returns no country — true for satellite/non-geographic ranges.
+    // '+8816123456789' really does normalize to '6123456789', a valid Indian mobile,
+    // so without the +91 gate this token would mint a session for whoever owns
+    // those digits. Verified against the real phone.js, not a mock.
     const { verifyFirebaseIdToken } = await loadService({
-      decodedToken: { uid: 'anon-user', email: 'someone@example.com' },
+      decodedToken: { phone_number: '+8816123456789', uid: 'sat', firebase: { sign_in_provider: 'phone' } },
+    });
+    await expect(verifyFirebaseIdToken('satellite.token'))
+      .rejects.toThrow(/not an Indian mobile/i);
+  });
+
+  test('rejects a validly-signed token from a NON-phone provider', async () => {
+    // phone_number lives on the Firebase USER RECORD, so it is stamped into every
+    // token for that user regardless of provider. Anyone holding the victim's
+    // Firebase email password would otherwise get a KrushiSarva session.
+    const { verifyFirebaseIdToken } = await loadService({
+      decodedToken: { phone_number: '+919876543210', uid: 'abc123', firebase: { sign_in_provider: 'password' } },
+    });
+    await expect(verifyFirebaseIdToken('email.token'))
+      .rejects.toThrow(/not issued by the phone provider/i);
+  });
+
+  test('rejects a custom-token sign-in (service-account minted, not SMS possession)', async () => {
+    const { verifyFirebaseIdToken } = await loadService({
+      decodedToken: { phone_number: '+919876543210', uid: 'abc123', firebase: { sign_in_provider: 'custom' } },
+    });
+    await expect(verifyFirebaseIdToken('custom.token'))
+      .rejects.toThrow(/not issued by the phone provider/i);
+  });
+
+  test('never puts the phone number in the error message (it is logged unredacted)', async () => {
+    const { verifyFirebaseIdToken } = await loadService({
+      decodedToken: { phone_number: '+8816123456789', uid: 'sat', firebase: { sign_in_provider: 'phone' } },
+    });
+    await expect(verifyFirebaseIdToken('satellite.token'))
+      .rejects.not.toThrow(/8816123456789/);
+  });
+
+  test('rejects a phone-provider token that somehow carries no phone_number', async () => {
+    // Defence in depth behind the provider check: even a token Firebase labels
+    // 'phone' must not get through without the claim we actually rely on.
+    const { verifyFirebaseIdToken } = await loadService({
+      decodedToken: { uid: 'odd-user', firebase: { sign_in_provider: 'phone' } },
     });
     await expect(verifyFirebaseIdToken('anon.token'))
       .rejects.toThrow(/no phone number/i);
@@ -111,10 +159,10 @@ describe('verifyFirebaseIdToken', () => {
     // Google will happily verify a US number. Our phone column and the MSG91
     // path are India-only, so the token being genuine is not sufficient.
     const { verifyFirebaseIdToken } = await loadService({
-      decodedToken: { phone_number: '+14155552671', uid: 'us-user' },
+      decodedToken: { phone_number: '+14155552671', uid: 'us-user', firebase: { sign_in_provider: 'phone' } },
     });
     await expect(verifyFirebaseIdToken('us.token'))
-      .rejects.toThrow(/not a valid Indian mobile/i);
+      .rejects.toThrow(/not an Indian mobile/i);
   });
 
   test('propagates a signature/expiry failure from the SDK', async () => {

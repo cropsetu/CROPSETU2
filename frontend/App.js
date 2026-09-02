@@ -28,6 +28,9 @@ import AppNavigator from './src/navigation/AppNavigator';
 import OnboardingNavigator from './src/navigation/OnboardingNavigator';
 import { LanguageProvider } from '@krushisarva/shared/context/LanguageContext';
 import { AuthProvider, useAuth } from '@krushisarva/shared/context/AuthContext';
+// Injected rather than imported inside shared/: @react-native-firebase is a native
+// module installed only in this app, and seller-app bundles the same shared/ tree.
+import * as phoneAuth from '@krushisarva/shared/services/firebasePhoneAuth';
 import { FarmProvider } from './src/context/FarmContext';
 import { MultiFarmProvider } from './src/context/MultiFarmContext';
 import { LocationProvider } from './src/context/LocationContext';
@@ -120,7 +123,7 @@ export default function App() {
     <RootErrorBoundary>
       <SafeAreaProvider>
         <LanguageProvider>
-          <AuthProvider>
+          <AuthProvider phoneAuth={phoneAuth}>
             <CartProvider>
               <FarmProvider>
                 <MultiFarmProvider>

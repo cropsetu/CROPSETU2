@@ -6,12 +6,6 @@ import { Platform, AppState } from 'react-native';
 import api, { saveTokens, clearTokens, getAccessToken, getUserId } from '../services/api';
 import { setLastActiveAt, getLastActiveAt, isSessionIdleExpired } from '../utils/storage';
 import { SESSION_IDLE_TIMEOUT_MS, FIREBASE_AUTH_ENABLED } from '../constants/config';
-import {
-  sendFirebaseOtp,
-  confirmFirebaseOtp,
-  signOutFirebase,
-  firebaseErrorMessage,
-} from '../services/firebasePhoneAuth';
 import { solveProofOfWork } from '../utils/proofOfWork';
 import { resetSocket } from '../services/socket';
 import { isDefinitiveAuthFailure } from '../services/authFailure';
@@ -24,7 +18,27 @@ const AuthContext = createContext(null);
 const IDLE_CHECK_INTERVAL_MS = 60 * 1000;
 const ACTIVITY_PERSIST_THROTTLE_MS = 60 * 1000;
 
-export function AuthProvider({ children }) {
+/**
+ * `phoneAuth` — optional Firebase Phone Auth adapter, INJECTED by the app rather
+ * than imported here on purpose.
+ *
+ * shared/ is bundled into BOTH apps (seller-app pulls ../shared through Metro
+ * watchFolders). @react-native-firebase/auth is a native module installed only in
+ * frontend/, and Metro resolves every require statically — so importing it in this
+ * file put an unresolvable module in seller-app's graph and broke its bundle
+ * outright, regardless of any runtime feature flag. Injection keeps the module in
+ * the one app that actually has it.
+ *
+ * Pass `{ sendFirebaseOtp, confirmFirebaseOtp, signOutFirebase, firebaseErrorMessage }`
+ * (see shared/services/firebasePhoneAuth.js). When absent, the MSG91 path is used.
+ */
+export function AuthProvider({ children, phoneAuth = null }) {
+  // Firebase is used only when the build enabled it AND the host app supplied the
+  // adapter. Web is excluded: @react-native-firebase is native-only, so a web
+  // build must keep using MSG91 rather than crash on a missing module.
+  const useFirebase = Boolean(
+    FIREBASE_AUTH_ENABLED && phoneAuth && Platform.OS !== 'web'
+  );
   const [user, setUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -68,14 +82,14 @@ export function AuthProvider({ children }) {
     // Firebase keeps its own session alongside ours. Left signed in, a later
     // getIdToken() could mint a fresh proof for the account just logged out.
     // Best-effort and never throws — clearing OUR tokens below is what matters.
-    if (FIREBASE_AUTH_ENABLED) {
+    if (useFirebase) {
       fbConfirmationRef.current = null;
-      await signOutFirebase();
+      await phoneAuth.signOutFirebase();
     }
     await clearTokens();
     setUser(null);
     setIsLoggedIn(false);
-  }, []);
+  }, [useFirebase, phoneAuth]);
 
   // Log out if idle past the timeout. Uses the most recent of the in-memory and
   // persisted stamps (persisted survives an app restart). Returns true if it
@@ -176,13 +190,13 @@ export function AuthProvider({ children }) {
     // Google sends the SMS because it is the DLT-registered sender; MSG91 cannot
     // deliver to Indian numbers until our own registration is approved. Returns
     // no devOtp — there is nothing to auto-fill, a real SMS arrives.
-    if (FIREBASE_AUTH_ENABLED) {
+    if (useFirebase) {
       try {
-        fbConfirmationRef.current = await sendFirebaseOtp(phone);
+        fbConfirmationRef.current = await phoneAuth.sendFirebaseOtp(phone);
         return {};
       } catch (err) {
         // LoginScreen reads err.userMessage first — give it a farmer-readable one.
-        err.userMessage = firebaseErrorMessage(err);
+        err.userMessage = phoneAuth.firebaseErrorMessage(err);
         throw err;
       }
     }
@@ -207,20 +221,25 @@ export function AuthProvider({ children }) {
   const verifyOtp = useCallback(async (phone, otp) => {
     let data;
 
-    if (FIREBASE_AUTH_ENABLED) {
+    if (useFirebase) {
       // Firebase checks the code and returns a Google-signed ID token; the
       // backend verifies that token and mints OUR session. The 6-digit code
       // never reaches our server on this path.
       let idToken;
       try {
-        idToken = await confirmFirebaseOtp(fbConfirmationRef.current, otp);
+        idToken = await phoneAuth.confirmFirebaseOtp(fbConfirmationRef.current, otp);
       } catch (err) {
-        err.userMessage = firebaseErrorMessage(err);
+        err.userMessage = phoneAuth.firebaseErrorMessage(err);
         throw err;
       }
-      // Single-use: a confirmed handle must not be replayed for a second login.
-      fbConfirmationRef.current = null;
+      // Clear the handle ONLY after the backend accepts the token. Clearing it
+      // here used to strand the user: one flaky request on a field connection and
+      // both the handle and the token were gone, so "Invalid code" appeared for a
+      // code that was correct and the farmer had to burn another SMS. Firebase
+      // has already consumed the code either way, so on a transport failure we
+      // keep the confirmation and let them retry the same code.
       ({ data } = await api.post('/auth/firebase-login', { idToken }));
+      fbConfirmationRef.current = null;
     } else {
       ({ data } = await api.post('/auth/verify-otp', { phone, otp }));
     }
@@ -240,7 +259,7 @@ export function AuthProvider({ children }) {
       registerForPushNotifications();
     }
     return data;
-  }, [markActivity]);
+  }, [markActivity, useFirebase, phoneAuth]);
 
   const updateUser = useCallback((updates) => {
     setUser((prev) => (prev ? { ...prev, ...updates } : prev));

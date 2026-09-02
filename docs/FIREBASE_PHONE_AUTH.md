@@ -21,16 +21,19 @@ it was.
 | Who verifies the code | We do (bcrypt vs `OtpSession`) | Google |
 | What our server checks | the 6-digit code | a Google-signed ID token |
 | Endpoint | `POST /auth/verify-otp` | `POST /auth/firebase-login` |
-| Brute-force lockout | `otpLockout.service.js` | Firebase's own abuse limits |
+| Brute-force lockout | `otpLockout.service.js` | same lockout, enforced on the token's phone |
 
 ## What you give up
 
-`otpLockout.service.js` and the OTP send/verify rate limiters **do not apply** to the
-Firebase path — Google owns the code, so it owns the abuse protection. The new route
-keeps an IP limiter on token verification, but that is not the same control.
+Google, not us, checks the 6-digit code, so our per-attempt limits on *guessing* do
+not apply — that is Firebase's abuse protection now.
 
-This is the deliberate trade for shipping before DLT approval. Reverting is a
-one-line env change.
+The per-phone **lockout does apply**: `/firebase-login` calls `checkOtpLock(phone)`
+once the token identifies the number and returns 423. Without that the two routes
+were a lockout-evasion pair — burn through the MSG91 attempts until the number
+locks, then walk in through Firebase.
+
+Reverting to MSG91-only is a one-line env change.
 
 ---
 
@@ -67,23 +70,12 @@ FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY
 Keep the literal `\n` sequences and the surrounding quotes — the service converts them
 to real newlines. Restart the backend.
 
-### 3. app.json — one line, after `google-services.json` exists
+### 3. app.json — already applied
 
-`npx expo install` already appended `@react-native-firebase/app` and
-`@react-native-firebase/auth` to the `plugins` array. `expo config --type prebuild`
-resolves cleanly with them, so your current build is not broken.
+Both plugins and `android.googleServicesFile` are in `frontend/app.json`, and the
+Android package is `com.krushisarva.app`. Nothing to do here.
 
-One line still missing — add it once step 1 has produced the file:
-
-```jsonc
-// frontend/app.json → expo.android
-"android": {
-  "package": "com.cropsetu.app",
-  "googleServicesFile": "./google-services.json"   // add this line
-}
-```
-
-Your Android package is `com.cropsetu.app` — the Firebase console app must use
+Your Android package is `com.krushisarva.app` — the Firebase console app must use
 **exactly** that string or phone auth fails at runtime.
 
 Without `google-services.json` the Gradle build fails at the google-services step,
@@ -131,24 +123,30 @@ Those pairs verify without sending anything.
 | `shared/services/firebasePhoneAuth.js` | **new** — client wrapper, lazy native require |
 | `shared/context/AuthContext.js` | `sendOtp`/`verifyOtp` branch on the flag; Firebase sign-out on logout |
 | `shared/constants/config.js` | `FIREBASE_AUTH_ENABLED` flag |
-| `backend/tests/backend/unit/firebaseAuth.test.js` | **new** — 9 tests |
+| `backend/tests/backend/unit/firebaseAuth.test.js` | **new** — 13 tests, incl. the +91 gate and provider assertion |
 
 `shared/screens/LoginScreen.js` needed **no changes** — the branch lives in
 `AuthContext`, so the UI, resend timer and error handling are identical on both paths.
 
-## Known duplication
+`AuthProvider` takes the Firebase adapter as a **`phoneAuth` prop**, injected by
+`frontend/App.js`. It is deliberately not imported inside `shared/`: seller-app
+bundles the same `shared/` tree through Metro `watchFolders`, and a static require of
+a native module it does not install would break its bundle outright.
 
-`authSession.service.js` is a faithful copy of the post-verification block still
-inlined in `/verify-otp`. It was not extracted because the MSG91 login path was
-required to stay byte-for-byte unchanged. **A security fix applied to one must be
-applied to the other.** Collapse them once the Firebase path has proven itself:
-point `/verify-otp` at `issueSessionForVerifiedPhone()` and delete its inline copy.
+## One shared implementation
+
+`/verify-otp` and `/firebase-login` both call `issueSessionForVerifiedPhone()`.
+There is no inline copy in either route, so a fix to the session/fraud/audit stack
+lands on every login path at once. The 40 auth API integration tests cover it.
 
 ## Not done
 
-- `seller-app/` does not have the native module installed. The lazy require means it
-  is safe as long as `EXPO_PUBLIC_FIREBASE_AUTH` stays unset there; installing it is
-  the same two commands if seller login needs the Firebase path too.
+- `seller-app/` has no Firebase and cannot get it without installing the native
+  module. `AuthProvider` falls back to MSG91 when no `phoneAuth` prop is passed,
+  which is what seller-app does.
+- iOS builds are not configured: the RNFirebase plugin is in `app.json` but there is
+  no `GoogleService-Info.plist` / `ios.googleServicesFile`. Android is unaffected;
+  fix this before any iOS build.
 - The `devOtp` leak in `otp.service.js` (returned whenever `MSG91_AUTH_KEY` is empty,
   including under `NODE_ENV=production`) is **unchanged** — out of scope here, but it
   must be gated before any public deploy.

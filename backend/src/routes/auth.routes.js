@@ -198,11 +198,21 @@ router.post(
     const { idToken, name } = req.body;
 
     let phone;
+    let firebaseUid;
     try {
-      // Google-signed JWT: signature, issuer, audience, expiry and revocation are
-      // all checked inside. A failure here is an untrusted caller, never a bug.
-      ({ phone } = await verifyFirebaseIdToken(idToken));
+      // Google-signed JWT: signature, issuer, audience, expiry, revocation and the
+      // sign-in provider are all checked inside.
+      ({ phone, firebaseUid } = await verifyFirebaseIdToken(idToken));
     } catch (err) {
+      // OUR fault vs THEIRS. An unconfigured service account, a bad key, or Google
+      // being unreachable is a 503 — answering 401 there tells a farmer their phone
+      // number is wrong when nothing is wrong with it, and hides a real outage
+      // behind what looks like ordinary user error. Only a genuinely rejected
+      // token is a 401.
+      if (err.serverFault) {
+        logger.error('[Auth] firebase-login unavailable: %s', err.message);
+        return sendError(res, 'Phone sign-in is temporarily unavailable. Please try again shortly.', 503);
+      }
       // Deliberately vague to the client (no oracle for why a token was rejected),
       // specific in the log for operators.
       logger.warn('[Auth] firebase-login token rejected: %s', err.message);
@@ -239,8 +249,11 @@ router.post(
       // From here the phone is proven and unlocked, so this is the identical
       // post-verification path the OTP flow runs — tokens, session cap, fraud
       // stack, audit trail.
+      // firebaseUid rides into the audit metadata: without it a Firebase login is
+      // untraceable back to the Firebase account that produced it, which is the
+      // only handle support has when investigating a disputed login.
       const { body: payload } = await issueSessionForVerifiedPhone({
-        req, res, phone, name, loginMethod: 'firebase',
+        req, res, phone, name, loginMethod: 'firebase', providerUid: firebaseUid,
       });
       // A clean login through either path clears accumulated failure state, so a
       // user who genuinely owns the number isn't left half-locked.
