@@ -30,7 +30,7 @@ CROPSETU2/
 └── README.md
 ```
 
-The two mobile apps are separate builds (`com.cropsetu.app` and
+The two mobile apps are separate builds (`com.krushisarva.app` and
 `com.cropsetu.seller`) that share one backend, one account, and `shared/`.
 Editing anything under `shared/` affects both — see its README before adding to it.
 

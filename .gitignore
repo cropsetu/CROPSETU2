@@ -81,3 +81,7 @@ fastapi/data/golden_set/batch*/
 # Only commit if you're doing bare-workflow customizations.
 frontend/android/
 frontend/ios/
+
+# Firebase service-account key (server credential — never commit)
+backend/firebase-service-account.json
+*firebase-adminsdk*.json

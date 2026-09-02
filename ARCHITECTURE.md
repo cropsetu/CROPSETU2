@@ -1,6 +1,6 @@
 # KrushiSarva — System Architecture Reference
 
-KrushiSarva is an India-first, Marathi/Hindi/English-plus-seven-more agri-platform for smallholder farmers. One phone-OTP account gives a farmer an AI crop-disease scanner and voice/text agronomy assistant (Gemini via a Python pipeline, Sarvam for Indic speech), a multi-seller agri-input marketplace (AgriStore) with regulated-chemical compliance gating, a livestock classifieds board (AnimalTrade), a machinery-and-labour rental marketplace (Rent), a multi-farm crop-cycle and P&L record (MyFarm), and market/MSP/weather/scheme data. Four clients consume one Express API: the farmer Expo app (`com.cropsetu.app`), a separate seller Expo app for Krushi Seva Kendras (`com.cropsetu.seller`), a React/Vite admin console served same-origin at `/admin`, and the Razorpay webhook. Behind Express sits a second service — a FastAPI + Celery multi-agent diagnosis pipeline — reached only over HMAC-signed requests. Users are farmers (buyers), sellers/Kendras, and internal operators split across seven admin scopes.
+KrushiSarva is an India-first, Marathi/Hindi/English-plus-seven-more agri-platform for smallholder farmers. One phone-OTP account gives a farmer an AI crop-disease scanner and voice/text agronomy assistant (Gemini via a Python pipeline, Sarvam for Indic speech), a multi-seller agri-input marketplace (AgriStore) with regulated-chemical compliance gating, a livestock classifieds board (AnimalTrade), a machinery-and-labour rental marketplace (Rent), a multi-farm crop-cycle and P&L record (MyFarm), and market/MSP/weather/scheme data. Four clients consume one Express API: the farmer Expo app (`com.krushisarva.app`), a separate seller Expo app for Krushi Seva Kendras (`com.cropsetu.seller`), a React/Vite admin console served same-origin at `/admin`, and the Razorpay webhook. Behind Express sits a second service — a FastAPI + Celery multi-agent diagnosis pipeline — reached only over HMAC-signed requests. Users are farmers (buyers), sellers/Kendras, and internal operators split across seven admin scopes.
 
 ---
 
@@ -97,7 +97,7 @@ All numbers below were measured against the working tree while assembling this d
 | FastAPI web | Python, uvicorn (`--workers ${WEB_CONCURRENCY:-2}`) | `fastapi/main.py` | `/ai/*`, `/agripredict/*`, `/health*` behind HMAC |
 | FastAPI worker | same image, `ROLE=worker` | `celery -A jobs.queue:celery_app` | runs the diagnosis pipeline; **without it every scan stays `queued`** |
 | Admin SPA | static bundle | `admin/dist` | not a service — built into the backend image, served at `/admin` |
-| Farmer app | Expo SDK 54 / RN 0.81.5 / React 19.1 | `frontend/App.js` | `com.cropsetu.app` |
+| Farmer app | Expo SDK 54 / RN 0.81.5 / React 19.1 | `frontend/App.js` | `com.krushisarva.app` |
 | Seller app | Expo SDK 54 / RN 0.81.5 / React 19.1 | `seller-app/App.js` | `com.cropsetu.seller` |
 
 There is **no clustering** in either service; horizontal scale is instance-level (Railway replicas), which is why nearly every coordination primitive is Redis-backed.
@@ -186,7 +186,7 @@ There is **no clustering** in either service; horizontal scale is instance-level
 ```mermaid
 flowchart TB
   subgraph Clients
-    FA["Farmer app (Expo)<br/>com.cropsetu.app<br/>frontend/"]
+    FA["Farmer app (Expo)<br/>com.krushisarva.app<br/>frontend/"]
     SA["Seller app (Expo)<br/>com.cropsetu.seller<br/>seller-app/"]
     AD["Admin SPA (React 18 + Vite)<br/>served same-origin at /admin"]
     RZW["Razorpay webhook<br/>(server-to-server client)"]
@@ -7747,7 +7747,7 @@ Four clients, one API. The two Expo apps are separate binaries that both consume
 
 | Client | Bundle id / path | Auth transport | Realtime | Design tokens |
 |---|---|---|---|---|
-| Farmer app | `com.cropsetu.app`, scheme `krushisarva://` | Bearer from SecureStore | Socket.IO (4 consumers) | KHET kit (`shared/constants/khetTheme.js`) + legacy `colors.js` + MyFarm `cosmicTheme.js` |
+| Farmer app | `com.krushisarva.app`, scheme `krushisarva://` | Bearer from SecureStore | Socket.IO (4 consumers) | KHET kit (`shared/constants/khetTheme.js`) + legacy `colors.js` + MyFarm `cosmicTheme.js` |
 | Seller app | `com.cropsetu.seller`, scheme `krushisarva-seller://` | Bearer from SecureStore | **none** | its own `seller-app/src/theme/index.js` (harvest orange on parchment) |
 | Admin SPA | served at `/admin` | httpOnly `rt` cookie + JS-readable `csrf` cookie, access token in a module variable | none | Tailwind 3 + a hand-rolled component layer |
 | Razorpay | server-to-server | HMAC over raw bytes | — | — |
@@ -7807,8 +7807,8 @@ a "Reload" action).
 |---|---|
 | name / slug / scheme | `KrushiSarva` / `krushisarva` / `krushisarva` |
 | version | `1.0.0`; `newArchEnabled: true`; `orientation: portrait`; `userInterfaceStyle: light` |
-| iOS bundle id | `com.cropsetu.app`, `supportsTablet: false` |
-| Android package | `com.cropsetu.app` |
+| iOS bundle id | `com.krushisarva.app`, `supportsTablet: false` |
+| Android package | `com.krushisarva.app` |
 | Splash | `./assets/splash.png`, background `#1B4332` |
 | EAS project | `f1df1b28-f453-4395-8134-e389cadb394a`, owner `shubhamyeljale2025` |
 | Config plugins | `expo-camera`, `expo-location`, `expo-secure-store`, `react-native-compressor` |
@@ -7828,7 +7828,7 @@ location-when-in-use, microphone (`app.json:19-24`); the prebuilt `Info.plist` a
 (`Info.plist:47-53`).
 
 Deep-link schemes registered natively: `krushisarva://`, `exp+krushisarva://` (Android
-`AndroidManifest.xml:33-34`); iOS adds `com.cropsetu.app` as a third URL scheme
+`AndroidManifest.xml:33-34`); iOS adds `com.krushisarva.app` as a third URL scheme
 (`Info.plist:25-40`). The Android manifest declares a `<queries>` block for `https` VIEW
 intents (`AndroidManifest.xml:13-19`) — relevant because `frontend/src/utils/sellerApp.js`
 explains it deliberately does *not* use `Linking.canOpenURL` for the
@@ -8808,7 +8808,7 @@ A standalone Expo app for sellers (Krushi Seva Kendras). It was split out of `fr
 | URL scheme | `krushisarva-seller://` | `app.json:5` |
 | iOS bundle id | `com.cropsetu.seller` | `app.json:18` |
 | Android package | `com.cropsetu.seller` | `app.json:29` |
-| Buyer-app counterpart | `com.cropsetu.app`, scheme `krushisarva` | `frontend/app.json:5,17,29` |
+| Buyer-app counterpart | `com.krushisarva.app`, scheme `krushisarva` | `frontend/app.json:5,17,29` |
 | npm package name | `krushisarva-seller`, `main: index.js` | `seller-app/package.json:2,4` |
 | Entry | `index.js` → `expo/src/launch/registerRootComponent` | `seller-app/index.js:1,10` |
 | RN / React / Expo | `react-native 0.81.5`, `react 19.1.0`, `expo ^54.0.33`, `newArchEnabled: true` | `package.json:24,37,39`; `app.json:7` |
@@ -10877,7 +10877,7 @@ first-party `SameSite=Lax` with no CORS.
 ```mermaid
 flowchart TB
   subgraph Clients
-    FA["Farmer app (Expo)<br/>com.cropsetu.app"]
+    FA["Farmer app (Expo)<br/>com.krushisarva.app"]
     SA["Seller app (Expo)<br/>com.cropsetu.seller"]
     AD["Admin SPA (React/Vite)<br/>served at /admin"]
   end
@@ -11389,8 +11389,8 @@ Two separate Expo apps sharing one backend and one `../shared` folder.
 | --- | --- | --- |
 | Expo name / slug | `KrushiSarva` / `krushisarva` | `KrushiSarva Seller` / `krushisarva-seller` |
 | Deep-link scheme | `krushisarva://` | `krushisarva-seller://` |
-| Android package | `com.cropsetu.app` | `com.cropsetu.seller` |
-| iOS bundle id | `com.cropsetu.app` | `com.cropsetu.seller` |
+| Android package | `com.krushisarva.app` | `com.cropsetu.seller` |
+| iOS bundle id | `com.krushisarva.app` | `com.cropsetu.seller` |
 | `expo.version` | `1.0.0` | `1.0.0` |
 | `newArchEnabled` | `true` | `true` |
 | EAS `projectId` | `f1df1b28-f453-4395-8134-e389cadb394a` (`app.json:62`) | **absent** — `seller-app/app.json` has no `extra.eas` block, so `eas build` there is unlinked |

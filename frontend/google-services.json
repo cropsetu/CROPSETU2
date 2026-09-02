@@ -1,0 +1,38 @@
+{
+  "project_info": {
+    "project_number": "763411073341",
+    "project_id": "krushisarva-b234d",
+    "storage_bucket": "krushisarva-b234d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:763411073341:android:8139673ef0ff7d9b6c9d54",
+        "android_client_info": {
+          "package_name": "com.krushisarva.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "763411073341-vfqaetl3pkogvsh4gqi4ab0p5v1qlnbh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.krushisarva.app",
+            "certificate_hash": "1372a4f0aa1e3bac36494936808b5f631bb98590"
+          }
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC7ZII5gxYP_FAPDVvOzHws8syGvVMZoHE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

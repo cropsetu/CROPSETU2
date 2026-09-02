@@ -283,6 +283,18 @@ export const ENV = {
   OTP_FAIL_WINDOW_SECONDS: parseInt(process.env.OTP_FAIL_WINDOW_SECONDS || '900', 10),
   OTP_LOCK_CYCLE_WINDOW_SECONDS: parseInt(process.env.OTP_LOCK_CYCLE_WINDOW_SECONDS || '86400', 10),
 
+  // ── Firebase Phone Auth (parallel login path — see firebaseAuth.service.js) ──
+  // SMS to Indian numbers needs a DLT-registered sender. Until KrushiSarva's own
+  // DLT registration is approved, MSG91 delivers nothing; Firebase works because
+  // Google is the registered sender. This path is ADDITIVE — the MSG91 OTP flow
+  // is untouched and stays the default. Turn this off once DLT is live.
+  FIREBASE_AUTH_ENABLED: process.env.FIREBASE_AUTH_ENABLED === 'true',
+  FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID || '',
+  FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL || '',
+  // Service-account PEM. Stored with literal "\n" in .env / Railway; the admin
+  // SDK needs real newlines — firebaseAuth.service.js does that conversion.
+  FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY || '',
+
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '',
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || '',

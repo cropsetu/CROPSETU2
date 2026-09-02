@@ -5,7 +5,13 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { Platform, AppState } from 'react-native';
 import api, { saveTokens, clearTokens, getAccessToken, getUserId } from '../services/api';
 import { setLastActiveAt, getLastActiveAt, isSessionIdleExpired } from '../utils/storage';
-import { SESSION_IDLE_TIMEOUT_MS } from '../constants/config';
+import { SESSION_IDLE_TIMEOUT_MS, FIREBASE_AUTH_ENABLED } from '../constants/config';
+import {
+  sendFirebaseOtp,
+  confirmFirebaseOtp,
+  signOutFirebase,
+  firebaseErrorMessage,
+} from '../services/firebasePhoneAuth';
 import { solveProofOfWork } from '../utils/proofOfWork';
 import { resetSocket } from '../services/socket';
 import { isDefinitiveAuthFailure } from '../services/authFailure';
@@ -27,6 +33,11 @@ export function AuthProvider({ children }) {
   // throttle marker so we only persist roughly once a minute.
   const lastActiveRef  = useRef(Date.now());
   const lastPersistRef = useRef(0);
+
+  // Pending Firebase phone-verification handle (holds the verificationId between
+  // "send code" and "confirm code"). Only used when FIREBASE_AUTH_ENABLED. A ref,
+  // not state, because changing it must not re-render the login screen mid-entry.
+  const fbConfirmationRef = useRef(null);
 
   // Record user activity. Updates the in-memory clock immediately and persists
   // it (throttled, or forced on key transitions like login/foreground).
@@ -54,6 +65,13 @@ export function AuthProvider({ children }) {
     // previous user's row. The server's upsert reassigns userId on conflict,
     // which handles it, but only if the token is actually sent again.
     forgetPushRegistration();
+    // Firebase keeps its own session alongside ours. Left signed in, a later
+    // getIdToken() could mint a fresh proof for the account just logged out.
+    // Best-effort and never throws — clearing OUR tokens below is what matters.
+    if (FIREBASE_AUTH_ENABLED) {
+      fbConfirmationRef.current = null;
+      await signOutFirebase();
+    }
     await clearTokens();
     setUser(null);
     setIsLoggedIn(false);
@@ -154,6 +172,21 @@ export function AuthProvider({ children }) {
   // would re-run on every render, and refreshUser → setUser → render forms an
   // infinite request loop. useCallback + useMemo break that cycle.
   const sendOtp = useCallback(async (phone) => {
+    // ── Firebase path (while DLT registration is pending) ────────────────────
+    // Google sends the SMS because it is the DLT-registered sender; MSG91 cannot
+    // deliver to Indian numbers until our own registration is approved. Returns
+    // no devOtp — there is nothing to auto-fill, a real SMS arrives.
+    if (FIREBASE_AUTH_ENABLED) {
+      try {
+        fbConfirmationRef.current = await sendFirebaseOtp(phone);
+        return {};
+      } catch (err) {
+        // LoginScreen reads err.userMessage first — give it a farmer-readable one.
+        err.userMessage = firebaseErrorMessage(err);
+        throw err;
+      }
+    }
+
     try {
       const { data } = await api.post('/auth/send-otp', { phone });
       return data;
@@ -172,7 +205,26 @@ export function AuthProvider({ children }) {
   }, []);
 
   const verifyOtp = useCallback(async (phone, otp) => {
-    const { data } = await api.post('/auth/verify-otp', { phone, otp });
+    let data;
+
+    if (FIREBASE_AUTH_ENABLED) {
+      // Firebase checks the code and returns a Google-signed ID token; the
+      // backend verifies that token and mints OUR session. The 6-digit code
+      // never reaches our server on this path.
+      let idToken;
+      try {
+        idToken = await confirmFirebaseOtp(fbConfirmationRef.current, otp);
+      } catch (err) {
+        err.userMessage = firebaseErrorMessage(err);
+        throw err;
+      }
+      // Single-use: a confirmed handle must not be replayed for a second login.
+      fbConfirmationRef.current = null;
+      ({ data } = await api.post('/auth/firebase-login', { idToken }));
+    } else {
+      ({ data } = await api.post('/auth/verify-otp', { phone, otp }));
+    }
+
     if (data.data?.accessToken) {
       await saveTokens({
         accessToken: data.data.accessToken,

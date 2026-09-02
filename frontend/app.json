@@ -10,7 +10,7 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.cropsetu.app",
+      "bundleIdentifier": "com.krushisarva.app",
       "infoPlist": {
         "NSCameraUsageDescription": "KrushiSarva needs camera access to photograph your crops for AI disease analysis.",
         "NSPhotoLibraryUsageDescription": "KrushiSarva needs photo library access to upload crop images for analysis.",
@@ -24,7 +24,8 @@
         "monochromeImage": "./assets/adaptive-icon-monochrome.png",
         "backgroundColor": "#005f21"
       },
-      "package": "com.cropsetu.app",
+      "package": "com.krushisarva.app",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_MEDIA_IMAGES",
@@ -71,14 +72,16 @@
             "backgroundColor": "#06210d"
           }
         }
-      ]
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth"
     ],
+    "owner": "krushisarva",
+    "primaryColor": "#005f21",
     "extra": {
       "eas": {
-        "projectId": "f1df1b28-f453-4395-8134-e389cadb394a"
+        "projectId": "819a15f8-7b06-4288-a94e-d49ddc6d3dc1"
       }
-    },
-    "owner": "shubhamyeljale2025",
-    "primaryColor": "#005f21"
+    }
   }
 }

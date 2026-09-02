@@ -22,16 +22,12 @@ import {
 } from '../utils/cookies.js';
 import { generateCsrfToken } from '../middleware/csrf.js';
 import { auditAuthEvent, AUTH_ACTIONS, maskPhone } from '../services/audit.service.js';
-import { assessLoginRisk, notifyRiskyLogin } from '../services/loginRisk.service.js';
-import { recordVelocity, deviceFingerprint, VELOCITY_ACTIONS } from '../services/velocity.service.js';
-import { flagVelocity } from '../middleware/velocityLimit.js';
-import { recordDeviceLink, strongDeviceId } from '../services/deviceLink.service.js';
-import { assessLoginGeoAnomaly, flagGeoAnomaly } from '../services/geoAnomaly.service.js';
-import { resolveIpGeo } from '../services/geoIp.service.js';
 import { normalizeIndianMobile, indianMobileBody } from '../utils/phone.js';
 import { sendOtp, verifyOtp } from '../services/otp.service.js';
+import { verifyFirebaseIdToken, isFirebaseAuthEnabled } from '../services/firebaseAuth.service.js';
+import { issueSessionForVerifiedPhone } from '../services/authSession.service.js';
+import { checkOtpLock, clearOtpLockout } from '../services/otpLockout.service.js';
 import { otpPowGate } from '../services/proofOfWork.service.js';
-import { captureSignupConsent } from '../services/consent.service.js';
 import { reportSecurityEvent } from '../services/incident.service.js';
 import { denylistAccessToken } from '../services/tokenDenylist.service.js';
 import {
@@ -41,7 +37,6 @@ import {
   revokeRefreshTokenByRaw,
   revokeAllRefreshTokens,
   bumpTokenVersion,
-  enforceSessionLimit,
 } from '../utils/jwt.js';
 import prisma from '../config/db.js';
 import { sendSuccess, sendCreated, sendError, sendUnauthorized, sendServerError } from '../utils/response.js';
@@ -149,132 +144,110 @@ router.post(
         return sendError(res, result.reason, 400);
       }
 
-      let user;
-
-      if (result.isNewUser) {
-        // Register the new user — onboardingStep defaults to BASIC
-        user = await prisma.user.create({
-          data: { phone, name: name || null },
-          select: { id: true, phone: true, name: true, role: true, language: true, onboardingStep: true, activeFarmId: true, totalFarms: true, tokenVersion: true },
-        });
-        // [DPDP §5] Capture proof of the required consents accepted on the
-        // signup screen (Terms, Privacy, core data processing). Best-effort:
-        // logged but never blocks registration.
-        await captureSignupConsent({
-          userId:    user.id,
-          ip:        req.ip,
-          userAgent: req.headers['user-agent'] || null,
-        });
-      } else {
-        user = await prisma.user.findUnique({
-          where: { id: result.userId },
-          select: { id: true, phone: true, name: true, role: true, language: true, onboardingStep: true, activeFarmId: true, totalFarms: true, tokenVersion: true },
-        });
-      }
-
-      const accessToken  = signAccessToken({ sub: user.id, role: user.role, tokenVersion: user.tokenVersion });
-      const refreshToken = await createRefreshToken(user.id);
-
-      // Cap concurrent sessions — a new login evicts the oldest beyond the limit.
-      await enforceSessionLimit(user.id);
-
-      // ── Fraud / ATO risk signals ──────────────────────────────────────────
-      // Brute-force is already blocked upstream (OTP lockout + rate limits). Here
-      // we flag a *successful* login that looks risky vs the account's recent
-      // history. Assess BEFORE recording this login so it compares against prior
-      // events only. A brand-new account is the baseline — never risky.
-      const userAgent = req.headers['user-agent'] || null;
-      const risk = result.isNewUser
-        ? { risky: false, signals: [], notify: false }
-        : await assessLoginRisk({ userId: user.id, ip: req.ip, userAgent });
-
-      // ── Geo-anomaly login detection (FRAUD-4) ─────────────────────────────
-      // Score this login's location against the account's login history (this
-      // audit trail — AUTH-18). MUST run BEFORE writing this login's AUTH_LOGIN
-      // row so the "previous" login is genuinely the prior one. For a brand-new
-      // account there's no history — just resolve geo to seed the baseline. The
-      // resolved geo rides in the LOGIN audit metadata so the NEXT login can
-      // compare against it. Fails open (never blocks login). `stepUp` is surfaced
-      // to the client when the strong signal (impossible travel) fires.
-      let stepUp = false;
-      let geo = { anomalous: false, reasons: [], currGeo: null };
-      if (ENV.GEO_ANOMALY_ENABLED) {
-        try {
-          geo = result.isNewUser
-            ? { anomalous: false, reasons: [], currGeo: await resolveIpGeo(req.ip) }
-            : await assessLoginGeoAnomaly({ userId: user.id, ip: req.ip, at: Date.now() });
-        } catch { /* fail open — geo scoring must never break login */ }
-      }
-
-      await auditAuthEvent(user.id, AUTH_ACTIONS.LOGIN, req.ip, {
-        outcome: 'success', isNewUser: result.isNewUser, userAgent,
-        ...(geo.currGeo ? { geo: { country: geo.currGeo.country, lat: geo.currGeo.lat, lng: geo.currGeo.lng } } : {}),
+      // Post-verification is identical for every path that proves phone ownership
+      // (OTP here, Firebase ID token on /firebase-login): find-or-create the user,
+      // mint the token pair, cap sessions, run the fraud stack, write the audit
+      // trail. It lives in authSession.service.js so a change lands on both.
+      const { body: payload } = await issueSessionForVerifiedPhone({
+        req, res, phone, name, loginMethod: 'otp',
       });
-
-      if (risk.risky) {
-        // Forensic flag for every risky login; user alert only on the strong
-        // signal (new device) to avoid mobile/CGNAT IP-change noise.
-        await auditAuthEvent(user.id, AUTH_ACTIONS.LOGIN_RISKY, req.ip, {
-          signals: risk.signals, userAgent,
-        });
-        if (risk.notify) notifyRiskyLogin(user.id, risk.signals).catch(() => {});
-      }
-
-      if (geo.anomalous) {
-        // Forensic flag + owner alert + deduped FRAUD incident; request client
-        // step-up on the strong (impossible-travel) signal.
-        await auditAuthEvent(user.id, AUTH_ACTIONS.LOGIN_GEO_ANOMALY, req.ip, {
-          reasons: geo.reasons, impliedSpeedKmh: geo.impliedSpeedKmh, distanceKm: geo.distanceKm,
-          country: geo.currGeo?.country,
-        });
-        flagGeoAnomaly(user.id, geo, { ip: req.ip }).catch(() => {});
-        if (geo.action === 'step_up') stepUp = true;
-      }
-
-      // ── Login velocity (FRAUD-1) ──────────────────────────────────────────
-      // Flag-only: many successful logins to DIFFERENT accounts from one
-      // device/IP (account farming / credential reuse) surface for review. The
-      // OTP limits + lockout already cap per-number attempts, so we never block a
-      // user who proved the OTP. recordVelocity fails open; guard against any
-      // surprise so login can never break.
-      if (ENV.VELOCITY_ENABLED) {
-        try {
-          const velocity = await recordVelocity({
-            action: VELOCITY_ACTIONS.LOGIN,
-            identities: { user: user.id, device: deviceFingerprint(req), ip: req.ip },
-          });
-          if (velocity.flagged) flagVelocity(req, VELOCITY_ACTIONS.LOGIN, velocity, { actorId: user.id }).catch(() => {});
-        } catch { /* never break login on a fraud-scoring glitch */ }
-      }
-
-      // ── Device link / multi-account detection (FRAUD-3) ───────────────────
-      // Record this device→account observation; flags clusters where one device
-      // backs many accounts. Fire-and-forget, fail-safe (no-op without X-Device-Id).
-      if (ENV.DEVICE_FINGERPRINT_ENABLED) {
-        recordDeviceLink({ userId: user.id, fingerprint: strongDeviceId(req), ip: req.ip, context: 'login' })
-          .catch(() => {});
-      }
-
-      // Don't leak the internal tokenVersion in the API response.
-      const { tokenVersion: _tv, ...safeUser } = user;
-
-      const body = { accessToken, isNewUser: result.isNewUser, user: safeUser };
-      // FRAUD-4: ask the client to step up (re-confirm) on a geo-anomalous login.
-      if (stepUp) body.stepUp = true;
-      if (wantsCookieAuth(req)) {
-        // Web: refresh token lives only in the httpOnly cookie, never in JS.
-        setRefreshCookie(res, refreshToken);
-        // Issue a CSRF token for the new cookie session.
-        const csrf = generateCsrfToken();
-        setCsrfCookie(res, csrf);
-        body.csrfToken = csrf;
-      } else {
-        body.refreshToken = refreshToken; // mobile: body token → SecureStore
-      }
-
-      return sendCreated(res, body);
+      return sendCreated(res, payload);
     } catch (err) {
       logger.error({ err }, '[Auth] verify-otp error');
+      return sendError(res, 'Authentication failed', 500);
+    }
+  }
+);
+
+// ── POST /firebase-login ───────────────────────────────────────────────────────
+// Parallel login path for as long as KrushiSarva's DLT registration is pending.
+// Google sends and verifies the SMS OTP (it is the DLT-registered sender); the
+// client hands us the resulting Firebase ID token and we mint OUR session from it.
+//
+// The MSG91 path above is untouched and remains the default — this route 503s
+// unless FIREBASE_AUTH_ENABLED is on AND a service account is configured, so a
+// deploy without Firebase behaves exactly as before.
+//
+// Rate limit note: Firebase enforces its own per-number SMS quota on the send
+// side, which our OTP limiters never see. This limiter caps token-verification
+// spam (each attempt costs a Google public-key check and a DB lookup). The
+// per-phone brute-force lockout IS enforced below, once the token has told us
+// which number we are dealing with.
+const firebaseLoginLimiter = rateLimiter({
+  windowMs: ENV.OTP_VERIFY_RATE_LIMIT_WINDOW_MS,
+  max:      ENV.OTP_VERIFY_IP_RATE_LIMIT_MAX,
+  prefix:   'fbauth:ip',
+  key:      clientIp,
+  message:  'Too many login attempts. Please try again shortly.',
+});
+
+router.post(
+  '/firebase-login',
+  firebaseLoginLimiter,
+  [
+    body('idToken').isString().trim().isLength({ min: 20, max: 4096 })
+      .withMessage('Firebase ID token required'),
+    body('name').optional().trim().isLength({ min: 2, max: 80 }),
+  ],
+  validate,
+  async (req, res) => {
+    if (!isFirebaseAuthEnabled()) {
+      return sendError(res, 'Firebase login is not enabled on this server', 503);
+    }
+
+    const { idToken, name } = req.body;
+
+    let phone;
+    try {
+      // Google-signed JWT: signature, issuer, audience, expiry and revocation are
+      // all checked inside. A failure here is an untrusted caller, never a bug.
+      ({ phone } = await verifyFirebaseIdToken(idToken));
+    } catch (err) {
+      // Deliberately vague to the client (no oracle for why a token was rejected),
+      // specific in the log for operators.
+      logger.warn('[Auth] firebase-login token rejected: %s', err.message);
+      await auditAuthEvent(null, AUTH_ACTIONS.OTP_FAILURE, req.ip, {
+        outcome: 'failure', reason: 'firebase_token_invalid', loginMethod: 'firebase',
+      });
+      return sendUnauthorized(res, 'Could not verify your phone number. Please try again.');
+    }
+
+    try {
+      // Honour the OTP brute-force lockout even though Google, not us, checked the
+      // code. Without this the two login paths are a lockout-evasion pair: burn
+      // through the MSG91 attempts until the number locks, then walk in through
+      // Firebase. The lock is keyed by phone, so it has to be enforced by every
+      // path that can mint a session for that phone.
+      //
+      // Only the CHECK belongs here, not recordOtpFailure: a rejected Firebase
+      // token carries no phone number to attribute a failure to, and token spam is
+      // already capped by firebaseLoginLimiter above.
+      const lock = await checkOtpLock(phone);
+      if (lock.locked) {
+        await auditAuthEvent(null, AUTH_ACTIONS.OTP_LOCKOUT, req.ip, {
+          phone: maskPhone(phone), outcome: 'locked', loginMethod: 'firebase',
+        });
+        res.setHeader('Retry-After', lock.retryAfterSec);
+        return sendError(
+          res,
+          'Too many incorrect attempts. This number is temporarily locked. Please try again later.',
+          423,
+          { retryAfter: lock.retryAfterSec },
+        );
+      }
+
+      // From here the phone is proven and unlocked, so this is the identical
+      // post-verification path the OTP flow runs — tokens, session cap, fraud
+      // stack, audit trail.
+      const { body: payload } = await issueSessionForVerifiedPhone({
+        req, res, phone, name, loginMethod: 'firebase',
+      });
+      // A clean login through either path clears accumulated failure state, so a
+      // user who genuinely owns the number isn't left half-locked.
+      await clearOtpLockout(phone);
+      return sendCreated(res, payload);
+    } catch (err) {
+      logger.error({ err }, '[Auth] firebase-login error');
       return sendError(res, 'Authentication failed', 500);
     }
   }

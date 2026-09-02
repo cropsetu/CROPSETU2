@@ -13,7 +13,10 @@
       "ios": {
         "buildConfiguration": "Debug"
       },
-      "channel": "development"
+      "channel": "development",
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_AUTH": "true"
+      }
     },
     "preview": {
       "distribution": "internal",
@@ -26,7 +29,8 @@
       "channel": "preview",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://cropsetu2-production.up.railway.app/api/v1",
-        "EXPO_PUBLIC_SOCKET_URL": "wss://cropsetu2-production.up.railway.app"
+        "EXPO_PUBLIC_SOCKET_URL": "wss://cropsetu2-production.up.railway.app",
+        "EXPO_PUBLIC_FIREBASE_AUTH": "true"
       }
     },
     "production": {

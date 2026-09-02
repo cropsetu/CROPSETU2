@@ -33,7 +33,9 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 // cookie with no matching `csrf` cookie 403s /auth/send-otp too, and the user can
 // never log back in to get fresh cookies. /auth/refresh stays protected: acting on
 // the ambient cookie credential is exactly what CSRF defends.
-const PRE_AUTH_PATHS = new Set(['/auth/send-otp', '/auth/verify-otp']);
+// /auth/firebase-login is pre-auth for the same reason: it mints the very session
+// a CSRF token would come from, so a stale orphan `rt` cookie must not 403 it.
+const PRE_AUTH_PATHS = new Set(['/auth/send-otp', '/auth/verify-otp', '/auth/firebase-login']);
 
 function isPreAuthPath(path) {
   for (const suffix of PRE_AUTH_PATHS) {
