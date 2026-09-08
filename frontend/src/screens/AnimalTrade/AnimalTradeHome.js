@@ -751,16 +751,20 @@ export default function AnimalTradeHome({ navigation, route }) {
           }
         />
 
-        {/* FAB */}
-        <TouchableOpacity
-          style={S.fab}
-          onPress={() => navigation.navigate('AddAnimalListing')}
-          accessibilityRole="button"
-          accessibilityLabel={t('animal.postAd')}
-        >
-          <Ionicons name="add" size={20} color={COLORS.white} />
-          <Text style={S.fabTxt}>{t('animal.postAd')}</Text>
-        </TouchableOpacity>
+        {/* FAB — only over a populated list. The empty state carries its own
+            "Post an Ad" CTA, and the FAB is absolutely positioned, so leaving it
+            up would print a second identical button on top of the headline. */}
+        {items.length > 0 && (
+          <TouchableOpacity
+            style={S.fab}
+            onPress={() => navigation.navigate('AddAnimalListing')}
+            accessibilityRole="button"
+            accessibilityLabel={t('animal.postAd')}
+          >
+            <Ionicons name="add" size={20} color={COLORS.white} />
+            <Text style={S.fabTxt}>{t('animal.postAd')}</Text>
+          </TouchableOpacity>
+        )}
 
         <ScrollToTopButton
           visible={showTopBtn}

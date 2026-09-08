@@ -342,9 +342,12 @@ function PhoneView({ insets, loading, errorMsg, phoneReady, phoneFocused, phoneD
     <LinearGradient colors={KHET.gradSurface} start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 1 }} style={[sty.root, lockViewport]}>
       <StatusBar style="dark" />
       <Blobs />
-      {/* Android already shrinks the window (adjustResize), so 'padding' would add
-          the keyboard height a second time and squeeze the body off-screen. */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[{ flex: 1 }, WEB_SHRINK]}>
+      {/* Expo SDK 54 forces Android edge-to-edge, and under it `adjustResize` no
+          longer shrinks the window — with behavior=undefined the keyboard simply
+          covered the field. 'padding' is safe on both: RN measures
+          (frame.bottom - keyboardTop), so on a window that DOES resize the
+          computed padding is ~0 and nothing is double-counted. */}
+      <KeyboardAvoidingView behavior="padding" style={[{ flex: 1 }, WEB_SHRINK]}>
         <ScrollView
           ref={scrollRef}
           style={[{ flex: 1 }, WEB_SHRINK]}
@@ -460,9 +463,12 @@ function OtpView({ insets, loading, errorMsg, otpDigits, otpRefs, autoFilled, ph
     <LinearGradient colors={KHET.gradSurface} start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 1 }} style={[sty.root, lockViewport]}>
       <StatusBar style="dark" />
       <Blobs />
-      {/* Android already shrinks the window (adjustResize), so 'padding' would add
-          the keyboard height a second time and squeeze the body off-screen. */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[{ flex: 1 }, WEB_SHRINK]}>
+      {/* Expo SDK 54 forces Android edge-to-edge, and under it `adjustResize` no
+          longer shrinks the window — with behavior=undefined the keyboard simply
+          covered the field. 'padding' is safe on both: RN measures
+          (frame.bottom - keyboardTop), so on a window that DOES resize the
+          computed padding is ~0 and nothing is double-counted. */}
+      <KeyboardAvoidingView behavior="padding" style={[{ flex: 1 }, WEB_SHRINK]}>
         <ScrollView
           ref={scrollRef}
           style={[{ flex: 1 }, WEB_SHRINK]}
@@ -766,7 +772,10 @@ const sty = StyleSheet.create({
     textAlign: 'center',
     fontSize: 28,
     color: KHET.foreground,
-    fontFamily: KFONT.displaySemi,
+    // Fraunces ships old-style (non-lining) figures: in a 6-box code field its
+    // 3/4/5/7 dip below the baseline and read as garbage glyphs, not digits.
+    // Plus Jakarta Sans has lining, evenly-weighted numerals.
+    fontFamily: KFONT.sansBold,
     borderWidth: 1,
     borderColor: KHET.border,
     ...KSHADOW.soft,
