@@ -673,6 +673,10 @@ export default function AgriStoreHome({ navigation }) {
     .filter((p) => Number(p.rating) > 0 && Number(p.ratingCount) > 0)
     .slice(0, 8);
 
+  // Sort chips and the result count only apply to a grid that has rows. While the
+  // first page is loading the skeleton stands in for rows, so they stay visible.
+  const hasRows = products.length > 0 || loading;
+
   return (
 
     <AnimatedScreen>
@@ -860,11 +864,19 @@ export default function AgriStoreHome({ navigation }) {
               <Text style={S.sectionTitle}>
                 {searchQuery.trim() ? t('store.searchResults', 'Results') : t('store.allProducts')}
               </Text>
-              <Text style={S.resultCount}>
-                {t('store.itemCount', { count: totalCount ?? products.length })}
-              </Text>
+              {/* "0 items" over an empty catalogue is noise — the empty state
+                  below already says there is nothing here. */}
+              {hasRows ? (
+                <Text style={S.resultCount}>
+                  {t('store.itemCount', { count: totalCount ?? products.length })}
+                </Text>
+              ) : null}
             </View>
 
+            {/* Sort chips only mean something when there are rows to sort. On an
+                empty shop they rendered above the "Coming Soon" panel and looked
+                like broken filters. */}
+            {hasRows ? (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -894,6 +906,7 @@ export default function AgriStoreHome({ navigation }) {
                 );
               })}
             </ScrollView>
+            ) : null}
 
             {loading && !products.length ? (
               // 2 rows × 2 columns = the same four placeholder cards this grid has
