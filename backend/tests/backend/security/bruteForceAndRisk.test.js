@@ -24,7 +24,7 @@ const { ENV } = await import('../../../src/config/env.js');
 // ── Part 1: brute-force is blocked ───────────────────────────────────────────
 describe('OTP brute-force lockout', () => {
   const PHONE = '9990008888';
-  beforeEach(async () => { resetOtpLockoutStore(); await clearOtpLockout(PHONE); });
+  beforeEach(async () => { await resetOtpLockoutStore(); await clearOtpLockout(PHONE); });
   afterAll(async () => { await clearOtpLockout(PHONE); });
 
   test('a fresh number is not locked', async () => {

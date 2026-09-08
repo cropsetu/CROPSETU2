@@ -32,10 +32,10 @@ function forge(scope, { difficulty = DIFFICULTY, ttl = 60000 } = {}) {
 let app;
 beforeAll(async () => { app = await getApp(); });
 afterAll(async () => { await cleanupTestData(); });
-beforeEach(() => {
+beforeEach(async () => {
   configureProofOfWork({ secret: SECRET, difficulty: DIFFICULTY, threshold: 3, ttlMs: 60000 });
   resetProofOfWorkStore();
-  resetRateLimitStore();
+  await resetRateLimitStore();
 });
 
 describe('proof-of-work service', () => {

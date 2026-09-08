@@ -14,9 +14,10 @@ beforeAll(async () => {
 });
 
 // Reset rate-limit counters between tests so per-IP verify/send counts from one
-// test don't leak into the next (they share an in-memory store + 60s window).
-beforeEach(() => {
-  resetRateLimitStore();
+// test don't leak into the next. Awaited because the store is Redis wherever a
+// client is up — every test here logs in from the same 127.0.0.1.
+beforeEach(async () => {
+  await resetRateLimitStore();
 });
 
 afterAll(async () => {
@@ -550,7 +551,7 @@ describe('Concurrent session limit', () => {
     for (let i = 0; i < cap + 1; i++) {
       // Each login needs a fresh OTP; reset the per-phone send limiter so the
       // loop isn't throttled (simulates logins spread over time).
-      resetRateLimitStore();
+      await resetRateLimitStore();
       await request(app).post('/api/v1/auth/send-otp').send({ phone });
       const res = await request(app)
         .post('/api/v1/auth/verify-otp')

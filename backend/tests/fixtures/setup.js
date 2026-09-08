@@ -223,10 +223,12 @@ export async function createTestCropShare(reportId, farmerId, sellerId, override
  * Order matters due to foreign key constraints.
  */
 export async function cleanupTestData() {
-  // Clear in-memory rate-limit and OTP-lockout counters so they don't carry
-  // into the next test file when jest reuses this worker process.
-  resetRateLimitStore();
-  resetOtpLockoutStore();
+  // Clear rate-limit and OTP-lockout counters so they don't carry into the next
+  // test file when jest reuses this worker process. Awaited: both helpers now
+  // sweep their Redis namespace too, and CI is the environment where that half
+  // is the only half that exists.
+  await resetRateLimitStore();
+  await resetOtpLockoutStore();
   await prisma.$transaction([
     prisma.auditLog.deleteMany(),
     prisma.notification.deleteMany(),

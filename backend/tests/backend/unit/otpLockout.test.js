@@ -1,24 +1,36 @@
 /**
  * Unit tests for the OTP brute-force lockout service.
  *
- * Runs against the in-memory fallback store (Redis is not connected under the
- * test harness), so behaviour is deterministic. Covers: lock after N failures,
- * exponential backoff across cycles, clear-on-verified-reset, and auto-clear on
- * timeout.
+ * Runs against the in-memory fallback store, which the mock below GUARANTEES by
+ * pinning the Redis client to an unready one. The suite used to assume the
+ * ambient environment supplied that — "Redis is not connected under the test
+ * harness" — which holds on a laptop and not in CI, where the workflow runs a
+ * real redis:7. There useRedis() returned true, `mem` was never written, and
+ * `otpLockoutStoreSize()` read 0 against an assertion demanding > 0; worse, the
+ * two bound tests turned 120,000 in-process Map writes into 120,000 socket
+ * round trips. Deterministic behaviour was the stated goal, so pin it.
+ *
+ * Covers: lock after N failures, exponential backoff across cycles,
+ * clear-on-verified-reset, and auto-clear on timeout.
  */
 import { jest } from '@jest/globals';
-import {
+
+jest.unstable_mockModule('../../../src/config/redis.js', () => ({
+  default: { status: 'end', scan: jest.fn(), unlink: jest.fn() },
+}));
+
+const {
   checkOtpLock,
   recordOtpFailure,
   clearOtpLockout,
   resetOtpLockoutStore,
-} from '../../../src/services/otpLockout.service.js';
-import { ENV } from '../../../src/config/env.js';
+} = await import('../../../src/services/otpLockout.service.js');
+const { ENV } = await import('../../../src/config/env.js');
 
 const PHONE = '9000000001';
 
-beforeEach(() => {
-  resetOtpLockoutStore();
+beforeEach(async () => {
+  await resetOtpLockoutStore();
 });
 
 async function failUntilLocked(phone) {
