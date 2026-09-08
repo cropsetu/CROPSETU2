@@ -14,6 +14,7 @@
 import redis from '../config/redis.js';
 import logger from '../utils/logger.js';
 import { BoundedMap } from '../utils/boundedMap.js';
+import { sweepKeys } from '../utils/redisKeySweep.js';
 import { sendError } from '../utils/response.js';
 
 // Counter to keep ZSET members unique within the same millisecond.
@@ -39,11 +40,28 @@ const MEM_MAX_KEYS = 50_000;
 const memHits = new BoundedMap({ maxSize: MEM_MAX_KEYS });
 
 /**
- * Test-only: clear the in-memory fallback store so rate-limit counters don't
- * leak between test files that share a worker process. No-op against Redis.
+ * Test-only: clear rate-limit state so counters don't leak between test files.
+ *
+ * The Redis half has to go too, and used not to. `check()` prefers Redis
+ * whenever the client is ready, and CI runs a real Redis while most laptops run
+ * none — so this reset did the whole job locally and nothing at all in CI.
+ * Every suite in a serial run shares one client IP, so the per-IP buckets
+ * accumulated across all ~126 of them inside a window up to an hour long and
+ * later suites started collecting 429s. Same commit, green on a laptop, red in
+ * CI. `tests/backend/security/farmRateLimit.js` documents the same leak from
+ * the other side and works around it with a per-run prefix; the suites that
+ * drive real routes cannot, because the prefixes are the routes'.
+ *
+ * Scoped to `rl:*` — the only namespace rateLimiter() writes — and gated on
+ * NODE_ENV=test so it can never sweep a live limiter.
+ *
+ * Returns a promise. Await it when the next assertion needs a clean window;
+ * callers that ignore it still get the synchronous in-memory clear.
  */
 export function resetRateLimitStore() {
   memHits.clear();
+  if (process.env.NODE_ENV !== 'test') return Promise.resolve(0);
+  return sweepKeys(redis, 'rl:*');
 }
 
 /**

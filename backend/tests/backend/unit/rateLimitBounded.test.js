@@ -8,10 +8,21 @@
  * outage under a flood grew the map for the life of the process. That is the
  * classic unbounded-Map leak, and this is the regression guard for its fix.
  *
- * These tests exercise the fallback path deliberately: under the test env no
- * Redis client reaches `status === 'ready'`, so `check()` routes to `memCheck`.
+ * These tests exercise the fallback path deliberately, so the Redis client is
+ * MOCKED to a permanently-unready one. It used to rely on the ambient
+ * environment instead — "under the test env no Redis client reaches
+ * `status === 'ready'`" — which is true on a laptop and false in CI, where the
+ * workflow runs a real redis:7 service. There `check()` took the Redis branch,
+ * `memHits` was never written, and `rateLimitStoreSize()` read 0 against
+ * assertions demanding 2 and >0. The two flood tests also pushed 100,000 Lua
+ * round trips over a socket inside 60s/120s budgets sized for an in-process
+ * Map. A suite about the fallback must not be able to miss the fallback.
  */
 import { jest } from '@jest/globals';
+
+jest.unstable_mockModule('../../../src/config/redis.js', () => ({
+  default: { status: 'end', eval: jest.fn(), scan: jest.fn(), unlink: jest.fn() },
+}));
 
 const { rateLimiter, resetRateLimitStore, rateLimitStoreSize } =
   await import('../../../src/middleware/rateLimit.js');
@@ -54,8 +65,8 @@ function fire(mw, id) {
 }
 
 describe('in-memory fallback store bounds', () => {
-  beforeEach(() => { resetRateLimitStore(); });
-  afterAll(() => { resetRateLimitStore(); });
+  beforeEach(() => resetRateLimitStore());
+  afterAll(() => resetRateLimitStore());
 
   test('starts empty and grows one key per distinct client', async () => {
     const mw = limiter();
@@ -94,7 +105,7 @@ describe('in-memory fallback store bounds', () => {
     const mw = limiter();
     await fire(mw, 'x');
     expect(rateLimitStoreSize()).toBeGreaterThan(0);
-    resetRateLimitStore();
+    await resetRateLimitStore();
     expect(rateLimitStoreSize()).toBe(0);
   });
 });

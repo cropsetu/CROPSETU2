@@ -17,6 +17,7 @@ import redis from '../config/redis.js';
 import { ENV } from '../config/env.js';
 import logger from '../utils/logger.js';
 import { BoundedMap } from '../utils/boundedMap.js';
+import { sweepKeys } from '../utils/redisKeySweep.js';
 
 const FAIL_KEY  = (p) => `otp:fail:${p}`;
 const LOCK_KEY  = (p) => `otp:lock:${p}`;
@@ -44,9 +45,24 @@ export function otpLockoutStoreSize() {
   return mem.size;
 }
 
-/** Test-only: clear the in-memory store so locks don't leak between test files. */
+/**
+ * Test-only: clear lockout state so locks don't leak between test files.
+ *
+ * Sweeps Redis as well as memory, for the same reason resetRateLimitStore()
+ * does: useRedis() wins wherever a client is up, so a memory-only reset is a
+ * no-op in CI and complete on a laptop — the one asymmetry that lets a suite
+ * disagree with CI at an identical commit.
+ *
+ * Returns a promise; the in-memory clear is synchronous regardless.
+ */
 export function resetOtpLockoutStore() {
   mem.clear();
+  if (process.env.NODE_ENV !== 'test') return Promise.resolve(0);
+  return Promise.all([
+    sweepKeys(redis, 'otp:fail:*'),
+    sweepKeys(redis, 'otp:lock:*'),
+    sweepKeys(redis, 'otp:lockcycle:*'),
+  ]).then((counts) => counts.reduce((a, b) => a + b, 0));
 }
 
 /** Backoff (seconds) for the Nth lock in a cycle window: base × 2^(cycle-1), capped. */
