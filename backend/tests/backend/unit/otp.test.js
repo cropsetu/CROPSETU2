@@ -77,7 +77,16 @@ describe('OTP dev bypass — production boot guard (subprocess)', () => {
   const prodEnv = (extra) => ({
     ...process.env,
     NODE_ENV: 'production',
-    // Satisfy the other production-required keys so the bypass is the lever under test.
+    // Satisfy the other production-required keys so the bypass is the lever under
+    // test. This list must track the production guard at the foot of
+    // config/env.js: anything that guard rejects has to be supplied here, or the
+    // subprocess dies for a reason that has nothing to do with the bypass.
+    //
+    // `...process.env` above hides that drift on a developer machine, where the
+    // spread carries a real .env in. A bare CI environment carries in the five
+    // keys the workflow sets and nothing else, which is how SARVAM_API_KEY —
+    // added to the guard, never added here — turned into a red build that no
+    // laptop could reproduce.
     DATABASE_URL: process.env.DATABASE_URL || 'postgresql://u:p@localhost:5432/db',
     JWT_SECRET: 'x'.repeat(40),
     FIELD_ENCRYPTION_KEY: 'a'.repeat(64),
@@ -85,6 +94,7 @@ describe('OTP dev bypass — production boot guard (subprocess)', () => {
     FIELD_ENCRYPTION_ACTIVE_KEY_ID: '',
     AI_SHARED_SECRET: 'x'.repeat(24),
     GEMINI_API_KEY: 'test',
+    SARVAM_API_KEY: 'test',
     GROQ_API_KEY: 'test',
     MSG91_AUTH_KEY: '',
     ...extra,
@@ -101,6 +111,10 @@ describe('OTP dev bypass — production boot guard (subprocess)', () => {
 
   test('boot SUCCEEDS in production when the bypass opt-in is absent', () => {
     const res = importEnv(prodEnv({ OTP_DEV_BYPASS_ENABLED: 'false' }));
+    // Asserted BEFORE the status so the next key added to the production guard
+    // reports itself by name. On its own `expect(status).toBe(0)` says only
+    // "expected 0, received 1", which is what this failure looked like in CI.
+    expect(`${res.stderr}${res.stdout}`).not.toMatch(/production config invalid/i);
     expect(res.status).toBe(0);
   });
 });

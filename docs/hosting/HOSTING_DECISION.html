@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KrushiSarva — Hosting Platform Decision (10,000 users)</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+  * { box-sizing: border-box; }
+  html { font-size: 10.5pt; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: #14181f;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  h1, h2, h3, h4 { font-weight: 600; line-height: 1.25; margin: 0 0 .4em; }
+  h1 { font-size: 26pt; letter-spacing: -.02em; }
+  h2 {
+    font-size: 15pt; margin-top: 1.6em; padding-bottom: .3em;
+    border-bottom: 2px solid #1f6f43; color: #14181f;
+    break-after: avoid; page-break-after: avoid;
+  }
+  h3 { font-size: 11.5pt; margin-top: 1.4em; color: #1f6f43; break-after: avoid; page-break-after: avoid; }
+  h4 { font-size: 10.5pt; margin-top: 1.1em; color: #3a4553; break-after: avoid; }
+  p { margin: 0 0 .65em; }
+  ul, ol { margin: 0 0 .7em; padding-left: 1.25em; }
+  li { margin-bottom: .28em; }
+  code, .mono { font-family: "Cascadia Mono", Consolas, "SF Mono", monospace; font-size: .87em; }
+  code { background: #f1f3f5; padding: .08em .3em; border-radius: 3px; color: #10361f; }
+  pre {
+    background: #f7f8fa; border: 1px solid #e2e6ea; border-left: 3px solid #1f6f43;
+    padding: .7em .9em; border-radius: 4px; font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 8.6pt; line-height: 1.45; white-space: pre-wrap;
+    margin: .6em 0 .9em; break-inside: avoid; page-break-inside: avoid;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+  table {
+    width: 100%; border-collapse: collapse; margin: .6em 0 1em; font-size: 8.9pt;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  th, td { border: 1px solid #dde2e7; padding: .42em .55em; text-align: left; vertical-align: top; }
+  th { background: #eef2f0; font-weight: 600; color: #14181f; }
+  tbody tr:nth-child(even) { background: #fafbfc; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .cover {
+    height: 248mm; display: flex; flex-direction: column; justify-content: center;
+    break-after: page; page-break-after: always;
+  }
+  .cover .rule { width: 70px; height: 4px; background: #1f6f43; margin: 0 0 1.6em; }
+  .cover .sub { font-size: 13pt; color: #4a5563; margin-top: .2em; font-weight: 400; }
+  .cover .meta { margin-top: 3.5em; font-size: 9pt; color: #5b6572; line-height: 1.9; }
+  .cover .meta b { color: #14181f; font-weight: 600; display: inline-block; min-width: 130px; }
+  .verdict {
+    background: #eef6f1; border: 1px solid #bcd9c8; border-left: 4px solid #1f6f43;
+    padding: .85em 1em; border-radius: 4px; margin: 1em 0 1.2em;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .verdict h4 { margin-top: 0; color: #1f6f43; text-transform: uppercase; letter-spacing: .06em; font-size: 8.5pt; }
+  .warn {
+    background: #fdf3ec; border: 1px solid #f0d0b4; border-left: 4px solid #c26620;
+    padding: .85em 1em; border-radius: 4px; margin: 1em 0 1.2em;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .warn h4 { margin-top: 0; color: #a8541a; text-transform: uppercase; letter-spacing: .06em; font-size: 8.5pt; }
+  .note {
+    background: #f7f8fa; border: 1px solid #e2e6ea; padding: .75em .95em;
+    border-radius: 4px; margin: .9em 0; font-size: 9.3pt; color: #3a4553;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .pill {
+    display: inline-block; padding: .1em .5em; border-radius: 10px;
+    font-size: 7.8pt; font-weight: 600; letter-spacing: .03em; white-space: nowrap;
+  }
+  .p-yes  { background: #dff0e4; color: #1c6238; }
+  .p-no   { background: #fbe0dc; color: #9c2f22; }
+  .p-warn { background: #fdefd8; color: #8a5a10; }
+  .p-rec  { background: #1f6f43; color: #fff; }
+  .p-skip { background: #e8eaed; color: #5b6572; }
+  .pagebreak { break-before: page; page-break-before: always; }
+  .avoid { break-inside: avoid; page-break-inside: avoid; }
+  .caption { font-size: 8.3pt; color: #6b7480; margin: -.5em 0 1.1em; font-style: italic; }
+  .total-row { font-weight: 700; background: #eef2f0 !important; }
+  s { color: #8a929c; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="rule"></div>
+  <h1>Hosting Platform Decision</h1>
+  <div class="sub">KrushiSarva — infrastructure, cost and execution plan for a platform sized to <b>10,000 users</b></div>
+  <div class="meta">
+    <div><b>Repository</b> CROPSETU2 &middot; branch <span class="mono">main</span> &middot; <span class="mono">1f41862</span></div>
+    <div><b>Date</b> 5 September 2026</div>
+    <div><b>Target</b> 10,000 registered users &mdash; see &sect;2 for the derivation</div>
+    <div><b>Supersedes</b> The 100,000-user version of this document</div>
+    <div><b>Basis</b> Read from the working tree and <span class="mono">docs/performance/BASELINE.md</span></div>
+  </div>
+  <div style="margin-top:4em; padding-top:1.2em; border-top:1px solid #dde2e7; font-size:9pt; color:#5b6572;">
+    <b style="color:#1f6f43;">Headline:</b> Railway, one replica of each service, roughly
+    <b>$110 per month all-in</b>. At this size the architecture you already have is comfortably
+    over-provisioned. Two things still matter and neither is a scaling problem: the database has
+    <b>no tested restore</b>, and a handful of correctness defects bite identically at 100 users
+    and at 100,000.
+  </div>
+</section>
+
+<h2>1. Executive summary</h2>
+
+<div class="verdict">
+  <h4>Recommendation</h4>
+  <p style="margin-bottom:.4em;"><b>Railway. One replica of each of the four services. Do not plan a migration.</b>
+  At 10,000 registered users the system peaks at roughly 10&ndash;30 requests per second, which is
+  around <b>5&ndash;10% of what a single Express replica handles</b>. There is no capacity problem to
+  solve, and no cost pressure that would justify moving.</p>
+  <p style="margin-bottom:0;">The work worth doing is therefore not scaling work. It is
+  <b>(a)</b> giving the database a restore path, <b>(b)</b> closing correctness defects that do not
+  care how many users you have, and <b>(c)</b> a $90/month media-delivery fix that currently costs
+  more than every server you run combined.</p>
+</div>
+
+<h3>Total cost of ownership</h3>
+
+<table>
+  <thead>
+    <tr><th style="width:36%">Line</th><th class="num" style="width:20%">Today</th><th class="num" style="width:20%">At 10,000 users</th><th style="width:24%">Driver</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Compute (4 services, 1 replica each)</td><td class="num">$45</td><td class="num">$45</td><td>Flat &mdash; no replica growth needed</td></tr>
+    <tr><td>PostgreSQL (managed, with PITR)</td><td class="num">$19</td><td class="num">$19</td><td>Flat at this data volume</td></tr>
+    <tr><td>Redis (persistent)</td><td class="num">$6</td><td class="num">$6</td><td>Flat</td></tr>
+    <tr><td>Media delivery <span class="pill p-rec">R2 or Bunny</span></td><td class="num">$2</td><td class="num">$11</td><td>~144 GB/month egress</td></tr>
+    <tr><td><s>Media delivery on Cloudinary</s></td><td class="num"><s>$0</s></td><td class="num"><s>$99</s></td><td><s>free tier exceeded at ~25 GB</s></td></tr>
+    <tr><td>AI providers</td><td class="num">$5</td><td class="num">$15</td><td>Assumes cheap-model routing</td></tr>
+    <tr><td>SMS OTP (MSG91)</td><td class="num">$3</td><td class="num">$12</td><td>~5,000 messages/month</td></tr>
+    <tr><td>Monitoring (Sentry + uptime)</td><td class="num">$0</td><td class="num">$0&ndash;26</td><td>Free tiers cover this size</td></tr>
+    <tr class="total-row"><td><b>Total</b></td><td class="num"><b>~$80</b></td><td class="num"><b>~$110</b></td><td></td></tr>
+  </tbody>
+</table>
+<p class="caption">Modelled from resource shapes read in the code, not measured in production. Arithmetic in sections 6 to 8.</p>
+
+<p>The bill barely moves between "today" and "ten thousand users" because <b>nothing in the topology
+has to change</b>. That is the single most useful fact in this document: your infrastructure decision
+is already made, and it is correct.</p>
+
+<h3>The four things to actually do</h3>
+
+<table>
+  <thead>
+    <tr><th style="width:5%">#</th><th style="width:33%">Action</th><th style="width:13%">Effort</th><th style="width:13%">Saves / prevents</th><th style="width:36%">Why</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td><td><b>Managed Postgres with PITR</b></td><td>Half a day</td><td>Total data loss</td>
+      <td>The Railway plugin is one container on one volume with no restore you have ever tested. Orders, payments and the credit ledger live there.</td>
+    </tr>
+    <tr>
+      <td>2</td><td><b>Close the correctness defects</b> in &sect;5</td><td>2&ndash;3 days</td><td>Silent failure, double-charges</td>
+      <td>These are bugs, not capacity limits. Shrinking the user target does not shrink them.</td>
+    </tr>
+    <tr>
+      <td>3</td><td><b>Media delivery to R2 or Bunny</b></td><td>1 day</td><td>~$88/month</td>
+      <td>Cloudinary at this traffic costs more than your entire backend. Largest single cost lever you have.</td>
+    </tr>
+    <tr>
+      <td>4</td><td><b>Cloudflare in front of the API</b></td><td>1 hour</td><td>~180 ms setup latency</td>
+      <td>Free. Terminates TLS in India while the origin stays in Singapore.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>That is the whole plan. Roughly <b>four days of work</b>, after which the hosting question is closed
+until the user target changes.</p>
+
+<div class="pagebreak"></div>
+<h2>2. What "10,000 users" means in load terms</h2>
+
+<p>Capacity decisions cannot be made from a registered-user count. The derivation below uses the same
+ratios the project's own directive applies at 100,000 users, scaled down by a factor of ten.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:30%">Quantity</th><th class="num" style="width:22%">At 100,000 users<br>(previous target)</th><th class="num" style="width:22%">At 10,000 users<br>(this document)</th><th style="width:26%">Ratio used</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Registered users</td><td class="num">100,000</td><td class="num"><b>10,000</b></td><td>given</td></tr>
+    <tr><td>Daily active users</td><td class="num">20,000</td><td class="num"><b>2,000</b></td><td>20% of registered</td></tr>
+    <tr><td>Peak concurrent users</td><td class="num">3,000&ndash;5,000</td><td class="num"><b>300&ndash;500</b></td><td>~20% of DAU at peak</td></tr>
+    <tr><td>Peak API traffic</td><td class="num">100&ndash;300 RPS</td><td class="num"><b>10&ndash;30 RPS</b></td><td>proportional</td></tr>
+    <tr><td>Peak database load</td><td class="num">~1,200 q/s</td><td class="num"><b>~120&ndash;400 q/s</b></td><td>~4&ndash;13 queries/request</td></tr>
+    <tr><td>Concurrent Socket.IO connections</td><td class="num">3,000&ndash;5,000</td><td class="num"><b>300&ndash;500</b></td><td>tracks concurrent users</td></tr>
+    <tr><td>Crop scans per day</td><td class="num">~1,000</td><td class="num"><b>~100</b></td><td>5% of DAU</td></tr>
+    <tr><td>Media delivery</td><td class="num">~1.44 TB/month</td><td class="num"><b>~144 GB/month</b></td><td>30 views/DAU at 80 KB</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>Confirmed reading:</b> 10,000 is the <b>total registered user base</b>, not a daily figure. Every
+  number in this document derives from that. The 20% daily-active ratio is the one carried over from
+  the project's own directive; if real engagement runs hotter — say 40% — the load column doubles and
+  the system is still comfortably inside one replica.
+</div>
+
+<h3>The headroom this buys</h3>
+
+<p><span class="mono">backend/src/config/db.js</span> pins <span class="mono">connection_limit=12</span>
+per replica, and the comment there derives it by Little's law for a <b>300 RPS</b> target:</p>
+
+<pre>fast path   300 req/s × ~4 queries/req = 1200 q/s × ~2 ms       ≈  2.4 busy connections
+slow tail   1% at ~250 ms (geo scans, trigram, admin aggregates) ≈  3.0 busy connections
+            fleet ≈ 5.4 busy;  ×2 so queueing stays negligible   ≈ 11 fleet-wide</pre>
+
+<p>Your peak is <b>10&ndash;30 RPS, one tenth of that</b>. The same pool that was sized for four
+replicas at full load is now serving a single replica at a tenth of the load. Concretely:</p>
+
+<ul>
+  <li><b>One Express replica is enough</b>, with roughly 5&ndash;10× headroom before the event loop
+  becomes the constraint.</li>
+  <li><b>Database connections: 12 of 100.</b> The budget in the baseline reserved 72 for Express across
+  six replicas; you will use twelve. A connection pooler is not merely unnecessary, it would be
+  solving nothing.</li>
+  <li><b>300&ndash;500 concurrent sockets on one Node process is unremarkable.</b> Node handles
+  thousands. Socket.IO's Redis adapter exists to coordinate <em>multiple</em> replicas; with one
+  replica it is inert, and it already falls back to the in-memory adapter cleanly
+  (<span class="mono">server.js:93</span>).</li>
+  <li><b>Twelve cron schedules on one replica run twelve times, not twelve times N.</b> The
+  leader-lock multiplication problem needs two or more replicas to exist at all.</li>
+</ul>
+
+<div class="pagebreak"></div>
+<h2>3. Platform choice</h2>
+
+<p>The shape of the stack, not its size, is what narrows the field. Four properties of the code
+disqualify most platforms before price is considered.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:26%">Constraint</th><th style="width:32%">Where in the code</th><th style="width:42%">What it rules out</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>Long-lived WebSockets</b></td>
+      <td><span class="mono">server.js:93</span> — Socket.IO with a Redis pub/sub pair</td>
+      <td>Vercel, Netlify, Cloudflare Workers, bare Lambda. Request-scoped runtimes cannot hold a socket open.</td>
+    </tr>
+    <tr>
+      <td><b>Two queue workers</b></td>
+      <td><span class="mono">backend/src/worker.js</span>; <span class="mono">fastapi/railway.json</span> with <span class="mono">ROLE=worker</span></td>
+      <td>Platforms without a first-class non-HTTP process type.</td>
+    </tr>
+    <tr>
+      <td><b>12 cron schedules</b></td>
+      <td><span class="mono">server.js:223–437</span>, <span class="mono">utils/leaderLock.js</span></td>
+      <td>Scale-to-zero platforms. A sleeping container fires no cron.</td>
+    </tr>
+    <tr>
+      <td><b>Redis holds correctness state</b></td>
+      <td>Idempotency keys, AI spend counters, JWT jti denylist, leader locks, BullMQ and Celery brokers</td>
+      <td>Ephemeral or cache-only Redis tiers. Losing this Redis is not a cache miss — it is duplicate charges and double-spent AI credits.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>The viable field, scored at 10,000 users</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:20%">Platform</th><th class="num" style="width:14%">Cost at this size</th>
+      <th style="width:14%">Ops burden</th><th style="width:52%">Verdict</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>Railway</b> <span class="pill p-rec">chosen</span></td><td class="num">~$70</td>
+      <td><span class="pill p-yes">Very low</span></td>
+      <td>Already configured and working: root Dockerfile, four services, role switch, healthchecks. The only weakness is the database plugin, and that is separable without leaving the platform.</td>
+    </tr>
+    <tr>
+      <td><b>Render</b></td><td class="num">~$85</td>
+      <td><span class="pill p-yes">Low</span></td>
+      <td>Equivalent capability, better native database story, slightly more expensive. No reason to migrate <em>to</em> it once you have put Postgres on Neon.</td>
+    </tr>
+    <tr>
+      <td><b>Fly.io</b></td><td class="num">~$60</td>
+      <td><span class="pill p-warn">Medium</span></td>
+      <td>Cheapest of the three and has a Mumbai region. Their managed Postgres is the weaker part. Worth it only if measured India latency turns out to be the binding constraint — see &sect;7.</td>
+    </tr>
+    <tr>
+      <td><b>Single VPS + Coolify</b><br>(Hetzner / DO Bangalore)</td><td class="num">~$30</td>
+      <td><span class="pill p-no">High</span></td>
+      <td>Genuinely cheapest, and one 8 GB box would run this entire stack. You take on backups, patching, TLS renewal, monitoring and a single point of failure. <b>Saving $40/month is not worth an engineer's weekend, at any team size.</b></td>
+    </tr>
+    <tr>
+      <td><b>AWS Mumbai</b></td><td class="num">$180+</td>
+      <td><span class="pill p-no">Very high</span></td>
+      <td><span class="pill p-skip">Premature</span> Three times the cost and weeks of setup for capacity you would use 5% of.</td>
+    </tr>
+    <tr>
+      <td><b>Vercel / Netlify / Workers</b></td><td class="num">&mdash;</td>
+      <td>&mdash;</td>
+      <td><span class="pill p-no">Disqualified</span> Cannot hold a Socket.IO connection, run Celery, or fire node-cron. Not a cost question.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="verdict">
+  <h4>There is no exit trigger at this scale</h4>
+  <p style="margin-bottom:0;">The 100,000-user version of this document set a threshold for leaving
+  Railway at roughly $400/month. At 10,000 users the bill lands near <b>$70</b> and stays there. You
+  will not approach that threshold. <b>Treat the platform question as closed</b> and stop spending
+  attention on it &mdash; that is the correct outcome of asking it.</p>
+</div>
+
+<div class="pagebreak"></div>
+<h2>4. The one thing that does not get easier: the database</h2>
+
+<div class="warn">
+  <h4>Highest-severity finding, and it is not a scaling issue</h4>
+  <p style="margin-bottom:.4em;">The Railway PostgreSQL plugin is <b>a single container attached to a
+  single volume</b>: no point-in-time recovery, no automatic failover, no read replica, and no restore
+  you have ever exercised.</p>
+  <p style="margin-bottom:0;">This database holds orders, payments, the AI credit ledger, KYC records
+  and consent history. A volume failure, a mistaken manual SQL statement, or an accidental service
+  deletion is <b>unrecoverable</b>. Ten thousand real users' orders are not less valuable than a
+  hundred thousand.</p>
+</div>
+
+<p>Three facts already recorded in the repository make the exposure worse:</p>
+
+<ol>
+  <li><b>Schema changes are applied by hand.</b> <span class="mono">prisma/migrations/</span> contains
+  13 directories but only 65 <span class="mono">CREATE TABLE</span> for 90 models and 23
+  <span class="mono">CREATE TYPE</span> for 43 enums. It cannot rebuild a fresh database, so
+  <span class="mono">prisma migrate deploy</span> is unavailable and changes go through
+  <span class="mono">prisma/manual/*.sql</span>. Manual SQL against production with no PITR is the most
+  common way small teams lose data.</li>
+  <li><b>Two tables are invisible to Prisma.</b> <span class="mono">ai_scan_diagnoses</span> and
+  <span class="mono">ai_scan_feedback</span> are created by FastAPI through asyncpg and do not appear
+  in <span class="mono">schema.prisma</span>. A restore rebuilt from the Prisma schema silently omits
+  them.</li>
+  <li><b>There is no CI.</b> No <span class="mono">.github/workflows</span> runs the backend tests,
+  the FastAPI tests, or Prisma validation on any push. With hand-applied migrations, CI is the only
+  guard rail there could be.</li>
+</ol>
+
+<h3>Where to move it</h3>
+
+<table>
+  <thead>
+    <tr><th style="width:16%">Option</th><th class="num" style="width:14%">$/month</th><th style="width:36%">Why it fits</th><th style="width:34%">Caveat</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>Neon</b> <span class="pill p-rec">preferred</span></td><td class="num">$19</td>
+      <td>Point-in-time recovery, and database branching gives you a real throwaway copy per pull request — which is exactly what hand-written migration SQL needs before it touches production.</td>
+      <td>Confirm the Singapore region is available on the plan you pick.</td>
+    </tr>
+    <tr>
+      <td><b>Supabase</b></td><td class="num">$25</td>
+      <td>Managed Postgres with daily backups, PITR as an add-on, and a Mumbai region.</td>
+      <td>You will use almost none of the surrounding platform.</td>
+    </tr>
+    <tr>
+      <td><b>Railway plugin</b> (today)</td><td class="num">$16</td>
+      <td>Nothing to do.</td>
+      <td><b>Not acceptable once real orders exist.</b> Saves $3/month against an unbounded loss.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>The migration is already unblocked.</b> The boot-time <span class="mono">prisma db push</span>
+  that held a session-scoped advisory lock was removed in commit <span class="mono">fe95648</span>, and
+  the <span class="mono">Dockerfile</span> now starts with <span class="mono">node src/server.js</span>
+  alone. Nothing in the deploy path fights a managed provider or its pooler. This is a half-day of
+  work, not a project.
+</div>
+
+<div class="pagebreak"></div>
+<h2>5. What does <em>not</em> scale down</h2>
+
+<p>Reducing the user target removes capacity work. It removes none of the following, because none of
+these are load-dependent. Several are <b>more</b> dangerous at small scale, where there is not enough
+traffic for a problem to announce itself.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:26%">Defect</th><th style="width:12%">Reference</th><th style="width:62%">Why 10,000 users does not help</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>No Celery worker liveness signal</b></td><td><span class="mono">PERF-010</span></td>
+      <td>FastAPI reports healthy while zero workers are deployed, and every crop scan queues forever. At 100 scans a day this goes unnoticed for <em>longer</em> than it would at 1,000 — there is no traffic spike to make it obvious. Users simply stop getting results.</td>
+    </tr>
+    <tr>
+      <td><b>AI spend cap missed chat and voice</b></td><td><span class="mono">PERF-038</span></td>
+      <td>The daily cap was only ever measuring scans. A runaway loop or a prompt-injection costs the same whether you have ten users or ten thousand — the cap is protection against a bug, not against volume.</td>
+    </tr>
+    <tr>
+      <td><b>Credit and spend reservation races</b></td><td><span class="mono">PERF-040</span>, &sect;53</td>
+      <td>A read-then-write check lets concurrent requests all pass the same limit. It needs two simultaneous requests, not two thousand. One user double-tapping a button is enough.</td>
+    </tr>
+    <tr>
+      <td><b>Payment and stock concurrency</b></td><td>&sect;51, &sect;52</td>
+      <td>Overselling one item to two buyers is the same defect and the same refund at any scale. The serializable transaction and the unique constraints must hold from the first order.</td>
+    </tr>
+    <tr>
+      <td><b>Unbounded process maps</b></td><td><span class="mono">PERF-039</span></td>
+      <td>A long-lived <span class="mono">Map</span> keyed by request or IP grows with <em>unique keys seen</em>, not with concurrent users, and a single replica that never restarts accumulates them indefinitely. Small scale makes this worse, not better.</td>
+    </tr>
+    <tr>
+      <td><b>38 failing tests, no CI</b></td><td><span class="mono">PERF-001</span>, &sect;60</td>
+      <td>Roughly 24 of the 38 are one contract disagreement: tests assert HTTP 422 where <span class="mono">middleware/validate.js</span> sends 400. Until that is settled there is no clean regression signal for <em>any</em> change, including the database migration in &sect;4.</td>
+    </tr>
+    <tr>
+      <td><b>Dev OTP fallback in production</b></td><td>MSG91 / DLT</td>
+      <td>With no MSG91 key the server returns the OTP in the API response instead of sending it. That is a complete authentication bypass if it ever reaches production, and it is entirely independent of user count.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="warn">
+  <h4>The reframe</h4>
+  <p style="margin-bottom:0;">Scaling the target from 100,000 to 10,000 users deletes most of the
+  performance backlog. It deletes <b>none</b> of this table. If there is one section of this document
+  to act on, it is this one &mdash; the platform question above was already answered by the status quo.</p>
+</div>
+
+<h3>What you can now stop worrying about</h3>
+
+<p>Explicitly listed so the effort goes somewhere useful. Every item below was justified at 100,000
+users and is <b>premature at 10,000</b>:</p>
+
+<table>
+  <thead><tr><th style="width:34%">Deferred work</th><th style="width:66%">Threshold at which it becomes real</th></tr></thead>
+  <tbody>
+    <tr><td>PgBouncer / connection pooler</td><td>~6 Express replicas. You will run one. <b>Never needed at this size.</b></td></tr>
+    <tr><td>Moving cron off the web tier</td><td>Two or more replicas, where the two unlocked schedules start multiplying.</td></tr>
+    <tr><td>Scoping Socket.IO presence fan-out</td><td>A global broadcast is O(C). At C = 400 it is free; it becomes real around C = 5,000.</td></tr>
+    <tr><td>Converting the remaining OFFSET pagination</td><td>Deep offsets on large tables. Your tables will be small. <span class="mono">PERF-019</span> already recorded these as deliberately not converted.</td></tr>
+    <tr><td>Auth hot-path cache</td><td>One user lookup per request is ~30 q/s at peak here. Postgres does thousands. Cheap to add, but it is not urgent.</td></tr>
+    <tr><td>Table partitioning, archival, retention tiers</td><td>Tens of millions of rows. At 2,000 DAU, <span class="mono">mandi_prices</span> is the only table with meaningful independent growth.</td></tr>
+    <tr><td>Read replicas, multi-region, dedicated search</td><td>Not on this roadmap. Postgres trigram search is more than sufficient.</td></tr>
+  </tbody>
+</table>
+
+<div class="pagebreak"></div>
+<h2>6. Compute cost model</h2>
+
+<p>Modelled on Railway's usage pricing shape. <b>Verify the current published rates before
+budgeting</b> — the arithmetic is what matters and survives a price change.</p>
+
+<pre>Assumed unit rates:   memory  ≈ $10 / GB / month
+                      vCPU    ≈ $20 / vCPU / month
+                      egress  ≈ $0.05 / GB</pre>
+
+<table>
+  <thead>
+    <tr><th style="width:32%">Service</th><th class="num">Replicas</th><th class="num">RAM</th><th class="num">vCPU (avg)</th><th class="num">$/month</th><th style="width:22%">Utilisation at peak</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Express backend + admin SPA</td><td class="num">1</td><td class="num">1.0 GB</td><td class="num">0.3</td><td class="num">16</td><td>~10&ndash;20%</td></tr>
+    <tr><td>Node worker (BullMQ)</td><td class="num">1</td><td class="num">0.5 GB</td><td class="num">0.1</td><td class="num">7</td><td>low</td></tr>
+    <tr><td>FastAPI (<span class="mono">--workers 2</span>)</td><td class="num">1</td><td class="num">0.5 GB</td><td class="num">0.15</td><td class="num">8</td><td>low</td></tr>
+    <tr><td>Celery worker (<span class="mono">concurrency 2</span>)</td><td class="num">1</td><td class="num">0.5 GB</td><td class="num">0.15</td><td class="num">8</td><td>~100 scans/day</td></tr>
+    <tr><td>PostgreSQL &mdash; <b>Neon</b></td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">19</td><td>~120&ndash;400 q/s</td></tr>
+    <tr><td>Redis (persistent)</td><td class="num">1</td><td class="num">0.4 GB</td><td class="num">0.1</td><td class="num">6</td><td>low</td></tr>
+    <tr><td>Egress (~60 GB, media excluded)</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">3</td><td>&mdash;</td></tr>
+    <tr class="total-row"><td><b>Total compute + data</b></td><td class="num"></td><td class="num">2.9 GB</td><td class="num">0.8</td><td class="num"><b>$67</b></td><td></td></tr>
+  </tbody>
+</table>
+
+<p class="caption">Railway's plan fee (Hobby $5, Pro $20) includes an equivalent usage credit, so the effective bill is close to the usage total.</p>
+
+<h3>Two consolidations available, and why to skip one</h3>
+
+<ul>
+  <li><b>Drop the standalone Node worker.</b> The Express replica already runs an in-process BullMQ
+  consumer at <span class="mono">QUEUE_CONCURRENCY=5</span>, so the separate
+  <span class="mono">worker.js</span> service is optional. Saves <b>$7/month</b>. <b>Keep it anyway</b>
+  — it is the only isolation between a slow notification job and the HTTP event loop, and $7 is not a
+  reason to give that up. Verify that only one of the two is consuming the queue in production, so
+  jobs are not picked up by both.</li>
+  <li><b>Reduce FastAPI to one uvicorn worker.</b> <span class="mono">WEB_CONCURRENCY</span> defaults
+  to 2. At this traffic one is genuinely sufficient and it halves the FastAPI memory footprint and its
+  asyncpg pool usage. Saves ~$3/month and some database connections. Low risk, do it if you are tuning.</li>
+</ul>
+
+<h3>Growth headroom</h3>
+
+<p>The useful question is not what 10,000 users costs, but at what point the bill changes shape:</p>
+
+<table>
+  <thead><tr><th style="width:30%">Milestone</th><th class="num" style="width:18%">Compute + data</th><th style="width:52%">What changes</th></tr></thead>
+  <tbody>
+    <tr><td>10,000 registered <span class="pill p-rec">target</span></td><td class="num">$67</td><td>Nothing. One replica each.</td></tr>
+    <tr><td>25,000 registered</td><td class="num">~$90</td><td>Second Express replica for redundancy rather than capacity. Cron leader locks start to matter.</td></tr>
+    <tr><td>50,000 registered</td><td class="num">~$160</td><td>Two to three Express replicas, larger Postgres. Auth cache and cron separation become worth doing.</td></tr>
+    <tr><td>100,000 registered</td><td class="num">~$640</td><td>Five or six replicas, a connection pooler, and the platform question genuinely reopens.</td></tr>
+  </tbody>
+</table>
+
+<p>Between here and 50,000 registered users, <b>the infrastructure does not need a decision</b>. It
+needs one extra replica and a bigger database, both of which are dashboard settings.</p>
+
+<div class="pagebreak"></div>
+<h2>7. Region and latency</h2>
+
+<p>Railway's nearest region is Singapore; there is no India region. The users are farmers on low-end
+Android devices on 2G, 3G and weak LTE. Both facts are fixed, and the gap between them is closed by a
+CDN rather than by a migration.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:32%">Path</th><th class="num" style="width:16%">RTT</th><th class="num" style="width:22%">Cold connection setup</th><th style="width:30%">Cost to obtain</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>India &rarr; Singapore, direct</td><td class="num">55&ndash;75 ms</td><td class="num">~200&ndash;225 ms</td><td>current state</td></tr>
+    <tr><td>India &rarr; Cloudflare India PoP</td><td class="num">10&ndash;25 ms</td><td class="num">~40&ndash;75 ms</td><td><b>free, one hour</b></td></tr>
+    <tr><td>India &rarr; Mumbai origin</td><td class="num">15&ndash;30 ms</td><td class="num">~55&ndash;90 ms</td><td>full platform migration</td></tr>
+  </tbody>
+</table>
+<p class="caption">Cold setup approximated as three round trips for TCP plus TLS 1.3. Real figures vary widely on rural mobile networks.</p>
+
+<p><b>The middle row is the one to buy.</b> Proxying through Cloudflare terminates TLS at an India
+point of presence, so the phone's expensive handshake happens locally and the Singapore leg rides a
+warm, pooled connection. It recovers most of the penalty for nothing, and it leaves the origin exactly
+where it is.</p>
+
+<p>The residual 40 ms between Cloudflare and a Mumbai origin is not worth a migration. The baseline
+records <span class="mono">GET /agristore/cart</span> issuing <b>13 database queries</b> and
+<span class="mono">POST /agristore/orders/confirm</span> issuing <b>25&ndash;35</b>. Against a 500 ms
+p95 target, application and query time dominate by an order of magnitude. Fix the cart before fixing
+the continent.</p>
+
+<h3>Enabling it, in order</h3>
+
+<ol>
+  <li><b>Proxy the API domain</b> through Cloudflare (orange cloud). Free plan.</li>
+  <li><b>Confirm WebSockets are enabled</b> in the dashboard. If they are not, Socket.IO silently
+  degrades to HTTP long-polling, which multiplies your request count and defeats the point of having
+  sockets at all.</li>
+  <li><b>Do not cache <span class="mono">/api/v1/*</span> by default.</b> Authenticated JSON must never
+  be shared between users. Add cache rules only for genuinely public, non-personalised reads.</li>
+  <li><b>Check proxy-aware rate limiting before you switch it on.</b> Rate limits key on client IP;
+  behind a proxy every request arrives from a Cloudflare address unless
+  <span class="mono">trust proxy</span> is set and the forwarded header is read. Get this wrong and the
+  limiter either buckets the whole country together or trusts a spoofable header.</li>
+  <li><b>Serve media through the CDN</b>, not the origin — see &sect;8.</li>
+</ol>
+
+<div class="pagebreak"></div>
+<h2>8. Media: the line item larger than your servers</h2>
+
+<div class="warn">
+  <h4>At 10,000 users, image delivery costs more than every server you run</h4>
+  <p style="margin-bottom:0;">Modelled at <b>~$99/month on Cloudinary</b> against <b>~$67/month</b> for
+  the entire backend, database and cache combined. The identical traffic on Cloudflare R2 or Bunny is
+  <b>$2&ndash;11/month</b>.</p>
+</div>
+
+<pre>2,000 DAU  ×  ~30 image views per active day  ×  ~80 KB per card-sized transform
+  =  4.8 GB / day
+  =  ~144 GB / month of delivery          (Cloudinary's free allowance ≈ 25 GB)</pre>
+
+<table>
+  <thead><tr><th style="width:26%">Provider</th><th class="num" style="width:20%">144 GB delivery</th><th class="num" style="width:14%">Storage</th><th style="width:40%">Notes</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Cloudinary</b> (current)</td><td class="num">$99</td><td class="num">included</td>
+      <td>Free tier is exceeded around 25 GB, which lands somewhere near 2,000 daily actives. The next tier is a step, not a slope — you pay $99 the month you cross it.</td>
+    </tr>
+    <tr>
+      <td><b>Cloudflare R2</b> <span class="pill p-rec">cheapest</span></td><td class="num"><b>$0</b></td><td class="num">~$1</td>
+      <td>Zero egress through Cloudflare is the entire reason to pick it. Generate sizes on upload with sharp in the Node worker you already run.</td>
+    </tr>
+    <tr>
+      <td><b>Bunny.net</b></td><td class="num">~$1.50</td><td class="num">~$1</td>
+      <td>Plus roughly $10/month for the image optimiser if you want on-the-fly transforms rather than writing them. Simplest drop-in.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><b>Saving: about $88 per month, or $1,050 a year</b>, for roughly a day of work — and it grows with
+every user you add. This is the highest return per hour available anywhere in this document.</p>
+
+<h3>Why it is tractable</h3>
+
+<ul>
+  <li>The database stores <span class="mono">publicId</span> and URL, never binary. Changing delivery
+  host is a URL-construction change, not a schema migration.</li>
+  <li><span class="mono">backend/src/config/cloudinary.js</span> centralises upload handling behind one
+  module, with limits already set per surface: 15 MB general, 5 MB avatar, 100 MB video.</li>
+  <li>The upload path has been worked on recently — <span class="mono">PERF-025</span> (uploads cut off
+  while Cloudinary was still receiving) and <span class="mono">PERF-035</span> (a process buffering
+  unbounded 100 MB videos) are both recorded — so it is understood code, not archaeology.</li>
+</ul>
+
+<h3>Order of operations</h3>
+
+<ol>
+  <li><b>Move delivery first, keep Cloudinary for transformation</b> if you want the smallest possible
+  first step. Most of the saving is in egress.</li>
+  <li><b>Generate four sizes on upload</b> (thumbnail, card, detail, original) in the Node worker.
+  Fixed cost at write time beats metered transforms at read time.</li>
+  <li><b>Audit the mobile list screens</b> for a 3000 px original rendered into a 120 px card. Do this
+  <em>before</em> migrating, or you will simply pay for the same mistake more cheaply.</li>
+  <li><b>Signed direct upload</b> — the client requests a signed URL, uploads straight to object
+  storage, and posts back only a media ID. This also removes the base64-through-JSON path that the AI
+  scan currently uses, cutting Node memory and GC pressure in the same change.</li>
+</ol>
+
+<h2>9. AI, SMS and the rest</h2>
+
+<table>
+  <thead>
+    <tr><th style="width:22%">Item</th><th class="num" style="width:16%">At 10k users</th><th style="width:62%">Note</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>AI providers</b></td><td class="num">$15&ndash;130</td>
+      <td>~100 scans and ~1,000 chat turns per day. The <b>10× spread is entirely model routing</b>, not volume: cheap-model routing lands near $15, a large-model or ensemble default near $130. <span class="mono">docs/WI11-model-routing.md</span> already exists — what matters is that it is enforced, and that the daily spend cap covers chat and voice, not only scans.</td>
+    </tr>
+    <tr>
+      <td><b>SMS OTP</b> (MSG91)</td><td class="num">$12</td>
+      <td>~5,000 messages/month at roughly &#8377;0.15&ndash;0.25 each. <b>Blocked on DLT approval</b>; the dev OTP fallback must not reach production — see &sect;5.</td>
+    </tr>
+    <tr>
+      <td><b>Expo EAS</b></td><td class="num">$0</td>
+      <td>Free tier covers this build volume. Push delivery itself is free.</td>
+    </tr>
+    <tr>
+      <td><b>Monitoring</b></td><td class="num">$0&ndash;26</td>
+      <td>Sentry's free tier is adequate at this size; add an uptime checker. Non-optional given &sect;5 — most of those defects fail silently.</td>
+    </tr>
+    <tr>
+      <td><b>Weather / mandi APIs</b></td><td class="num">$0</td>
+      <td>Open-Meteo and data.gov.in are free. Cache aggressively and you will not reach a paid tier.</td>
+    </tr>
+    <tr>
+      <td><b>Razorpay</b></td><td class="num">~2% of GMV</td>
+      <td>Transaction cost rather than infrastructure, but it belongs in the model.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="pagebreak"></div>
+<h2>10. Execution plan</h2>
+
+<h3>Week 1 — before real users</h3>
+
+<table>
+  <thead><tr><th style="width:5%">#</th><th style="width:36%">Action</th><th style="width:14%">Effort</th><th style="width:45%">Why first</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><b>Move Postgres to Neon</b></td><td>Half a day</td><td>Removes the only unrecoverable failure mode. Everything else on this list is reversible.</td></tr>
+    <tr><td>2</td><td><b>Restore into a scratch database and verify it</b></td><td>1 hour</td><td>An untested backup is not a backup. Same day, not later. Check that the two FastAPI-owned tables came across.</td></tr>
+    <tr><td>3</td><td><b>Cloudflare in front of the API</b></td><td>1 hour</td><td>Free, and the largest latency win available. Verify WebSockets and proxy-aware rate limiting.</td></tr>
+    <tr><td>4</td><td><b>Alert on Celery worker heartbeat</b></td><td>2 hours</td><td>Crop scans queue forever today with nothing to notice it. At 100 scans/day nothing else will surface it.</td></tr>
+    <tr><td>5</td><td><b>Confirm the dev OTP fallback cannot fire in production</b></td><td>30 min</td><td>Authentication bypass. One environment variable stands between you and it.</td></tr>
+  </tbody>
+</table>
+
+<h3>Week 2 to 3 — correctness</h3>
+
+<ol>
+  <li><b>Settle the 400-vs-422 contract</b> and get the test suite green. Roughly 24 of the 38 failures
+  are that one disagreement. Until it is fixed nothing else has a regression signal.</li>
+  <li><b>Add CI</b> that runs the backend suite with <span class="mono">--runInBand</span>, the FastAPI
+  tests, and <span class="mono">prisma validate</span>. Parallel jest is not a usable signal — the
+  suites share one database and deadlock.</li>
+  <li><b>Extend the AI spend cap to chat and voice</b>, and make every reservation atomic.</li>
+  <li><b>Bound the fallback maps</b> — max size or TTL, so a single long-lived replica cannot leak.</li>
+  <li><b>Verify payment and stock concurrency</b> holds under two simultaneous requests. Two, not two
+  thousand.</li>
+</ol>
+
+<h3>Week 4 — cost and polish</h3>
+
+<ol>
+  <li><b>Migrate media delivery to R2 or Bunny.</b> ~$88/month, roughly a day.</li>
+  <li><b>Audit mobile list screens</b> for oversized images before or alongside that migration.</li>
+  <li><b>Pin AI model routing</b> to the cheap tier by default and confirm the cap is enforced.</li>
+  <li><b>Load test at 50 and 100 concurrent</b> — well above your real peak — and record RPS, p95, p99,
+  database connections and queue depth. This is a one-afternoon sanity check, not the staged campaign a
+  100,000-user target would need. Mock the AI providers so the test does not spend real money.</li>
+</ol>
+
+<div class="verdict">
+  <h4>After that, stop</h4>
+  <p style="margin-bottom:0;">There is no phase two of hosting work at 10,000 users. The next
+  infrastructure decision is a second Express replica somewhere around 25,000 registered users, and it
+  is a dashboard setting. Point the engineering effort at the product instead &mdash; that is what the
+  headroom in &sect;2 is for.</p>
+</div>
+
+<h2>11. What this document does not know</h2>
+
+<ul>
+  <li><b>No production telemetry exists.</b> Every cost and load figure is modelled from resource
+  shapes read in the code, not observed. The first real bill will correct them.</li>
+  <li><b>The 20% daily-active ratio is inherited, not measured.</b> 10,000 registered is confirmed;
+  the 2,000 DAU that follows is an assumption carried from the project directive. Real engagement
+  could be half or double that, which moves peak RPS between ~5 and ~60 — all of it inside one
+  replica, so the recommendation is insensitive to being wrong here.</li>
+  <li><b>Engagement drives the media model.</b> Thirty image views per active day is an assumption. At
+  ten, Cloudinary's free tier might still hold; at a hundred, the media saving is three times larger
+  than stated.</li>
+  <li><b>Provider prices and regions change.</b> Confirm Railway's current rates, Neon's Singapore
+  availability, and Cloudinary's current free allowance before acting on a specific number.</li>
+  <li><b>The 38 failing tests</b> mean there is no clean regression signal today, which makes every
+  item in &sect;10 riskier than it needs to be. That is why they are in week two.</li>
+</ul>
+
+<div class="note" style="margin-top:2em;">
+  <b>One-line summary.</b> Stay on Railway with one replica of each service &mdash; roughly $110/month
+  all-in, and the platform question is closed. Spend the saved effort on a database you can restore,
+  the correctness defects in &sect;5, and moving image delivery off Cloudinary.
+</div>
+
+</body>
+</html>
